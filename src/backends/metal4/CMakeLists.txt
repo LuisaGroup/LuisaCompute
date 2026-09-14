@@ -96,12 +96,14 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_api.cpp metal_api.h
             metal_static_backend.h
             metal_device.cpp metal_device.h
+            tile/metal_tile.cpp
             metal_compiler.cpp metal_compiler.h
             metal_texture.cpp metal_texture.h
             metal_depth_buffer.cpp metal_depth_buffer.h
             metal_raster_ext.cpp metal_raster_ext.h
             metal_raster_shader.cpp metal_raster_shader.h
             metal_stream.cpp metal_stream.h
+            metal_timing.cpp metal_timing.h
             metal_event.cpp metal_event.h
             metal_bindless_array.cpp metal_bindless_array.h
             metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm
@@ -177,6 +179,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if (LUISA_COMPUTE_METAL4_BUILD_RUNTIME)
         target_link_libraries(luisa-compute-backend-metal4 PRIVATE
                 luisa-compute-metal4-air-codegen
+                luisa::tile-xir
                 luisa-compute-metal-cpp)
     endif ()
 

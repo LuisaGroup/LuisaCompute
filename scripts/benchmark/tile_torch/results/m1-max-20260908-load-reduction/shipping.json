@@ -1,0 +1,79 @@
+{
+  "default_load_reduction_fusion": false,
+  "tested_source_sha256": {
+    "include/luisa/tile/bridge/xir/lower.h": "33c3a165e90cc9df77dcd59fd322a94515fffd5bfc67756b1a4ea6843cac93d5",
+    "include/luisa/tile/bridge/xir/planner.h": "3c28c20e4a0c1abb79ed14d4845ab3282b924dadb7c0f736c2aabcbcd3576c90",
+    "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "6291dfd106e95ad126c96aa8ee6b891336f12ebcbc791ad976da8cc4056ad1d5",
+    "src/backends/simd/llvm/llvm_schedule_codegen.h": "5a99b9ced0d2ca324a4e8c68522f66fb1221c4937cd702bf5a3a046d19812110",
+    "src/backends/simd/llvm/llvm_schedule_emitter.cpp": "c2a3f5758180f38b38aaaf212f5804ff07ec0ffa6afa42fb0d13813d3c8f722b",
+    "src/backends/simd/llvm/llvm_schedule_emitter.h": "a4edf190bc5260671a907ac74df6e8568b0e5759f21613ec3cf8e34933be7531",
+    "src/backends/simd/llvm/llvm_schedule_emitter_control.cpp": "83a3390d8a03eba31e7c1e581552a67d0707c4ab86ed20239f6b63fb5cfe93f0",
+    "src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": "5e6a72661f36af19058b1501142cab1632d983b63c253ba45cfef92ed157ebcb",
+    "src/backends/simd/runtime/simd_shader.cpp": "47473d6d270dbcff01a474048840a22f854e5276f0eea818b5fffd19de5c4619",
+    "src/backends/simd/runtime/simd_tile.cpp": "368b4d79b8f6fc8670229c7c4bc7a8b5054a496e1b6c9e342a12f80cf25aa2a2",
+    "src/backends/simd/simd_compiler.cpp": "9750e032170c9bb43feaa0b0b909117271c1f7391d721242b601ebee24f71af0",
+    "src/backends/simd/simd_compiler.h": "1079504b555e920c71d718cf52453aa3730e295fa5500461fa7f77dcbc5946d6",
+    "src/tests/benchmark/benchmark_tile_xir.cpp": "0f8b7e3f60acb2fcfeb5339dd1067797a6fab6e3ae6a1449f7bdc143bde7c517",
+    "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "9eaa2d219275a9216ebbbe39e103d50b15ca49431c88e588cfc33c64e2fd6ef8",
+    "src/tests/unit/tile/bridge/test_xir.cpp": "95a861cdb3dff31b732ef9a7c5aa5e2178d304eca50dc0739ce3a15a7a2de444",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "68d6167c07a8ab66290ed1745d31bb901a1cac1334ab0cf6842a51e6a9b9417d",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "f8a1e51a032b60a69464a931d33d0eff377d3e0c5d1464c2aa0b1dbcc9b93c1e",
+    "src/tile/bridge/xir/lower.cpp": "7110fa69162475395a68a7e9b1f3240e6a58f902ecac2159dbf37c947f82d2f8",
+    "src/tile/bridge/xir/planner.cpp": "d8c13477fda296e2275f839f38139b1b728e27cdffea1d515ec3f9270f5492a4",
+    "src/tile/bridge/xir/representation.h": "887294b25a683ebc3f8a7dee099a4fb8d243a408bfb86febe9e805ca30ff4cb0"
+  },
+  "previous_measured_source": "provenance.json",
+  "optimization_implementation_unchanged": true,
+  "exact_actual_code_comparisons": [
+    {
+      "case": "rmsnorm-64x256-r0-l1-v0",
+      "llvm_sha256": "31b3b5c80d83b0bb72840573e56714312cbf0d5310f1a7b7c787ff929e9a2015",
+      "object_sha256": "661d138917955f87065696914900060d94a63cfe07aa9b88c3b9fd344ffb9e6f",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-v1",
+      "llvm_sha256": "94b3775360178fb45f7bc2b16ce3d57d2285d49a074eb3faf7c84c099a3afe92",
+      "object_sha256": "e8a8c086e2c83c5f5d6e47108e37a484fa92f1947cdee4699da99db91d4ff70d",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-v1",
+      "llvm_sha256": "40bda116da02f8c0e1247c25b55f5f1def702848f4e12f905c3f1edd7a0f98b0",
+      "object_sha256": "5f45d889c295cf0965b863a5a9db84430505cd3e50f0d3a8a08d3bc8998d4094",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-v0",
+      "llvm_sha256": "9db3fe3d61d2323076aeaee663b49e82fa6863de36cc739b26333dd2602405bb",
+      "object_sha256": "fec0e6c4b41942f4ce646a7c95c55ee847416d51ebbc677832586b684393426d",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-v0",
+      "llvm_sha256": "42896e5f931ad0a85ff4a4cfd1f0842402e8cd9aa88c2bf01629764603b07436",
+      "object_sha256": "d10a49ae0b9f0e98d5607aa9173b31d05f423ae9370a0e571d9a30805d585058",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-v1",
+      "llvm_sha256": "cab357d385ff34aab44a133968514a551ca42bb4104321a55f78a7fbd601a0e7",
+      "object_sha256": "bbb36a5c89ef5cfe69ead1484aec7a6bfd630e94b38f63d19dbd85ac4e7c1367",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-v1",
+      "llvm_sha256": "54b076bcc8850534e4bb577525749bad3faee487e16d463b8f4b489b04b1bdc6",
+      "object_sha256": "f5c75ff5eeeb5bb8bf592b490bfeadead48d605dc4f30e74df71cfc7243c32af",
+      "byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-v0",
+      "llvm_sha256": "70060b09b6daff5952e0ed6236d50154635f0fdb9015e6f3fe99a57d069bfb85",
+      "object_sha256": "b023d9e2ed11ddf65129d66c64e9477752415ac411bc9873560b2b19eaed62e1",
+      "byte_identical": true
+    }
+  ],
+  "shipping_ctest_passed": 38,
+  "timing_inclusion": "shipping smoke is excluded from performance statistics"
+}

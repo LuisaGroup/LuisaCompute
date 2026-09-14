@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "layernorm",
+  "dimensions": [
+    17,
+    16384
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      17,
+      16384
+    ],
+    [
+      1,
+      16384
+    ],
+    [
+      1,
+      16384
+    ]
+  ],
+  "output_shape": [
+    17,
+    16384
+  ],
+  "fixture_ms": 2.22225,
+  "runtime_init_ms": 10.740708,
+  "compile_ms": 29.994792,
+  "allocation_upload_ms": 0.319125,
+  "cold_call_ms": 0.63,
+  "warmup_ms": 75.588583,
+  "repetitions": 44,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=19, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 20594828.000 (arithmetic 1523724.000, memory 19070976.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; load_reduction_fusion=true; fused_reduction_loads=1; elided_load_snapshots=0; interleaved_private_arrays=4; contiguous_private_reads=12; contiguous_private_writes=11; private_workspace_bytes=2097152; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 278528,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 9.76451826951e-07
+  },
+  "throughput_us": [
+    447.668568182,
+    448.446022727,
+    448.495272727,
+    460.063431818,
+    461.318181818,
+    449.110795455,
+    448.230113636
+  ],
+  "latency_us": [
+    459.25,
+    447.875,
+    448.333,
+    447.75,
+    447.584,
+    448.125,
+    448.042
+  ]
+}

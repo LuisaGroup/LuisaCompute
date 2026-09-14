@@ -1,0 +1,28 @@
+metal gemm_1025x1025x1024 ...
+  JIT trial 1/12: block=(128, 32, 4096), window=1, threads=64, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 774.990 us
+  JIT trial 2/12: block=(128, 32, 4096), window=1, threads=128, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 1049.978 us
+  JIT trial 3/12: block=(128, 32, 4096), window=1, threads=256, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 1656.187 us
+  JIT trial 4/12: block=(128, 64, 4096), window=1, threads=64, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    rejected: native benchmark failed (2):
+  JIT trial 5/12: block=(128, 64, 4096), window=1, threads=128, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 926.446 us
+  JIT trial 6/12: block=(128, 64, 4096), window=1, threads=256, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 887.532 us
+  JIT trial 7/12: block=(64, 128, 4096), window=1, threads=64, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    rejected: native benchmark failed (2):
+  JIT trial 8/12: block=(64, 128, 4096), window=1, threads=128, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 1070.844 us
+  JIT trial 9/12: block=(64, 128, 4096), window=1, threads=256, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 895.873 us
+  JIT trial 10/12: block=(64, 64, 4096), window=1, threads=64, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 923.616 us
+  JIT trial 11/12: block=(64, 64, 4096), window=1, threads=128, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 842.902 us
+  JIT trial 12/12: block=(64, 64, 4096), window=1, threads=256, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native gpu-control 1390.539 us
+  Selected block=(128, 32, 4096), window=1, threads=64, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False; fresh validation/timing
+  validated; native 1042.599 us, torch 694.461 us, ratio 1.50x
+Results: /Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/search/1025x1025x1024-candidate/results.md

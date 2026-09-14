@@ -2,6 +2,14 @@
 
 This guide will help you get up and running with LuisaCompute, from installation to your first GPU-accelerated program.
 
+Platform-specific setup details supplement this guide:
+
+```{toctree}
+:maxdepth: 1
+
+../custom_agility_sdk
+```
+
 ## Overview
 
 LuisaCompute is a high-performance cross-platform computing framework designed for modern graphics and general-purpose GPU computing. It balances three key goals:

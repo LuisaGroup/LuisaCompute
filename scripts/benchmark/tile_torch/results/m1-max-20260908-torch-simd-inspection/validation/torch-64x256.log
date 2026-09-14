@@ -1,0 +1,20 @@
+/Users/mike/.cache/uv/archive-v0/sC3F2za3_-HoN0aE/lib/python3.13/site-packages/torch/_subclasses/functional_tensor.py:368: UserWarning: Failed to initialize NumPy: No module named 'numpy' (Triggered internally at /Users/runner/work/pytorch/pytorch/torch/csrc/utils/tensor_numpy.cpp:84.)
+  cpu = _conversion_method_template(device=torch.device("cpu"))
+USDT:2026-09-08 10:16:59 42668:11151654 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-09-08 10:16:59 42668:11151654 SyncActivityProfilerHandler.cpp:46] profiler_stop
+softmax sample exit 0 operators ['aten::softmax', 'aten::_softmax']
+USDT:2026-09-08 10:17:01 42668:11151654 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-09-08 10:17:01 42668:11151654 SyncActivityProfilerHandler.cpp:46] profiler_stop
+layernorm sample exit 0 operators ['aten::layer_norm', 'aten::native_layer_norm', 'aten::empty', 'aten::view']
+USDT:2026-09-08 10:17:04 42668:11151654 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-09-08 10:17:04 42668:11151654 SyncActivityProfilerHandler.cpp:46] profiler_stop
+rmsnorm sample exit 0 operators ['aten::rms_norm', 'aten::_fused_rms_norm', 'aten::to', 'aten::pow', 'aten::result_type', 'aten::mean', 'aten::sum', 'aten::fill_', 'aten::div_', 'aten::to', 'aten::_to_copy', 'aten::empty_strided', 'aten::copy_', 'aten::add_', 'aten::rsqrt', 'aten::mul', 'aten::mul', 'aten::type_as', 'aten::to']
+USDT:2026-09-08 10:17:06 42668:11151654 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-09-08 10:17:06 42668:11151654 SyncActivityProfilerHandler.cpp:46] profiler_stop
+swiglu sample exit 0 operators ['aten::silu', 'aten::mul']
+USDT:2026-09-08 10:17:08 42668:11151654 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-09-08 10:17:08 42668:11151654 SyncActivityProfilerHandler.cpp:46] profiler_stop
+gemm sample exit 0 operators ['aten::mm', 'aten::resolve_conj']
+compiled softmax complete eager comparison passed
+compiled rmsnorm complete eager comparison passed
+compiled swiglu complete eager comparison passed

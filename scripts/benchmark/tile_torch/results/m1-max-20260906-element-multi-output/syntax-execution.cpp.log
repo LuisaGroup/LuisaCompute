@@ -1,0 +1,4 @@
+Warning: Passing result of std::move() as a const reference argument; no move will actually happen (fix available) [performance-move-const-arg] at line 118, col 32
+Warning: Passing result of std::move() as a const reference argument; no move will actually happen (fix available) [performance-move-const-arg] at line 326, col 38
+------------------------------------------------------------
+Total: 0 error(s), 2 warning(s)

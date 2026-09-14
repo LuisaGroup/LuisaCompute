@@ -1,0 +1,123 @@
+{
+  "started_unix": 1788930765.4558,
+  "runs": [
+    {
+      "name": "expressions-verified-w1",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "1",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930765.455853,
+      "exit_code": 0,
+      "finished_unix": 1788930766.7475781,
+      "log": "expressions-verified-w1.log",
+      "assertions": 4509696,
+      "skipped": 13,
+      "selected_test_passed": true,
+      "log_sha256": "a7d1d16ff84542cbe604750edf18f459b3c91e5d2f0cab6528daf91d2395c72d"
+    },
+    {
+      "name": "expressions-verified-w2",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "2",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930766.747905,
+      "exit_code": 0,
+      "finished_unix": 1788930770.041418,
+      "log": "expressions-verified-w2.log",
+      "assertions": 4133899,
+      "skipped": 13,
+      "selected_test_passed": true,
+      "log_sha256": "fc5c5f8c7df77ede4e103e944ed2efc410be6f0a1989a4c7600abaf5d9433be8"
+    },
+    {
+      "name": "expressions-verified-w4",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "4",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930770.041745,
+      "exit_code": 0,
+      "finished_unix": 1788930773.913426,
+      "log": "expressions-verified-w4.log",
+      "assertions": 4133899,
+      "skipped": 13,
+      "selected_test_passed": true,
+      "log_sha256": "ee1e66fed7834cca7489e73f026aaf678e62b8a998df2c7f937e16f190792e88"
+    },
+    {
+      "name": "expressions-verified-w8",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930773.913773,
+      "exit_code": 0,
+      "finished_unix": 1788930779.599519,
+      "log": "expressions-verified-w8.log",
+      "assertions": 4133899,
+      "skipped": 13,
+      "selected_test_passed": true,
+      "log_sha256": "0076a52d45c38c3ccc1ff70f1370d3f249ccff70705c6e3ab00f9776299637eb"
+    },
+    {
+      "name": "expressions-verified-w16",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "16",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930779.599848,
+      "exit_code": 0,
+      "finished_unix": 1788930787.9596632,
+      "log": "expressions-verified-w16.log",
+      "assertions": 4133899,
+      "skipped": 13,
+      "selected_test_passed": true,
+      "log_sha256": "36ee6e09377d6429b172ed4473e2ead14fda73e78cad928437c2895d89af2ed3"
+    }
+  ],
+  "passed": true,
+  "supersedes": "verification.json expressions-w1/w2/w4/w8/w16: wildcard query selected zero tests; these runs are excluded.",
+  "finished_unix": 1788930787.9600089
+}

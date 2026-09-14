@@ -1,0 +1,99 @@
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 86, col 46
+Warning: The parameter 'indices' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 93, col 43
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 101, col 42
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 104, col 60
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 118, col 45
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 122, col 61
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 125, col 71
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 127, col 110
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 133, col 69
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 150, col 42
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 153, col 73
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 160, col 77
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 162, col 46
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 164, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 165, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 166, col 54
+Warning: Narrowing conversion from 'size_t' (aka 'unsigned long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 171, col 50
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 177, col 50
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 179, col 61
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 240, col 42
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 255, col 64
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 255, col 54
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 256, col 56
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 256, col 46
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 257, col 64
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 259, col 89
+------------------------------------------------------------
+Total: 0 error(s), 26 warning(s)
+[OK] No issues found!
+[OK] No issues found!
+Hint: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead (fix available)
+
+:107:3:
+note: 'getDeclaration' has been explicitly marked deprecated here [-Wdeprecated-declarations] at line 279, col 42
+Hint: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead (fix available)
+
+:107:3:
+note: 'getDeclaration' has been explicitly marked deprecated here [-Wdeprecated-declarations] at line 1598, col 28
+Hint: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead (fix available)
+
+:107:3:
+note: 'getDeclaration' has been explicitly marked deprecated here [-Wdeprecated-declarations] at line 1615, col 28
+------------------------------------------------------------
+Total: 0 error(s), 0 warning(s)
+[OK] No issues found!
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 21, col 89
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 21, col 117
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 62, col 89
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 62, col 117
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 98, col 87
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 98, col 115
+Warning: The parameter 'out' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 144, col 78
+Warning: The parameter 'out' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 158, col 77
+------------------------------------------------------------
+Total: 0 error(s), 8 warning(s)
+Warning: Narrowing conversion from 'int' to 'float' [cppcoreguidelines-narrowing-conversions] at line 85, col 105
+Warning: Narrowing conversion from 'int' to 'float' [cppcoreguidelines-narrowing-conversions] at line 86, col 105
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 128, col 77
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 128, col 101
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 183, col 74
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 183, col 102
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 231, col 84
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 231, col 108
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 252, col 87
+Warning: The parameter 'alias' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 253, col 81
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 253, col 109
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 322, col 84
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 322, col 112
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 346, col 93
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 346, col 121
+Warning: Narrowing conversion from 'int64_t' (aka 'long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 372, col 78
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 389, col 92
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 389, col 120
+Warning: Either cast from 'unsigned int' to 'size_t' (aka 'unsigned long') is ineffective, or there is loss of precision before the conversion [bugprone-misplaced-widening-cast] at line 422, col 35
+------------------------------------------------------------
+Total: 0 error(s), 19 warning(s)
+[OK] No issues found!
+Warning: Operator=() should return 'Ref&' [misc-unconventional-assign-operator] at line 59, col 1
+Warning: The parameter 'rhs' is copied for each invocation but only used as a const reference; consider making it a const reference [performance-unnecessary-value-param] at line 59, col 1
+Warning: Single-argument constructors must be marked explicit to avoid unintentional implicit conversions [google-explicit-constructor] at line 59, col 1
+Hint: Use auto when initializing with a template cast to avoid duplicating the type name (fix available) [modernize-use-auto] at line 1344, col 5
+Warning: The parameter 'name' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 3555, col 17
+Warning: The parameter 'name' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 3674, col 17
+Warning: Replace loop by 'std::ranges::all_of()' [readability-use-anyofallof] at line 5149, col 5
+Warning: Comparing object representation of type 'AliasStorage' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison] at line 5345, col 15
+Warning: Replace loop by 'std::ranges::all_of()' [readability-use-anyofallof] at line 5356, col 5
+Warning: Replace loop by 'std::ranges::all_of()' [readability-use-anyofallof] at line 6085, col 5
+Warning: Constructor does not initialize these fields: ray (fix available) [cppcoreguidelines-pro-type-member-init] at line 8971, col 24
+Warning: Sizeof() doesn't return the size of the container; did you mean .size()? [bugprone-sizeof-container] at line 9025, col 35
+Warning: The parameter 'ray' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 10331, col 44
+Warning: Constructor does not initialize these fields: ray (fix available) [cppcoreguidelines-pro-type-member-init] at line 11802, col 24
+Warning: Constructor does not initialize these fields: ray (fix available) [cppcoreguidelines-pro-type-member-init] at line 12076, col 24
+Warning: Constructor does not initialize these fields: ray (fix available) [cppcoreguidelines-pro-type-member-init] at line 12268, col 24
+Warning: Comparing object representation of type 'value_type' (aka 'luisa::compute::MotionInstanceTransformSRT') which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison] at line 12462, col 15
+Warning: Comparing object representation of type 'value_type' (aka 'luisa::Vector<float, 4>') which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison] at line 14198, col 15
+Warning: Comparing object representation of type 'value_type' (aka 'luisa::Vector<float, 4>') which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison] at line 14253, col 15
+Warning: Comparing object representation of type 'value_type' (aka 'luisa::Vector<float, 4>') which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison] at line 14372, col 15
+------------------------------------------------------------
+Total: 0 error(s), 19 warning(s)

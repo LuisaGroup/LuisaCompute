@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "gelu_residual",
+  "dimensions": [
+    1024,
+    4096
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ]
+  ],
+  "output_shape": [
+    1024,
+    4096
+  ],
+  "fixture_ms": 78.920458,
+  "runtime_init_ms": 11.243917,
+  "compile_ms": 27.953458,
+  "allocation_upload_ms": 6.577667,
+  "cold_call_ms": 3.128042,
+  "warmup_ms": 82.32375,
+  "repetitions": 4,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 12189824.000 (arithmetic 655360.000, memory 11534336.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; contiguous_private_reads=0; contiguous_private_writes=0; private_workspace_bytes=262144; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 4194304,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 3.39079269551e-07
+  },
+  "throughput_us": [
+    4172.39575,
+    3130.03125,
+    3060.10425,
+    3064.05225,
+    3084.375,
+    3085.57275,
+    3062.59375
+  ],
+  "latency_us": [
+    3218.75,
+    3006.458,
+    3015.375,
+    3251.334,
+    2999.792,
+    3099.833,
+    3073.417
+  ]
+}

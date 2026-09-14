@@ -4,6 +4,7 @@
 
 #include "helpers.h"
 #include "coro_frame_abi.h"
+#include "coro_packed_word.h"
 #include "coro_replayable.h"
 
 #include <luisa/ast/type.h>
@@ -74,6 +75,7 @@ private:
     Value *_frame_arg{nullptr};
     Module *_module{nullptr};
     const BasicBlock *_scope_root{nullptr};
+    const CoroCfgDistillResult::Scope *_scope{nullptr};
     const BasicBlock *_current_orig_block{nullptr};
     detail::CoroReplayableValueAnalysis _replayable;
 
@@ -93,6 +95,7 @@ private:
             work.pop_back();
             auto *mut_bb = const_cast<BasicBlock *>(bb);
             mut_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (_scope != nullptr && !_scope->allows_successor(bb, succ)) { return; }
                 if (!_scope_blocks.contains(succ) || succ == def) { return; }
                 if (visited.emplace(succ).second) {
                     work.emplace_back(succ);
@@ -118,8 +121,10 @@ public:
         _frame_arg = frame_arg;
     }
 
-    void set_scope(const BasicBlock *root, luisa::unordered_set<const BasicBlock *> blocks) noexcept {
-        _scope_root = root;
+    void set_scope(const CoroCfgDistillResult::Scope &scope,
+                   luisa::unordered_set<const BasicBlock *> blocks) noexcept {
+        _scope = &scope;
+        _scope_root = scope.blocks.front();
         _scope_blocks = std::move(blocks);
     }
 
@@ -336,6 +341,14 @@ public:
             return false;
         }
     }
+    if (lhs->binding_projections().size() != rhs->binding_projections().size()) { return false; }
+    for (size_t i = 0; i < lhs->binding_projections().size(); ++i) {
+        auto &a = lhs->binding_projections()[i];
+        auto &b = rhs->binding_projections()[i];
+        if (a.binding.name != b.binding.name || a.binding.index != b.binding.index ||
+            a.binding.access != b.binding.access || a.binding.lifetime != b.binding.lifetime ||
+            a.alternatives != b.alternatives) { return false; }
+    }
     for (size_t i = 0u; i < lhs->attributes().size(); ++i) {
         auto &a = lhs->attributes()[i];
         auto &b = rhs->attributes()[i];
@@ -375,6 +388,7 @@ public:
         auto &lhs = result.scopes[i];
         auto &rhs = canonical.scopes[i];
         if (lhs.blocks != rhs.blocks ||
+            lhs.selected_successors != rhs.selected_successors ||
             lhs.suspend_points.size() != rhs.suspend_points.size() ||
             lhs.scope_id != rhs.scope_id ||
             lhs.suspend_token != rhs.suspend_token ||
@@ -576,6 +590,17 @@ public:
                 scope_suspend_blocks.emplace(block);
             }
         }
+        luisa::unordered_set<BasicBlock *> selected_blocks;
+        for (auto selected : scope.selected_successors) {
+            if (!scope_blocks.contains(selected.block) ||
+                !selected_blocks.emplace(selected.block).second ||
+                !selected.block->is_terminated() ||
+                !selected.block->terminator()->isa<ConditionalBranchInst>()) { return false; }
+            auto *branch = static_cast<ConditionalBranchInst *>(selected.block->terminator());
+            if (selected.successor == nullptr ||
+                (selected.successor != branch->true_block() &&
+                 selected.successor != branch->false_block())) { return false; }
+        }
         for (auto &point : scope.suspend_points) {
             if (point.block == nullptr || point.token == 0u || point.token == TERMINAL_TOKEN) {
                 return false;
@@ -594,7 +619,13 @@ public:
         }
     }
     for (size_t i = 1u; i < result.scopes.size(); ++i) {
-        if (!suspends.contains(result.scopes[i].trigger_token)) { return false; }
+        // A raw ordinary branch may enter a resume while its matching static
+        // suspend is infeasible. The sealed executable transition relation,
+        // not presence of a reached suspension, establishes the incoming
+        // scope transfer in that case.
+        auto incoming = std::any_of(result.transition_edges.begin(), result.transition_edges.end(),
+                                    [i](const auto &edge) noexcept { return edge.to_scope == i; });
+        if (!incoming) { return false; }
     }
     for (auto token : suspends) {
         if (!triggers.contains(token)) { return false; }
@@ -962,6 +993,7 @@ static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint
 static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_arg,
                                        const CoroCfgDistillResult &result,
                                        luisa::span<const size_t> frame_value_indices,
+                                       luisa::span<const size_t> live_frame_value_indices,
                                        CoroSplitValueResolver &resolver) noexcept {
     struct PackedBoolStore {
         Value *field{nullptr};
@@ -969,6 +1001,8 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
     };
     luisa::vector<PackedBoolStore> packed_bool_stores;
     luisa::unordered_map<size_t, size_t> packed_bool_store_indices;
+    auto word_masks = coro_packed_word_masks(
+        result, frame_value_indices, live_frame_value_indices);
     for (auto frame_value_index : frame_value_indices) {
         LUISA_DEBUG_ASSERT(frame_value_index < result.frame_values.size(),
                            "Coroutine frame value index is out of range.");
@@ -983,29 +1017,33 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
             auto [iter, inserted] = packed_bool_store_indices.try_emplace(
                 frame_value.slot, packed_bool_stores.size());
             if (inserted) {
+                auto preserved = word_masks[frame_value.slot].preserved;
+                Value *seed = mod->create_constant_zero(Type::of<uint>());
+                if (preserved != 0u) {
+                    // Dormant live bits are the only incoming dependency.
+                    // In particular, never read the undefined payload of a
+                    // newly instantiated frame just to overwrite its bits.
+                    auto *mask = mod->create_constant(Type::of<uint>(), &preserved);
+                    seed = b.call(Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+                                  {b.load(Type::of<uint>(), field), mask});
+                }
                 packed_bool_stores.emplace_back(PackedBoolStore{
                     .field = field,
-                    .word = b.load(Type::of<uint>(), field)});
+                    .word = seed});
             }
             auto &packed = packed_bool_stores[iter->second];
             auto bit_mask = uint32_t{1u} << *frame_value.bit_offset;
-            auto clear_mask = ~bit_mask;
             auto zero_value = uint32_t{0u};
             auto *mask = mod->create_constant(
                 Type::of<uint>(), &bit_mask);
-            auto *clear = mod->create_constant(
-                Type::of<uint>(), &clear_mask);
             auto *zero = mod->create_constant(
                 Type::of<uint>(), &zero_value);
-            auto *cleared = b.call(
-                Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
-                {packed.word, clear});
             auto *encoded = b.call(
                 Type::of<uint>(), ArithmeticOp::SELECT,
                 {zero, mask, logical_value});
             packed.word = b.call(
                 Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
-                {cleared, encoded});
+                {packed.word, encoded});
         } else {
             b.store(field, logical_value);
         }
@@ -1015,17 +1053,22 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
     }
 }
 
-[[nodiscard]] static luisa::span<const size_t> store_values_for_suspend(
+struct CoroFrameStoreValues {
+    luisa::span<const size_t> stored;
+    luisa::span<const size_t> live;
+};
+
+[[nodiscard]] static CoroFrameStoreValues store_values_for_suspend(
     const CoroCfgDistillResult &result, size_t scope_index, uint32_t token) noexcept {
     for (auto &edge : result.transition_edges) {
         if (edge.is_suspend && edge.from_scope == scope_index && edge.token == token) {
-            return luisa::span<const size_t>{edge.store_frame_value_indices};
+            return {edge.store_frame_value_indices, edge.live_frame_value_indices};
         }
     }
     return {};
 }
 
-[[nodiscard]] static luisa::span<const size_t> store_values_for_branch_transition(
+[[nodiscard]] static CoroFrameStoreValues store_values_for_branch_transition(
     const CoroCfgDistillResult &result, size_t scope_index,
     const BasicBlock *exit_block, size_t target_scope) noexcept {
     for (auto &edge : result.transition_edges) {
@@ -1033,7 +1076,7 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
             edge.from_scope == scope_index &&
             edge.to_scope == target_scope &&
             edge.exit_block == exit_block) {
-            return luisa::span<const size_t>{edge.store_frame_value_indices};
+            return {edge.store_frame_value_indices, edge.live_frame_value_indices};
         }
     }
     return {};
@@ -1119,7 +1162,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
     for (auto *bb : scope.blocks) {
         scope_block_set.insert(bb);
     }
-    resolver.set_scope(scope.blocks.front(), scope_block_set);
+    resolver.set_scope(scope, scope_block_set);
 
     luisa::unordered_map<const BasicBlock *, size_t> block_to_scope_index;
     for (size_t i = 0u; i < result.scopes.size(); ++i) {
@@ -1147,6 +1190,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
         clone_order.emplace_back(block);
         luisa::vector<BasicBlock *> successors;
         block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+            if (!scope.allows_successor(block, successor)) { return; }
             if (scope_block_set.contains(successor) && !visited_blocks.contains(successor)) {
                 successors.emplace_back(successor);
             }
@@ -1218,10 +1262,12 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
             auto values = store_values_for_branch_transition(
                 result, static_cast<size_t>(scope.scope_id), source, target_scope->second);
             store_live_values_to_frame(
-                fb_builder, mod, frame_arg, result, values, resolver);
+                fb_builder, mod, frame_arg, result, values.stored, values.live, resolver);
             store_frame_token(fb_builder, frame_arg, mod, result.scopes[target_scope->second].trigger_token);
         } else {
             store_live_values_to_frame(fb_builder, mod, frame_arg, result,
+                                       luisa::span<const size_t>{
+                                           scope.live_out_frame_value_indices},
                                        luisa::span<const size_t>{
                                            scope.live_out_frame_value_indices},
                                        resolver);
@@ -1247,7 +1293,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     b.set_insertion_point(cloned_bb);
                     auto values = store_values_for_suspend(result, static_cast<size_t>(scope.scope_id), s->token());
                     store_live_values_to_frame(
-                        b, mod, frame_arg, result, values, resolver);
+                        b, mod, frame_arg, result, values.stored, values.live, resolver);
                     store_frame_token(b, frame_arg, mod, s->token());
                     auto *cloned = b.return_void();
                     coro_split_clone_instruction_metadata(inst, cloned);
@@ -1256,6 +1302,8 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 case DerivedInstructionTag::CORO_TERMINATE: {
                     b.set_insertion_point(cloned_bb);
                     store_live_values_to_frame(b, mod, frame_arg, result,
+                                               luisa::span<const size_t>{
+                                                   scope.live_out_frame_value_indices},
                                                luisa::span<const size_t>{
                                                    scope.live_out_frame_value_indices},
                                                resolver);
@@ -1274,6 +1322,17 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 }
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                     auto *cbr = static_cast<ConditionalBranchInst *>(inst);
+                    if (auto *selected = scope.selected_successor(orig_bb)) {
+                        // Resolve only the executable arm. Resolving a pruned
+                        // arm could synthesize a fallback return/token store
+                        // for a transition that the certificate excludes.
+                        auto *target = resolve_branch_target(orig_bb, selected);
+                        b.set_insertion_point(cloned_bb);
+                        auto *cloned = b.br(target);
+                        coro_split_clone_instruction_metadata(inst, cloned);
+                        resolver.map_value(inst, cloned);
+                        break;
+                    }
                     auto *cond = resolver.resolve(cbr->condition());
                     auto *true_block = resolve_branch_target(orig_bb, cbr->true_block());
                     auto *false_block = resolve_branch_target(orig_bb, cbr->false_block());
@@ -1351,6 +1410,8 @@ static void instrument_terminal_returns(Module *mod, const CoroCfgDistillResult:
             b.set_insertion_point(term->prev());
             if (!was_suspend && !was_terminal) {
                 store_live_values_to_frame(b, mod, frame_arg, result,
+                                           luisa::span<const size_t>{
+                                               scope.live_out_frame_value_indices},
                                            luisa::span<const size_t>{
                                                scope.live_out_frame_value_indices},
                                            resolver);

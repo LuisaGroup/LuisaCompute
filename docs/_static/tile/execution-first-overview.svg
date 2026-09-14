@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Execution-structure-first architecture</title>
+  <desc id="desc">A logical execution nest plus temporal and algebraic regions form the program skeleton. Dataflow, optional explicit memory, layouts, and pipelines attach to it before scheduling and target lowering.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; fill: #0f172a; }
+      .title { font-size: 28px; font-weight: 700; }
+      .heading { font-size: 17px; font-weight: 700; }
+      .label { font-size: 14px; font-weight: 600; }
+      .small { font-size: 12px; fill: #475569; }
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 12; }
+      .link { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); }
+      .attach { fill: none; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 6 5; }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="1260" height="740" rx="18" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="640" y="50" text-anchor="middle" class="title">Execution structure is the program skeleton</text>
+  <text x="640" y="76" text-anchor="middle" class="small">Logical first; hardware binding remains late</text>
+
+  <rect x="470" y="94" width="340" height="48" class="box" fill="#eff6ff" stroke="#60a5fa"/>
+  <text x="640" y="116" text-anchor="middle" class="label">Tensor extents + ordinary host config</text>
+  <text x="640" y="133" text-anchor="middle" class="small">shape the logical nest</text>
+  <path d="M640 142 L640 164" class="link"/>
+
+  <rect x="280" y="166" width="720" height="190" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="3"/>
+  <text x="310" y="194" class="heading" fill="#1d4ed8">EXECUTION STRUCTURE</text>
+  <text x="310" y="216" class="small">Spatial nest E</text>
+  <rect x="310" y="230" width="185" height="52" rx="10" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="402" y="261" text-anchor="middle" class="label">nest</text>
+  <rect x="505" y="230" width="185" height="52" rx="10" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="598" y="261" text-anchor="middle" class="label">subnest</text>
+  <rect x="700" y="230" width="185" height="52" rx="10" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="792" y="261" text-anchor="middle" class="label">leaf</text>
+  <path d="M495 256 L505 256 M690 256 L700 256" stroke="#2563eb" stroke-width="3"/>
+  <text x="310" y="309" class="small">Region tree R(E)</text>
+  <rect x="445" y="294" width="390" height="40" rx="9" fill="#e0f2fe" stroke="#0284c7"/>
+  <text x="640" y="319" text-anchor="middle" class="label">serial · pipeline(stage cuts) · reduce · control flow</text>
+
+  <path d="M350 356 L200 402" class="attach"/>
+  <path d="M520 356 L480 402" class="attach"/>
+  <path d="M760 356 L800 402" class="attach"/>
+  <path d="M930 356 L1080 402" class="attach"/>
+
+  <rect x="45" y="402" width="260" height="100" class="box" fill="#ecfdf5" stroke="#10b981"/>
+  <text x="175" y="432" text-anchor="middle" class="heading">Tile dataflow</text>
+  <text x="175" y="456" text-anchor="middle" class="small">scalar regions · reindex · reduction</text>
+  <text x="175" y="478" text-anchor="middle" class="small">SSA values · load/store/atomic effects</text>
+
+  <rect x="335" y="402" width="260" height="100" class="box" fill="#fff7ed" stroke="#f97316"/>
+  <text x="465" y="432" text-anchor="middle" class="heading">Memory objects</text>
+  <text x="465" y="456" text-anchor="middle" class="small">expert-only stable identity</text>
+  <text x="465" y="478" text-anchor="middle" class="small">ordinary Tile storage is compiler-planned</text>
+
+  <rect x="625" y="402" width="260" height="100" class="box" fill="#f5f3ff" stroke="#8b5cf6"/>
+  <text x="755" y="432" text-anchor="middle" class="heading">Layout algebra</text>
+  <text x="755" y="456" text-anchor="middle" class="small">maps + correspondences</text>
+  <text x="755" y="478" text-anchor="middle" class="small">distribution · binding · address</text>
+
+  <rect x="915" y="402" width="320" height="100" class="box" fill="#fefce8" stroke="#eab308"/>
+  <text x="1075" y="432" text-anchor="middle" class="heading">Temporal pipeline</text>
+  <text x="1075" y="456" text-anchor="middle" class="small">stage graph · II · issue offsets · dependences</text>
+  <text x="1075" y="478" text-anchor="middle" class="small">versions derived for materialized edges</text>
+
+  <path d="M640 356 L640 540" class="link"/>
+  <rect x="510" y="532" width="260" height="54" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="640" y="565" text-anchor="middle" class="heading">Candidate TileIR</text>
+
+  <rect x="65" y="592" width="260" height="70" class="box" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="195" y="620" text-anchor="middle" class="heading">Target catalog</text>
+  <text x="195" y="644" text-anchor="middle" class="small">axes · resources · atoms · engines</text>
+  <path d="M325 627 L425 627" class="link"/>
+
+  <rect x="425" y="600" width="250" height="54" rx="12" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="550" y="624" text-anchor="middle" class="label">prove + transform + schedule</text>
+  <text x="550" y="643" text-anchor="middle" class="small">all remaps stay explicit</text>
+  <path d="M640 586 L600 600" class="link"/>
+  <path d="M675 627 L735 627" class="link"/>
+
+  <rect x="735" y="600" width="220" height="54" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="845" y="633" text-anchor="middle" class="heading">Scheduled TileIR</text>
+  <path d="M955 618 L1020 592" class="link"/>
+  <path d="M955 638 L1020 670" class="link"/>
+  <rect x="1020" y="558" width="200" height="54" class="box" fill="#ffffff" stroke="#0284c7"/>
+  <text x="1120" y="591" text-anchor="middle" class="label">TVM TIRx / TIR</text>
+  <rect x="1020" y="650" width="200" height="54" class="box" fill="#ffffff" stroke="#0284c7"/>
+  <text x="1120" y="683" text-anchor="middle" class="label">native lowering</text>
+</svg>

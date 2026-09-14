@@ -229,10 +229,12 @@ void reg_xir_pass_mutation_safety() {
                    transactional_kernel,
                    DerivedInstructionTag::CONDITIONAL_BRANCH) ==
                2u);
+        // Loop recovery retains the canonical prepare guard. It must not
+        // erase a conditional latch exit merely to eliminate every raw branch.
         expect(count_instructions(
                    in_place_kernel,
                    DerivedInstructionTag::CONDITIONAL_BRANCH) ==
-               0u);
+               1u);
         expect(xir_verify_module(
                    &transactional_module)
                    .succeeded());

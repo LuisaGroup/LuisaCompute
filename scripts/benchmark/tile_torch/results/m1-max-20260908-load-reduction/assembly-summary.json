@@ -1,0 +1,59 @@
+{
+  "metric": "static_instruction_sites",
+  "dynamic_profile": false,
+  "cycles": false,
+  "caveat": "Static sites do not establish executed branch counts, misprediction, stalls or spill traffic.",
+  "records": [
+    {
+      "case": "rmsnorm-64x256-r0-l1-v0",
+      "object_sha256": "661d138917955f87065696914900060d94a63cfe07aa9b88c3b9fd344ffb9e6f",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "scope": "complete native text section",
+      "instructions": 1567,
+      "conditional_branches": 76,
+      "loads": 217,
+      "stores": 113
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-v1",
+      "object_sha256": "e8a8c086e2c83c5f5d6e47108e37a484fa92f1947cdee4699da99db91d4ff70d",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "scope": "complete native text section",
+      "instructions": 826,
+      "conditional_branches": 148,
+      "loads": 94,
+      "stores": 45
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-v0",
+      "object_sha256": "fec0e6c4b41942f4ce646a7c95c55ee847416d51ebbc677832586b684393426d",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "scope": "complete native text section",
+      "instructions": 510,
+      "conditional_branches": 56,
+      "loads": 73,
+      "stores": 37
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-v1",
+      "object_sha256": "5f45d889c295cf0965b863a5a9db84430505cd3e50f0d3a8a08d3bc8998d4094",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "scope": "complete native text section",
+      "instructions": 1102,
+      "conditional_branches": 155,
+      "loads": 153,
+      "stores": 58
+    }
+  ]
+}

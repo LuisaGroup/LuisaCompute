@@ -1,0 +1,101 @@
+{
+  "ctest": "validation-logs.json.gz:ctest-full.log",
+  "build": "validation-logs.json.gz:build-tests.log",
+  "assessment": "Share with caveats: native gains verified, ragged Inductor gap remains",
+  "incomplete_handoff_blockers": [],
+  "caveats": [
+    "native timer includes required traversal and entry work",
+    "two E2E orders are descriptive",
+    "only RMSNorm compared with native Inductor",
+    "static assembly observations are not hardware profile attribution"
+  ],
+  "source_audit": "provenance.json",
+  "evidence_audit": "audit.json",
+  "audience": "technical",
+  "surface": "existing repository Sphinx docs, as requested by user",
+  "structure": "technical summary; exact timing boundaries; native and E2E results; general legality; actual Inductor inspection; model implications; validation and limits",
+  "visuals": "exact cell-lookup tables for multiple fixed factors, plus native text diagrams; no cross-size absolute-time chart",
+  "documentation": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.638627958018333,
+      "warning_lines": 15093
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-ragged-cfg.pbUI2k/docs-html"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 51.33058545808308,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-ragged-cfg.pbUI2k/docs-html"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.4934588329633698,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/qa_docs.cjs",
+        "/tmp/luisa-ragged-cfg.pbUI2k/docs-html",
+        "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.2500542079797015,
+      "warning_lines": 0
+    }
+  ],
+  "source_sha256": {
+    "docs/source/internals/tile/xir.md": "df37370d55990a8651b254267554b3d81ee6cd0a694da7134d133dddf1f1e174",
+    "docs/source/performance/tile/results.md": "9d53fbadfb53da899a086f97ff858e030309b5adbbda319c9c61abe686ef182d",
+    "docs/source/performance/tile/index.md": "92840f7ece6a5b02242bd6af487772e221462c68b9d6778ed44a181d71127059"
+  },
+  "complete": true,
+  "main_agent_visual_review": {
+    "inspected": "both new sections at desktop width; mobile results scrolled right and mobile architecture at left",
+    "result": "readable prose and exact values; wide tables and diagram use the existing reachable horizontal scrollers; no page-level overflow",
+    "design_choice": "retain repository Sphinx theme and document structure"
+  }
+}

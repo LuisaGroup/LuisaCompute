@@ -1,0 +1,597 @@
+{
+  "dimensions": [
+    129,
+    768
+  ],
+  "metric": "single_thread_native_entry_host_wall_us",
+  "runtime_excluded": true,
+  "hardware_cycles": false,
+  "cpu_threads": 1,
+  "packet_width": 8,
+  "warmup_ms": 100,
+  "sample_target_ms": 30,
+  "samples": 7,
+  "boundary": "C++ loop, native call including compiler-emitted libc memcpy; Luisa also resets mutable launch block/thread indices and, for packet-only entries, traverses blocks as in SIMDShader; no Runtime dispatch/Python/allocations in timed region",
+  "input_sha256": [
+    "df164180cd9769654c2f8ea66b15da5125a2d173027bb11446a1261953bace6d",
+    "5bc0e538893d8481b1952247bc66c22daa4cb44d8eeab8317bef75b8b0570fd9",
+    "18f56e82f4f3a34714ba86d75f1f9fa80e7f292dea585756f1e8ca6f5e553be2"
+  ],
+  "artifacts": {
+    "baseline": {
+      "exported_symbol": "llm_rows.packet_batch.blocks",
+      "replay_abi": 0,
+      "object_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "library_sha256": "4c13294fc6f026b513568c87e766d504e411b854dca7a90350b1bc769822f42f",
+      "llvm_sha256": "0a4d26fcabef435deb6d020f58252b40ff66c779fe49387a156aaa8552daacce",
+      "source_capture": "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p0",
+      "undefined_system_symbols": [
+        "_memcpy"
+      ],
+      "linked_libraries": "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/baseline.dylib:\n\t/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/baseline.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "candidate": {
+      "exported_symbol": "llm_rows.packet_batch.blocks",
+      "replay_abi": 0,
+      "object_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "library_sha256": "0c66df9fa1bafb747803f84a107420190b0d37f10d480dcda0c34d680c1b15f6",
+      "llvm_sha256": "0a4d26fcabef435deb6d020f58252b40ff66c779fe49387a156aaa8552daacce",
+      "source_capture": "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p1",
+      "undefined_system_symbols": [
+        "_memcpy"
+      ],
+      "linked_libraries": "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/candidate.dylib:\n\t/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/candidate.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "inductor": {
+      "source": "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/inductor/yg/cygdjjqsjvh3vp2cbj3o7av4tvbc7qefs6jq6or3nvlccxglrlnl.main.cpp",
+      "source_sha256": "7313611831da61df187f1f3ce5f2831497e7961e825704329d60056c33e3d0ad",
+      "library_sha256": "a17794b2619f5361d72b4e096bbed6d1fc988c85b08540344a60f20d9262adbf",
+      "torch_version": "2.14.0",
+      "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+      "config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n"
+    }
+  },
+  "commands": [
+    [
+      "clang++",
+      "-std=c++20",
+      "-O3",
+      "-dynamiclib",
+      "-I/Users/mike/CLionProjects/luisa/src",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/replay_native.cpp",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/replay.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p0/object/tile_xir_w8_77313_1788916370284091_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p0/object/tile_xir_w8_77313_1788916370284091_0.o",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/baseline.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/baseline.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p1/object/tile_xir_w8_77314_1788916370637861_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-129x768-r0-l8-p1/object/tile_xir_w8_77314_1788916370637861_0.o",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/candidate.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-129x768/candidate.dylib"
+    ]
+  ],
+  "helper_source_sha256": "57225d2c1c188d8e3eeed0df48547012bef02bf5940a3cf5247b83dc7e3379a8",
+  "helper_sha256": "8f2565f7084309fe16064e4e9b70339c7c502b0ea621276cff886d24e3905f39",
+  "results": [
+    {
+      "variant": "baseline",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        26.55487060546875,
+        26.5830078125,
+        26.0498251953125,
+        25.98069287109375,
+        26.05126953125,
+        26.13761376953125,
+        26.15067529296875
+      ],
+      "median_us": 26.13761376953125,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        26.23516845703125,
+        26.071634765625,
+        25.9736328125,
+        26.19423388671875,
+        26.15216064453125,
+        26.073486328125,
+        26.014119140625
+      ],
+      "median_us": 26.073486328125,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        62.33528515625,
+        61.715740234375,
+        60.512044921875,
+        61.104736328125,
+        61.38761328125,
+        60.25911328125,
+        61.14363671875
+      ],
+      "median_us": 61.14363671875,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        26.20005322265625,
+        26.328857421875,
+        26.11932373046875,
+        26.06072998046875,
+        26.2077841796875,
+        26.10980224609375,
+        26.1515302734375
+      ],
+      "median_us": 26.1515302734375,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        60.710775390625,
+        60.63566015625,
+        62.112548828125,
+        62.3033046875,
+        61.938396484375,
+        60.587564453125,
+        60.934896484375
+      ],
+      "median_us": 60.934896484375,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        26.3451943359375,
+        26.428955078125,
+        26.03847265625,
+        26.1105546875,
+        26.067626953125,
+        26.15765380859375,
+        26.1292724609375
+      ],
+      "median_us": 26.1292724609375,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        26.092326171875,
+        26.23832177734375,
+        26.35697412109375,
+        26.346822265625,
+        26.49479150390625,
+        26.50616455078125,
+        26.27960205078125
+      ],
+      "median_us": 26.346822265625,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        49.003662109375,
+        26.41347265625,
+        26.04644775390625,
+        26.28179931640625,
+        26.20969677734375,
+        26.1617431640625,
+        26.19614697265625
+      ],
+      "median_us": 26.20969677734375,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        67.099365234375,
+        66.41495703125,
+        62.4462890625,
+        61.24698828125,
+        62.60457421875,
+        61.94816015625,
+        61.319986328125
+      ],
+      "median_us": 62.4462890625,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        25.85017919921875,
+        26.55670166015625,
+        26.90974951171875,
+        26.30409716796875,
+        26.911865234375,
+        30.3834228515625,
+        28.25689697265625
+      ],
+      "median_us": 26.90974951171875,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        65.08113671875,
+        62.855388671875,
+        65.605142578125,
+        65.548828125,
+        78.0841484375,
+        70.875,
+        64.9794921875
+      ],
+      "median_us": 65.548828125,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        27.25832080078125,
+        26.02642822265625,
+        27.0292763671875,
+        32.86757373046875,
+        27.2823486328125,
+        26.28360986328125,
+        25.980814453125
+      ],
+      "median_us": 27.0292763671875,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        61.6693515625,
+        63.932861328125,
+        80.0625,
+        77.094806640625,
+        68.54231640625,
+        73.159830078125,
+        78.02669140625
+      ],
+      "median_us": 73.159830078125,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        26.2976279296875,
+        25.918212890625,
+        25.8484091796875,
+        26.49550390625,
+        26.41668701171875,
+        26.41239453125,
+        26.85477685546875
+      ],
+      "median_us": 26.41239453125,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        31.385416015625,
+        26.1353349609375,
+        28.825927734375,
+        26.956095703125,
+        26.597615234375,
+        26.609130859375,
+        25.7662763671875
+      ],
+      "median_us": 26.609130859375,
+      "repetitions": 1024,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        65.721923828125,
+        64.04598046875,
+        62.490478515625,
+        61.06640625,
+        69.131673828125,
+        65.949869140625,
+        63.032876953125
+      ],
+      "median_us": 64.04598046875,
+      "repetitions": 512,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        25.74971533203125,
+        25.63421630859375,
+        25.65738916015625,
+        25.69521044921875,
+        26.2873330078125,
+        26.450439453125,
+        26.76393603515625
+      ],
+      "median_us": 25.74971533203125,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        26.10489892578125,
+        27.30584716796875,
+        26.4510703125,
+        28.16424560546875,
+        28.00388623046875,
+        26.69378662109375,
+        26.43218994140625
+      ],
+      "median_us": 26.69378662109375,
+      "repetitions": 2048,
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    }
+  ],
+  "summary_us": {
+    "baseline": 26.311045654296876,
+    "candidate": 26.23804736328125,
+    "inductor": 63.246134765625
+  }
+}

@@ -1,0 +1,121 @@
+ {
+    "schemaVersion": 1,
+    "deviceProperties": [],
+    
+      "trace_id": "C60C2FCF26D542C4867408B19425E10B",
+      "record_shapes": 1,
+      "host_name": "MikedeMacBook-Pro.local",
+    "displayTimeUnit": "ms",
+    "baseTimeNanoseconds": 1782967788000000000,
+    "traceEvents": [
+    
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865346859371.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865346859371.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865346859371.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865346859371.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::softmax",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865346859455.623,
+    "dur": 947.475
+    ,
+    "args": {
+      "External id": 1,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", "-1", ""], "Record function id": 0, "Input type": ["float", "Scalar", ""], "Input Strides": [[4096, 1], [], []], "Input Dims": [[1024, 4096], [], []], "Ev Idx": 0
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::_softmax",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865346859468.830,
+    "dur": 932.768
+    ,
+    "args": {
+      "External id": 2,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", "-1", "False"], "Record function id": 0, "Input type": ["float", "Scalar", "Scalar"], "Input Strides": [[4096, 1], [], []], "Input Dims": [[1024, 4096], [], []], "Ev Idx": 1
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "Trace",
+    "name": "PyTorch Profiler (0)",
+    "pid": "Spans",
+    "tid": "PyTorch Profiler",
+    "ts": 5865346859080.000,
+    "dur": 1347.000
+    ,
+    "args": {
+      "Op count": 0
+    }
+  },
+  {
+    "ph": "M",
+    "name": "process_sort_index",
+    "ts": 5865346859080.000,
+    "pid": "Spans",
+    "tid": 0,
+    "args": {
+      "sort_index": 536870912
+    }
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Iteration Start: PyTorch Profiler",
+    "pid": "Traces",
+    "tid": "Trace PyTorch Profiler",
+    "ts": 5865346859080.000
+    
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Record Window End",
+    "pid": "",
+    "tid": "",
+    "ts": 5865346860513.000
+    
+  }
+  ],"traceName": "/tmp/luisa-torch-simd.IxI6kn/torch-run/softmax.trace.json" }

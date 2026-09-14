@@ -176,10 +176,25 @@ public:
     explicit SwitchCaseStmtBuilder(T c) noexcept
         : _stmt{FunctionBuilder::current()->case_(extract_expression(c))} {}
 
-    template<concepts::integral T, typename S>
-    [[nodiscard]] static auto create_with_comment(S &&s, T c) noexcept {
+    template<concepts::integral T, concepts::integral... Ts>
+        requires(sizeof...(Ts) > 0u && (std::is_same_v<T, Ts> && ...))
+    explicit SwitchCaseStmtBuilder(T first, Ts... rest) noexcept {
+        const Expression *expressions[]{extract_expression(first), extract_expression(rest)...};
+        _stmt = FunctionBuilder::current()->case_(luisa::span{expressions});
+    }
+
+    template<concepts::integral T>
+    explicit SwitchCaseStmtBuilder(luisa::span<const T> labels) noexcept {
+        luisa::vector<const Expression *> expressions;
+        expressions.reserve(labels.size());
+        for (auto label : labels) { expressions.emplace_back(extract_expression(label)); }
+        _stmt = FunctionBuilder::current()->case_(luisa::span{expressions});
+    }
+
+    template<typename S, typename... T>
+    [[nodiscard]] static auto create_with_comment(S &&s, T &&...c) noexcept {
         luisa::compute::detail::comment(std::forward<S>(s));
-        return SwitchCaseStmtBuilder{c};
+        return SwitchCaseStmtBuilder{std::forward<T>(c)...};
     }
 
     /// Add body of case statement. Will automatically add break at the end.

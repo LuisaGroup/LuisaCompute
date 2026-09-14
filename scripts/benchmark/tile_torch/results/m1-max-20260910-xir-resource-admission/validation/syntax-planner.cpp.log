@@ -1,0 +1,18 @@
+Warning: Narrowing conversion from 'size_t' (aka 'unsigned long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 130, col 50
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 157, col 46
+Warning: The parameter 'indices' of type 'luisa::vector<const Value *>' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 164, col 43
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 180, col 60
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 198, col 61
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 201, col 71
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 203, col 110
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 244, col 77
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 246, col 46
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 248, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 249, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 250, col 54
+Warning: Narrowing conversion from 'size_t' (aka 'unsigned long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 255, col 50
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 357, col 42
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 473, col 49
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 475, col 53
+------------------------------------------------------------
+Total: 0 error(s), 16 warning(s)

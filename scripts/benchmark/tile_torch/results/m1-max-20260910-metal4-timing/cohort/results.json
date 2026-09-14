@@ -1,0 +1,1943 @@
+{
+  "schema": "metal4_serial_timing_v1",
+  "started_utc": "2026-09-10T03:23:52.959309+00:00",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "temporary_tensor_root": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s",
+  "tensor_exports_retained": true,
+  "artifacts_before": {
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir": {
+      "bytes": 350384,
+      "sha256": "6a8a030adb98c760e9a0ebc1206066e5df2e6610400eb1b5f2be3fcba1d7bf0b"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so": {
+      "bytes": 59476136,
+      "sha256": "d5c6acc7d86fa80ba7b60cdc0754b4f5ad30d3ddb74f111e197a103c51992b80"
+    },
+    "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/metal4_timing.py": {
+      "bytes": 17941,
+      "sha256": "9765c048a8fec373962a1e43a95343183ed52e901f95260d2b38628bd2495072"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile-bridge-xir.dylib": {
+      "bytes": 369392,
+      "sha256": "10330be458fa33ea7072922aa6130243318c1af81db16f7e2c47bc99e0254613"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile.dylib": {
+      "bytes": 442640,
+      "sha256": "249a6ad062779154008c285e23041aa352c3836cc185754e3aadfe42ed2b56a4"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-xir.dylib": {
+      "bytes": 4722768,
+      "sha256": "7b9fdefbbffb176b0de497f3068e5798f765866c87d0675fab4a3b271df57a65"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-runtime.dylib": {
+      "bytes": 989944,
+      "sha256": "26d73d85f4a3f36da008695b066f2adb9243743d3bfdbc361dacec3fd5bc29bc"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-core.dylib": {
+      "bytes": 786448,
+      "sha256": "ad8b02d67f238ec5e19864e9ea9a255ac8f0a0468b4465c596a4998db627917e"
+    }
+  },
+  "removed_environment": {},
+  "declared_environment": {
+    "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+    "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+    "LUISA_TILE_BENCH_XIR_BACKEND": "metal4"
+  },
+  "inherited_diagnostic_environment": {
+    "MTL_DEBUG_LAYER": null,
+    "MTL_SHADER_VALIDATION": null,
+    "METAL_DEVICE_WRAPPER_TYPE": null,
+    "LUISA_ENABLE_VALIDATION": null,
+    "DYLD_LIBRARY_PATH": null,
+    "DYLD_INSERT_LIBRARIES": null
+  },
+  "protocol": {
+    "serial": true,
+    "reverse_variant_order_on_odd_rounds": true,
+    "rounds": 2,
+    "samples": 1,
+    "host_repetitions": 8,
+    "device_repetitions": 8,
+    "target_ms": 20,
+    "warmup_ms": 10,
+    "timeout_seconds": 90.0,
+    "zero_overhead_kernel_time": false,
+    "external_caffeinate_required": true,
+    "external_caffeinate_verified": false
+  },
+  "results": [
+    {
+      "round": 0,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0000-r0-rmsnorm-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0000-r0-rmsnorm-128x1024-lanes1.stdout.json",
+      "stderr": "0000-r0-rmsnorm-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:23:52.974545+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 3.4936660419916734,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0000-r0-rmsnorm-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "e2fece674055f7123f4caa083aef8356ac752e61cca28ab05974556beae04be4"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0000-r0-rmsnorm-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0000-r0-rmsnorm-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0000-r0-rmsnorm-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            177708.3333333333
+          ],
+          "median": 177708.3333333333,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            205749.99507516623
+          ],
+          "median": 205749.99507516623,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            6953.2865
+          ],
+          "median": 6953.2865
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            223125
+          ],
+          "median": 223125,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            226416.62508249283
+          ],
+          "median": 226416.62508249283,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            365940.209
+          ],
+          "median": 365940.209
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 2166924.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 5.09231013357e-07
+      }
+    },
+    {
+      "round": 0,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0001-r0-rmsnorm-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0001-r0-rmsnorm-128x1024-lanes32.stdout.json",
+      "stderr": "0001-r0-rmsnorm-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:23:56.502853+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.7520560829434544,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0001-r0-rmsnorm-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "14d097b428ae6c64da58c04680cf2e85523dfa7c53d5c22341070cccabc73980"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0001-r0-rmsnorm-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0001-r0-rmsnorm-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0001-r0-rmsnorm-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            34270.83333333333
+          ],
+          "median": 34270.83333333333,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            63817.715272307396
+          ],
+          "median": 63817.715272307396,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            981.380125
+          ],
+          "median": 981.380125
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            75250
+          ],
+          "median": 75250,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            59458.31071585417
+          ],
+          "median": 59458.31071585417,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            17300.542
+          ],
+          "median": 17300.542
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 1666944.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.54468688787e-07
+      }
+    },
+    {
+      "round": 0,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0002-r0-rmsnorm-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0002-r0-rmsnorm-128x1024-lanes0.stdout.json",
+      "stderr": "0002-r0-rmsnorm-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:23:57.291272+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.344379415968433,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0002-r0-rmsnorm-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "14d097b428ae6c64da58c04680cf2e85523dfa7c53d5c22341070cccabc73980"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0002-r0-rmsnorm-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0002-r0-rmsnorm-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0002-r0-rmsnorm-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            35833.333333333336
+          ],
+          "median": 35833.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            67260.40737703443
+          ],
+          "median": 67260.40737703443,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            2090.1875
+          ],
+          "median": 2090.1875
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            21625
+          ],
+          "median": 21625,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            20625.069737434387
+          ],
+          "median": 20625.069737434387,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            29050.625
+          ],
+          "median": 29050.625
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 1666944.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.54468688787e-07
+      }
+    },
+    {
+      "round": 0,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0003-r0-masked_softmax-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0003-r0-masked_softmax-128x1024-lanes1.stdout.json",
+      "stderr": "0003-r0-masked_softmax-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:23:57.674933+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.7667550829937682,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0003-r0-masked_softmax-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "87864a9735c13a24dc9d9f9a113bf6e21834425a91ea8bd917e7376cb0ce92ef"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0003-r0-masked_softmax-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0003-r0-masked_softmax-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0003-r0-masked_softmax-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            677562.5
+          ],
+          "median": 677562.5,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            769598.9625062793
+          ],
+          "median": 769598.9625062793,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1836.4895
+          ],
+          "median": 1836.4895
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            838250
+          ],
+          "median": 838250,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            739249.9828711152
+          ],
+          "median": 739249.9828711152,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            17506.583
+          ],
+          "median": 17506.583
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 4067460.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.16489802143e-08
+      }
+    },
+    {
+      "round": 0,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0004-r0-masked_softmax-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0004-r0-masked_softmax-128x1024-lanes32.stdout.json",
+      "stderr": "0004-r0-masked_softmax-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:23:58.483740+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.33886958402581513,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0004-r0-masked_softmax-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "e2828a5532c62e5daf092ac47dd83e07c2600b10439cee717460af45c4842422"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0004-r0-masked_softmax-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0004-r0-masked_softmax-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0004-r0-masked_softmax-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            40270.83333333333
+          ],
+          "median": 40270.83333333333,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            114156.23885113746
+          ],
+          "median": 114156.23885113746,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1050.03125
+          ],
+          "median": 1050.03125
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            301916.6666666667
+          ],
+          "median": 301916.6666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            208916.60824418068
+          ],
+          "median": 208916.60824418068,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            3422.083
+          ],
+          "median": 3422.083
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 3564672.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.23688531534e-08
+      }
+    },
+    {
+      "round": 0,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0005-r0-masked_softmax-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0005-r0-masked_softmax-128x1024-lanes0.stdout.json",
+      "stderr": "0005-r0-masked_softmax-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:23:58.862041+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.3362189590698108,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0005-r0-masked_softmax-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "e2828a5532c62e5daf092ac47dd83e07c2600b10439cee717460af45c4842422"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0005-r0-masked_softmax-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0005-r0-masked_softmax-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0005-r0-masked_softmax-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            32041.666666666668
+          ],
+          "median": 32041.666666666668,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            50375.00523030758
+          ],
+          "median": 50375.00523030758,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1121.739625
+          ],
+          "median": 1121.739625
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            37958.333333333336
+          ],
+          "median": 37958.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            35375.007428228855
+          ],
+          "median": 35375.007428228855,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            13998.667
+          ],
+          "median": 13998.667
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 3564672.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.23688531534e-08
+      }
+    },
+    {
+      "round": 0,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0006-r0-swiglu-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0006-r0-swiglu-128x1024-lanes1.stdout.json",
+      "stderr": "0006-r0-swiglu-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:23:59.234096+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.44977058400399983,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0006-r0-swiglu-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0006-r0-swiglu-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0006-r0-swiglu-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0006-r0-swiglu-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            639854.1666666667
+          ],
+          "median": 639854.1666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            691458.3354955539
+          ],
+          "median": 691458.3354955539,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            3442.520875
+          ],
+          "median": 3442.520875
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            866041.6666666666
+          ],
+          "median": 866041.6666666666,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            915291.6027233005
+          ],
+          "median": 915291.6027233005,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            17091.333
+          ],
+          "median": 17091.333
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 2117760.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    },
+    {
+      "round": 0,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0007-r0-swiglu-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0007-r0-swiglu-128x1024-lanes32.stdout.json",
+      "stderr": "0007-r0-swiglu-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:23:59.720997+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.34671987500041723,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0007-r0-swiglu-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0007-r0-swiglu-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0007-r0-swiglu-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0007-r0-swiglu-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            38500.0
+          ],
+          "median": 38500.0,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            91411.44983004779
+          ],
+          "median": 91411.44983004779,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            5743.78125
+          ],
+          "median": 5743.78125
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            42458.333333333336
+          ],
+          "median": 42458.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            46125.03107637167
+          ],
+          "median": 46125.03107637167,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            8233.334
+          ],
+          "median": 8233.334
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 1357824.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    },
+    {
+      "round": 0,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0008-r0-swiglu-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0008-r0-swiglu-128x1024-lanes0.stdout.json",
+      "stderr": "0008-r0-swiglu-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:24:00.103705+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.39619174995459616,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0008-r0-swiglu-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0008-r0-swiglu-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0008-r0-swiglu-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0008-r0-swiglu-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            42041.66666666667
+          ],
+          "median": 42041.66666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            108739.57944568247
+          ],
+          "median": 108739.57944568247,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1557.286375
+          ],
+          "median": 1557.286375
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            202833.33333333334
+          ],
+          "median": 202833.33333333334,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            44375.075958669186
+          ],
+          "median": 44375.075958669186,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            764.875
+          ],
+          "median": 764.875
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 1357824.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0009-r1-rmsnorm-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0009-r1-rmsnorm-128x1024-lanes0.stdout.json",
+      "stderr": "0009-r1-rmsnorm-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:24:00.537162+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.342758790939115,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0009-r1-rmsnorm-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "14d097b428ae6c64da58c04680cf2e85523dfa7c53d5c22341070cccabc73980"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0009-r1-rmsnorm-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0009-r1-rmsnorm-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0009-r1-rmsnorm-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            31833.333333333336
+          ],
+          "median": 31833.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            25046.88745830208
+          ],
+          "median": 25046.88745830208,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1112.197875
+          ],
+          "median": 1112.197875
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            21375
+          ],
+          "median": 21375,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            21375.0172406435
+          ],
+          "median": 21375.0172406435,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            6652.917
+          ],
+          "median": 6652.917
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 1666944.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.54468688787e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0010-r1-rmsnorm-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0010-r1-rmsnorm-128x1024-lanes32.stdout.json",
+      "stderr": "0010-r1-rmsnorm-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:24:00.915054+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.3934644169639796,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0010-r1-rmsnorm-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "14d097b428ae6c64da58c04680cf2e85523dfa7c53d5c22341070cccabc73980"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0010-r1-rmsnorm-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0010-r1-rmsnorm-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0010-r1-rmsnorm-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            29458.333333333336
+          ],
+          "median": 29458.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            89984.3726074323
+          ],
+          "median": 89984.3726074323,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1186.34375
+          ],
+          "median": 1186.34375
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            19958.333333333332
+          ],
+          "median": 19958.333333333332,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            62750.07035583258
+          ],
+          "median": 62750.07035583258,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            3481.667
+          ],
+          "median": 3481.667
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 1666944.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.54468688787e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0011-r1-rmsnorm-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0011-r1-rmsnorm-128x1024-lanes1.stdout.json",
+      "stderr": "0011-r1-rmsnorm-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:24:01.343418+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.4011911250418052,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0011-r1-rmsnorm-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "e2fece674055f7123f4caa083aef8356ac752e61cca28ab05974556beae04be4"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0011-r1-rmsnorm-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0011-r1-rmsnorm-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 4096,
+          "sha256": "30c11f1cd8be0d4757448048617c169859f353cba7c3bdd36f6a16bf4e39eba1"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0011-r1-rmsnorm-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 4096,
+          "sha256": "f1a0cef84cf8af3e7be240590c97896ff15ada5e7bc000dd74826baa2cf68bc6"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            179479.1666666667
+          ],
+          "median": 179479.1666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            201843.75171083957
+          ],
+          "median": 201843.75171083957,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            2705.49475
+          ],
+          "median": 2705.49475
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            294750
+          ],
+          "median": 294750,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            243749.9351799488
+          ],
+          "median": 243749.9351799488,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            5464.583
+          ],
+          "median": 5464.583
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 2166924.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 5.09231013357e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0012-r1-masked_softmax-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0012-r1-masked_softmax-128x1024-lanes0.stdout.json",
+      "stderr": "0012-r1-masked_softmax-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:24:01.781255+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.4564602919854224,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0012-r1-masked_softmax-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "e2828a5532c62e5daf092ac47dd83e07c2600b10439cee717460af45c4842422"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0012-r1-masked_softmax-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0012-r1-masked_softmax-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0012-r1-masked_softmax-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            32041.666666666664
+          ],
+          "median": 32041.666666666664,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            48640.62066189945
+          ],
+          "median": 48640.62066189945,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1209.651
+          ],
+          "median": 1209.651
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            39500
+          ],
+          "median": 39500,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            40458.282455801964
+          ],
+          "median": 40458.282455801964,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            7836.041
+          ],
+          "median": 7836.041
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 3564672.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.23688531534e-08
+      }
+    },
+    {
+      "round": 1,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0013-r1-masked_softmax-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0013-r1-masked_softmax-128x1024-lanes32.stdout.json",
+      "stderr": "0013-r1-masked_softmax-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:24:02.275938+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.3933140409644693,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0013-r1-masked_softmax-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "e2828a5532c62e5daf092ac47dd83e07c2600b10439cee717460af45c4842422"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0013-r1-masked_softmax-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0013-r1-masked_softmax-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0013-r1-masked_softmax-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            32020.833333333336
+          ],
+          "median": 32020.833333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            50265.618483535945
+          ],
+          "median": 50265.618483535945,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            2574.64575
+          ],
+          "median": 2574.64575
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            250500
+          ],
+          "median": 250500,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            38833.35739374161
+          ],
+          "median": 38833.35739374161,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            5552.291
+          ],
+          "median": 5552.291
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 3564672.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.23688531534e-08
+      }
+    },
+    {
+      "round": 1,
+      "operation": "masked_softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0014-r1-masked_softmax-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0014-r1-masked_softmax-128x1024-lanes1.stdout.json",
+      "stderr": "0014-r1-masked_softmax-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:24:02.707233+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.7266204999759793,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0014-r1-masked_softmax-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "87864a9735c13a24dc9d9f9a113bf6e21834425a91ea8bd917e7376cb0ce92ef"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0014-r1-masked_softmax-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0014-r1-masked_softmax-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0014-r1-masked_softmax-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            670375.0
+          ],
+          "median": 670375.0,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            800958.3398234099
+          ],
+          "median": 800958.3398234099,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1863.43225
+          ],
+          "median": 1863.43225
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            808666.6666666666
+          ],
+          "median": 808666.6666666666,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            885624.9041855335
+          ],
+          "median": 885624.9041855335,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            17966.5
+          ],
+          "median": 17966.5
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 4067460.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 3.16489802143e-08
+      }
+    },
+    {
+      "round": 1,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 0,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0015-r1-swiglu-128x1024-lanes0.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "0"
+      },
+      "stdout": "0015-r1-swiglu-128x1024-lanes0.stdout.json",
+      "stderr": "0015-r1-swiglu-128x1024-lanes0.stderr.log",
+      "started_utc": "2026-09-10T03:24:03.471482+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.3442932920297608,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0015-r1-swiglu-128x1024-lanes0.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0015-r1-swiglu-128x1024-lanes0.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0015-r1-swiglu-128x1024-lanes0.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0015-r1-swiglu-128x1024-lanes0.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            108520.83333333333
+          ],
+          "median": 108520.83333333333,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            53187.512094154954
+          ],
+          "median": 53187.512094154954,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            909.28125
+          ],
+          "median": 909.28125
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            289291.6666666667
+          ],
+          "median": 289291.6666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            108041.5677279234
+          ],
+          "median": 108041.5677279234,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            11997.417
+          ],
+          "median": 11997.417
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 8 candidates; uncalibrated GPU work cost 1357824.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 32,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0016-r1-swiglu-128x1024-lanes32.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "32"
+      },
+      "stdout": "0016-r1-swiglu-128x1024-lanes32.stdout.json",
+      "stderr": "0016-r1-swiglu-128x1024-lanes32.stderr.log",
+      "started_utc": "2026-09-10T03:24:03.854039+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.39704858395271003,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0016-r1-swiglu-128x1024-lanes32.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0016-r1-swiglu-128x1024-lanes32.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0016-r1-swiglu-128x1024-lanes32.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0016-r1-swiglu-128x1024-lanes32.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            36479.16666666667
+          ],
+          "median": 36479.16666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            53609.37211662531
+          ],
+          "median": 53609.37211662531,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            1102.75525
+          ],
+          "median": 1102.75525
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            44458.333333333336
+          ],
+          "median": 44458.333333333336,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            45208.26041698456
+          ],
+          "median": 45208.26041698456,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            9235.959
+          ],
+          "median": 9235.959
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 256 threads/group; local_lanes=32; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 1357824.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    },
+    {
+      "round": 1,
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "requested_local_lanes": 1,
+      "status": "OK",
+      "command": [
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "128,1024",
+        "1",
+        "1",
+        "1",
+        "20",
+        "10",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0017-r1-swiglu-128x1024-lanes1.f32"
+      ],
+      "environment": {
+        "LUISA_TILE_BENCH_METAL4_TIMING": "1",
+        "LUISA_TILE_BENCH_FIXED_REPETITIONS": "8",
+        "LUISA_TILE_BENCH_XIR_BACKEND": "metal4",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1"
+      },
+      "stdout": "0017-r1-swiglu-128x1024-lanes1.stdout.json",
+      "stderr": "0017-r1-swiglu-128x1024-lanes1.stderr.log",
+      "started_utc": "2026-09-10T03:24:04.289075+00:00",
+      "exit_code": 0,
+      "process_wall_seconds": 0.56336995807942,
+      "tensor_receipts": {
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0017-r1-swiglu-128x1024-lanes1.f32": {
+          "bytes": 524288,
+          "sha256": "b0d98d257b28efd042690d6c5f4a05e2fa46897105f89019fc1b1fc9ebba37bb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0017-r1-swiglu-128x1024-lanes1.f32.input0.f32": {
+          "bytes": 524288,
+          "sha256": "b8860792793acfd03ffeb28edeb27e2dc0ca8487c94c65c0a5c426ba5264272c"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0017-r1-swiglu-128x1024-lanes1.f32.input1.f32": {
+          "bytes": 524288,
+          "sha256": "924e8742f273b80f0234e510dd774c650fd9e75e9ba6476bb8eb305880b6f2eb"
+        },
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-metal4-timing-tensors-xntw8m9s/0017-r1-swiglu-128x1024-lanes1.f32.input2.f32": {
+          "bytes": 524288,
+          "sha256": "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+        }
+      },
+      "metrics": {
+        "throughput_instrumented_dispatch_ns": {
+          "samples": [
+            640229.1666666667
+          ],
+          "median": 640229.1666666667,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            801958.332885988
+          ],
+          "median": 801958.332885988,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "samples": [
+            5684.640625
+          ],
+          "median": 5684.640625
+        },
+        "latency_instrumented_dispatch_ns": {
+          "samples": [
+            781083.3333333334
+          ],
+          "median": 781083.3333333334,
+          "sample_statistic": "median_dispatch_interval"
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "samples": [
+            1054250.0531300902
+          ],
+          "median": 1054250.0531300902,
+          "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "samples": [
+            16309.375
+          ],
+          "median": 16309.375
+        }
+      },
+      "realization": "TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime; W32; 128 threads/group; local_lanes=1; source_format=XIR; exact search 4 candidates; uncalibrated GPU work cost 2117760.000; occupancy/cache/communication_cost=unmodeled; CPU_task_scheduling=none; root order [0]; private_snapshot_budget=65536; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fused_reduction_loads=0; fused_reduction_expressions=0; fused_pointwise_regions=0; deferred_maps=0; custom_cost_policy=false; fast_math=false; ordered_reduction=false",
+      "correctness": {
+        "checks": 2,
+        "elements_per_check": 131072,
+        "guard_elements_per_check": 34,
+        "atol": 5e-05,
+        "rtol": 5e-05,
+        "max_abs_error": 2.20914326166e-07
+      }
+    }
+  ],
+  "finished_utc": "2026-09-10T03:24:04.889029+00:00",
+  "artifacts_after": {
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir": {
+      "bytes": 350384,
+      "sha256": "6a8a030adb98c760e9a0ebc1206066e5df2e6610400eb1b5f2be3fcba1d7bf0b"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so": {
+      "bytes": 59476136,
+      "sha256": "d5c6acc7d86fa80ba7b60cdc0754b4f5ad30d3ddb74f111e197a103c51992b80"
+    },
+    "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/metal4_timing.py": {
+      "bytes": 17941,
+      "sha256": "9765c048a8fec373962a1e43a95343183ed52e901f95260d2b38628bd2495072"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile-bridge-xir.dylib": {
+      "bytes": 369392,
+      "sha256": "10330be458fa33ea7072922aa6130243318c1af81db16f7e2c47bc99e0254613"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile.dylib": {
+      "bytes": 442640,
+      "sha256": "249a6ad062779154008c285e23041aa352c3836cc185754e3aadfe42ed2b56a4"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-xir.dylib": {
+      "bytes": 4722768,
+      "sha256": "7b9fdefbbffb176b0de497f3068e5798f765866c87d0675fab4a3b271df57a65"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-runtime.dylib": {
+      "bytes": 989944,
+      "sha256": "26d73d85f4a3f36da008695b066f2adb9243743d3bfdbc361dacec3fd5bc29bc"
+    },
+    "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-core.dylib": {
+      "bytes": 786448,
+      "sha256": "ad8b02d67f238ec5e19864e9ea9a255ac8f0a0468b4465c596a4998db627917e"
+    }
+  },
+  "artifacts_unchanged": true
+}

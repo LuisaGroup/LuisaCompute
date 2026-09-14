@@ -1,0 +1,184 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "current-conclusion",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/current-conclusion-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "validation-and-next-milestone",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/validation-and-next-milestone-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "partitioned-outputs-remove-the-rope-mapping-fallback",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/partitioned-outputs-remove-the-rope-mapping-fallback-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          5,
+          6
+        ]
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "attention-and-direct-simd-still-need-richer-execution-mappings",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/attention-and-direct-simd-still-need-richer-execution-mappings-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          3,
+          5
+        ],
+        [
+          7,
+          4
+        ]
+      ]
+    },
+    {
+      "file": "source/internals/tile/lowering.html",
+      "id": "automatic-gpu-pointwise-graphs",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/automatic-gpu-pointwise-graphs-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "correctness-common-llm-operators-now-use-both-bridges",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/correctness-common-llm-operators-now-use-both-bridges-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          6,
+          3
+        ]
+      ]
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "current-conclusion",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/current-conclusion-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "validation-and-next-milestone",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/validation-and-next-milestone-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "partitioned-outputs-remove-the-rope-mapping-fallback",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/partitioned-outputs-remove-the-rope-mapping-fallback-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          5,
+          6
+        ]
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "partitioned-outputs-remove-the-rope-mapping-fallback",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/partitioned-outputs-remove-the-rope-mapping-fallback-390-table-0-right.png",
+      "right": {
+        "offset": 159,
+        "lastRight": 363.5625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "attention-and-direct-simd-still-need-richer-execution-mappings",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/attention-and-direct-simd-still-need-richer-execution-mappings-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          3,
+          5
+        ],
+        [
+          7,
+          4
+        ]
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "attention-and-direct-simd-still-need-richer-execution-mappings",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/attention-and-direct-simd-still-need-richer-execution-mappings-390-table-0-right.png",
+      "right": {
+        "offset": 129,
+        "lastRight": 363.359375,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "attention-and-direct-simd-still-need-richer-execution-mappings",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/attention-and-direct-simd-still-need-richer-execution-mappings-390-table-1-right.png",
+      "right": {
+        "offset": 248,
+        "lastRight": 363.140625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "file": "source/internals/tile/lowering.html",
+      "id": "automatic-gpu-pointwise-graphs",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/automatic-gpu-pointwise-graphs-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "correctness-common-llm-operators-now-use-both-bridges",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/correctness-common-llm-operators-now-use-both-bridges-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          6,
+          3
+        ]
+      ]
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "correctness-common-llm-operators-now-use-both-bridges",
+      "width": 390,
+      "screenshot": "/tmp/luisa-llm-screen.n3UVba/docs-qa-final/correctness-common-llm-operators-now-use-both-bridges-390-table-0-right.png",
+      "right": {
+        "offset": 856,
+        "lastRight": 363.421875,
+        "containerRight": 364.125
+      }
+    }
+  ]
+}

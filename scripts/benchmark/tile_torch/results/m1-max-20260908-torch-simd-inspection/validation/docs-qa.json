@@ -1,0 +1,34 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "torch-cpu-code-inspection-exposes-missing-local-vector-candidates",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-torch-simd.IxI6kn/docs-qa/torch-cpu-code-inspection-exposes-missing-local-vector-candidates-1280.png"
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "bounded-local-vector-candidates",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-torch-simd.IxI6kn/docs-qa/bounded-local-vector-candidates-1280.png"
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "torch-cpu-code-inspection-exposes-missing-local-vector-candidates",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-torch-simd.IxI6kn/docs-qa/torch-cpu-code-inspection-exposes-missing-local-vector-candidates-390.png"
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "bounded-local-vector-candidates",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-torch-simd.IxI6kn/docs-qa/bounded-local-vector-candidates-390.png"
+    }
+  ]
+}

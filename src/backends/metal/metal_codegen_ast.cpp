@@ -1864,9 +1864,12 @@ void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
 
 void MetalCodegenAST::visit(const SwitchCaseStmt *stmt) noexcept {
     _emit_indention();
-    _scratch << "case ";
-    stmt->expression()->accept(*this);
-    _scratch << ": {\n";
+    for (auto expression : stmt->expressions()) {
+        _scratch << "case ";
+        expression->accept(*this);
+        _scratch << ": ";
+    }
+    _scratch << "{\n";
     _indention++;
     _emit_scope_local_variables(stmt->body());
     auto has_break = false;
@@ -1909,6 +1912,16 @@ void MetalCodegenAST::visit(const SwitchDefaultStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const AssignStmt *stmt) noexcept {
+    if (is_local_undefined_lifetime_seed(stmt)) {
+        // The scope analysis can select the lifetime seed as the declaration
+        // site. Drop its undefined assignment, not the declaration itself.
+        if (_local_variable_initializers.contains(stmt)) {
+            _emit_indention();
+            _emit_assignment_lhs(stmt);
+            _scratch << ";\n";
+        }
+        return;
+    }
     auto previous_temporary_count = _reference_temporaries.size();
     _emit_swizzle_reference_temporaries(stmt->rhs());
     if (_reference_temporaries.size() != previous_temporary_count) {

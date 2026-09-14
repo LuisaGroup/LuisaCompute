@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "gelu_residual",
+  "dimensions": [
+    1024,
+    4096
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ]
+  ],
+  "output_shape": [
+    1024,
+    4096
+  ],
+  "fixture_ms": 79.214291,
+  "runtime_init_ms": 11.006458,
+  "compile_ms": 20.559042,
+  "allocation_upload_ms": 6.723417,
+  "cold_call_ms": 3.415,
+  "warmup_ms": 80.546416,
+  "repetitions": 10,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=2, broadcasts=0; exact search 6 candidates, uncalibrated cost 9437312.000 (arithmetic 655360.000, memory 8781824.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; contiguous_private_reads=2; contiguous_private_writes=2; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 4194304,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 3.39079269551e-07
+  },
+  "throughput_us": [
+    2003.8125,
+    2010.5625,
+    2030.6584,
+    1997.5,
+    2022.7291,
+    2003.0709,
+    2000.9125
+  ],
+  "latency_us": [
+    2094.416,
+    1977.208,
+    2000.958,
+    1984.792,
+    2185.292,
+    1967.792,
+    2018.5
+  ]
+}

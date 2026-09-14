@@ -741,7 +741,9 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture2d_read_function(llvm::VectorTyp
     create_case(PixelStorage::FLOAT1, llvm_f32_type);
     create_case(PixelStorage::FLOAT2, llvm_f32_type);
     create_case(PixelStorage::FLOAT4, llvm_f32_type);
-    create_packed_case();
+    if (!_config.assume_no_packed_textures) {
+        create_packed_case();
+    }
 
     b.SetInsertPoint(llvm_default_block);
     b.CreateUnreachable();
@@ -880,7 +882,9 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture2d_write_function(llvm::VectorTy
     create_case(PixelStorage::FLOAT1, llvm_f32_type);
     create_case(PixelStorage::FLOAT2, llvm_f32_type);
     create_case(PixelStorage::FLOAT4, llvm_f32_type);
-    create_packed_case();
+    if (!_config.assume_no_packed_textures) {
+        create_packed_case();
+    }
 
     b.SetInsertPoint(llvm_default_block);
     b.CreateUnreachable();
@@ -1026,7 +1030,9 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture3d_read_function(llvm::VectorTyp
     create_case(PixelStorage::FLOAT1, llvm_f32_type);
     create_case(PixelStorage::FLOAT2, llvm_f32_type);
     create_case(PixelStorage::FLOAT4, llvm_f32_type);
-    create_packed_case();
+    if (!_config.assume_no_packed_textures) {
+        create_packed_case();
+    }
 
     b.SetInsertPoint(llvm_default_block);
     b.CreateUnreachable();
@@ -1166,7 +1172,9 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture3d_write_function(llvm::VectorTy
     create_case(PixelStorage::FLOAT1, llvm_f32_type);
     create_case(PixelStorage::FLOAT2, llvm_f32_type);
     create_case(PixelStorage::FLOAT4, llvm_f32_type);
-    create_packed_case();
+    if (!_config.assume_no_packed_textures) {
+        create_packed_case();
+    }
 
     b.SetInsertPoint(llvm_default_block);
     b.CreateUnreachable();

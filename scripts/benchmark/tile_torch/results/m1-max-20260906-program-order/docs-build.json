@@ -1,0 +1,23 @@
+{
+  "html_directory": "docs/_build/tile-program-order-20260907",
+  "sphinx_exit_code": 1,
+  "sphinx_warnings": [
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:246: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:271: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:335: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:364: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:367: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:424: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:468: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:510: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:595: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:806: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]"
+  ],
+  "api_limitation": "Doxygen executable and docs/output/xml are absent; no full API-reference build claimed.",
+  "link_check": {
+    "exit_code": 0,
+    "pages": 48,
+    "local_links_assets": 3713,
+    "compatibility_anchors": 199
+  }
+}

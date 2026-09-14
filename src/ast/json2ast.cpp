@@ -314,10 +314,13 @@ private:
                 return _visit_expr(s->expression(), depth + 1u) &&
                        _visit_stmt(s->body(), depth + 1u);
             }
-            case Statement::Tag::SWITCH_CASE: {
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP: {
                 auto s = static_cast<const SwitchCaseStmt *>(stmt);
-                return _visit_expr(s->expression(), depth + 1u) &&
-                       _visit_stmt(s->body(), depth + 1u);
+                for (auto expression : s->expressions()) {
+                    if (!_visit_expr(expression, depth + 1u)) { return false; }
+                }
+                return _visit_stmt(s->body(), depth + 1u);
             }
             case Statement::Tag::SWITCH_DEFAULT:
                 return _visit_stmt(
@@ -1672,6 +1675,30 @@ private:
             case Statement::Tag::SWITCH_DEFAULT: {
                 if (!_check_keys(object, {"tag", "body"}, path)) { return false; }
                 auto statement = context.builder->default_();
+                return _decode_scope(
+                    _member(object, "body", path), context,
+                    statement->body(), depth + 1u,
+                    luisa::format("{}.body", path));
+            }
+            case Statement::Tag::SWITCH_CASE_GROUP: {
+                if (!_check_keys(object, {"tag", "values", "body"}, path)) { return false; }
+                auto values = _member(object, "values", path);
+                if (!_array(values, _limits.max_nodes, luisa::format("{}.values", path))) { return false; }
+                if (yyjson_arr_size(values) < 2u) {
+                    _fail(path, "switch case group needs at least two labels.");
+                    return false;
+                }
+                luisa::vector<const Expression *> labels;
+                for (auto i = 0u; i < yyjson_arr_size(values); i++) {
+                    int32_t value{};
+                    if (!_count_node(depth + 1u, path) ||
+                        !_decode_int32(yyjson_arr_get(values, i), value,
+                                       luisa::format("{}.values[{}]", path, i))) {
+                        return false;
+                    }
+                    labels.emplace_back(context.builder->literal(Type::of<int>(), value));
+                }
+                auto statement = context.builder->case_(luisa::span{labels});
                 return _decode_scope(
                     _member(object, "body", path), context,
                     statement->body(), depth + 1u,

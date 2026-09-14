@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/archive.py", line 82, in <module>
+    main()
+    ~~~~^^
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/archive.py", line 53, in main
+    assert set(archive.getnames()) == set(FILES)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

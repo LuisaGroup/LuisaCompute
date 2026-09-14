@@ -23,6 +23,7 @@
 #include <luisa/xir/passes/pointer_usage.h>
 
 #include "coro_frame_access.h"
+#include "coro_discriminated_prefix.h"
 #include "coro_initialized_prefix.h"
 #include "coro_predicate_analysis.h"
 #include "coro_semantic_graph.h"
@@ -31,7 +32,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-namespace {
+namespace coro_alloca_scope_detail {
 
 struct AllocaUseRegion {
     bool valid{true};
@@ -1430,6 +1431,7 @@ make_guarded_transfer_events(
 CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     Function *function,
     const CoroAllocaScopeOptions &options) noexcept {
+    using namespace detail::coro_alloca_scope_detail;
     CoroAllocaScopeInfo info;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -1444,9 +1446,9 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     info.semantic_block_count = graph.block_count();
     info.semantic_edge_count = graph.edge_count();
     detail::CoroPredicateAnalysis predicates{graph};
-    detail::ReferenceArgumentEffectAnalysis reference_effects;
+    detail::coro_alloca_scope_detail::ReferenceArgumentEffectAnalysis reference_effects;
     auto instruction_locations =
-        detail::make_instruction_locations(definition, graph);
+        detail::coro_alloca_scope_detail::make_instruction_locations(definition, graph);
     const auto dump_scope_rejections = []() noexcept {
         if (auto value = std::getenv(
                 "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
@@ -1481,7 +1483,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     auto placement_ms = 0.0;
     auto proof_ms = 0.0;
     auto mutation_ms = 0.0;
-    detail::LifetimeProofTimings proof_timings;
+    detail::coro_alloca_scope_detail::LifetimeProofTimings proof_timings;
 
     // Reuse the same type-shaped May/Must partition as coroutine liveness.
     // The definite-initialization proof and the eventual frame transfer must
@@ -1506,11 +1508,10 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             }
         }
     }
-
     for (auto *alloca : allocas) {
         ++info.scanned_local_alloca_count;
         auto phase_begin = profile_begin();
-        auto region = detail::collect_alloca_use_region(
+        auto region = detail::coro_alloca_scope_detail::collect_alloca_use_region(
             alloca, definition, graph);
         collect_region_ms += profile_elapsed_ms(phase_begin);
         if (!region.valid) {
@@ -1525,7 +1526,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
 
         phase_begin = profile_begin();
         auto first_definition =
-            detail::plan_first_definition_delay(
+            detail::coro_alloca_scope_detail::plan_first_definition_delay(
                 alloca, region, graph, instruction_locations,
                 options.verify_instruction_order,
                 info.instruction_order_query_count,
@@ -1534,7 +1535,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         if (first_definition.definition != nullptr) {
             auto *source = alloca->parent_block();
             phase_begin = profile_begin();
-            detail::apply_first_definition_plan(
+            detail::coro_alloca_scope_detail::apply_first_definition_plan(
                 alloca, first_definition);
             mutation_ms += profile_elapsed_ms(phase_begin);
             ++info.contracted_alloca_count;
@@ -1558,7 +1559,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             ++info.rejected_non_dominating_alloca_count;
             continue;
         }
-        auto insertion = detail::find_latest_insertion_point(
+        auto insertion = find_latest_insertion_point(
             target, alloca, region.users,
             instruction_locations,
             options.verify_instruction_order,
@@ -1582,7 +1583,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                                     luisa::span<const size_t>{
                                         atom_iter->second};
             phase_begin = profile_begin();
-            auto proof = detail::prove_fresh_lifetime(
+            auto proof = prove_fresh_lifetime(
                 target, insertion.instruction, region, graph,
                 frame_domain, predicates, reference_effects,
                 instruction_locations,
@@ -1614,6 +1615,40 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                     ++info.initialized_prefix_proof_count;
                 } else if (prefix_proof.failing_read != nullptr) {
                     proof.failing_read = prefix_proof.failing_read;
+                }
+            }
+            if (!proof.succeeded) {
+                phase_begin = profile_begin();
+                // Earlier alloca contractions may move another local's
+                // first defining store. A discriminated counted-array proof
+                // observes such stores (not merely this alloca's own uses),
+                // so an instruction-location snapshot created at pass entry
+                // would be stale here. Build the candidate analysis from the
+                // current XIR after all preceding mutations; it is immutable
+                // for the duration of prove().
+                detail::CoroDiscriminatedPrefixAnalysis
+                    discriminated_prefixes{definition, graph};
+                auto discriminated_proof =
+                    discriminated_prefixes.prove(
+                        alloca, target, insertion.instruction);
+                proof_ms += profile_elapsed_ms(phase_begin);
+                info.discriminated_prefix_candidate_count +=
+                    discriminated_proof.candidate_count;
+                info.discriminated_prefix_rejected_missing_publication_count +=
+                    discriminated_proof.rejected_missing_publication_count;
+                info.discriminated_prefix_block_evaluation_count +=
+                    discriminated_proof.block_evaluation_count;
+                if (discriminated_proof.succeeded) {
+                    proof.succeeded = true;
+                    proof.guarded = false;
+                    proof.failing_read = nullptr;
+                    target = discriminated_proof.placement_block;
+                    insertion.instruction =
+                        discriminated_proof.placement_instruction;
+                    ++info.discriminated_prefix_proof_count;
+                } else if (discriminated_proof.failing_read != nullptr) {
+                    proof.failing_read =
+                        discriminated_proof.failing_read;
                 }
             }
             if (!proof.succeeded) {
@@ -1674,6 +1709,34 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         } else {
             ++info.cross_block_contraction_count;
         }
+    }
+
+    // `store local, undef` anchors a fresh lexical lifetime for the analysis
+    // above; it is not a required device write. Once final alloca placement
+    // records that boundary, leaving the previous physical bits untouched is
+    // one valid refinement of the arbitrary value. Erase the marker here so
+    // aggregate seeds can never turn into zero-fill loops in a direct backend.
+    // This scan deliberately happens after every candidate proof: removing
+    // instructions earlier would invalidate the immutable location snapshot.
+    luisa::vector<StoreInst *> undefined_lifetime_seeds;
+    for (auto *block : definition->basic_blocks()) {
+        for (auto *instruction : block->instructions()) {
+            if (!instruction->isa<StoreInst>()) { continue; }
+            auto *store = static_cast<StoreInst *>(instruction);
+            auto *destination = store->variable();
+            if (destination != nullptr &&
+                destination->isa<AllocaInst>() &&
+                static_cast<AllocaInst *>(destination)->is_local() &&
+                store->value() != nullptr &&
+                store->value()->derived_value_tag() ==
+                    DerivedValueTag::UNDEFINED) {
+                undefined_lifetime_seeds.emplace_back(store);
+            }
+        }
+    }
+    for (auto *seed : undefined_lifetime_seeds) {
+        static_cast<void>(seed->remove_self());
+        ++info.removed_undefined_lifetime_seed_count;
     }
     if (profile_compilation) {
         LUISA_INFO(

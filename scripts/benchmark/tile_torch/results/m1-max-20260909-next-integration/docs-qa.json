@@ -1,0 +1,82 @@
+{
+  "passed": true,
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "next-integration-keeps-performance-qualification-separate",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "Both complete timing cohorts are excluded",
+        "79 XIR/SIMD CTests",
+        "test-only overlay"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/next-integration-keeps-performance-qualification-separate-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/next-integration-keeps-performance-qualification-separate-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "not yet a measured performance",
+        "two contended native replay attempts"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/results-by-route-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/results-by-route-1280-full.png"
+    },
+    {
+      "file": "source/performance/validation.html",
+      "id": "compiler-and-backend-validation-archive",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "historical evidence",
+        "Metal world-shader code generation regressions",
+        "Shared switch bodies"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/compiler-and-backend-validation-archive-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/compiler-and-backend-validation-archive-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "next-integration-keeps-performance-qualification-separate",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "Both complete timing cohorts are excluded",
+        "79 XIR/SIMD CTests",
+        "test-only overlay"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/next-integration-keeps-performance-qualification-separate-390.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/next-integration-keeps-performance-qualification-separate-390-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "not yet a measured performance",
+        "two contended native replay attempts"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/results-by-route-390.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/results-by-route-390-full.png"
+    },
+    {
+      "file": "source/performance/validation.html",
+      "id": "compiler-and-backend-validation-archive",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "historical evidence",
+        "Metal world-shader code generation regressions",
+        "Shared switch bodies"
+      ],
+      "screenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/compiler-and-backend-validation-archive-390.png",
+      "fullScreenshot": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/compiler-and-backend-validation-archive-390-full.png"
+    }
+  ]
+}

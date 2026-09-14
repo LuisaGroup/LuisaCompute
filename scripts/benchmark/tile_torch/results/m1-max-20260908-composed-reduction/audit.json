@@ -1,0 +1,1864 @@
+{
+  "verdict": "share_with_caveats",
+  "rows": 172,
+  "limitations": [
+    "Configurations were not interleaved; cross-configuration deltas are descriptive, not paired trials.",
+    "Initial pilot also changes input storage and automatic width; it does not isolate collectives.",
+    "QK reduce is a benchmark-only decomposition probe, not a production planner change.",
+    "GPU controls include command-buffer gaps; compute-pass probes are instrumented, not per-dispatch hardware counters.",
+    "Full-output FP64/guard checks are execution receipts; temporary tensors were removed by the driver.",
+    "Artifact stability is the driver's before/after receipt; old executables are not archived."
+  ],
+  "summaries": {
+    "off-0": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 382.7705625,
+              "torch": 45.583455160868176
+            },
+            "paired_native_over_torch": 8.406181928371792,
+            "min_ratio": 8.134413137088886,
+            "max_ratio": 8.677950719654698,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 637.0205000000001,
+              "torch": 319.375
+            },
+            "paired_native_over_torch": 2.0060622440915,
+            "min_ratio": 1.8339023151640754,
+            "max_ratio": 2.178222173018925,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 375.4734458989583,
+              "torch": 38.64160316879861
+            },
+            "paired_native_over_torch": 9.735686514391942,
+            "min_ratio": 9.308332942636248,
+            "max_ratio": 10.163040086147635,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 382.270896807,
+              "torch": 54.312520660459995
+            },
+            "paired_native_over_torch": 7.0594922061665475,
+            "min_ratio": 6.6741788788313094,
+            "max_ratio": 7.444805533501786,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 383.00784681372545,
+              "torch": 46.9611328125
+            },
+            "paired_native_over_torch": 8.158023553883364,
+            "min_ratio": 8.020644836117713,
+            "max_ratio": 8.295402271649014,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 382.22900000000004,
+              "torch": 57.3545
+            },
+            "paired_native_over_torch": 6.664764973413279,
+            "min_ratio": 6.60702173311185,
+            "max_ratio": 6.722508213714708,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "on-64": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 435.755880435,
+              "torch": 44.52234636527186
+            },
+            "paired_native_over_torch": 9.789621821771428,
+            "min_ratio": 9.571675784256962,
+            "max_ratio": 10.007567859285894,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 699.542,
+              "torch": 363.45799999999997
+            },
+            "paired_native_over_torch": 1.9398036981850062,
+            "min_ratio": 1.8073899021626936,
+            "max_ratio": 2.072217494207319,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 425.96829640108695,
+              "torch": 37.610351682815235
+            },
+            "paired_native_over_torch": 11.339495552880573,
+            "min_ratio": 11.0056603811605,
+            "max_ratio": 11.673330724600646,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 427.520892117,
+              "torch": 55.2500132471323
+            },
+            "paired_native_over_torch": 7.7475528318863125,
+            "min_ratio": 7.481802616651494,
+            "max_ratio": 8.01330304712113,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 432.2653804347826,
+              "torch": 46.108695312500004
+            },
+            "paired_native_over_torch": 9.390603131039477,
+            "min_ratio": 9.061230633182094,
+            "max_ratio": 9.71997562889686,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 427.60400000000004,
+              "torch": 57.229
+            },
+            "paired_native_over_torch": 7.471844405932065,
+            "min_ratio": 7.460167897450189,
+            "max_ratio": 7.4835209144139405,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "on-0": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 430.1879565215,
+              "torch": 45.14677453703703
+            },
+            "paired_native_over_torch": 9.530182525065502,
+            "min_ratio": 9.40213907994846,
+            "max_ratio": 9.658225970182544,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 688.0830000000001,
+              "torch": 347.396
+            },
+            "paired_native_over_torch": 1.98250536553264,
+            "min_ratio": 1.9380005752466922,
+            "max_ratio": 2.0270101558185876,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 423.20063474347825,
+              "torch": 34.30338529142318
+            },
+            "paired_native_over_torch": 12.438731421514024,
+            "min_ratio": 11.310663277589711,
+            "max_ratio": 13.56679956543834,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 435.7500001785,
+              "torch": 44.93753658607602
+            },
+            "paired_native_over_torch": 9.82285887416674,
+            "min_ratio": 8.645711945702734,
+            "max_ratio": 11.00000580263075,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 430.10184782608695,
+              "torch": 41.830445312500004
+            },
+            "paired_native_over_torch": 10.547998458601874,
+            "min_ratio": 8.863284860204265,
+            "max_ratio": 12.232712056999482,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 434.6245,
+              "torch": 53.2085
+            },
+            "paired_native_over_torch": 8.22302624554777,
+            "min_ratio": 7.502899563318778,
+            "max_ratio": 8.943152927776762,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "off-64": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 500.9960384615,
+              "torch": 45.38856320739938
+            },
+            "paired_native_over_torch": 11.038452692152505,
+            "min_ratio": 10.946319302961575,
+            "max_ratio": 11.130586081343436,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 753.625,
+              "torch": 337.8125
+            },
+            "paired_native_over_torch": 2.235541622508235,
+            "min_ratio": 2.0993579192346554,
+            "max_ratio": 2.371725325781815,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 494.6274982351005,
+              "torch": 36.01822936616372
+            },
+            "paired_native_over_torch": 13.75240576630845,
+            "min_ratio": 13.196432328554868,
+            "max_ratio": 14.308379204062032,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 499.208283145,
+              "torch": 57.12499842047691
+            },
+            "paired_native_over_torch": 8.738511050053468,
+            "min_ratio": 8.688461388435863,
+            "max_ratio": 8.788560711671073,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 500.08096153846157,
+              "torch": 44.004835937500005
+            },
+            "paired_native_over_torch": 11.395888932866464,
+            "min_ratio": 10.817124922837431,
+            "max_ratio": 11.974652942895498,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 498.47900000000004,
+              "torch": 60.397
+            },
+            "paired_native_over_torch": 8.253357442045964,
+            "min_ratio": 8.249119133094004,
+            "max_ratio": 8.257595750997922,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "on-32": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 32,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 537.543802928,
+              "torch": 45.59631286366373
+            },
+            "paired_native_over_torch": 11.813681310713795,
+            "min_ratio": 11.264884647052385,
+            "max_ratio": 12.362477974375205,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 799.667,
+              "torch": 321.72950000000003
+            },
+            "paired_native_over_torch": 2.4992167890295054,
+            "min_ratio": 2.3142396582759837,
+            "max_ratio": 2.684193919783027,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 529.059699936937,
+              "torch": 36.86035233840812
+            },
+            "paired_native_over_torch": 14.39312938625452,
+            "min_ratio": 13.606547968769089,
+            "max_ratio": 15.179710803739951,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 532.979145646,
+              "torch": 55.27079338207841
+            },
+            "paired_native_over_torch": 9.650700052665426,
+            "min_ratio": 9.364919032247943,
+            "max_ratio": 9.93648107308291,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 532.6529804804804,
+              "torch": 46.359468750000005
+            },
+            "paired_native_over_torch": 11.489632228594008,
+            "min_ratio": 11.488068731853499,
+            "max_ratio": 11.491195725334515,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 532.5835,
+              "torch": 65.187
+            },
+            "paired_native_over_torch": 8.231892913850235,
+            "min_ratio": 7.507660777385159,
+            "max_ratio": 8.95612505031531,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "on-128": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 128,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 433.2818210145,
+              "torch": 44.82047152280725
+            },
+            "paired_native_over_torch": 9.66831194220078,
+            "min_ratio": 9.469116628517803,
+            "max_ratio": 9.867507255883757,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 705.646,
+              "torch": 377.97900000000004
+            },
+            "paired_native_over_torch": 1.8664826308577411,
+            "min_ratio": 1.8543244353182753,
+            "max_ratio": 1.878640826397207,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 426.9947661459662,
+              "torch": 35.89941570680821
+            },
+            "paired_native_over_torch": 11.900014922399087,
+            "min_ratio": 11.71865091148415,
+            "max_ratio": 12.081378933314024,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 437.729235273,
+              "torch": 50.520815420895815
+            },
+            "paired_native_over_torch": 8.719104965754285,
+            "min_ratio": 8.095537272709858,
+            "max_ratio": 9.342672658798712,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 434.2325485507247,
+              "torch": 44.587859375
+            },
+            "paired_native_over_torch": 9.740047740191887,
+            "min_ratio": 9.514597605652222,
+            "max_ratio": 9.965497874731552,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 434.7495,
+              "torch": 55.896
+            },
+            "paired_native_over_torch": 7.777432573175544,
+            "min_ratio": 7.659725712644504,
+            "max_ratio": 7.895139433706582,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "on-256": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 256,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 431.9236757105,
+              "torch": 44.44435660548942
+            },
+            "paired_native_over_torch": 9.720426995108262,
+            "min_ratio": 9.565971026905347,
+            "max_ratio": 9.874882963311176,
+            "slower_rounds": 2
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 672.896,
+              "torch": 346.97950000000003
+            },
+            "paired_native_over_torch": 1.9491299767662285,
+            "min_ratio": 1.7632276218474054,
+            "max_ratio": 2.1350323316850512,
+            "slower_rounds": 2
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 425.206599137416,
+              "torch": 39.0296227124054
+            },
+            "paired_native_over_torch": 10.89488833242369,
+            "min_ratio": 10.802991464518685,
+            "max_ratio": 10.986785200328697,
+            "slower_rounds": 2
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 430.70828542099997,
+              "torch": 57.62506043538451
+            },
+            "paired_native_over_torch": 7.474313738650169,
+            "min_ratio": 7.470276683366724,
+            "max_ratio": 7.478350793933615,
+            "slower_rounds": 2
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 432.72058320413436,
+              "torch": 44.4452578125
+            },
+            "paired_native_over_torch": 9.78788764994638,
+            "min_ratio": 9.039173389099888,
+            "max_ratio": 10.536601910792875,
+            "slower_rounds": 2
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 430.47950000000003,
+              "torch": 58.998999999999995
+            },
+            "paired_native_over_torch": 7.304835871123718,
+            "min_ratio": 7.044652384470163,
+            "max_ratio": 7.565019357777272,
+            "slower_rounds": 2
+          }
+        }
+      }
+    ],
+    "views-off-64": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 450.55460606099996,
+              "torch": 43.360680983333076
+            },
+            "paired_native_over_torch": 10.3834954515631,
+            "min_ratio": 10.30816605042271,
+            "max_ratio": 10.47251086804992,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 702.875,
+              "torch": 316.75
+            },
+            "paired_native_over_torch": 2.2189952039505343,
+            "min_ratio": 1.920251836306401,
+            "max_ratio": 2.2949112698189627,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 444.3154293765625,
+              "torch": 37.953126593492925
+            },
+            "paired_native_over_torch": 11.717266885149968,
+            "min_ratio": 10.813232129058074,
+            "max_ratio": 13.779185815525251,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 453.583372291,
+              "torch": 71.85421418398619
+            },
+            "paired_native_over_torch": 6.408498190492351,
+            "min_ratio": 5.842940896888599,
+            "max_ratio": 8.275304250941295,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 448.2792734375,
+              "torch": 44.4046484375
+            },
+            "paired_native_over_torch": 10.10171588003201,
+            "min_ratio": 8.407935937640232,
+            "max_ratio": 10.183213263189499,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 452.771,
+              "torch": 78.334
+            },
+            "paired_native_over_torch": 5.870263694477513,
+            "min_ratio": 5.249726203233746,
+            "max_ratio": 7.72789431187617,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1323.0306866,
+              "torch": 150.11816059119832
+            },
+            "paired_native_over_torch": 8.795267916750015,
+            "min_ratio": 8.674997734139792,
+            "max_ratio": 9.133455858925105,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1587.167,
+              "torch": 572.25
+            },
+            "paired_native_over_torch": 2.805733290272456,
+            "min_ratio": 2.2226469979534116,
+            "max_ratio": 2.869115016685206,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1297.8793358051435,
+              "torch": 136.3125029456569
+            },
+            "paired_native_over_torch": 9.514742306051843,
+            "min_ratio": 9.466762922317361,
+            "max_ratio": 9.588600229938804,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1306.97916029,
+              "torch": 167.6041865721345
+            },
+            "paired_native_over_torch": 7.869118068415269,
+            "min_ratio": 7.683536874174321,
+            "max_ratio": 8.295780110469245,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1302.9589294258374,
+              "torch": 167.9736328125
+            },
+            "paired_native_over_torch": 7.781288607146408,
+            "min_ratio": 7.718823206879636,
+            "max_ratio": 7.840102002930606,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1309.4375,
+              "torch": 170.209
+            },
+            "paired_native_over_torch": 7.729093266782758,
+            "min_ratio": 7.560480933425806,
+            "max_ratio": 7.773763251409218,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1345.822065655,
+              "torch": 82.41648125149666
+            },
+            "paired_native_over_torch": 16.36121075083465,
+            "min_ratio": 15.724812603950179,
+            "max_ratio": 16.39083600887614,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1684.5625,
+              "torch": 377.70799999999997
+            },
+            "paired_native_over_torch": 4.391605842760734,
+            "min_ratio": 3.912047169811321,
+            "max_ratio": 4.73165832455216,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1328.4365546,
+              "torch": 75.66503973066574
+            },
+            "paired_native_over_torch": 17.55700076236043,
+            "min_ratio": 17.45839331679087,
+            "max_ratio": 17.67863298632635,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1420.062500985,
+              "torch": 79.08331463113427
+            },
+            "paired_native_over_torch": 17.80179020023251,
+            "min_ratio": 17.064749513298853,
+            "max_ratio": 19.130270186644015,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1335.041659090909,
+              "torch": 80.422734375
+            },
+            "paired_native_over_torch": 16.576093841007143,
+            "min_ratio": 16.39103263757333,
+            "max_ratio": 16.701856501590015,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1414.542,
+              "torch": 85.667
+            },
+            "paired_native_over_torch": 16.579067203056354,
+            "min_ratio": 15.221563676322743,
+            "max_ratio": 17.006640472415615,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ],
+    "views-on-64": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 426.30055147049995,
+              "torch": 43.080792456068096
+            },
+            "paired_native_over_torch": 9.963911488765216,
+            "min_ratio": 9.645867083389131,
+            "max_ratio": 10.105049230890579,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 694.8335,
+              "torch": 333.7505
+            },
+            "paired_native_over_torch": 2.047870786047371,
+            "min_ratio": 1.9562018220042046,
+            "max_ratio": 2.2389040893520495,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 421.27701817734373,
+              "torch": 38.388670873246156
+            },
+            "paired_native_over_torch": 11.1095839576939,
+            "min_ratio": 10.515597633389916,
+            "max_ratio": 11.37571933804694,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 433.4374680185,
+              "torch": 75.9166432544589
+            },
+            "paired_native_over_torch": 5.733959433415725,
+            "min_ratio": 5.609418468896768,
+            "max_ratio": 5.883443154321125,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 427.774390625,
+              "torch": 47.9068828125
+            },
+            "paired_native_over_torch": 8.920965148892087,
+            "min_ratio": 8.492373204781803,
+            "max_ratio": 9.168415215092695,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 433.4585,
+              "torch": 85.646
+            },
+            "paired_native_over_torch": 5.031422811082434,
+            "min_ratio": 4.94814546852214,
+            "max_ratio": 5.284433377755956,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1281.01973684,
+              "torch": 150.84633224656582
+            },
+            "paired_native_over_torch": 8.484411596676033,
+            "min_ratio": 8.371034797341323,
+            "max_ratio": 8.547500003677053,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1555.188,
+              "torch": 604.3955000000001
+            },
+            "paired_native_over_torch": 2.5636197420412676,
+            "min_ratio": 2.5331274236932915,
+            "max_ratio": 2.5830636515578282,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1265.897409050801,
+              "torch": 135.99674184661126
+            },
+            "paired_native_over_torch": 9.295807752152573,
+            "min_ratio": 9.23322996506297,
+            "max_ratio": 9.338232811352897,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1265.77087212,
+              "torch": 161.9167160242796
+            },
+            "paired_native_over_torch": 7.8175159014869315,
+            "min_ratio": 7.751849746330096,
+            "max_ratio": 8.106194364519295,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1270.5163947368421,
+              "torch": 163.77534375
+            },
+            "paired_native_over_torch": 7.755073344567894,
+            "min_ratio": 7.683364894114121,
+            "max_ratio": 7.781381962938234,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1266.8960000000002,
+              "torch": 165.83249999999998
+            },
+            "paired_native_over_torch": 7.640564852125839,
+            "min_ratio": 7.480896493296444,
+            "max_ratio": 7.727791947201102,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1294.25876316,
+              "torch": 90.40370385894877
+            },
+            "paired_native_over_torch": 14.331250104170799,
+            "min_ratio": 13.540210920557584,
+            "max_ratio": 14.473420373421725,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1538.8539999999998,
+              "torch": 401.104
+            },
+            "paired_native_over_torch": 3.977399642865635,
+            "min_ratio": 3.406651760760201,
+            "max_ratio": 4.386892882818116,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1281.082238023684,
+              "torch": 76.14160222146893
+            },
+            "paired_native_over_torch": 16.8188379108422,
+            "min_ratio": 16.664435662078834,
+            "max_ratio": 17.075851747309557,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1402.87500108,
+              "torch": 80.83332795649767
+            },
+            "paired_native_over_torch": 17.44732982841969,
+            "min_ratio": 16.33233492629081,
+            "max_ratio": 18.878466670166876,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1295.8311578947369,
+              "torch": 81.0417109375
+            },
+            "paired_native_over_torch": 15.939651358210277,
+            "min_ratio": 15.788522924611634,
+            "max_ratio": 16.90507748641427,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1355.479,
+              "torch": 85.5215
+            },
+            "paired_native_over_torch": 16.078656456217658,
+            "min_ratio": 15.293652086873529,
+            "max_ratio": 17.700016287023896,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ],
+    "views-off-1024": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 547.9238087005,
+              "torch": 43.160389874353285
+            },
+            "paired_native_over_torch": 12.663254188576868,
+            "min_ratio": 12.378291522280803,
+            "max_ratio": 13.138923224852169,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 921.5205000000001,
+              "torch": 326.29200000000003
+            },
+            "paired_native_over_torch": 2.785866204007684,
+            "min_ratio": 2.613887829072873,
+            "max_ratio": 3.110042323970758,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 538.9153850798393,
+              "torch": 35.62695383152459
+            },
+            "paired_native_over_torch": 15.128776571777614,
+            "min_ratio": 13.835898819955771,
+            "max_ratio": 16.487163582241795,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 595.6458626315,
+              "torch": 64.6458356641233
+            },
+            "paired_native_over_torch": 9.161071943006789,
+            "min_ratio": 7.846359366045722,
+            "max_ratio": 11.047326222339008,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 583.1775461215933,
+              "torch": 46.321921875
+            },
+            "paired_native_over_torch": 12.698369973566457,
+            "min_ratio": 11.00141859244898,
+            "max_ratio": 14.69546465259851,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 583.209,
+              "torch": 71.979
+            },
+            "paired_native_over_torch": 8.397780508555147,
+            "min_ratio": 6.835891907094475,
+            "max_ratio": 10.233417266820448,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1021.42129064,
+              "torch": 155.56156703048146
+            },
+            "paired_native_over_torch": 6.555086843579513,
+            "min_ratio": 6.508110912241547,
+            "max_ratio": 6.677189552847576,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1291.3545,
+              "torch": 649.8125
+            },
+            "paired_native_over_torch": 2.000423328523891,
+            "min_ratio": 1.9058150954191155,
+            "max_ratio": 2.08007209519403,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1004.0943139363917,
+              "torch": 137.67545624432387
+            },
+            "paired_native_over_torch": 7.288160084716557,
+            "min_ratio": 7.215125985717683,
+            "max_ratio": 7.328508050547102,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1006.2708170200001,
+              "torch": 167.24999295547605
+            },
+            "paired_native_over_torch": 6.014991360900068,
+            "min_ratio": 5.8853473077387335,
+            "max_ratio": 6.141248994159173,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1006.8527967980295,
+              "torch": 167.78799218749998
+            },
+            "paired_native_over_torch": 5.990448139018586,
+            "min_ratio": 5.978804030259089,
+            "max_ratio": 6.05808897561686,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1002.4165,
+              "torch": 167.333
+            },
+            "paired_native_over_torch": 5.9715341996722655,
+            "min_ratio": 5.797165861883079,
+            "max_ratio": 6.098050037907506,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1437.72902619,
+              "torch": 91.17288928832119
+            },
+            "paired_native_over_torch": 15.859154508196042,
+            "min_ratio": 15.187297361805674,
+            "max_ratio": 17.349423201111524,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1769.6665,
+              "torch": 387.1875
+            },
+            "paired_native_over_torch": 4.691316037636664,
+            "min_ratio": 4.371321227301189,
+            "max_ratio": 4.889013861551119,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1418.44166501,
+              "torch": 76.00488243042491
+            },
+            "paired_native_over_torch": 18.573674087208808,
+            "min_ratio": 18.45424226482302,
+            "max_ratio": 18.698223174916563,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1526.458305305,
+              "torch": 80.91668132692575
+            },
+            "paired_native_over_torch": 18.524844389633362,
+            "min_ratio": 18.193770609178873,
+            "max_ratio": 19.198435090443265,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1462.05835,
+              "torch": 81.98671093749999
+            },
+            "paired_native_over_torch": 17.921392891055515,
+            "min_ratio": 17.37273896022928,
+            "max_ratio": 17.983599064108205,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1547.9585,
+              "torch": 85.1655
+            },
+            "paired_native_over_torch": 18.078453462464648,
+            "min_ratio": 17.6398840314703,
+            "max_ratio": 19.067196335603906,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ],
+    "views-on-1024": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 500.15361073450003,
+              "torch": 43.230522854384915
+            },
+            "paired_native_over_torch": 11.582994220009223,
+            "min_ratio": 11.414263637478246,
+            "max_ratio": 11.70975362636003,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 750.8335,
+              "torch": 338.896
+            },
+            "paired_native_over_torch": 2.215527278502723,
+            "min_ratio": 2.0019744738681586,
+            "max_ratio": 2.7405420016218,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 492.85008193838985,
+              "torch": 36.62988274300005
+            },
+            "paired_native_over_torch": 13.502587921543338,
+            "min_ratio": 11.61257577032734,
+            "max_ratio": 15.241534116573682,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 497.54168139800004,
+              "torch": 64.70829248428345
+            },
+            "paired_native_over_torch": 7.870999741970682,
+            "min_ratio": 6.106525382822191,
+            "max_ratio": 9.381278050397254,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 496.8486759887006,
+              "torch": 47.3233203125
+            },
+            "paired_native_over_torch": 10.547346147185893,
+            "min_ratio": 8.710644714054995,
+            "max_ratio": 13.280935474760357,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 500.5835,
+              "torch": 78.0415
+            },
+            "paired_native_over_torch": 6.468674366012113,
+            "min_ratio": 5.7412423521988485,
+            "max_ratio": 8.461842868351926,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 973.4868166670001,
+              "torch": 155.46136556280027
+            },
+            "paired_native_over_torch": 6.282958994658579,
+            "min_ratio": 6.235031977285704,
+            "max_ratio": 6.415891370606778,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1248.6875,
+              "torch": 631.562
+            },
+            "paired_native_over_torch": 1.975766557855876,
+            "min_ratio": 1.8834427218006708,
+            "max_ratio": 2.0691899937978087,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 958.35485845,
+              "torch": 138.22525852447143
+            },
+            "paired_native_over_torch": 6.947096770763578,
+            "min_ratio": 6.920639306086614,
+            "max_ratio": 6.959545532349555,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 960.6874664315001,
+              "torch": 165.20835924893618
+            },
+            "paired_native_over_torch": 5.8155756354400605,
+            "min_ratio": 5.748890640757463,
+            "max_ratio": 6.021754860331253,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 961.2521166666667,
+              "torch": 167.60290625
+            },
+            "paired_native_over_torch": 5.729638285870369,
+            "min_ratio": 5.717692310081621,
+            "max_ratio": 5.752914033982886,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 960.2915,
+              "torch": 167.3545
+            },
+            "paired_native_over_torch": 5.714954418018693,
+            "min_ratio": 5.610979809183134,
+            "max_ratio": 5.8178883754849275,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1353.16484524,
+              "torch": 82.91975741026022
+            },
+            "paired_native_over_torch": 16.299796921204155,
+            "min_ratio": 15.163322846478975,
+            "max_ratio": 16.659492445040847,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1609.625,
+              "torch": 432.1245
+            },
+            "paired_native_over_torch": 3.7467580447211084,
+            "min_ratio": 3.3310367800253653,
+            "max_ratio": 3.941419376328706,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1328.624168684127,
+              "torch": 76.76529912714614
+            },
+            "paired_native_over_torch": 17.33797981193141,
+            "min_ratio": 16.994337951141055,
+            "max_ratio": 17.61054722620344,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1333.937572785,
+              "torch": 80.85416629910469
+            },
+            "paired_native_over_torch": 16.499064819866465,
+            "min_ratio": 16.29697742227362,
+            "max_ratio": 17.938644068793344,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1331.4594166666666,
+              "torch": 81.5625
+            },
+            "paired_native_over_torch": 16.32917179266402,
+            "min_ratio": 15.677824194974608,
+            "max_ratio": 16.694209367863802,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1338.9585,
+              "torch": 84.0215
+            },
+            "paired_native_over_torch": 16.03949905312909,
+            "min_ratio": 15.095368849163037,
+            "max_ratio": 16.592645162816552,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ],
+    "qk-reduce-64": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 726.298530488,
+              "torch": 43.46177257176598
+            },
+            "paired_native_over_torch": 16.711444610571313,
+            "min_ratio": 16.434814269967067,
+            "max_ratio": 17.20666516076304,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 989.979,
+              "torch": 351.41700000000003
+            },
+            "paired_native_over_torch": 2.8260477657268237,
+            "min_ratio": 2.6537619683995755,
+            "max_ratio": 2.9506910720956294,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 718.6742888463414,
+              "torch": 39.11328167305328
+            },
+            "paired_native_over_torch": 18.423610167445645,
+            "min_ratio": 17.684707386831025,
+            "max_ratio": 21.47000570699281,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 768.854166381,
+              "torch": 76.87491597607732
+            },
+            "paired_native_over_torch": 9.794325822368183,
+            "min_ratio": 9.661137514075056,
+            "max_ratio": 13.906243347681395,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 725.4583902439024,
+              "torch": 47.780570312500004
+            },
+            "paired_native_over_torch": 15.184736655378833,
+            "min_ratio": 14.451764715928203,
+            "max_ratio": 15.773823488648073,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 775.146,
+              "torch": 78.563
+            },
+            "paired_native_over_torch": 9.834731153878858,
+            "min_ratio": 8.93480625504392,
+            "max_ratio": 13.0703498252477,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 64,
+        "complete": false,
+        "metrics": {},
+        "failure": "Torch round 3 counter validation failed; no complete native/Torch ratio",
+        "native_only_us": {
+          "e2e_throughput": 1518.54845625,
+          "e2e_latency": 2005.75,
+          "gpu_throughput": 1535.0669843131946,
+          "gpu_latency": 1595.458365045,
+          "compute_pass_throughput": 1533.9308684210528,
+          "compute_pass_latency": 1504.6664999999998
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 64,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 1936.071984615,
+              "torch": 118.24444986263737
+            },
+            "paired_native_over_torch": 16.589177194248734,
+            "min_ratio": 15.99117501282198,
+            "max_ratio": 16.95095643690671,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 2456.4795,
+              "torch": 482.521
+            },
+            "paired_native_over_torch": 5.147128069178779,
+            "min_ratio": 3.705793991416309,
+            "max_ratio": 8.070530496796936,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 1924.5180573,
+              "torch": 108.91275996982586
+            },
+            "paired_native_over_torch": 17.64921907363337,
+            "min_ratio": 16.88847947485952,
+            "max_ratio": 18.43255661174967,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 1995.229162275,
+              "torch": 157.812493853271
+            },
+            "paired_native_over_torch": 14.490532766997834,
+            "min_ratio": 8.17856997667773,
+            "max_ratio": 22.340181163920725,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 1931.6699897435897,
+              "torch": 106.366234375
+            },
+            "paired_native_over_torch": 17.924896184177204,
+            "min_ratio": 16.93812734370036,
+            "max_ratio": 18.98102555973759,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 1998.812,
+              "torch": 83.5
+            },
+            "paired_native_over_torch": 23.3976470556126,
+            "min_ratio": 22.429923508907823,
+            "max_ratio": 24.267611782825405,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ],
+    "qk-reduce-1024": [
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 370.012820513,
+              "torch": 43.69292404655471
+            },
+            "paired_native_over_torch": 8.463761719013004,
+            "min_ratio": 8.332866265651745,
+            "max_ratio": 8.656849223007914,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 629.1665,
+              "torch": 324.75
+            },
+            "paired_native_over_torch": 1.9284627884656156,
+            "min_ratio": 1.8071322828875045,
+            "max_ratio": 2.0990643936544897,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 363.98502652499997,
+              "torch": 39.37174551538192
+            },
+            "paired_native_over_torch": 9.2453280891337,
+            "min_ratio": 8.659100151313416,
+            "max_ratio": 10.232396784319869,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 371.770816855,
+              "torch": 77.10413774475455
+            },
+            "paired_native_over_torch": 4.821362191529058,
+            "min_ratio": 4.564906375526556,
+            "max_ratio": 4.999447757719275,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 372.40008593749997,
+              "torch": 50.495703125
+            },
+            "paired_native_over_torch": 7.381198419592131,
+            "min_ratio": 6.628493751681873,
+            "max_ratio": 8.297035252365221,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 371.89599999999996,
+              "torch": 84.937
+            },
+            "paired_native_over_torch": 4.390978085268147,
+            "min_ratio": 4.320890566565307,
+            "max_ratio": 5.093936101445488,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          8,
+          2,
+          1,
+          2053,
+          80,
+          96
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 527.9501607145,
+              "torch": 150.95564067576348
+            },
+            "paired_native_over_torch": 3.4986186771089574,
+            "min_ratio": 3.4545515206584594,
+            "max_ratio": 3.533426750977093,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 783.7915,
+              "torch": 596.688
+            },
+            "paired_native_over_torch": 1.316672627333419,
+            "min_ratio": 1.199696694793818,
+            "max_ratio": 1.3806096136921662,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 519.9869805696428,
+              "torch": 136.9241535940091
+            },
+            "paired_native_over_torch": 3.797640600694963,
+            "min_ratio": 3.783586719428889,
+            "max_ratio": 3.8080533179164235,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 526.8958630039999,
+              "torch": 161.416654009372
+            },
+            "paired_native_over_torch": 3.2663522197429558,
+            "min_ratio": 3.109322022918675,
+            "max_ratio": 3.372731393062917,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 526.9493660714286,
+              "torch": 167.2936171875
+            },
+            "paired_native_over_torch": 3.150505560787776,
+            "min_ratio": 3.1357434627931124,
+            "max_ratio": 3.170780206877713,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 527.104,
+              "torch": 169.417
+            },
+            "paired_native_over_torch": 3.1274379438441064,
+            "min_ratio": 3.0394423253371494,
+            "max_ratio": 3.1760023620434086,
+            "slower_rounds": 4
+          }
+        }
+      },
+      {
+        "shape": [
+          1,
+          16,
+          4,
+          1,
+          4096,
+          128,
+          128
+        ],
+        "threads": 1024,
+        "complete": true,
+        "metrics": {
+          "e2e_throughput": {
+            "median_us": {
+              "native": 745.0333375,
+              "torch": 84.15776353115162
+            },
+            "paired_native_over_torch": 8.837065681505571,
+            "min_ratio": 8.385333411282236,
+            "max_ratio": 9.134926356042675,
+            "slower_rounds": 4
+          },
+          "e2e_latency": {
+            "median_us": {
+              "native": 1014.75,
+              "torch": 397.833
+            },
+            "paired_native_over_torch": 2.567784788777367,
+            "min_ratio": 2.5289491836058793,
+            "max_ratio": 2.6088939994585654,
+            "slower_rounds": 4
+          },
+          "gpu_throughput": {
+            "median_us": {
+              "native": 730.41562282,
+              "torch": 75.77083215437597
+            },
+            "paired_native_over_torch": 9.639731017004232,
+            "min_ratio": 9.494314904459818,
+            "max_ratio": 9.791921051239399,
+            "slower_rounds": 4
+          },
+          "gpu_latency": {
+            "median_us": {
+              "native": 750.5416870115,
+              "torch": 80.83332795649767
+            },
+            "paired_native_over_torch": 9.254662627471628,
+            "min_ratio": 8.944802817586162,
+            "max_ratio": 9.534830227150845,
+            "slower_rounds": 4
+          },
+          "compute_pass_throughput": {
+            "median_us": {
+              "native": 736.694825,
+              "torch": 80.7317421875
+            },
+            "paired_native_over_torch": 9.116972315070146,
+            "min_ratio": 9.09380107501785,
+            "max_ratio": 9.170410122624213,
+            "slower_rounds": 4
+          },
+          "compute_pass_latency": {
+            "median_us": {
+              "native": 734.937,
+              "torch": 84.2295
+            },
+            "paired_native_over_torch": 8.727016501345869,
+            "min_ratio": 8.578772783618751,
+            "max_ratio": 8.841690154475184,
+            "slower_rounds": 4
+          }
+        }
+      }
+    ]
+  },
+  "rejected_mutations": 6
+}

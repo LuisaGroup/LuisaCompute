@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "capture_outputs_re_read": 48,
+  "native_outputs_re_read": 72,
+  "off_on_bitwise_equal_cases": 24,
+  "previous_off_object_identical_cases": 24,
+  "rejected_output_mutations": 3,
+  "performance_conclusion": "None: smoke samples deliberately excluded due to concurrent builds/high load.",
+  "guard_caveat": "Guards and input immutability were checked at each invocation; ephemeral guard allocations are not retained for re-reading."
+}

@@ -198,11 +198,10 @@ void ScheduleEmitter::_coalesce_state_slots() {
             connect_live(live_after);
             auto live_before = transfer_edge(edge);
             connect_live(live_before);
-            // Assignments are semantically parallel but emitted in source
-            // order. A destination must therefore not reuse another copy's
-            // source slot: doing so could overwrite that source before its
-            // own assignment reads it. The matching destination/source pair
-            // remains a coalescing candidate and becomes an identity copy.
+            // Keep the conservative cross-copy interference policy. Sources
+            // are snapshotted before masked writes, including genuine PHI
+            // cycles; relaxing this coloring constraint is a separate change.
+            // Matching destination/source pairs remain identity candidates.
             for (auto destination_index = size_t{0u};
                  destination_index < edge.assignments->size();
                  destination_index++) {

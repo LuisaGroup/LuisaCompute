@@ -1,0 +1,1327 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-08T01:20:46.153844+00:00",
+    "backend": "metal",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "git_revision": "f5daf25e6098ea8ec1f8307c77810ec243c7dad4",
+    "torch_version": "2.14.0",
+    "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "rounds": 2,
+    "samples": 5,
+    "sample_ms": 20,
+    "warmup_ms": 100,
+    "requested_threads": 8,
+    "removed_environment": {},
+    "artifacts_sha256": {
+      "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_compiler.dylib": "f8cbc539e86c4cbcb716f6649a97e10f839d1102035b9c759b17da3d017e73e9",
+      "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_ffi.dylib": "81863ce0917fdc49729ae6be3555cf6c06b3351d33c49f293425cf318efa107c",
+      "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_runtime.dylib": "4b9879128fbd5c54f65e10c9687d9625835832092a4aaea3f8c4393253ce87bb",
+      "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_runtime_extra.dylib": "88960cbcf233a3fa555003a44b9dacaf243fb3464214c6c0a9313bee8f92b963",
+      "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_runtime_metal.dylib": "048749693f2c953a811b0c528da9acf1ad2077ec197276d68d4241f813d6f2a2",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_tirx": "c4776e516f37301fef74a5fc344bc0d8b5066419316abc467d564a222c530590",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so": "87111d1581dfcdc92685cf775964c70928cb3bdcd07d1a23eab7ab6b6929058f",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-xir.dylib": "0631c149e01ea6a6f74f8825447db7ade3e97f60fe1e5646ac2bca1304db3874",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+      "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+    },
+    "source_sha256": {
+      "src/tests/common/tile_llm_test_utils.h": "9c3221cc0d4bf201cd5f0d85091a859d4fa8e967b77d6993ae9ca088bfd04b5d",
+      "src/tests/common/tile_llm_benchmark.h": "5d55cc620ccdb04a7f2f3f91d95d8bafab05ed79780f8cf1cdf5bc00d808f565",
+      "scripts/benchmark/tile_torch/compare_llm.py": "4c94e29292e00bb43ee104fbfe1acc0b84d068025c1255b82a72c8c445ec6092",
+      "scripts/benchmark/tile_torch/run.py": "d3552ac3b6723caa5694bed3c287b4f9ef2ea617e944ec00787a46181bec2389"
+    },
+    "comparison": "FP32 same exported inputs; warmed E2E excludes compile/upload; GPU control uses uninstrumented command-buffer intervals, not isolated kernel time",
+    "baseline": null,
+    "reduction_tree": false,
+    "requested_group_threads": 0,
+    "selection": "fixed capture; source unordered-tree policy; recorded candidate/group constraints; no timing-based tuning",
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_tirx",
+        "llm",
+        "attention",
+        "1,8,2,1,2048,64,64",
+        "1",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ynvo0ffn/attention-1x8x2x1x2048x64x64-r0-native.f32"
+      ],
+      "source": "attention-1x8x2x1x2048x64x64-r0-native.metal",
+      "source_sha256": "08c7a5f518c9991615d989aa47e42746a9b23a1d377f9b7683eb8fcd375e375f",
+      "measurement": {
+        "implementation": "tile_tirx_metal",
+        "backend": "metal",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "attention",
+        "dimensions": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "reduction_tree": false,
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "disabled",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          32
+        ],
+        "input_shapes": [
+          [
+            1,
+            8,
+            1,
+            64
+          ],
+          [
+            1,
+            2,
+            2048,
+            64
+          ],
+          [
+            1,
+            2,
+            2048,
+            64
+          ]
+        ],
+        "output_shape": [
+          1,
+          8,
+          1,
+          64
+        ],
+        "fixture_ms": 5.593083,
+        "runtime_init_ms": 110.335583,
+        "compile_ms": 51.578375,
+        "allocation_upload_ms": 3.944833,
+        "cold_call_ms": 12.055541,
+        "warmup_ms": 102.539917,
+        "repetitions": 51,
+        "realization": "TIRx -> Metal source -> Luisa Runtime; 1024 threads/group; 1 group plans; direct-buffer ABI; fast_math=false; mpp=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 512,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.38578828116e-08
+        },
+        "throughput_us": [
+          383.134,
+          392.169117647,
+          382.205882353,
+          383.933823529,
+          381.842313725
+        ],
+        "latency_us": [
+          646.708,
+          624.75,
+          608.125,
+          619.25,
+          634.791
+        ],
+        "device_timing": {
+          "method": "metal_compute_pass_timestamps_v1",
+          "scope": "sum_of_compute_encoder_gpu_intervals",
+          "host_samples_instrumented": false,
+          "repetitions": 51,
+          "throughput": [
+            {
+              "compute_ns": 19550168,
+              "compute_span_ns": 20835583,
+              "calibration_cpu_ns": 22123208,
+              "calibration_gpu_ticks": 22123208,
+              "compute_passes": 51,
+              "command_buffer_ns": 20835625.0077,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 19513836,
+              "compute_span_ns": 20739791,
+              "calibration_cpu_ns": 21543875,
+              "calibration_gpu_ticks": 21543875,
+              "compute_passes": 51,
+              "command_buffer_ns": 20739833.3587,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 19495664,
+              "compute_span_ns": 20721250,
+              "calibration_cpu_ns": 21488125,
+              "calibration_gpu_ticks": 21488125,
+              "compute_passes": 51,
+              "command_buffer_ns": 20721333.3342,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 19520291,
+              "compute_span_ns": 20726292,
+              "calibration_cpu_ns": 21571167,
+              "calibration_gpu_ticks": 21571167,
+              "compute_passes": 51,
+              "command_buffer_ns": 20726374.9326,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 19505750,
+              "compute_span_ns": 20724667,
+              "calibration_cpu_ns": 21744542,
+              "calibration_gpu_ticks": 21744542,
+              "compute_passes": 51,
+              "command_buffer_ns": 20724833.3609,
+              "command_buffers": 2
+            }
+          ],
+          "latency": [
+            {
+              "compute_ns": 384875,
+              "compute_span_ns": 384875,
+              "calibration_cpu_ns": 973750,
+              "calibration_gpu_ticks": 973750,
+              "compute_passes": 1,
+              "command_buffer_ns": 385000.021197,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 382167,
+              "compute_span_ns": 382167,
+              "calibration_cpu_ns": 818208,
+              "calibration_gpu_ticks": 818208,
+              "compute_passes": 1,
+              "command_buffer_ns": 382166.588679,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 382959,
+              "compute_span_ns": 382959,
+              "calibration_cpu_ns": 882791,
+              "calibration_gpu_ticks": 882791,
+              "compute_passes": 1,
+              "command_buffer_ns": 383083.359338,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 382084,
+              "compute_span_ns": 382084,
+              "calibration_cpu_ns": 849708,
+              "calibration_gpu_ticks": 849708,
+              "compute_passes": 1,
+              "command_buffer_ns": 382166.705094,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 382625,
+              "compute_span_ns": 382625,
+              "calibration_cpu_ns": 785833,
+              "calibration_gpu_ticks": 785833,
+              "compute_passes": 1,
+              "command_buffer_ns": 382666.708902,
+              "command_buffers": 2
+            }
+          ],
+          "control": {
+            "method": "metal_command_buffer_timestamps_v1",
+            "scope": "sum_of_command_buffer_gpu_intervals",
+            "encoder_instrumentation": false,
+            "repetitions": 51,
+            "throughput": [
+              {
+                "command_buffer_ns": 19150249.8928,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 19140625.0233,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 19136083.4287,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 19207249.9776,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 19144249.9636,
+                "command_buffers": 2
+              }
+            ],
+            "latency": [
+              {
+                "command_buffer_ns": 383083.359338,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382083.351724,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382083.351724,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382166.705094,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382458.325475,
+                "command_buffers": 2
+              }
+            ],
+            "command_buffer_throughput_us": [
+              375.4950959372549,
+              375.30637300588234,
+              375.21732213137255,
+              376.61274465882354,
+              375.37745026666664
+            ],
+            "command_buffer_throughput_us_p50": 375.37745026666664,
+            "command_buffer_throughput_us_p90": 376.16568517019607,
+            "command_buffer_latency_us": [
+              383.08335933800004,
+              382.083351724,
+              382.083351724,
+              382.16670509399995,
+              382.45832547500004
+            ],
+            "command_buffer_latency_us_p50": 382.16670509399995,
+            "command_buffer_latency_us_p90": 382.83334579280006
+          },
+          "compute_throughput_us": [
+            383.3366274509804,
+            382.6242352941176,
+            382.26792156862746,
+            382.7508039215686,
+            382.4656862745098
+          ],
+          "compute_throughput_us_p50": 382.6242352941176,
+          "compute_throughput_us_p90": 383.10229803921567,
+          "command_buffer_throughput_us": [
+            408.54166681764707,
+            406.66339919019606,
+            406.3006536117647,
+            406.3995084823529,
+            406.3692815862745
+          ],
+          "command_buffer_throughput_us_p50": 406.3995084823529,
+          "command_buffer_throughput_us_p90": 407.79035976666665,
+          "compute_latency_us": [
+            384.875,
+            382.167,
+            382.959,
+            382.084,
+            382.625
+          ],
+          "compute_latency_us_p50": 382.625,
+          "compute_latency_us_p90": 384.1086,
+          "command_buffer_latency_us": [
+            385.00002119699997,
+            382.166588679,
+            383.08335933800004,
+            382.16670509399995,
+            382.666708902
+          ],
+          "command_buffer_latency_us_p50": 382.666708902,
+          "command_buffer_latency_us_p90": 384.2333564534,
+          "counter_control_throughput_ratio": 1.0828408755326842,
+          "counter_control_latency_ratio": 1.0005448526365355
+        },
+        "throughput_us_p50": 383.134,
+        "throughput_us_p90": 388.8749999998,
+        "latency_us_p50": 624.75,
+        "latency_us_p90": 641.9412
+      },
+      "correctness": {
+        "elements": 512,
+        "max_abs_error": 2.3857882819073445e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "fdd9f85393d99e1ac0aa8f1d06def545a84cd5a3745bbcd704ca267261d6a4cf",
+        "a4fa77e8d086adf8ffb6856a1f00e8b39a39cb042e461564268c74bd9a15c3b2",
+        "5b553f706d61615496a4df865530485aee33354cd8eaa9b975fd886edd8c44b1"
+      ],
+      "output_sha256": "7e638386a0e1c05654e821b7c1216e18f3a491c0bd3dbbce2fc2cbf86e06acce"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.529917,
+        "warmup_ms": 100.290791,
+        "repetitions": 347,
+        "throughput_us": [
+          61.443564841498564,
+          45.65429971181556,
+          47.49399711815561,
+          46.147455331412104,
+          47.10038616714698
+        ],
+        "latency_us": [
+          437.667,
+          294.125,
+          403.91700000000003,
+          340.667,
+          310.875
+        ],
+        "throughput_us_p50": 47.10038616714698,
+        "throughput_us_p90": 55.863737752161384,
+        "latency_us_p50": 340.667,
+        "latency_us_p90": 424.167,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 512,
+          "max_abs_error": 8.350403627789028e-09,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        },
+        "device_timing": {
+          "method": "metal_compute_pass_timestamps_v1",
+          "scope": "sum_of_compute_encoder_gpu_intervals",
+          "host_samples_instrumented": false,
+          "repetitions": 64,
+          "control": {
+            "method": "metal_command_buffer_timestamps_v1",
+            "scope": "sum_of_command_buffer_gpu_intervals",
+            "encoder_instrumentation": false,
+            "repetitions": 64,
+            "throughput": [
+              {
+                "command_buffer_ns": 2068041.7073890567,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2049374.976195395,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2363875.0426471233,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2830583.252944052,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2481416.7991280556,
+                "command_buffers": 2
+              }
+            ],
+            "latency": [
+              {
+                "command_buffer_ns": 49791.64805263281,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 55208.33656191826,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 50249.97517466545,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 65833.33015441895,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 51333.33615958691,
+                "command_buffers": 1
+              }
+            ],
+            "command_buffer_throughput_us": [
+              32.31315167795401,
+              32.02148400305305,
+              36.9355475413613,
+              44.227863327250816,
+              38.77213748637587
+            ],
+            "command_buffer_throughput_us_p50": 36.9355475413613,
+            "command_buffer_throughput_us_p90": 42.04557299090084,
+            "command_buffer_latency_us": [
+              49.79164805263281,
+              55.20833656191826,
+              50.24997517466545,
+              65.83333015441895,
+              51.333336159586906
+            ],
+            "command_buffer_latency_us_p50": 51.333336159586906,
+            "command_buffer_latency_us_p90": 61.58333271741867
+          },
+          "throughput": [
+            {
+              "compute_ns": 2841465.0,
+              "compute_span_ns": 4736875.0,
+              "command_buffer_ns": 4226125.0782758,
+              "calibration_cpu_ns": 8635375.0,
+              "calibration_gpu_ticks": 8635375.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3032960.0,
+              "compute_span_ns": 4987125.0,
+              "command_buffer_ns": 4465208.388864994,
+              "calibration_cpu_ns": 7633375.0,
+              "calibration_gpu_ticks": 7633375.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3053115.0,
+              "compute_span_ns": 4933834.0,
+              "command_buffer_ns": 4311375.0871270895,
+              "calibration_cpu_ns": 7895125.0,
+              "calibration_gpu_ticks": 7895125.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3239374.0,
+              "compute_span_ns": 5111416.0,
+              "command_buffer_ns": 4692750.051617622,
+              "calibration_cpu_ns": 8545291.0,
+              "calibration_gpu_ticks": 8545291.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3146459.0,
+              "compute_span_ns": 4814458.0,
+              "command_buffer_ns": 4499916.569329798,
+              "calibration_cpu_ns": 8083958.0,
+              "calibration_gpu_ticks": 8083958.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            }
+          ],
+          "latency": [
+            {
+              "compute_ns": 58875.0,
+              "compute_span_ns": 82042.0,
+              "command_buffer_ns": 82041.71899706125,
+              "calibration_cpu_ns": 719875.0,
+              "calibration_gpu_ticks": 719875.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 56917.0,
+              "compute_span_ns": 75750.0,
+              "command_buffer_ns": 75750.05292892456,
+              "calibration_cpu_ns": 749208.0,
+              "calibration_gpu_ticks": 749208.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 50334.0,
+              "compute_span_ns": 68875.0,
+              "command_buffer_ns": 68875.0296831131,
+              "calibration_cpu_ns": 637291.0,
+              "calibration_gpu_ticks": 637291.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 49999.0,
+              "compute_span_ns": 70875.0,
+              "command_buffer_ns": 70874.92849677801,
+              "calibration_cpu_ns": 593625.0,
+              "calibration_gpu_ticks": 593625.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 57458.0,
+              "compute_span_ns": 77083.0,
+              "command_buffer_ns": 77083.35760980844,
+              "calibration_cpu_ns": 635125.0,
+              "calibration_gpu_ticks": 635125.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            }
+          ],
+          "compute_throughput_us": [
+            44.397890625,
+            47.39,
+            47.704921875,
+            50.61521875,
+            49.163421875
+          ],
+          "compute_throughput_us_p50": 47.704921875,
+          "compute_throughput_us_p90": 50.034499999999994,
+          "command_buffer_throughput_us": [
+            66.03320434805937,
+            69.76888107601553,
+            67.36523573636077,
+            73.32421955652535,
+            70.3111963957781
+          ],
+          "command_buffer_throughput_us_p50": 69.76888107601553,
+          "command_buffer_throughput_us_p90": 72.11901029222645,
+          "compute_latency_us": [
+            58.875,
+            56.917,
+            50.334,
+            49.999,
+            57.458
+          ],
+          "compute_latency_us_p50": 56.917,
+          "compute_latency_us_p90": 58.3082,
+          "command_buffer_latency_us": [
+            82.04171899706125,
+            75.75005292892456,
+            68.8750296831131,
+            70.87492849677801,
+            77.08335760980844
+          ],
+          "command_buffer_latency_us_p50": 75.75005292892456,
+          "command_buffer_latency_us_p90": 80.05837444216013,
+          "counter_control_throughput_ratio": 1.8238591335602534,
+          "counter_control_latency_ratio": 1.3720763501716444
+        }
+      },
+      "correctness": {
+        "elements": 512,
+        "max_abs_error": 8.350403627789028e-09,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "fdd9f85393d99e1ac0aa8f1d06def545a84cd5a3745bbcd704ca267261d6a4cf",
+        "a4fa77e8d086adf8ffb6856a1f00e8b39a39cb042e461564268c74bd9a15c3b2",
+        "5b553f706d61615496a4df865530485aee33354cd8eaa9b975fd886edd8c44b1"
+      ],
+      "output_sha256": "5bb22ae65b9d900f9bccd8c461a86493fb1264fea95bdb436e29b19dad39a39d"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.3665,
+        "warmup_ms": 100.092125,
+        "repetitions": 414,
+        "throughput_us": [
+          45.907205314009666,
+          45.03572946859903,
+          43.845512077294686,
+          43.11171497584541,
+          44.06652415458937
+        ],
+        "latency_us": [
+          370.458,
+          298.08299999999997,
+          300.75,
+          284.25,
+          289.16700000000003
+        ],
+        "throughput_us_p50": 44.06652415458937,
+        "throughput_us_p90": 45.55861497584541,
+        "latency_us_p50": 298.08299999999997,
+        "latency_us_p90": 342.57480000000004,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 512,
+          "max_abs_error": 8.350403627789028e-09,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        },
+        "device_timing": {
+          "method": "metal_compute_pass_timestamps_v1",
+          "scope": "sum_of_compute_encoder_gpu_intervals",
+          "host_samples_instrumented": false,
+          "repetitions": 64,
+          "control": {
+            "method": "metal_command_buffer_timestamps_v1",
+            "scope": "sum_of_command_buffer_gpu_intervals",
+            "encoder_instrumentation": false,
+            "repetitions": 64,
+            "throughput": [
+              {
+                "command_buffer_ns": 2058833.2554325461,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2049791.6266322136,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2583624.911494553,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2642916.631884873,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 2582250.162959099,
+                "command_buffers": 2
+              }
+            ],
+            "latency": [
+              {
+                "command_buffer_ns": 49750.08778274059,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 49958.35479348898,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 57291.705161333084,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 65499.916672706604,
+                "command_buffers": 1
+              },
+              {
+                "command_buffer_ns": 57500.0885874033,
+                "command_buffers": 1
+              }
+            ],
+            "command_buffer_throughput_us": [
+              32.16926961613353,
+              32.02799416612834,
+              40.36913924210239,
+              41.29557237320114,
+              40.34765879623592
+            ],
+            "command_buffer_throughput_us_p50": 40.34765879623592,
+            "command_buffer_throughput_us_p90": 40.92499912076164,
+            "command_buffer_latency_us": [
+              49.75008778274059,
+              49.95835479348898,
+              57.291705161333084,
+              65.4999166727066,
+              57.5000885874033
+            ],
+            "command_buffer_latency_us_p50": 57.291705161333084,
+            "command_buffer_latency_us_p90": 62.29998543858528
+          },
+          "throughput": [
+            {
+              "compute_ns": 2957910.0,
+              "compute_span_ns": 4849875.0,
+              "command_buffer_ns": 4277874.948456883,
+              "calibration_cpu_ns": 8028375.0,
+              "calibration_gpu_ticks": 8028375.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 2941170.0,
+              "compute_span_ns": 4794291.0,
+              "command_buffer_ns": 4228166.537359357,
+              "calibration_cpu_ns": 8078584.0,
+              "calibration_gpu_ticks": 8078584.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 2912500.0,
+              "compute_span_ns": 4733292.0,
+              "command_buffer_ns": 4276416.613720357,
+              "calibration_cpu_ns": 7555666.0,
+              "calibration_gpu_ticks": 7555666.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3175421.0,
+              "compute_span_ns": 4854333.0,
+              "command_buffer_ns": 4305291.571654379,
+              "calibration_cpu_ns": 7758041.0,
+              "calibration_gpu_ticks": 7758041.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 3426501.0,
+              "compute_span_ns": 5037750.0,
+              "command_buffer_ns": 4699749.988503754,
+              "calibration_cpu_ns": 7863292.0,
+              "calibration_gpu_ticks": 7863292.0,
+              "compute_passes": 129,
+              "command_buffers": 2
+            }
+          ],
+          "latency": [
+            {
+              "compute_ns": 59625.0,
+              "compute_span_ns": 90500.0,
+              "command_buffer_ns": 90499.99061971903,
+              "calibration_cpu_ns": 762917.0,
+              "calibration_gpu_ticks": 762917.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 57792.0,
+              "compute_span_ns": 78625.0,
+              "command_buffer_ns": 78624.92930144072,
+              "calibration_cpu_ns": 592875.0,
+              "calibration_gpu_ticks": 592875.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 49292.0,
+              "compute_span_ns": 69167.0,
+              "command_buffer_ns": 69208.32674950361,
+              "calibration_cpu_ns": 519834.0,
+              "calibration_gpu_ticks": 519834.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 53584.0,
+              "compute_span_ns": 79500.0,
+              "command_buffer_ns": 79500.02327561378,
+              "calibration_cpu_ns": 510250.0,
+              "calibration_gpu_ticks": 510250.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            },
+            {
+              "compute_ns": 74292.0,
+              "compute_span_ns": 94417.0,
+              "command_buffer_ns": 94458.34439247847,
+              "calibration_cpu_ns": 594000.0,
+              "calibration_gpu_ticks": 594000.0,
+              "compute_passes": 3,
+              "command_buffers": 1
+            }
+          ],
+          "compute_throughput_us": [
+            46.21734375,
+            45.95578125,
+            45.5078125,
+            49.615953125,
+            53.539078125
+          ],
+          "compute_throughput_us_p50": 46.21734375,
+          "compute_throughput_us_p90": 51.969828125,
+          "command_buffer_throughput_us": [
+            66.8417960696388,
+            66.06510214623995,
+            66.81900958938058,
+            67.27018080709968,
+            73.43359357037116
+          ],
+          "command_buffer_throughput_us_p50": 66.8417960696388,
+          "command_buffer_throughput_us_p90": 70.96822846506257,
+          "compute_latency_us": [
+            59.625,
+            57.792,
+            49.292,
+            53.584,
+            74.292
+          ],
+          "compute_latency_us_p50": 57.792,
+          "compute_latency_us_p90": 68.4252,
+          "command_buffer_latency_us": [
+            90.49999061971903,
+            78.62492930144072,
+            69.20832674950361,
+            79.50002327561378,
+            94.45834439247847
+          ],
+          "command_buffer_latency_us_p50": 79.50002327561378,
+          "command_buffer_latency_us_p90": 92.87500288337469,
+          "counter_control_throughput_ratio": 1.820021179945684,
+          "counter_control_latency_ratio": 1.573809418393574
+        }
+      },
+      "correctness": {
+        "elements": 512,
+        "max_abs_error": 8.350403627789028e-09,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "fdd9f85393d99e1ac0aa8f1d06def545a84cd5a3745bbcd704ca267261d6a4cf",
+        "a4fa77e8d086adf8ffb6856a1f00e8b39a39cb042e461564268c74bd9a15c3b2",
+        "5b553f706d61615496a4df865530485aee33354cd8eaa9b975fd886edd8c44b1"
+      ],
+      "output_sha256": "5bb22ae65b9d900f9bccd8c461a86493fb1264fea95bdb436e29b19dad39a39d"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_tirx",
+        "llm",
+        "attention",
+        "1,8,2,1,2048,64,64",
+        "1",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ynvo0ffn/attention-1x8x2x1x2048x64x64-r1-native.f32"
+      ],
+      "source": "attention-1x8x2x1x2048x64x64-r1-native.metal",
+      "source_sha256": "08c7a5f518c9991615d989aa47e42746a9b23a1d377f9b7683eb8fcd375e375f",
+      "measurement": {
+        "implementation": "tile_tirx_metal",
+        "backend": "metal",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "attention",
+        "dimensions": [
+          1,
+          8,
+          2,
+          1,
+          2048,
+          64,
+          64
+        ],
+        "reduction_tree": false,
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "disabled",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          32
+        ],
+        "input_shapes": [
+          [
+            1,
+            8,
+            1,
+            64
+          ],
+          [
+            1,
+            2,
+            2048,
+            64
+          ],
+          [
+            1,
+            2,
+            2048,
+            64
+          ]
+        ],
+        "output_shape": [
+          1,
+          8,
+          1,
+          64
+        ],
+        "fixture_ms": 5.029208,
+        "runtime_init_ms": 111.348625,
+        "compile_ms": 49.266875,
+        "allocation_upload_ms": 4.024792,
+        "cold_call_ms": 12.065958,
+        "warmup_ms": 102.861833,
+        "repetitions": 48,
+        "realization": "TIRx -> Metal source -> Luisa Runtime; 1024 threads/group; 1 group plans; direct-buffer ABI; fast_math=false; mpp=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 512,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.38578828116e-08
+        },
+        "throughput_us": [
+          382.375854167,
+          394.818583333,
+          382.3515625,
+          382.510416667,
+          382.407125
+        ],
+        "latency_us": [
+          649.291,
+          1075.042,
+          635.875,
+          603.291,
+          656.792
+        ],
+        "device_timing": {
+          "method": "metal_compute_pass_timestamps_v1",
+          "scope": "sum_of_compute_encoder_gpu_intervals",
+          "host_samples_instrumented": false,
+          "repetitions": 48,
+          "throughput": [
+            {
+              "compute_ns": 18402790,
+              "compute_span_ns": 19575625,
+              "calibration_cpu_ns": 21276666,
+              "calibration_gpu_ticks": 21276666,
+              "compute_passes": 48,
+              "command_buffer_ns": 19575750.106,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 18361537,
+              "compute_span_ns": 19472125,
+              "calibration_cpu_ns": 20305083,
+              "calibration_gpu_ticks": 20305083,
+              "compute_passes": 48,
+              "command_buffer_ns": 19472208.4561,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 18448249,
+              "compute_span_ns": 19724250,
+              "calibration_cpu_ns": 20682292,
+              "calibration_gpu_ticks": 20682292,
+              "compute_passes": 48,
+              "command_buffer_ns": 19724333.426,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 18465587,
+              "compute_span_ns": 19778375,
+              "calibration_cpu_ns": 20713583,
+              "calibration_gpu_ticks": 20713583,
+              "compute_passes": 48,
+              "command_buffer_ns": 19778499.9618,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 18358416,
+              "compute_span_ns": 19499500,
+              "calibration_cpu_ns": 20391541,
+              "calibration_gpu_ticks": 20391541,
+              "compute_passes": 48,
+              "command_buffer_ns": 19499583.4026,
+              "command_buffers": 2
+            }
+          ],
+          "latency": [
+            {
+              "compute_ns": 381792,
+              "compute_span_ns": 381792,
+              "calibration_cpu_ns": 984625,
+              "calibration_gpu_ticks": 984625,
+              "compute_passes": 1,
+              "command_buffer_ns": 381833.291613,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 381833,
+              "compute_span_ns": 381833,
+              "calibration_cpu_ns": 848167,
+              "calibration_gpu_ticks": 848167,
+              "compute_passes": 1,
+              "command_buffer_ns": 381874.968298,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 387833,
+              "compute_span_ns": 387833,
+              "calibration_cpu_ns": 954292,
+              "calibration_gpu_ticks": 954292,
+              "compute_passes": 1,
+              "command_buffer_ns": 387833.3373,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 381792,
+              "compute_span_ns": 381792,
+              "calibration_cpu_ns": 878041,
+              "calibration_gpu_ticks": 878041,
+              "compute_passes": 1,
+              "command_buffer_ns": 381874.968298,
+              "command_buffers": 2
+            },
+            {
+              "compute_ns": 382208,
+              "compute_span_ns": 382208,
+              "calibration_cpu_ns": 757709,
+              "calibration_gpu_ticks": 757709,
+              "compute_passes": 1,
+              "command_buffer_ns": 382291.73515,
+              "command_buffers": 2
+            }
+          ],
+          "control": {
+            "method": "metal_command_buffer_timestamps_v1",
+            "scope": "sum_of_command_buffer_gpu_intervals",
+            "encoder_instrumentation": false,
+            "repetitions": 48,
+            "throughput": [
+              {
+                "command_buffer_ns": 18040374.9691,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 18025333.1782,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 18027333.1935,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 18075791.6532,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 18009958.3231,
+                "command_buffers": 2
+              }
+            ],
+            "latency": [
+              {
+                "command_buffer_ns": 384416.664019,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382208.148949,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382416.64879,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382250.058465,
+                "command_buffers": 2
+              },
+              {
+                "command_buffer_ns": 382375.08852,
+                "command_buffers": 2
+              }
+            ],
+            "command_buffer_throughput_us": [
+              375.8411451895833,
+              375.5277745458333,
+              375.56944153125,
+              376.578992775,
+              375.20746506458335
+            ],
+            "command_buffer_throughput_us_p50": 375.56944153125,
+            "command_buffer_throughput_us_p90": 376.2838537408333,
+            "command_buffer_latency_us": [
+              384.416664019,
+              382.208148949,
+              382.41664879,
+              382.250058465,
+              382.37508851999996
+            ],
+            "command_buffer_latency_us_p50": 382.37508851999996,
+            "command_buffer_latency_us_p90": 383.6166579274
+          },
+          "compute_throughput_us": [
+            383.39145833333333,
+            382.5320208333333,
+            384.33852083333335,
+            384.69972916666666,
+            382.467
+          ],
+          "compute_throughput_us_p50": 383.39145833333333,
+          "compute_throughput_us_p90": 384.55524583333334,
+          "command_buffer_throughput_us": [
+            407.8281272083333,
+            405.6710095020833,
+            410.92361304166667,
+            412.05208253750004,
+            406.2413208875
+          ],
+          "command_buffer_throughput_us_p50": 407.8281272083333,
+          "command_buffer_throughput_us_p90": 411.60069473916667,
+          "compute_latency_us": [
+            381.792,
+            381.833,
+            387.833,
+            381.792,
+            382.208
+          ],
+          "compute_latency_us_p50": 381.833,
+          "compute_latency_us_p90": 385.583,
+          "command_buffer_latency_us": [
+            381.833291613,
+            381.874968298,
+            387.83333730000004,
+            381.874968298,
+            382.29173515
+          ],
+          "command_buffer_latency_us_p50": 381.874968298,
+          "command_buffer_latency_us_p90": 385.61669644000006,
+          "counter_control_throughput_ratio": 1.085107717524155,
+          "counter_control_latency_ratio": 0.9991282743397382
+        },
+        "throughput_us_p50": 382.407125,
+        "throughput_us_p90": 389.8953166666,
+        "latency_us_p50": 649.291,
+        "latency_us_p90": 907.742
+      },
+      "correctness": {
+        "elements": 512,
+        "max_abs_error": 2.3857882819073445e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "fdd9f85393d99e1ac0aa8f1d06def545a84cd5a3745bbcd704ca267261d6a4cf",
+        "a4fa77e8d086adf8ffb6856a1f00e8b39a39cb042e461564268c74bd9a15c3b2",
+        "5b553f706d61615496a4df865530485aee33354cd8eaa9b975fd886edd8c44b1"
+      ],
+      "output_sha256": "7e638386a0e1c05654e821b7c1216e18f3a491c0bd3dbbce2fc2cbf86e06acce"
+    }
+  ],
+  "summary": [
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 382.7705625,
+          "torch": 45.583455160868176
+        },
+        "paired_native_over_torch_median": 8.406181928371792,
+        "min_ratio": 8.134413137088886,
+        "max_ratio": 8.677950719654698,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 637.0205000000001,
+          "torch": 319.375
+        },
+        "paired_native_over_torch_median": 2.0060622440915,
+        "min_ratio": 1.8339023151640754,
+        "max_ratio": 2.178222173018925,
+        "slower_rounds": 2
+      },
+      "gpu_control_throughput_us_p50": {
+        "median_us": {
+          "native": 375.4734458989583,
+          "torch": 38.64160316879861
+        },
+        "paired_native_over_torch_median": 9.735686514391942,
+        "min_ratio": 9.308332942636248,
+        "max_ratio": 10.163040086147635,
+        "slower_rounds": 2
+      },
+      "gpu_control_latency_us_p50": {
+        "median_us": {
+          "native": 382.270896807,
+          "torch": 54.312520660459995
+        },
+        "paired_native_over_torch_median": 7.0594922061665475,
+        "min_ratio": 6.6741788788313094,
+        "max_ratio": 7.444805533501786,
+        "slower_rounds": 2
+      }
+    }
+  ]
+}

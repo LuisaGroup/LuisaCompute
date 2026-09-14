@@ -1,0 +1,1911 @@
+{
+  "frozen_unix": 1788931871.816651,
+  "raw": "/private/tmp/luisa-expression-fusion.qXgTbC",
+  "source_commit": "2634be45d21bc8b2678104dadea99a5a0595d7c4",
+  "merged_next": "8911828eb234a37d1059bb9b01e82d2915624f80",
+  "source_overlay": [
+    "include/luisa/tile/bridge/xir/lower.h",
+    "include/luisa/tile/bridge/xir/planner.h",
+    "src/tile/bridge/xir/representation.h",
+    "src/tile/bridge/xir/lower.cpp",
+    "src/tile/bridge/xir/planner.cpp",
+    "src/backends/simd/runtime/simd_tile.cpp",
+    "src/tests/unit/tile/bridge/test_xir.cpp",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp"
+  ],
+  "source_contract": "Recursive pinned Git archives, followed by the explicit candidate overlay. Not the dirty source checkout.",
+  "performance_accepted": false,
+  "defaults_changed": false,
+  "cost_calibrated": false,
+  "preserved_user_file_sha256": {
+    ".agents/skills/cmake/SKILL.md": "0b74b8972cc53e139ddc3b4d7e55d6497a41d26c1e5ccb10c676154e0088d436",
+    "docs/source/internals/tile/matrix.md": "a01a33677f0405f8451e69b359ea6e2d5e092fa49d8529097034697217c98fe0",
+    "examples/ios/README.md": "3a92edc324ed52e574032cd174705cc740465003953963bde80ee65850e99013",
+    "examples/ios/metal4_path_tracing/README.md": "c9836e3baae34e6e96c1d862cad66369a53f6b3b2cd55e01d690113b8c1eb792",
+    "include/luisa/tile/bridge/tirx/planner.h": "4efb4268e79133dd23ef5a17f5350ab924fa3992386af09a6c405f3cf0deb1c6",
+    "src/tests/unit/tile/bridge/test_tirx_matrix.cpp": "381e8859f893f423a976f4a2b7654bd99710920f42ff327f524f88f525ea9999",
+    "src/tile/bridge/tirx/compiler.cpp": "935cb214a605fbda3d2e9baccbb0404b57c2b697ed67ba249d6e8afa9a321510",
+    "src/tile/bridge/tirx/cooperative.cpp": "9e3d19dfc1e8ceb91a3750425e738e0fe381dea44a945ce02b13cf366e1f890c",
+    "src/tile/bridge/tirx/execution.h": "1611493eb4e95385427b03c43275c3056aa472d3a0cfe75167422fcff452c13a",
+    "src/tile/bridge/tirx/matrix.cpp": "348d929cc46ccf285660b57749c9368359a5a4ce695ec6248f23c05874e2a545",
+    "src/tile/bridge/tirx/views.cpp": "bad840ffa8a7b1923a5c277e1194d260d545c708d26bb6b158d2680f73fd6f17"
+  },
+  "preserved_dependency_checkouts": {
+    "./src/ext/EASTL": "2103f669d7f7e1c9270baa651fe3435f1eae84d5",
+    "./src/ext/EASTL/packages/EABase": "486aa56ad39c4de8e65f9e150d03999c01a1afaf",
+    "./src/ext/EASTL/packages/mimalloc": "908ae17bcc05c3ca662c0ed9757da4d5a828aab0",
+    "./src/ext/HIPRT": "c0969a8125756151fcb090e2f7e63f691fb0123c",
+    "./src/ext/SPIRV-Tools": "e3f2dff067d3486b8d59397322f8f3e6fa9020b4",
+    "./src/ext/glfw": "92dcf4ce74f2e2554a98fea09be7c705c17daa5a",
+    "./src/ext/glslang": "19b5a9cc3cc51c83e59aa24d7b20c14e064825f4",
+    "./src/ext/imgui": "fd13a1e8923a0a7077b404fc36fd063b25a0c0b5",
+    "./src/ext/llvm-downgrade": "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb",
+    "./src/ext/magic_enum": "a99f69495f48e8dff89b14b40a233163248c38c4",
+    "./src/ext/marl": "4ed34cc722fce3522ef6c7c87384083480f11314",
+    "./src/ext/pybind11": "5261e2d1e147f7251a03ae929b09a7f71afd867c",
+    "./src/ext/reproc": "cd03ee4731a4283849cd5d0f5425926d60b3b540",
+    "./src/ext/spdlog": "5713c799685d19c82350032cda4f12fedaf57426",
+    "./src/ext/spirv-headers": "0d25db97cb9b8f725e4c95e4553001710e7fc39d",
+    "./src/ext/stb/stb": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+    "./src/ext/xxHash": "c0b5ea995d66691734b1a79ad89e73a0d2fd5a53",
+    "./src/ext/yyjson": "db37a64d63d38a8ddea35aa811b1163831028490"
+  },
+  "host": {
+    "cpu": "Apple M1 Max",
+    "cpu_cores": 10,
+    "memory_gib": 64,
+    "os": "macOS 26.6.2",
+    "build": "25G83"
+  },
+  "artifacts": {
+    "audit.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/audit.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "3f0f0dd599eacf2c00e0e1447a4a2ef7785bcf9e827120ea98c925f9626639ac",
+      "archived_sha256": "3f0f0dd599eacf2c00e0e1447a4a2ef7785bcf9e827120ea98c925f9626639ac",
+      "source_bytes": 3766,
+      "archived_bytes": 3766
+    },
+    "verification.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/verification.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "d776d58e0bba0d20c284a3bfbeba730633516948496bac57227cc4194bceb007",
+      "archived_sha256": "d776d58e0bba0d20c284a3bfbeba730633516948496bac57227cc4194bceb007",
+      "source_bytes": 5917,
+      "archived_bytes": 5917
+    },
+    "verification-widths.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/verification-widths.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "e19063c47b5f07341b952cf91e6d41707906e65434a764e72a95f6b3cf7678be",
+      "archived_sha256": "e19063c47b5f07341b952cf91e6d41707906e65434a764e72a95f6b3cf7678be",
+      "source_bytes": 1040,
+      "archived_bytes": 1040
+    },
+    "verification-widths-v2.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/verification-widths-v2.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "0433fa7b048438305d20ed8d68125475af8d660e99b1ec545f4e8f660a7725c1",
+      "archived_sha256": "0433fa7b048438305d20ed8d68125475af8d660e99b1ec545f4e8f660a7725c1",
+      "source_bytes": 4558,
+      "archived_bytes": 4558
+    },
+    "configure-command.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/configure-command.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "b1006bee56ac45f46b46156d5ada3f965654dc03445f353d817af3d6f9095e8e",
+      "archived_sha256": "b1006bee56ac45f46b46156d5ada3f965654dc03445f353d817af3d6f9095e8e",
+      "source_bytes": 1385,
+      "archived_bytes": 1385
+    },
+    "pinned-repositories.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/pinned-repositories.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "da256ca90599dacd7d1444adbbbf2a15d7316ba243cbb7e459fc0124e4be7910",
+      "archived_sha256": "da256ca90599dacd7d1444adbbbf2a15d7316ba243cbb7e459fc0124e4be7910",
+      "source_bytes": 3309,
+      "archived_bytes": 3309
+    },
+    "documentation.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/documentation.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "c7037c55c0ac73930e1518bcb78a67614dd529e6e445ab6a99881f77a635c6cc",
+      "archived_sha256": "c7037c55c0ac73930e1518bcb78a67614dd529e6e445ab6a99881f77a635c6cc",
+      "source_bytes": 2889,
+      "archived_bytes": 2889
+    },
+    "documentation-v2.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/documentation-v2.json",
+      "role": "Executed evidence; initial empty-width and audit mistakes are explicitly superseded.",
+      "source_sha256": "06497f42a7f7bd2dade8ae3adfb0114f58dc008eaa69a23697086618e8fa91be",
+      "archived_sha256": "06497f42a7f7bd2dade8ae3adfb0114f58dc008eaa69a23697086618e8fa91be",
+      "source_bytes": 2910,
+      "archived_bytes": 2910
+    },
+    "drivers/prepare.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/prepare.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "99d33ccfb311f3ca0a6924b0dea05172ac36356a0cf1423d760098655a016d3a",
+      "archived_sha256": "99d33ccfb311f3ca0a6924b0dea05172ac36356a0cf1423d760098655a016d3a",
+      "source_bytes": 3574,
+      "archived_bytes": 3574
+    },
+    "drivers/capture.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "ca8772be05abb6cea76777d982d0d98422dab9e858789751d91e7261e293fb86",
+      "archived_sha256": "ca8772be05abb6cea76777d982d0d98422dab9e858789751d91e7261e293fb86",
+      "source_bytes": 7026,
+      "archived_bytes": 7026
+    },
+    "drivers/verify.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/verify.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "ca26d4f74b46ac8e36c8f51908dcdfe1a4c2c8c44a323b13ebd3b7591402ffc5",
+      "archived_sha256": "ca26d4f74b46ac8e36c8f51908dcdfe1a4c2c8c44a323b13ebd3b7591402ffc5",
+      "source_bytes": 2626,
+      "archived_bytes": 2626
+    },
+    "drivers/verify_widths.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/verify_widths.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "32c2b0226710f247b64c3f0ced3fd5ee8a999d41f33e8e460c0d0ec70aaf24ef",
+      "archived_sha256": "32c2b0226710f247b64c3f0ced3fd5ee8a999d41f33e8e460c0d0ec70aaf24ef",
+      "source_bytes": 2436,
+      "archived_bytes": 2436
+    },
+    "drivers/replay.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/replay.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "130b3341cac8c134e6d065c2fa2a70e3d2f94e04745faaa8ccb64670792cf421",
+      "archived_sha256": "130b3341cac8c134e6d065c2fa2a70e3d2f94e04745faaa8ccb64670792cf421",
+      "source_bytes": 3576,
+      "archived_bytes": 3576
+    },
+    "drivers/audit.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/audit.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "a8626fc4dccc95e19c317507799c11c7b5c0d8a737ab67a44f458b8680d9ee29",
+      "archived_sha256": "a8626fc4dccc95e19c317507799c11c7b5c0d8a737ab67a44f458b8680d9ee29",
+      "source_bytes": 8195,
+      "archived_bytes": 8195
+    },
+    "drivers/check_docs.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/check_docs.py",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "293fdab51ade0986990bbf539fecf8b77ceeb7ffd51dd0f314ce32eb204797b3",
+      "archived_sha256": "293fdab51ade0986990bbf539fecf8b77ceeb7ffd51dd0f314ce32eb204797b3",
+      "source_bytes": 3038,
+      "archived_bytes": 3038
+    },
+    "drivers/qa-docs.cjs": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/qa-docs.cjs",
+      "role": "Checkpoint preparation, execution or validation source; see retained harness caveats.",
+      "source_sha256": "048b92ab4a09b595e203e5b1d1c013c9ec46be14aaef63fa0207f3d4922c464c",
+      "archived_sha256": "048b92ab4a09b595e203e5b1d1c013c9ec46be14aaef63fa0207f3d4922c464c",
+      "source_bytes": 3094,
+      "archived_bytes": 3094
+    },
+    "source-snapshot.json.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/source-snapshot.json",
+      "role": "Pinned source plus exactly the recorded eight-file overlay.",
+      "source_sha256": "904593a910fe450a52e86e2ff6c80249c2bf2ed23880a39c9da0eb22ec895596",
+      "archived_sha256": "de56f6c21caff1a5a248da1367c6756e918af4e2d0da5b59c3061b5f41d521ca",
+      "source_bytes": 2826080,
+      "archived_bytes": 818463
+    },
+    "candidate.patch.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/candidate.patch",
+      "role": "Explicit candidate source changes from 2634be45d.",
+      "source_sha256": "e0f7de65141003bf26742655ff6d9244a8e0619f53303da5be037c77c7825e95",
+      "archived_sha256": "0706370470d15324e01dbf976e3ebb49494535a9b9981939258027c040155713",
+      "source_bytes": 36594,
+      "archived_bytes": 8529
+    },
+    "capture.json.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/manifest.json",
+      "role": "Actual ORC entries, fixed mapping, controls and source/binary hashes.",
+      "source_sha256": "035f3ce35aba60473db7434ac9091647f6d5adfa73a1945d80d69f9c2e329c62",
+      "archived_sha256": "8e0863e48ddacf25e45d61535919463fa759027b40170319ad2a4620eed83e8a",
+      "source_bytes": 3071675,
+      "archived_bytes": 840681
+    },
+    "native-verify.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify/results.json",
+      "role": "Full native-entry correctness smoke; timings are non-comparative.",
+      "source_sha256": "0b0c2c0d2b90c1da7875bb7df5fb647d6e4d779a47e56e2de3dbff3ddaab547e",
+      "archived_sha256": "0b0c2c0d2b90c1da7875bb7df5fb647d6e4d779a47e56e2de3dbff3ddaab547e",
+      "source_bytes": 60326,
+      "archived_bytes": 60326
+    },
+    "excluded-replay.json.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/replay-1/results.json",
+      "role": "Interrupted, contended partial cohort; excluded in full.",
+      "source_sha256": "a05c24d721641aff1e50c62d86074bf1e9a2915cebf81914877020a59c7f7bdf",
+      "archived_sha256": "24552e097d866f3c651c4df4d68ae0b6ff8d52a81067db70009ab0bc509eeb90",
+      "source_bytes": 92653,
+      "archived_bytes": 9561
+    },
+    "drivers/pilot.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify/pilot.py",
+      "role": "Unmodified common native replay driver reused with the new capture manifest.",
+      "source_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "archived_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "source_bytes": 15995,
+      "archived_bytes": 15995
+    },
+    "drivers/compare_llm.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify/runner-sources/compare_llm.py",
+      "role": "Exact replay helper and numerical reference sources.",
+      "source_sha256": "f46167880df84b65558c3eebd7bf231941adad08803e81e2be89a23993619beb",
+      "archived_sha256": "f46167880df84b65558c3eebd7bf231941adad08803e81e2be89a23993619beb",
+      "source_bytes": 24189,
+      "archived_bytes": 24189
+    },
+    "drivers/native_rows.py": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify/runner-sources/native_rows.py",
+      "role": "Exact replay helper and numerical reference sources.",
+      "source_sha256": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+      "archived_sha256": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+      "source_bytes": 32101,
+      "archived_bytes": 32101
+    },
+    "drivers/native_rows_replay.cpp": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify/runner-sources/native_rows_replay.cpp",
+      "role": "Exact replay helper and numerical reference sources.",
+      "source_sha256": "45a80a4dabac7ba79b611d9360d21cf77956527c94d9ca507424284d17ea0792",
+      "archived_sha256": "45a80a4dabac7ba79b611d9360d21cf77956527c94d9ca507424284d17ea0792",
+      "source_bytes": 6228,
+      "archived_bytes": 6228
+    },
+    "logs/audit.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/audit.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "afbfdd2d1855ff630c174235e32cc27ab3ab8eb242a72c312e8baa29b725ab4b",
+      "archived_sha256": "19d09eee080b42a931bddb39eb1b59ffb2c69aa88101bac9d9828e72f33b3948",
+      "source_bytes": 1203,
+      "archived_bytes": 685
+    },
+    "logs/capture.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "89931e854cfa4e75771d6e0fa839c76f5567e57869a79358d4c83c6417f03703",
+      "archived_sha256": "f51e414b4492b22f589e7ecd81de890ad3df01178a712abadc7dabdf644fe0b8",
+      "source_bytes": 938,
+      "archived_bytes": 193
+    },
+    "logs/configure.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/configure.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "62e7cafaa89272379b72da02ac173ca378ad9f9286d23bb4f73c87a93f55b335",
+      "archived_sha256": "1c37f6299a0122271afe31197c86159f7073a7596a51a19fab0247abd73499c0",
+      "source_bytes": 2420,
+      "archived_bytes": 768
+    },
+    "logs/ctest-tile.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/ctest-tile.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "88cb1000567d92f0ad6fc5e4dcd1b31dfb7d5d34f5e688b146f60fe3a28f95bb",
+      "archived_sha256": "888234049b00cc22c5e89eaa00be8ffbe6e983e004590d9f5fd2cb2a21a4ed6f",
+      "source_bytes": 5002,
+      "archived_bytes": 980
+    },
+    "logs/ctest-xir-simd.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/ctest-xir-simd.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "bc62a3f1ba494c05cfffb746fd01d505fb32a9af8e8687fb917cedf7ee8e6ec5",
+      "archived_sha256": "2a0e01779b35286f7904eee43a02e96571d7769a58fa23cfc3d8183ac4aaf8c4",
+      "source_bytes": 11412,
+      "archived_bytes": 1992
+    },
+    "logs/docs-links-v2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-links-v2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "29eddf459d1a08fd126206d8f9173bcc54573aa84275b518b39bea6898c5eb7d",
+      "archived_sha256": "22adad7b0ea6ab3e107221424a7d2a9069aae0fe4330ea23d742e1e89339cf21",
+      "source_bytes": 116,
+      "archived_bytes": 122
+    },
+    "logs/docs-links.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-links.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "29eddf459d1a08fd126206d8f9173bcc54573aa84275b518b39bea6898c5eb7d",
+      "archived_sha256": "22adad7b0ea6ab3e107221424a7d2a9069aae0fe4330ea23d742e1e89339cf21",
+      "source_bytes": 116,
+      "archived_bytes": 122
+    },
+    "logs/docs-render-v2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-render-v2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "9a748d086fbeaa494fc73ba605d3639feda6c536154fb192f831449fa299e086",
+      "archived_sha256": "64d023e211d404ed6140042e76f3ba96036fe1379b5dc57e0cf36307bb74805a",
+      "source_bytes": 105,
+      "archived_bytes": 108
+    },
+    "logs/docs-render.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-render.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "9a748d086fbeaa494fc73ba605d3639feda6c536154fb192f831449fa299e086",
+      "archived_sha256": "64d023e211d404ed6140042e76f3ba96036fe1379b5dc57e0cf36307bb74805a",
+      "source_bytes": 105,
+      "archived_bytes": 108
+    },
+    "logs/doxygen.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/doxygen.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "f10921f69f98c1c73bc607e61bbaecb250c9a4d3f444a645ff8035c50cbdcced",
+      "archived_sha256": "d1170243bc2d3d32a0f9693ca9c6838f353f604dbc1f717ac09754cba70dcc2f",
+      "source_bytes": 3922917,
+      "archived_bytes": 267237
+    },
+    "logs/expressions-exact-w1.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-exact-w1.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "fee901ac2fcb0097a44b32a9401feeafb37dd384bd840f502ef42faa31d2404d",
+      "archived_sha256": "55e03c8c95a69feaeeabf56736c7a3e5e5389362a7404a1f8c9adff96493c723",
+      "source_bytes": 1596,
+      "archived_bytes": 577
+    },
+    "logs/expressions-verified-w1.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-verified-w1.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "a7d1d16ff84542cbe604750edf18f459b3c91e5d2f0cab6528daf91d2395c72d",
+      "archived_sha256": "fe067e3f272d7b7b7cc83d52ca8e804ab742098a74b2e20c44e88cbd0177b1d8",
+      "source_bytes": 1586,
+      "archived_bytes": 573
+    },
+    "logs/expressions-verified-w16.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-verified-w16.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "36ee6e09377d6429b172ed4473e2ead14fda73e78cad928437c2895d89af2ed3",
+      "archived_sha256": "83668cb38ec2f0baa76e0c31f872637816b172bfa3527057640acb22edd86cf8",
+      "source_bytes": 1596,
+      "archived_bytes": 578
+    },
+    "logs/expressions-verified-w2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-verified-w2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "fc5c5f8c7df77ede4e103e944ed2efc410be6f0a1989a4c7600abaf5d9433be8",
+      "archived_sha256": "6c0ac296aadfb1fabf232c4963e39c9e68bbfa67dd3a606264b730cdb0656647",
+      "source_bytes": 1586,
+      "archived_bytes": 574
+    },
+    "logs/expressions-verified-w4.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-verified-w4.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "ee1e66fed7834cca7489e73f026aaf678e62b8a998df2c7f937e16f190792e88",
+      "archived_sha256": "ee1d4e61e47c532bdf8f2b1c152561eb1e503dc94f152cc9505ee0befb5294fd",
+      "source_bytes": 1586,
+      "archived_bytes": 575
+    },
+    "logs/expressions-verified-w8.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-verified-w8.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "0076a52d45c38c3ccc1ff70f1370d3f249ccff70705c6e3ab00f9776299637eb",
+      "archived_sha256": "f1c5d2b44af0916cb03f81b87b77a697366c4a240e72b4970b027e757abdafe4",
+      "source_bytes": 1586,
+      "archived_bytes": 574
+    },
+    "logs/expressions-w1.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-w1.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "fe0b3a8531976821e0ab240cede1756c6cbf28d7131af4d7152a43f34261d3b7",
+      "archived_sha256": "ab7393b7c97279112b1644bd3ba69bb5f23bc4003a6a3c1464064ab4646c0f47",
+      "source_bytes": 1684,
+      "archived_bytes": 582
+    },
+    "logs/expressions-w16.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-w16.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "22a2b9e0b39e557d95793d869a31afc6460cc5c4a9491be132ebdac2627b0d2a",
+      "archived_sha256": "0697e98a13ca9be404755d55d578c9f1aff366b01a7c14471ffac6ddb5d2429b",
+      "source_bytes": 1673,
+      "archived_bytes": 577
+    },
+    "logs/expressions-w2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-w2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "7011c45ad73d8145960c8e890209fc938b5f11e860a3e926d4b4cd9cc2dc85eb",
+      "archived_sha256": "cd95def28d3c25357d45f9eefb1a2eb8cd6c093da2ef7b5ed0efdc5c9f3d2dc1",
+      "source_bytes": 1674,
+      "archived_bytes": 577
+    },
+    "logs/expressions-w4.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-w4.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "b215272cd639e7d79881880ae86b42667abd365dfc062e334911925b30b7baa9",
+      "archived_sha256": "510d1e16dc904164d33f549548f410f6d5eaaba8b3795d59c38c734c40a6825e",
+      "source_bytes": 1674,
+      "archived_bytes": 579
+    },
+    "logs/expressions-w8.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/expressions-w8.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "b8a2f4d5a7049c0f5370895d933acbf5078b4370ae60cd6c3732a871a9e93278",
+      "archived_sha256": "8a98d2d9948bb6eec9daee9040d99f73e587ec44f641497a609233d5bb35dc76",
+      "source_bytes": 1674,
+      "archived_bytes": 576
+    },
+    "logs/format.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/format.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archived_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "source_bytes": 0,
+      "archived_bytes": 20
+    },
+    "logs/full-build-1.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/full-build-1.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "60b9e13fc89eefb50a79a62334366aae74c56daae8f7c6c19f3a7984b1f89dd9",
+      "archived_sha256": "a7d1470325def4160be947f288dfb532f5f21455940f19ad5474826ba361a4be",
+      "source_bytes": 188883,
+      "archived_bytes": 19152
+    },
+    "logs/full-build-2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/full-build-2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "6cda936a5271214cb9c31dbbd0c63f4cd8fe69005582960719298f4afdccca09",
+      "archived_sha256": "e20f138b9f9cdc1f346a142abf042654f02087de3bb5cc26a52f46cbb65b8cc8",
+      "source_bytes": 1963,
+      "archived_bytes": 502
+    },
+    "logs/full-build-gate.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/full-build-gate.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "archived_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b",
+      "source_bytes": 83,
+      "archived_bytes": 96
+    },
+    "logs/native-verify.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/native-verify.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "44f0c93fcc503eaaefe7837a3622f723c47910bcea9c309c1c7bb81336b26f42",
+      "archived_sha256": "09a1d5dec0f00ff11b2ccc46e2e52743ab6c221a306365b911815a4b089f88e7",
+      "source_bytes": 2819,
+      "archived_bytes": 722
+    },
+    "logs/replay-1.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/replay-1.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "cd67fbe266181798177f565bd79111f1c48bd18a33da51323a528ef0bd528036",
+      "archived_sha256": "61d9a36e1833f84dc191d380f5c54d903d422559de90242b5b487022f2b22fde",
+      "source_bytes": 3536,
+      "archived_bytes": 785
+    },
+    "logs/sphinx-v2.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/sphinx-v2.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "4e656ba46cc450add882f8f30e5ab8672c0928400996db9ed7bdd491f954932e",
+      "archived_sha256": "ba8824bd154a288c5ca46555d0a93093be4ea0d5e60ccb1a88cbf2b0ddb1c05c",
+      "source_bytes": 26117,
+      "archived_bytes": 3912
+    },
+    "logs/sphinx.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/sphinx.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "c6a3b2ac9eff8d6b5157a442206e5f566ced9a77f3b79e144aa6f6caec5441ef",
+      "archived_sha256": "7cd23a521c01a97fe3973415dcfe1181cad46fb4b4f5990a2551fcf2a2ad7ce8",
+      "source_bytes": 26102,
+      "archived_bytes": 3911
+    },
+    "logs/syntax-lower.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/syntax-lower.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "archived_sha256": "c7ace8e64579486e1ab7e6b16c64a3e9d9958d39e16c0fa256576751e6f7db95",
+      "source_bytes": 22,
+      "archived_bytes": 42
+    },
+    "logs/syntax-planner.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/syntax-planner.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "4dcdc57e4b2e8ece23dc35df1995eab7f698729f93748727e331fe34dc098bce",
+      "archived_sha256": "623a227a3567f19fdbc434ffe6b63efef556dfc7681207bbebab59e00de2ef58",
+      "source_bytes": 2400,
+      "archived_bytes": 456
+    },
+    "logs/syntax-runtime.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/syntax-runtime.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "archived_sha256": "c7ace8e64579486e1ab7e6b16c64a3e9d9958d39e16c0fa256576751e6f7db95",
+      "source_bytes": 22,
+      "archived_bytes": 42
+    },
+    "logs/syntax-simd-tile.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/syntax-simd-tile.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "archived_sha256": "c7ace8e64579486e1ab7e6b16c64a3e9d9958d39e16c0fa256576751e6f7db95",
+      "source_bytes": 22,
+      "archived_bytes": 42
+    },
+    "logs/syntax-xir.log.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/syntax-xir.log",
+      "role": "Observed command output, including failed/empty/terminated invocations.",
+      "source_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "archived_sha256": "c7ace8e64579486e1ab7e6b16c64a3e9d9958d39e16c0fa256576751e6f7db95",
+      "source_bytes": 22,
+      "archived_bytes": 42
+    },
+    "tile.xml.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/tile.xml",
+      "role": "Case-level CTest receipt.",
+      "source_sha256": "80b39e751691f0271ae30d39e439ed583c407048604ecac05a49265e86049514",
+      "archived_sha256": "b6d8c481579544f5c568a3bcd472dbbc7c2100c0bb3a9ce5e4a7123c3ecb387c",
+      "source_bytes": 14970,
+      "archived_bytes": 1722
+    },
+    "xir-simd.xml.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/xir-simd.xml",
+      "role": "Case-level CTest receipt.",
+      "source_sha256": "113e67ba5d379532eff4fb30805d454236d815e164a7a0fe6a11232500fb7099",
+      "archived_sha256": "be81c717fd2c2662e25e8da42f61cc708cb536a235dbf2871767f4e89e24daeb",
+      "source_bytes": 41281,
+      "archived_bytes": 5016
+    },
+    "docs-qa.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/receipt.json",
+      "role": "Final desktop/mobile DOM and screenshot receipts; images retained locally.",
+      "source_sha256": "28dd11842a7673dbcab7022ed38e0912a1d1ef1845464803a85035ae67159a07",
+      "archived_sha256": "28dd11842a7673dbcab7022ed38e0912a1d1ef1845464803a85035ae67159a07",
+      "source_bytes": 3495,
+      "archived_bytes": 3495
+    },
+    "coactivity.json": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/host-replay-1.json",
+      "role": "Privacy-minimized exclusion evidence, not a hardware-exclusivity claim.",
+      "source_sha256": "d8969072cd3b73d5b4fd2116b5e2965ece891d866da33df2cec37b289ea85bb0",
+      "archived_sha256": "d8969072cd3b73d5b4fd2116b5e2965ece891d866da33df2cec37b289ea85bb0",
+      "source_bytes": 14856,
+      "archived_bytes": 14856
+    },
+    "native/rmsnorm-17x65/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "bca2c0e6d37e512be18637c6fb5ec726edb864463edb8b33330282ba9a43c53a",
+      "archived_sha256": "469cce9bd585b9b8df9fac16fe6c02806744405cf45dcedcf46e7d868ea0100e",
+      "source_bytes": 131759,
+      "archived_bytes": 20885
+    },
+    "native/rmsnorm-17x65/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "ff7f0c06ca2157701409f1b2ceec2370323f4e1f8e8b422cb82fc2ee56eec8bd",
+      "archived_sha256": "12d18719baec1d483f108a68fd219fb44ae83191e3fdf85abb48e4a4d7374497",
+      "source_bytes": 56569,
+      "archived_bytes": 11404
+    },
+    "native/rmsnorm-17x65/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/off/object/tile_xir_w8_23288_1788930259097953_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "f31a76e8b371e0a050eff334000ffad44d6ac5dab5ed9000e7848c51715a310a",
+      "archived_sha256": "d3c255e047078ed2678cd225ef7e2501ddffb83ece533862f9914464b2c60a9f",
+      "source_bytes": 7360,
+      "archived_bytes": 4961
+    },
+    "native/rmsnorm-17x65/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "bca2c0e6d37e512be18637c6fb5ec726edb864463edb8b33330282ba9a43c53a",
+      "archived_sha256": "469cce9bd585b9b8df9fac16fe6c02806744405cf45dcedcf46e7d868ea0100e",
+      "source_bytes": 131759,
+      "archived_bytes": 20885
+    },
+    "native/rmsnorm-17x65/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "49786e50232f6d493a63f5ae698e9aa22e77a47b3cccddea25c2bd5e3d5defd6",
+      "archived_sha256": "2e14d4334746944fb974f3ec1e25a81647402fc39bdb0adeec0a31d337dfc1cd",
+      "source_bytes": 56568,
+      "archived_bytes": 11403
+    },
+    "native/rmsnorm-17x65/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-17x65/on/object/tile_xir_w8_23295_1788930259384269_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "f31a76e8b371e0a050eff334000ffad44d6ac5dab5ed9000e7848c51715a310a",
+      "archived_sha256": "d3c255e047078ed2678cd225ef7e2501ddffb83ece533862f9914464b2c60a9f",
+      "source_bytes": 7360,
+      "archived_bytes": 4961
+    },
+    "native/rmsnorm-17x65/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/yh/cyhuzwrm6vgeemgughw44mwhwghv755kvprb3qqx3mixdpovrpuk.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "67b18352290857925c13d6daaf815d49250c1f9c99d22b68b2bb3323a921474d",
+      "archived_sha256": "67b18352290857925c13d6daaf815d49250c1f9c99d22b68b2bb3323a921474d",
+      "source_bytes": 7737,
+      "archived_bytes": 7737
+    },
+    "native/rmsnorm-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "0a4d26fcabef435deb6d020f58252b40ff66c779fe49387a156aaa8552daacce",
+      "archived_sha256": "da22fb53bc14b3d80c66f75034a8461e98e28f9b1c933e11e444456204258b79",
+      "source_bytes": 107513,
+      "archived_bytes": 17274
+    },
+    "native/rmsnorm-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "2cba4aca447358f7424166c08f6600357eebf96162b607109c56231bf5f71e85",
+      "archived_sha256": "7857aebd9ecb508b9834c05c16138c67e247d2f85e1824c6d19dde11bb8445e8",
+      "source_bytes": 38260,
+      "archived_bytes": 7316
+    },
+    "native/rmsnorm-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/off/object/tile_xir_w8_23300_1788930259628520_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "archived_sha256": "0d36518bbb2a1ad4411756c1f7c3289743fa529b51632eac1569c21fd3c13691",
+      "source_bytes": 4896,
+      "archived_bytes": 2464
+    },
+    "native/rmsnorm-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "0a4d26fcabef435deb6d020f58252b40ff66c779fe49387a156aaa8552daacce",
+      "archived_sha256": "da22fb53bc14b3d80c66f75034a8461e98e28f9b1c933e11e444456204258b79",
+      "source_bytes": 107513,
+      "archived_bytes": 17274
+    },
+    "native/rmsnorm-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8ad4a29266fe20cfc9a85ca8537e10fa6b780ab93ac54f02d83691a9e9190c0b",
+      "archived_sha256": "199f0d2c9e0de627aef345935d6cf7b82089034a844228e75259ab27f7f5a90a",
+      "source_bytes": 38259,
+      "archived_bytes": 7314
+    },
+    "native/rmsnorm-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-129x768/on/object/tile_xir_w8_23305_1788930259843001_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "archived_sha256": "0d36518bbb2a1ad4411756c1f7c3289743fa529b51632eac1569c21fd3c13691",
+      "source_bytes": 4896,
+      "archived_bytes": 2464
+    },
+    "native/rmsnorm-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/yg/cygdjjqsjvh3vp2cbj3o7av4tvbc7qefs6jq6or3nvlccxglrlnl.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "7313611831da61df187f1f3ce5f2831497e7961e825704329d60056c33e3d0ad",
+      "archived_sha256": "7313611831da61df187f1f3ce5f2831497e7961e825704329d60056c33e3d0ad",
+      "source_bytes": 6191,
+      "archived_bytes": 6191
+    },
+    "native/rmsnorm-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "6ec38b4796642d3669c93262fc61845e24058fe956c0782bbbe7f216fc0c4dff",
+      "archived_sha256": "bb813e44a62ab355089b8a641db4dc0c4ad8849daedc9fb1c578f3f7c9bba157",
+      "source_bytes": 131825,
+      "archived_bytes": 20906
+    },
+    "native/rmsnorm-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "a2153a62fcda8f74ed3e7bdb38e3a8e39c9e9e33dce837a7b2574857f50d9e4f",
+      "archived_sha256": "3394d0f95147df37912dd84f567f798fb55e41885c8e2e207688219c3976a1ca",
+      "source_bytes": 58313,
+      "archived_bytes": 11209
+    },
+    "native/rmsnorm-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/off/object/tile_xir_w8_23310_1788930260110494_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "91d800029b5c050dd0d348b82e22d9d715517e7cc97fddedf7c29850868f6bdf",
+      "archived_sha256": "6ee93e7b514d3508926e5d7aafd774229dab239dc7c8716fbb9c7e3e6b280d80",
+      "source_bytes": 7712,
+      "archived_bytes": 4202
+    },
+    "native/rmsnorm-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "6ec38b4796642d3669c93262fc61845e24058fe956c0782bbbe7f216fc0c4dff",
+      "archived_sha256": "bb813e44a62ab355089b8a641db4dc0c4ad8849daedc9fb1c578f3f7c9bba157",
+      "source_bytes": 131825,
+      "archived_bytes": 20906
+    },
+    "native/rmsnorm-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8ebd93dc5a37271c47327498deaabc2c6ad19518573758595c2ee04defb1053b",
+      "archived_sha256": "55060cdd82982eecfccd3e140fbd6bd2bb8b2366d178e977bb6f5c20ed94ecbb",
+      "source_bytes": 58312,
+      "archived_bytes": 11208
+    },
+    "native/rmsnorm-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-257x1538/on/object/tile_xir_w8_23315_1788930260375362_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "91d800029b5c050dd0d348b82e22d9d715517e7cc97fddedf7c29850868f6bdf",
+      "archived_sha256": "6ee93e7b514d3508926e5d7aafd774229dab239dc7c8716fbb9c7e3e6b280d80",
+      "source_bytes": 7712,
+      "archived_bytes": 4202
+    },
+    "native/rmsnorm-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/2u/c2utptxdervntjtedme5grohjlvbrntjb7kpxlavmamlhnem6idq.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "195da029ff26f9d480133cafd87709a35d6cd9ad2ac82d066eec7204b55e6aed",
+      "archived_sha256": "195da029ff26f9d480133cafd87709a35d6cd9ad2ac82d066eec7204b55e6aed",
+      "source_bytes": 7770,
+      "archived_bytes": 7770
+    },
+    "native/rmsnorm-1024x4097/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "7b4cfbb643b480fb51859774cba0342fa743e96d3106620c0bf89dadd6940f90",
+      "archived_sha256": "20c790f3daf118b8151791a06bc3c9fb39bb16b3224e65ca55f22e17ea75d426",
+      "source_bytes": 131839,
+      "archived_bytes": 20907
+    },
+    "native/rmsnorm-1024x4097/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "cb9a62e2835e94d86faf08f0ab2f0e3048b70cae46624d1ab5fb918e1c379c41",
+      "archived_sha256": "1ae853f97fd718473b6f248f222eb873e58ba75fc64857d96c5f0dc8934e6a3c",
+      "source_bytes": 56768,
+      "archived_bytes": 10800
+    },
+    "native/rmsnorm-1024x4097/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/off/object/tile_xir_w8_23320_1788930260701187_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "746c3903b572c09e342e845d9215aec05017d542202cec044561f0a4afe0d1ca",
+      "archived_sha256": "aeec4e2a94703786d8201f372b6149b0aa86a0fcdb36e2f8590e26cb85b3c32b",
+      "source_bytes": 7480,
+      "archived_bytes": 4093
+    },
+    "native/rmsnorm-1024x4097/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "7b4cfbb643b480fb51859774cba0342fa743e96d3106620c0bf89dadd6940f90",
+      "archived_sha256": "20c790f3daf118b8151791a06bc3c9fb39bb16b3224e65ca55f22e17ea75d426",
+      "source_bytes": 131839,
+      "archived_bytes": 20907
+    },
+    "native/rmsnorm-1024x4097/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "967511d335bef76ca804ebd08d03a4a33080ed80526862c4bb287d42c3d7cf00",
+      "archived_sha256": "44f0297a020a43aea8133e6808f9842dfcc0172ea3f2b63df7b8fe9e4f9f0a72",
+      "source_bytes": 56767,
+      "archived_bytes": 10799
+    },
+    "native/rmsnorm-1024x4097/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rmsnorm-1024x4097/on/object/tile_xir_w8_23325_1788930261100225_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "746c3903b572c09e342e845d9215aec05017d542202cec044561f0a4afe0d1ca",
+      "archived_sha256": "aeec4e2a94703786d8201f372b6149b0aa86a0fcdb36e2f8590e26cb85b3c32b",
+      "source_bytes": 7480,
+      "archived_bytes": 4093
+    },
+    "native/rmsnorm-1024x4097/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/oh/cohwsiyfpihsxsbv2loxydaneo5uxr7xwcaamt7m37roarpeg355.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "6ce2da46d29971c242a6f987b1bdd126512cff634e7e320efc936869bc691622",
+      "archived_sha256": "6ce2da46d29971c242a6f987b1bdd126512cff634e7e320efc936869bc691622",
+      "source_bytes": 8486,
+      "archived_bytes": 8486
+    },
+    "native/layernorm-17x65/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "d690c9d637430941a26bf502290afa1fa336067fb4d781b6ae1bb0a9db081d2a",
+      "archived_sha256": "270ff648e4c38a7cb681b6ffd25ae146f470ddf856599e6972be7a95433e3538",
+      "source_bytes": 238125,
+      "archived_bytes": 35809
+    },
+    "native/layernorm-17x65/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "d37bfafac00abaf83df2d76722e255138b73bd5df9c3d38921c590ce967bb1de",
+      "archived_sha256": "328f73e680e8baeb8c252e83206fca03a7f26a8504407db9ed9a5fcbc69302da",
+      "source_bytes": 94150,
+      "archived_bytes": 17180
+    },
+    "native/layernorm-17x65/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/off/object/tile_xir_w8_23330_1788930261539240_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "674f87857a5e0051f30adc3cedb46900cc3aa9252fce3f1bfc0742603b93b515",
+      "archived_sha256": "b0f9c7f9781e2aba8ccbfe54cfd66dd68f68e76c688252b3f0ed253427d0056c",
+      "source_bytes": 11656,
+      "archived_bytes": 6866
+    },
+    "native/layernorm-17x65/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "c309538a1ca8aff8be16d6cb4f446f82669946eebc0a5d244048a2c0d7801122",
+      "archived_sha256": "9a92877798ecc1218c902d8679c86a19f16385f9ac0cce1e451b4071fca46148",
+      "source_bytes": 250773,
+      "archived_bytes": 37330
+    },
+    "native/layernorm-17x65/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "4e98ff9ef910b14ebe30b1d405fdadb6184850d5287441827d628213094cf3bb",
+      "archived_sha256": "07431a9f3795301c089274a169ed48952af655619fd1596fea02f633b9b6f575",
+      "source_bytes": 96543,
+      "archived_bytes": 18019
+    },
+    "native/layernorm-17x65/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-17x65/on/object/tile_xir_w8_23335_1788930261867114_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "bb46db3316cd8d7a37a72051a3023661cc4ff0061cd8acde86983c96e4bbada7",
+      "archived_sha256": "bb62c33ed1af08f261202551798d519dbba96bf8d23dfe9bdfbda78bf38bab73",
+      "source_bytes": 11928,
+      "archived_bytes": 7170
+    },
+    "native/layernorm-17x65/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/y5/cy54ijtnphsh66fxayv6dh6rrzicjvjcoxsfokqyxoj4o4vhfjab.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "c3255f8e34fb5c85ebf0b8ec564f2922842efd08c593a9d506d055b63b9e8948",
+      "archived_sha256": "c3255f8e34fb5c85ebf0b8ec564f2922842efd08c593a9d506d055b63b9e8948",
+      "source_bytes": 11962,
+      "archived_bytes": 11962
+    },
+    "native/layernorm-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "2c384d787ae29d2db52dfd768ae8b0333fe237ae68bb3b33f7768791822c229a",
+      "archived_sha256": "11bf1b296077d32efa8645490fa87e2df2d4ee03d05788db94ee21b506d049f9",
+      "source_bytes": 193507,
+      "archived_bytes": 29374
+    },
+    "native/layernorm-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "a3d8733ca85e17ff15339ed4637c9e9cf044480f5ebbcb3935fc4ee038b4c90e",
+      "archived_sha256": "654c07b0c7938ed3efa204795e0cd97e52d12509492f141a556488e8bb682e1f",
+      "source_bytes": 43757,
+      "archived_bytes": 8611
+    },
+    "native/layernorm-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/off/object/tile_xir_w8_23340_1788930262105070_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "e85b90e37cb54557b74e53a680a5a4c127fd13a012e2c14d50ca123b8aa6ecb8",
+      "archived_sha256": "4aba5a99633f377c68dda8c6ca6a9f955c97abf7ae5daea834668f27e658c16b",
+      "source_bytes": 5560,
+      "archived_bytes": 3648
+    },
+    "native/layernorm-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "c0a976a66eab143d9026ae6f9fdd39f8143bcb7996158be1004766348a864941",
+      "archived_sha256": "4d6067045d4e2a44a75a53d4b145e8574d8a72a7aa509f9196d2ac5cd9f12ade",
+      "source_bytes": 211485,
+      "archived_bytes": 31491
+    },
+    "native/layernorm-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "80eac7975b4aa7bad541c4e12f8b1c0b895d8d48f4257b7098fe3bc5ed3bbefb",
+      "archived_sha256": "b43c3f796619e2d224e9293f13cbc69e39a2e9f95730b23e9d749655f5ba341a",
+      "source_bytes": 46460,
+      "archived_bytes": 9242
+    },
+    "native/layernorm-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-129x768/on/object/tile_xir_w8_23345_1788930262330924_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "c62634c76311dbf0580e10a73e03409db6cf1fea5db4a6eddf6a28337c6ae17d",
+      "archived_sha256": "ba85a21383a7ca9069e0209e5a5a6f9a3e6b9e217bead0a779e2d1ecf6f154b5",
+      "source_bytes": 5848,
+      "archived_bytes": 3948
+    },
+    "native/layernorm-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/4k/c4ktxx5b57g4f5eqwndwqedz25byljg7h3r233ypdbqej44pyyux.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "b45ebc6eebeaf746ef23b04e1bea59b8864faf36aa160bd3b90eddf8c653291f",
+      "archived_sha256": "b45ebc6eebeaf746ef23b04e1bea59b8864faf36aa160bd3b90eddf8c653291f",
+      "source_bytes": 9431,
+      "archived_bytes": 9431
+    },
+    "native/layernorm-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "2c7cf1ac1453af53a959404ab9d6e8c7072b3fea659a3ffece9bf6d81c760848",
+      "archived_sha256": "61f8a1a153f0b3485fe6c764844aa9c41e5cf71a12b48dee2d7cf5cf3bca6633",
+      "source_bytes": 238229,
+      "archived_bytes": 35832
+    },
+    "native/layernorm-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "252ccef35a1642109e06b62797b505bdacdaebacb3fb1e31e7fb7a8dade87de6",
+      "archived_sha256": "06a3a1247af421eca0cf8fda44bc1de3a775c2576d72571af19581b9fbd58085",
+      "source_bytes": 68304,
+      "archived_bytes": 13097
+    },
+    "native/layernorm-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/off/object/tile_xir_w8_23350_1788930262618555_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "1af999a7f597a6a3517c0c6d07f1bf7536ba21d241b35417ac26bdea40ace6d5",
+      "archived_sha256": "8807dfc7cc1eab2d9ddb04f9f2b3472f41ae06b8173891c60d31971ae0aa1fd5",
+      "source_bytes": 8672,
+      "archived_bytes": 5745
+    },
+    "native/layernorm-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "1883cdb1195974212385312983103939ed94e50fc6010300275274368b5846a8",
+      "archived_sha256": "a504ace08e26c3a28df269f6144b67f59cabd8f9189d342046900ba47e246dbc",
+      "source_bytes": 250871,
+      "archived_bytes": 37361
+    },
+    "native/layernorm-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "54ba1e42c89fb9328ba7b62f1715645678570603a98a6a6e5898f88f9457f47e",
+      "archived_sha256": "c40f396d0dd8d1c812f3f25a2a760e741d2a9839afa2b17fe2cbe7017ca4b63f",
+      "source_bytes": 71262,
+      "archived_bytes": 13628
+    },
+    "native/layernorm-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-257x1538/on/object/tile_xir_w8_23355_1788930262899224_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "343a22b164fcd61d2e9e75cba4c256a5e5cc708c71527d32052297ce7eb62c80",
+      "archived_sha256": "ea1b48c97ede658c2b2ff7b8833e9467a1c2c2123bb4b1cbc935ce969f88eee5",
+      "source_bytes": 9024,
+      "archived_bytes": 5962
+    },
+    "native/layernorm-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/sn/csnkxh3h4qqpimyjiojfnu5a37vizwtzq7ftitt7mjrqhfb64pgb.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "99bc7af0cfc30e5c7840a8d9f580e279511d2f0021ab053f28b9f3c401ef4f3e",
+      "archived_sha256": "99bc7af0cfc30e5c7840a8d9f580e279511d2f0021ab053f28b9f3c401ef4f3e",
+      "source_bytes": 9478,
+      "archived_bytes": 9478
+    },
+    "native/layernorm-1024x4097/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "188886712be75682eef54f4306314a6a21fe685380846463e2ad210ee0972c57",
+      "archived_sha256": "30856353db284368d1340048d0382db378c08dc00cdba54d3e4b1e9e9589aec8",
+      "source_bytes": 239449,
+      "archived_bytes": 35992
+    },
+    "native/layernorm-1024x4097/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "2c2c68f3e2db8dcb3407a56c8624dd2a8689322524da13ca30cf184e45c05a69",
+      "archived_sha256": "c84801ab13973f27ef6998666cdeed212ab21a983fa88a471cbcaba0656e5c6f",
+      "source_bytes": 67815,
+      "archived_bytes": 12933
+    },
+    "native/layernorm-1024x4097/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/off/object/tile_xir_w8_23360_1788930263235173_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "3b7c92a7cd75c382111341d0b4e773c4b473c3aba5f0c5875c6062f1e05ee787",
+      "archived_sha256": "3e4acf24b519c6933378d1b11b38de81316ac84d5b89e44f5b2d0ae4e1f40f8d",
+      "source_bytes": 8544,
+      "archived_bytes": 5581
+    },
+    "native/layernorm-1024x4097/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "f84c3061138c2add3eae2101238e0b030f962e2c82663727528faf0562e41113",
+      "archived_sha256": "409246db1066ecb8ea90c8214ae585a09e76664be41c3bfbca12c370872213d3",
+      "source_bytes": 252095,
+      "archived_bytes": 37628
+    },
+    "native/layernorm-1024x4097/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "05eead77b1a7c20a1744f4b2435f08237905fb0f83b0a7c685c288b886aa1ac1",
+      "archived_sha256": "d6b4bc3bbbf0072f57ee968a7898dbc080056dac0ae7a81f72163bfa320190e5",
+      "source_bytes": 70718,
+      "archived_bytes": 13554
+    },
+    "native/layernorm-1024x4097/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/layernorm-1024x4097/on/object/tile_xir_w8_23365_1788930263671658_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "05d7339c3f9b2947930790bb6e088e778c4f9304049f0cc7bd5e434e3b958111",
+      "archived_sha256": "89a419dd15a4c82305bd717e3787753923b0bd64e14626bee749c1d89cb0dd72",
+      "source_bytes": 8864,
+      "archived_bytes": 5833
+    },
+    "native/layernorm-1024x4097/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/mw/cmwr2vapca2ducjtqsduks5gfxesupvc5fzrrssdnvydhwhchgh4.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "e9df001b64d27a8f5a17d375dcf0e6e38b0550a4b888423b3dfe4d44bf052fc6",
+      "archived_sha256": "e9df001b64d27a8f5a17d375dcf0e6e38b0550a4b888423b3dfe4d44bf052fc6",
+      "source_bytes": 9473,
+      "archived_bytes": 9473
+    },
+    "native/masked_softmax-17x65/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "f021d790a8e871cb3b4ec77e56eba0db317e89434a10cde0c107e38a4afa711a",
+      "archived_sha256": "ae91fe28156d76c53ee617127678c13a25a9abb2c3f98ce10ff843cc9f0e4fb4",
+      "source_bytes": 254360,
+      "archived_bytes": 37868
+    },
+    "native/masked_softmax-17x65/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "b278421f8018ba4703648af35ba6002b104ab23ee20973bff4baf177d86623b6",
+      "archived_sha256": "af814c6f37ef0e01ded96ec96e2e2948ac553be20d3e444878c38c09d1ccc601",
+      "source_bytes": 107884,
+      "archived_bytes": 20761
+    },
+    "native/masked_softmax-17x65/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/off/object/tile_xir_w8_23370_1788930264099853_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "a4d749aa74748aaf3a1262450511cadde3e5965c7e99547d7c4ddc36427c9b10",
+      "archived_sha256": "dd129bfa99ca8b33eeafad0f5a687222deaae299ad0e0ddd340d37d208d818b7",
+      "source_bytes": 14056,
+      "archived_bytes": 9417
+    },
+    "native/masked_softmax-17x65/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "8015436dbfd8c602441a2e892dec44b0175197928a133ce4e6c498ad0de429b3",
+      "archived_sha256": "8e9fe3ed5f2bf379ee26ef6ed8c4a0de13c855baac85672ff2e488d513c715bd",
+      "source_bytes": 305978,
+      "archived_bytes": 43540
+    },
+    "native/masked_softmax-17x65/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "f4a615ea9eb432cc7ffde9c20711a4c0b9421db6bf08ceaa523ac0934b38e1fa",
+      "archived_sha256": "746248f3a386ebc091ddfba4086c4fe47ddb49ae96e441182d05739869d9cbe4",
+      "source_bytes": 219703,
+      "archived_bytes": 38659
+    },
+    "native/masked_softmax-17x65/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-17x65/on/object/tile_xir_w8_23375_1788930264550395_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "d7faee24c7ea8299fbfbdbc3043f130d38a99fc6b3f8d732122ca9ff42d211e3",
+      "archived_sha256": "3bd32e4ac96047112d97a39b084bd4eda027339daa3f6e131ab715bcf0d5525c",
+      "source_bytes": 27160,
+      "archived_bytes": 16468
+    },
+    "native/masked_softmax-17x65/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/oj/coj5qwqhv55hvpr7mueokdv3yukynz6sy36ln3kfugyumckzl3gz.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "2a7db785630ee207f0fd59c25c8d79cf0a3020cdcb9a8ecde80f8c349556671d",
+      "archived_sha256": "2a7db785630ee207f0fd59c25c8d79cf0a3020cdcb9a8ecde80f8c349556671d",
+      "source_bytes": 11868,
+      "archived_bytes": 11868
+    },
+    "native/masked_softmax-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "594e71ff70876a69c878acccb6293643617ba018ecc06a24157ecbc914f9c78b",
+      "archived_sha256": "8c6dd5fa5bff1f75cf8f6527deb91a344e1c21ee0b3624952ad151c9b3078e6c",
+      "source_bytes": 205708,
+      "archived_bytes": 31176
+    },
+    "native/masked_softmax-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "be1658234f3b597cd33ee5f15d7d5a762ef8f099a3e69f872ee2feae57199474",
+      "archived_sha256": "465120e67f330aee169d66cf57a843243735c1237c8d9f7853089e5a012d45a3",
+      "source_bytes": 69227,
+      "archived_bytes": 13388
+    },
+    "native/masked_softmax-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/off/object/tile_xir_w8_23380_1788930264823415_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "290110701ec67584067e82b0ad65cdb20d9259fa2be18759db57b09b91be5766",
+      "archived_sha256": "16c858165ce9c895efdd0739cc72307b1968f619aa11e3a6e030b415336864d4",
+      "source_bytes": 9256,
+      "archived_bytes": 5928
+    },
+    "native/masked_softmax-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "6014d9534bcc2253f01266f4c5b15ee740644bfe19bf78da955d0f8384ab031c",
+      "archived_sha256": "ab003eec46e6d8d9b341abbdbc12d15faebaffd45c2e6087e1ca31a97d2afb59",
+      "source_bytes": 269932,
+      "archived_bytes": 38404
+    },
+    "native/masked_softmax-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8083771db49311454568769f421ffec47b1934c63d1c9982ef6f2dcc2d9ac690",
+      "archived_sha256": "a2e66828ba474cc422f65633faf5eed869f922d7adb977a188c1c5d60ae3894e",
+      "source_bytes": 170205,
+      "archived_bytes": 29522
+    },
+    "native/masked_softmax-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-129x768/on/object/tile_xir_w8_23385_1788930265219842_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "2fce5c21258e51171176783c7bcdd85abd2135a57a8ebe77e92cdad086f37d4d",
+      "archived_sha256": "3ef2faa6af78ab932bf5b0294f99cb8a7302ec56e87839ce6074ff9bda4c5a50",
+      "source_bytes": 21216,
+      "archived_bytes": 11917
+    },
+    "native/masked_softmax-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/xe/cxeb3brjsxmtm6f6uoilq7664hcbzzb4trohh2kvij43l4yffmyb.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "11303a6bcde0d07fa4d4aa89ef439e67269771816ca352a0e8b7438a4ff91855",
+      "archived_sha256": "11303a6bcde0d07fa4d4aa89ef439e67269771816ca352a0e8b7438a4ff91855",
+      "source_bytes": 8759,
+      "archived_bytes": 8759
+    },
+    "native/masked_softmax-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "3eedd3feb352d922f8ec73a5311e662e96713adc6c9442ffaef348b4f5071b0b",
+      "archived_sha256": "26d3286d5d8f6f95d45db3fe5453134fe4eab9a249b6248f2b43eb78001f8f2f",
+      "source_bytes": 254494,
+      "archived_bytes": 37919
+    },
+    "native/masked_softmax-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "c11779973166c0ac523d2f5b181892253eecfd6231c685ddfe44937c9c520d0e",
+      "archived_sha256": "64f95464c484497e97190b2b75fe27ec4f5fd2cfb4dc93b4871a9edcf0df2af8",
+      "source_bytes": 109292,
+      "archived_bytes": 20891
+    },
+    "native/masked_softmax-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/off/object/tile_xir_w8_23391_1788930265576860_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "e58162c14f3ac13cddefd301bc7a6900c2ae7f9fd3460de7b49a13d80aa94ae8",
+      "archived_sha256": "100e851c3f04ffb77b35374542d9d7822816896412e759a91ba8e850291283ff",
+      "source_bytes": 14320,
+      "archived_bytes": 9460
+    },
+    "native/masked_softmax-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "8a71de2e76777ac69ac8c957dd6b072d1011921e65234a503bfb110229ae371a",
+      "archived_sha256": "6ce19f4f92c911a85790f2ba67345d365e0a2ab333f62b45f3f0b8f99f4fccde",
+      "source_bytes": 306100,
+      "archived_bytes": 43583
+    },
+    "native/masked_softmax-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "f639d1d5f28db99c50a0f11e24edc05d9150ed593d6d633eaa7d7375caf8502c",
+      "archived_sha256": "00c122109aa6fdc137c90b485e2a4808efd934541dbd8c46f9ccb97f250fead3",
+      "source_bytes": 219871,
+      "archived_bytes": 39007
+    },
+    "native/masked_softmax-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-257x1538/on/object/tile_xir_w8_23396_1788930266059848_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "196e23dc83ed06aa1ae3774b4500eb12bbad3ad4d46106bc460a51f2d227aa75",
+      "archived_sha256": "a8cde32fce02304cd1437c95209be3ee5be6f4b738a319f45930442790518f0d",
+      "source_bytes": 27232,
+      "archived_bytes": 16629
+    },
+    "native/masked_softmax-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/vj/cvjwqdnirbwvr5hc6dtuayokcfezfpq3wdx2k5dcdjl4na5yzirl.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "d67e2087da9f69cb378235fed4d333e3ce2235e39af491d76a7058b55cbe29e2",
+      "archived_sha256": "d67e2087da9f69cb378235fed4d333e3ce2235e39af491d76a7058b55cbe29e2",
+      "source_bytes": 11911,
+      "archived_bytes": 11911
+    },
+    "native/masked_softmax-1024x4097/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "1588d4d19bb6126841e7f08eefad6185ec80a4bd184e6b05add4d48c02282801",
+      "archived_sha256": "b42d6c6a431642262441904a8e1099157b0ca1cb40c2bdf5229fb64892aec146",
+      "source_bytes": 256066,
+      "archived_bytes": 38192
+    },
+    "native/masked_softmax-1024x4097/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "1ceae465387c0848888cd67c71d3d801e13bd0aba73202336e1a980a842436a7",
+      "archived_sha256": "2a6008ecefe8ffa9d31032d00ae46c95d3953b2b8d01fee15b626373319dc6a8",
+      "source_bytes": 109789,
+      "archived_bytes": 20961
+    },
+    "native/masked_softmax-1024x4097/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/off/object/tile_xir_w8_23401_1788930266548468_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "58eda35300baacd44289babc827f92dcac8a2a3adcb6bb79ada70443dc7e0f74",
+      "archived_sha256": "3eecfd9da6cc85d6e11120dabe9983d3e8ea49b7202cb7319944c863d5d774db",
+      "source_bytes": 14080,
+      "archived_bytes": 9440
+    },
+    "native/masked_softmax-1024x4097/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "493ee77b8d926f480a9214d63cd4a0d9b340c4c32623be8f7aa014ab18638d32",
+      "archived_sha256": "cee457a07425852fd580f4cf21e9ef0605c30d4319564ebfba4c68b907dbc3e7",
+      "source_bytes": 307710,
+      "archived_bytes": 43850
+    },
+    "native/masked_softmax-1024x4097/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "9403c8d7220a97f45a5307ab20c8fecb6ded246605f156d9dc9d2b9940030e85",
+      "archived_sha256": "22f7741c531a619970b2b336f94c7f6ca825120f3ecc805dead4047dd247a8e4",
+      "source_bytes": 224927,
+      "archived_bytes": 39320
+    },
+    "native/masked_softmax-1024x4097/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/masked_softmax-1024x4097/on/object/tile_xir_w8_23406_1788930267442623_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "46cecf08fee34483ff8345074fc127bd1cef287e6b6f73ab5bd988e869a71eb0",
+      "archived_sha256": "7e5ce092c0d4ed6f03a7f086b461496894a2ca529fc2769c3b0bb3f9dfdd1b96",
+      "source_bytes": 27520,
+      "archived_bytes": 16317
+    },
+    "native/masked_softmax-1024x4097/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/bp/cbpxx3pexujdrtkyr4zpz7ccgg5y5m5pjchevyfkng7pscp5kcpc.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "dd3082ca924acf111da79b7146b8ceef7de72859418d7b5166ffcfd9cbba9ac1",
+      "archived_sha256": "dd3082ca924acf111da79b7146b8ceef7de72859418d7b5166ffcfd9cbba9ac1",
+      "source_bytes": 12627,
+      "archived_bytes": 12627
+    },
+    "native/swiglu-17x65/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "956ca9cd9d2efada2609ef05fcc7697e08b29dddf09190739c85f838340e8def",
+      "archived_sha256": "347aecc9ca92e574f3dbbc20ca6c0096848dff35ff68fcb0c618b69f090bfef7",
+      "source_bytes": 69303,
+      "archived_bytes": 7160
+    },
+    "native/swiglu-17x65/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "23646db84b9af3e8275cb83676e3cfd4e1a6fe9956f5a284297b5601d6e905ae",
+      "archived_sha256": "79a313656a9c2057ba25101f8f026e75384d8dc9501384fd2dd59aa33edf4863",
+      "source_bytes": 45544,
+      "archived_bytes": 8927
+    },
+    "native/swiglu-17x65/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/off/object/tile_xir_w8_23411_1788930267975858_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "361e1e9e9c9884121f6442de49228f8bbdff109f6be4fe0a83d51ce1add35117",
+      "archived_sha256": "aaae157bc4c4648390a15b6110fbf3102ac5e0b7af9972a2cde8e9ad478adedb",
+      "source_bytes": 5888,
+      "archived_bytes": 3984
+    },
+    "native/swiglu-17x65/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "956ca9cd9d2efada2609ef05fcc7697e08b29dddf09190739c85f838340e8def",
+      "archived_sha256": "347aecc9ca92e574f3dbbc20ca6c0096848dff35ff68fcb0c618b69f090bfef7",
+      "source_bytes": 69303,
+      "archived_bytes": 7160
+    },
+    "native/swiglu-17x65/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "55a400fd439f50ef270e15ec83fa70166196cef040b680f1198ee424eb6cc6a0",
+      "archived_sha256": "3d6463978f8d81fa9e36a7f943c2d12c994143371220dc72092617bf686d400d",
+      "source_bytes": 45543,
+      "archived_bytes": 8928
+    },
+    "native/swiglu-17x65/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-17x65/on/object/tile_xir_w8_23416_1788930268184903_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "361e1e9e9c9884121f6442de49228f8bbdff109f6be4fe0a83d51ce1add35117",
+      "archived_sha256": "aaae157bc4c4648390a15b6110fbf3102ac5e0b7af9972a2cde8e9ad478adedb",
+      "source_bytes": 5888,
+      "archived_bytes": 3984
+    },
+    "native/swiglu-17x65/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/3i/c3ilk5mucktemvkyilpw5xjlajaho2raiu4eesadcwwhok37cbdf.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "c301bd11dc85fe4a47e6f34beeb3a4e2b427660f1451ce417ca942228418073e",
+      "archived_sha256": "c301bd11dc85fe4a47e6f34beeb3a4e2b427660f1451ce417ca942228418073e",
+      "source_bytes": 5540,
+      "archived_bytes": 5540
+    },
+    "native/swiglu-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "354d3668477d1c8d9312fe71c081adf22290d728b8bd883a60d22e69acd4434d",
+      "archived_sha256": "18775aca91b904f68e9a30dae7d800cad3d87a9b06a12de380963b38663f2582",
+      "source_bytes": 49176,
+      "archived_bytes": 5424
+    },
+    "native/swiglu-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "b96a1262031170cae6c9d9258f431277688abd73073271f735d79af10110c29d",
+      "archived_sha256": "e9d381643dbd58c8d1f716aa7aa02ece82cfe72758a1e16685bac9a45bb14163",
+      "source_bytes": 39412,
+      "archived_bytes": 7157
+    },
+    "native/swiglu-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/off/object/tile_xir_w8_23421_1788930268402731_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "12c4c9b4b90be18c0883f5cf0ccd51e1faadac184c9cef95b9ecec7603164e6c",
+      "archived_sha256": "e8481d95c3be6728ee5ffddbb7a0196f01f8b4a3c252d2a5f8183c830af1baa3",
+      "source_bytes": 4992,
+      "archived_bytes": 2183
+    },
+    "native/swiglu-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "354d3668477d1c8d9312fe71c081adf22290d728b8bd883a60d22e69acd4434d",
+      "archived_sha256": "18775aca91b904f68e9a30dae7d800cad3d87a9b06a12de380963b38663f2582",
+      "source_bytes": 49176,
+      "archived_bytes": 5424
+    },
+    "native/swiglu-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "3e268d75781d3303b27bfbb4ea11b7cec2728d60b6ab5f1d31a028612047e3c4",
+      "archived_sha256": "1afd16693835da40fe8b7a83186136d3d1f467b53230baf7cd9dd7857a074be2",
+      "source_bytes": 39411,
+      "archived_bytes": 7157
+    },
+    "native/swiglu-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-129x768/on/object/tile_xir_w8_23427_1788930268621454_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "12c4c9b4b90be18c0883f5cf0ccd51e1faadac184c9cef95b9ecec7603164e6c",
+      "archived_sha256": "e8481d95c3be6728ee5ffddbb7a0196f01f8b4a3c252d2a5f8183c830af1baa3",
+      "source_bytes": 4992,
+      "archived_bytes": 2183
+    },
+    "native/swiglu-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/lk/clkr4gcchxuqgbrgm5mgwskbx22olvo43bh3xubap2r6dd3vjour.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "0733d1f461f4ee628d4417fa5fdfdb2592ad372d258e6f2d0d14ff1cd5c9e93b",
+      "archived_sha256": "0733d1f461f4ee628d4417fa5fdfdb2592ad372d258e6f2d0d14ff1cd5c9e93b",
+      "source_bytes": 4698,
+      "archived_bytes": 4698
+    },
+    "native/swiglu-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "96d1be1330267873789dac534cef1877c2be7fd14ef519ed60732e0ded307e40",
+      "archived_sha256": "710f9a27f6b613d15be8f715aab9455b84fb3ad5d852d12d0257f2170f48ea2d",
+      "source_bytes": 69363,
+      "archived_bytes": 7170
+    },
+    "native/swiglu-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "c4290c16fd760d04ca9ac5b98de38e66c872896328bf1a7090b819c1366fd4ae",
+      "archived_sha256": "969b21a0761125e8593466cf69f6344fadd693f91ee025ac7ec437f6d2fa7fc9",
+      "source_bytes": 45697,
+      "archived_bytes": 8962
+    },
+    "native/swiglu-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/off/object/tile_xir_w8_23432_1788930268875356_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ce4cdc9832e87bc9ffb89a6e4ed011b66a09ac8c9227b460ac24804ab0db7bc8",
+      "archived_sha256": "cb770526a80874d4f0ffb2dba0bea7e7726c97f7260c73b79b1eb4bbca7411a1",
+      "source_bytes": 5976,
+      "archived_bytes": 4026
+    },
+    "native/swiglu-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "96d1be1330267873789dac534cef1877c2be7fd14ef519ed60732e0ded307e40",
+      "archived_sha256": "710f9a27f6b613d15be8f715aab9455b84fb3ad5d852d12d0257f2170f48ea2d",
+      "source_bytes": 69363,
+      "archived_bytes": 7170
+    },
+    "native/swiglu-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "cb2c88670fe2d87630da9460cc1ae01e4500e01c8f9ea1e36da54db9c87e0907",
+      "archived_sha256": "8451c75127fc5ba7ddda149b77bf1e81c847c1795c2e2f3362df92ef3631dd65",
+      "source_bytes": 45696,
+      "archived_bytes": 8962
+    },
+    "native/swiglu-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-257x1538/on/object/tile_xir_w8_23437_1788930269133091_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ce4cdc9832e87bc9ffb89a6e4ed011b66a09ac8c9227b460ac24804ab0db7bc8",
+      "archived_sha256": "cb770526a80874d4f0ffb2dba0bea7e7726c97f7260c73b79b1eb4bbca7411a1",
+      "source_bytes": 5976,
+      "archived_bytes": 4026
+    },
+    "native/swiglu-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/y7/cy7inyktslfkdor5odz7tc66sfa6gedmo74kdzy6qhnnlfixhubz.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "4a0f0b357db71f01bf9fafed2a31120c39acdca607dc868efd5ff47ce534bb7b",
+      "archived_sha256": "4a0f0b357db71f01bf9fafed2a31120c39acdca607dc868efd5ff47ce534bb7b",
+      "source_bytes": 5548,
+      "archived_bytes": 5548
+    },
+    "native/swiglu-1024x4097/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "140d1f78a108514d9be9cbac8af323f21539ac923b0ddaaf412460789e6625c2",
+      "archived_sha256": "7bceaf0630c5a7283d5d7656c696b2ae346941153015ad57065bfd83313855f8",
+      "source_bytes": 69375,
+      "archived_bytes": 7171
+    },
+    "native/swiglu-1024x4097/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "4928bdfc15c15e6b3b3b5d4a4edfdd95f5aa0c5df00af99930197e850546c87b",
+      "archived_sha256": "ee0ee7b00ebba5042e513a8de82c474938cd6cc8992f8993c04470c701554d25",
+      "source_bytes": 45331,
+      "archived_bytes": 8889
+    },
+    "native/swiglu-1024x4097/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/off/object/tile_xir_w8_23442_1788930269533566_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ac8b37c34fd20fe32dc7d9c79460628e7a2ecc48b63ace390c99bcaa6579c671",
+      "archived_sha256": "51bdbfd1c3dc67456db8ecbd526b24a18d4ea8182af25dfda276ddf5c2bb581a",
+      "source_bytes": 5896,
+      "archived_bytes": 3962
+    },
+    "native/swiglu-1024x4097/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "140d1f78a108514d9be9cbac8af323f21539ac923b0ddaaf412460789e6625c2",
+      "archived_sha256": "7bceaf0630c5a7283d5d7656c696b2ae346941153015ad57065bfd83313855f8",
+      "source_bytes": 69375,
+      "archived_bytes": 7171
+    },
+    "native/swiglu-1024x4097/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "fb52cd61c2fd8453b443b2bee34f197d103384768f68ee00ffddbd7bc3d17b2b",
+      "archived_sha256": "81cfdaa3982e0573bd3546e495b04d9442c0cfcfc53f1bdbeccb9aecfba93bcb",
+      "source_bytes": 45330,
+      "archived_bytes": 8888
+    },
+    "native/swiglu-1024x4097/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/swiglu-1024x4097/on/object/tile_xir_w8_23447_1788930270091254_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "ac8b37c34fd20fe32dc7d9c79460628e7a2ecc48b63ace390c99bcaa6579c671",
+      "archived_sha256": "51bdbfd1c3dc67456db8ecbd526b24a18d4ea8182af25dfda276ddf5c2bb581a",
+      "source_bytes": 5896,
+      "archived_bytes": 3962
+    },
+    "native/swiglu-1024x4097/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/lz/clzr6yr7lhsyaxnnefwzmwjtl2qqs4zl3ahvnnl5qqntxxolaps3.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "edb81cac2af779bdb617acd65c130dd32e2cd3b976fe1dbe82a51301ce9d72ea",
+      "archived_sha256": "edb81cac2af779bdb617acd65c130dd32e2cd3b976fe1dbe82a51301ce9d72ea",
+      "source_bytes": 4702,
+      "archived_bytes": 4702
+    },
+    "native/gelu_residual-17x65/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "96c0be43592abd7f78cdb51f6cddcb2a06a4aa2c5cb567ca397a8b88087da8f0",
+      "archived_sha256": "76ad32eb1b71b7a52d89a73caa9e6d82cfb6c30544d86acd50112b19b1ed2096",
+      "source_bytes": 76993,
+      "archived_bytes": 11793
+    },
+    "native/gelu_residual-17x65/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "4904233e20e373e1ea7caf5da533997d5093f83c037365fb7c08b6541218df4a",
+      "archived_sha256": "04d0282c25066112f5a09c48eed82fb3322d7a8d6170e4118c9165c580960b0a",
+      "source_bytes": 63903,
+      "archived_bytes": 11938
+    },
+    "native/gelu_residual-17x65/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/off/object/tile_xir_w8_23452_1788930270538964_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "189918bd3f8c9ccda795159ad8f2f9c41ebd79db150ed97d9320f5975f0ee1ea",
+      "archived_sha256": "b361e66ba8fa5ba1ae964307c2481df14a05a7f41e36502dd7d0c2e210cdee11",
+      "source_bytes": 7808,
+      "archived_bytes": 5285
+    },
+    "native/gelu_residual-17x65/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "96c0be43592abd7f78cdb51f6cddcb2a06a4aa2c5cb567ca397a8b88087da8f0",
+      "archived_sha256": "76ad32eb1b71b7a52d89a73caa9e6d82cfb6c30544d86acd50112b19b1ed2096",
+      "source_bytes": 76993,
+      "archived_bytes": 11793
+    },
+    "native/gelu_residual-17x65/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "5cea922bc6d3d3e96e9581c4b1335fb8a9d82f323d72234f06d63ed109370856",
+      "archived_sha256": "3e584a7adcad74acae4e96d1c3ac31923639b9d114129929053218ac6843a652",
+      "source_bytes": 63902,
+      "archived_bytes": 11938
+    },
+    "native/gelu_residual-17x65/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-17x65/on/object/tile_xir_w8_23458_1788930270767890_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "189918bd3f8c9ccda795159ad8f2f9c41ebd79db150ed97d9320f5975f0ee1ea",
+      "archived_sha256": "b361e66ba8fa5ba1ae964307c2481df14a05a7f41e36502dd7d0c2e210cdee11",
+      "source_bytes": 7808,
+      "archived_bytes": 5285
+    },
+    "native/gelu_residual-17x65/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/qd/cqdfgya7zzfhcsj4ztubutzs3ybjkbvuaslaqvd33ditdh3oblho.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "dfb25dfe789055e1a26587da6b585f2d977052a41e353edbbceda47e819c1fe7",
+      "archived_sha256": "dfb25dfe789055e1a26587da6b585f2d977052a41e353edbbceda47e819c1fe7",
+      "source_bytes": 6812,
+      "archived_bytes": 6812
+    },
+    "native/gelu_residual-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "edb136a19c1eb021a7a010f2937cda57af701a7f43d2301d2e8255cdaf7f085e",
+      "archived_sha256": "1c1e227773bff7c0021eeea99a392fc8bb1bc7f827d2beba40dd197a5ae81f36",
+      "source_bytes": 54950,
+      "archived_bytes": 6082
+    },
+    "native/gelu_residual-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "41bc6c76303eee4decbb20fb7029447b0195206c751e5ac07bf99b4d34768f15",
+      "archived_sha256": "6e9d4293cc2c0ee6454e167b54e7049f4700edd577c66404c2e783d3ff47742d",
+      "source_bytes": 64549,
+      "archived_bytes": 11268
+    },
+    "native/gelu_residual-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/off/object/tile_xir_w8_23463_1788930271024735_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "9a86720af3cf65ce7fae6a8132b75fe55cafe14f61772521a0e914213cd3fe96",
+      "archived_sha256": "997ba9d9474e078d6a2d8f0d0c53c642d18a463f64bc6bab541ce975d7112c40",
+      "source_bytes": 7616,
+      "archived_bytes": 3485
+    },
+    "native/gelu_residual-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "edb136a19c1eb021a7a010f2937cda57af701a7f43d2301d2e8255cdaf7f085e",
+      "archived_sha256": "1c1e227773bff7c0021eeea99a392fc8bb1bc7f827d2beba40dd197a5ae81f36",
+      "source_bytes": 54950,
+      "archived_bytes": 6082
+    },
+    "native/gelu_residual-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "7e2cb05aa14a601d104451924136cccade82e58110c4c0af9b65ee6cf953fab6",
+      "archived_sha256": "d58a3be601b9e34bf2458fe46525eb74eb89b985d1164d2df4b5563aa1bdee03",
+      "source_bytes": 64548,
+      "archived_bytes": 11268
+    },
+    "native/gelu_residual-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-129x768/on/object/tile_xir_w8_23468_1788930271269196_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "9a86720af3cf65ce7fae6a8132b75fe55cafe14f61772521a0e914213cd3fe96",
+      "archived_sha256": "997ba9d9474e078d6a2d8f0d0c53c642d18a463f64bc6bab541ce975d7112c40",
+      "source_bytes": 7616,
+      "archived_bytes": 3485
+    },
+    "native/gelu_residual-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/jj/cjjm52jeucuc24ygy42f5otxpvkmfr7ghhermss2lmlddx5zwvcc.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "7d6f44d0f6a5eb0b871023a0caba3cd677a85355de86f7028b0806c14f067fcf",
+      "archived_sha256": "7d6f44d0f6a5eb0b871023a0caba3cd677a85355de86f7028b0806c14f067fcf",
+      "source_bytes": 5334,
+      "archived_bytes": 5334
+    },
+    "native/gelu_residual-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "14b890405fa70da4b0c55feeb72949b6b9b1ce9d7f224dfc187feaaad5a8d80f",
+      "archived_sha256": "390feb49f9b2f06b1b55264a15e5bbf40788af69e37a71e56367a4a27476abec",
+      "source_bytes": 77053,
+      "archived_bytes": 11809
+    },
+    "native/gelu_residual-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "91a1deb3e2b4de380c092cf88b97ed0066156adef44b55da640f9f106da94ed4",
+      "archived_sha256": "fc8d10a0c424c0b35657e1867fca38cc7a9ac65e6e5eab1aa19f0d28d83c29cc",
+      "source_bytes": 63958,
+      "archived_bytes": 12054
+    },
+    "native/gelu_residual-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/off/object/tile_xir_w8_23473_1788930271526447_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "c425a5f0d8a2f1e40acc3e7a4421ed09bdaf7019957098451a7bc4c0a4b2e4ff",
+      "archived_sha256": "13ecfd4c58b09525f0c30b411482db655ab222957ae960534a327f6ff2353afc",
+      "source_bytes": 7896,
+      "archived_bytes": 5364
+    },
+    "native/gelu_residual-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "14b890405fa70da4b0c55feeb72949b6b9b1ce9d7f224dfc187feaaad5a8d80f",
+      "archived_sha256": "390feb49f9b2f06b1b55264a15e5bbf40788af69e37a71e56367a4a27476abec",
+      "source_bytes": 77053,
+      "archived_bytes": 11809
+    },
+    "native/gelu_residual-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "e4a16ba344523416fb4c9347a3831a46b7d176485e66c9affc107debd71a82c8",
+      "archived_sha256": "69979c400e84f56e6cf0b259b2ab4e30a704e058ef73599824e0a736c454e958",
+      "source_bytes": 63957,
+      "archived_bytes": 12052
+    },
+    "native/gelu_residual-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-257x1538/on/object/tile_xir_w8_23478_1788930271788907_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "c425a5f0d8a2f1e40acc3e7a4421ed09bdaf7019957098451a7bc4c0a4b2e4ff",
+      "archived_sha256": "13ecfd4c58b09525f0c30b411482db655ab222957ae960534a327f6ff2353afc",
+      "source_bytes": 7896,
+      "archived_bytes": 5364
+    },
+    "native/gelu_residual-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/hc/chcfepctzbwthocydkia2nix26tbcrnamsdg56llmss4j5kccvs2.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "6dc56ae35a1c34822cce84e8ff06d8d6b6d0280e1165382c06f546a9a659c78a",
+      "archived_sha256": "6dc56ae35a1c34822cce84e8ff06d8d6b6d0280e1165382c06f546a9a659c78a",
+      "source_bytes": 6820,
+      "archived_bytes": 6820
+    },
+    "native/gelu_residual-1024x4097/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "0087d8c6ef7903803668ef56343a0796edb1ef8528cd48462d3f34ef19dcb6b7",
+      "archived_sha256": "5ec4bfc77f987a22b1c7a7a6e41b98505e2a9f763918a4ab5dad4a44588b9078",
+      "source_bytes": 77065,
+      "archived_bytes": 11807
+    },
+    "native/gelu_residual-1024x4097/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "a89b692755e43361194c9ceeea7006ca08879d6b0938c955fea9e327bdbf5377",
+      "archived_sha256": "0a8a8183a77390d04b316d54cf677b026e61e8d0306187747dcc63980645155e",
+      "source_bytes": 63669,
+      "archived_bytes": 11938
+    },
+    "native/gelu_residual-1024x4097/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/off/object/tile_xir_w8_23483_1788930272217954_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "382adefe28ef394435094162fccdc627a6cda4ef3a465542382458773c06b1d9",
+      "archived_sha256": "8b0236a1d99460bfcb17e1593e671d1a70c239c886c3ffaed3ef564bb0c4aa88",
+      "source_bytes": 7816,
+      "archived_bytes": 5295
+    },
+    "native/gelu_residual-1024x4097/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "0087d8c6ef7903803668ef56343a0796edb1ef8528cd48462d3f34ef19dcb6b7",
+      "archived_sha256": "5ec4bfc77f987a22b1c7a7a6e41b98505e2a9f763918a4ab5dad4a44588b9078",
+      "source_bytes": 77065,
+      "archived_bytes": 11807
+    },
+    "native/gelu_residual-1024x4097/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "e64b938cb1088b6aeaba2f8d7cfc33cc4a9719b1443a03cd1f1d1d0282b08a63",
+      "archived_sha256": "fd301311247cc09bb3c3f83fbc2069c786e23adce0590aa183977513f89e6271",
+      "source_bytes": 63668,
+      "archived_bytes": 11938
+    },
+    "native/gelu_residual-1024x4097/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/gelu_residual-1024x4097/on/object/tile_xir_w8_23488_1788930272893883_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "382adefe28ef394435094162fccdc627a6cda4ef3a465542382458773c06b1d9",
+      "archived_sha256": "8b0236a1d99460bfcb17e1593e671d1a70c239c886c3ffaed3ef564bb0c4aa88",
+      "source_bytes": 7816,
+      "archived_bytes": 5295
+    },
+    "native/gelu_residual-1024x4097/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/64/c64qvpllvmij4sqk4acu6k55xyfw5hnygcmhjgacdlwvjtmozalt.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "70501651e875ff1a8473d62273f36292cf135ece5a6a877ba85c4bd7c8ae2485",
+      "archived_sha256": "70501651e875ff1a8473d62273f36292cf135ece5a6a877ba85c4bd7c8ae2485",
+      "source_bytes": 5338,
+      "archived_bytes": 5338
+    },
+    "native/rope-17x66/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "10a6f993dfe42db672679a5c6a29b06d0153c48008eb0a3761585dc064b9e9c0",
+      "archived_sha256": "d0f341a2835ed14500116cc916ac431b97e78852f801bf65bc7d3e74205179c2",
+      "source_bytes": 207502,
+      "archived_bytes": 26957
+    },
+    "native/rope-17x66/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "f14888f027afefe360172b8664f2f32c6a363d7f448d0a6461871c5c5fe6af31",
+      "archived_sha256": "ad8d793215e473d3006baf521e58e9276d9eccc4f2f0653a9bae3fce4f8f9105",
+      "source_bytes": 100905,
+      "archived_bytes": 18524
+    },
+    "native/rope-17x66/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/off/object/tile_xir_w8_23493_1788930273560772_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "df5351128970816c9559c98534dc18878e3479a94ce3a9701727503dfe5a6836",
+      "archived_sha256": "6bfaaac940032a2db467baa768b6b2211c2d9e4522cacfbea3380e737da27ff9",
+      "source_bytes": 12480,
+      "archived_bytes": 7369
+    },
+    "native/rope-17x66/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "10a6f993dfe42db672679a5c6a29b06d0153c48008eb0a3761585dc064b9e9c0",
+      "archived_sha256": "d0f341a2835ed14500116cc916ac431b97e78852f801bf65bc7d3e74205179c2",
+      "source_bytes": 207502,
+      "archived_bytes": 26957
+    },
+    "native/rope-17x66/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8736fadb23e81501b608e46282db34f67334a491ec1c50ed27dfbbc0681c049f",
+      "archived_sha256": "13dc490bfcdb62baa67675929ec4263945a29a791ce4371625340d24ab5d004e",
+      "source_bytes": 100904,
+      "archived_bytes": 18524
+    },
+    "native/rope-17x66/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-17x66/on/object/tile_xir_w8_23501_1788930273893352_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "df5351128970816c9559c98534dc18878e3479a94ce3a9701727503dfe5a6836",
+      "archived_sha256": "6bfaaac940032a2db467baa768b6b2211c2d9e4522cacfbea3380e737da27ff9",
+      "source_bytes": 12480,
+      "archived_bytes": 7369
+    },
+    "native/rope-17x66/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/3e/c3eiyrvweeo6vqfongluhq4ouzxleckfazgzznwv7sa3xst5ktgk.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "becf8c98ce868e5474e2387c9ccad1c2c31c17d6eb7c1dd2255797637208463f",
+      "archived_sha256": "becf8c98ce868e5474e2387c9ccad1c2c31c17d6eb7c1dd2255797637208463f",
+      "source_bytes": 6608,
+      "archived_bytes": 6608
+    },
+    "native/rope-129x768/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "bf14accdcb17b16d6ebe3c83346274fa5cd5851c35df0a8bd3eb837395301b42",
+      "archived_sha256": "65d48fdef38265e789525b9d8ec354b78c32b1bcdd2e4d8f007cfe80887e4d24",
+      "source_bytes": 83105,
+      "archived_bytes": 11557
+    },
+    "native/rope-129x768/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "bcb27c83b39c3e302d2f43130cd59612e169d835b670795fbad57cef73b2e567",
+      "archived_sha256": "1ce18db1616841ef6432ac27d0f8bb1bc6e84fd49aa79f3f698170888651ad64",
+      "source_bytes": 30640,
+      "archived_bytes": 5861
+    },
+    "native/rope-129x768/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/off/object/tile_xir_w8_23506_1788930274122025_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "32a2353099bcf6c5820b787efc47b5fc18a5e4c4723e02824f55dd8fb0346090",
+      "archived_sha256": "a7bd0ad02d0a8cc44b439262f02bc4146da8b2b7f747a16630d25fd4ede2cf72",
+      "source_bytes": 4080,
+      "archived_bytes": 2019
+    },
+    "native/rope-129x768/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "bf14accdcb17b16d6ebe3c83346274fa5cd5851c35df0a8bd3eb837395301b42",
+      "archived_sha256": "65d48fdef38265e789525b9d8ec354b78c32b1bcdd2e4d8f007cfe80887e4d24",
+      "source_bytes": 83105,
+      "archived_bytes": 11557
+    },
+    "native/rope-129x768/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "0d17a3e4e200613b74d1a57aad6ce1b6e39046113eb1b8adb8120235276e0fc2",
+      "archived_sha256": "0af8140e3d0dd4ffc3f7c6a28ad7fa865ac9536d836bf360bdb442b1d5803899",
+      "source_bytes": 30639,
+      "archived_bytes": 5861
+    },
+    "native/rope-129x768/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-129x768/on/object/tile_xir_w8_23511_1788930274333159_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "32a2353099bcf6c5820b787efc47b5fc18a5e4c4723e02824f55dd8fb0346090",
+      "archived_sha256": "a7bd0ad02d0a8cc44b439262f02bc4146da8b2b7f747a16630d25fd4ede2cf72",
+      "source_bytes": 4080,
+      "archived_bytes": 2019
+    },
+    "native/rope-129x768/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/gg/cgg235r5jnerzxcfbnowng3j4rnqoaubd4x24ikozmlwxdx5lvzh.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "24869466acb7bc533db7439cf6573e45f3e62ec45506c00a71eeb4d161c9d8e4",
+      "archived_sha256": "24869466acb7bc533db7439cf6573e45f3e62ec45506c00a71eeb4d161c9d8e4",
+      "source_bytes": 5371,
+      "archived_bytes": 5371
+    },
+    "native/rope-257x1538/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "f405fd894bd40e2de00f4e710111ed3e86278c7d5fb6cee60febe0dac0a5e142",
+      "archived_sha256": "9c984ebf4b74135b3d624cb6d6e737d8c882124ea8b9cee001a7a916163af484",
+      "source_bytes": 128700,
+      "archived_bytes": 18170
+    },
+    "native/rope-257x1538/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8d3691e546d6ee42e9067111718b2c4d557224446b12b0836c2af5f883db87ba",
+      "archived_sha256": "eadfb17165883432834263fd4f820e0e723216a8bc8a5fb24012ab5c1a191ade",
+      "source_bytes": 60126,
+      "archived_bytes": 11560
+    },
+    "native/rope-257x1538/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/off/object/tile_xir_w8_23516_1788930274613862_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "27b964e73d406faf6117c46bed2ff39984f44e9e5cf04644c8a1fd6ae7244c52",
+      "archived_sha256": "b9b412518218c1a4b0b1dee4923079d7dc4783095851516d78b4b75f0b1e613d",
+      "source_bytes": 7736,
+      "archived_bytes": 4213
+    },
+    "native/rope-257x1538/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "f405fd894bd40e2de00f4e710111ed3e86278c7d5fb6cee60febe0dac0a5e142",
+      "archived_sha256": "9c984ebf4b74135b3d624cb6d6e737d8c882124ea8b9cee001a7a916163af484",
+      "source_bytes": 128700,
+      "archived_bytes": 18170
+    },
+    "native/rope-257x1538/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "8b371ee57f124947aaa926fc76ed21dabcdb7c9c9de27379c1282b58fb7ed601",
+      "archived_sha256": "b41a0632435fca6defbb7f816cf63fd67c62bf7f190a199fbd7687a3f983ecd5",
+      "source_bytes": 60125,
+      "archived_bytes": 11559
+    },
+    "native/rope-257x1538/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-257x1538/on/object/tile_xir_w8_23521_1788930274887170_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "27b964e73d406faf6117c46bed2ff39984f44e9e5cf04644c8a1fd6ae7244c52",
+      "archived_sha256": "b9b412518218c1a4b0b1dee4923079d7dc4783095851516d78b4b75f0b1e613d",
+      "source_bytes": 7736,
+      "archived_bytes": 4213
+    },
+    "native/rope-257x1538/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/kx/ckxf6ri5iyvl7dl3ybemjolbxlpp6cjfqdufmexwtomx7nt7k2vp.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "6f4d2fd6ea275672be2d698224b2f9f3a4b08ac55f5a637a01b2163b0e163b25",
+      "archived_sha256": "6f4d2fd6ea275672be2d698224b2f9f3a4b08ac55f5a637a01b2163b0e163b25",
+      "source_bytes": 6635,
+      "archived_bytes": 6635
+    },
+    "native/rope-1024x4098/off.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/off/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "316cab7c71dcc126aed3b14b04969c2da68df28c168d449c68c9e4387a2c0bab",
+      "archived_sha256": "b5ced0b73659c999247101edddccf691a0932af49d7d11666aba019e5f4fa9ad",
+      "source_bytes": 128740,
+      "archived_bytes": 18172
+    },
+    "native/rope-1024x4098/off.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/off/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "c6bdcdb0a197c02a6a89143bcc77fa82eef8df02f5908aa58fb290d239f38793",
+      "archived_sha256": "5fadf45db4c4f8ce4054eee755ce417f4a7fdb51b7c5953052cc0032181bec41",
+      "source_bytes": 61027,
+      "archived_bytes": 11636
+    },
+    "native/rope-1024x4098/off.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/off/object/tile_xir_w8_23526_1788930275267088_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "493f9dacc8586978d32e8e1eff600547d2c502310b5e6e85b60f405fb4c27ffc",
+      "archived_sha256": "ebe062868d993d0fd535d9350e604e0483a6dae8596813d81c54e6fe685c066f",
+      "source_bytes": 7784,
+      "archived_bytes": 4183
+    },
+    "native/rope-1024x4098/on.ll.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/on/kernel.ll",
+      "role": "Actual captured LLVM, not retimed reconstructed source.",
+      "source_sha256": "316cab7c71dcc126aed3b14b04969c2da68df28c168d449c68c9e4387a2c0bab",
+      "archived_sha256": "b5ced0b73659c999247101edddccf691a0932af49d7d11666aba019e5f4fa9ad",
+      "source_bytes": 128740,
+      "archived_bytes": 18172
+    },
+    "native/rope-1024x4098/on.s.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/on/assembly.stdout.log",
+      "role": "Disassembly of the actual ORC object.",
+      "source_sha256": "6b801cec31762acb9b8ee422202859c0079c1c7ee58a2f3eec7900b785444740",
+      "archived_sha256": "2da03126c1b993d07745359cb44e2d791082847af36559c5f46604c333a680a6",
+      "source_bytes": 61026,
+      "archived_bytes": 11636
+    },
+    "native/rope-1024x4098/on.o.gz": {
+      "origin": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/rope-1024x4098/on/object/tile_xir_w8_23531_1788930275730030_0.o",
+      "role": "Actual ORC object; entry dylib can be relinked with the recorded command.",
+      "source_sha256": "493f9dacc8586978d32e8e1eff600547d2c502310b5e6e85b60f405fb4c27ffc",
+      "archived_sha256": "ebe062868d993d0fd535d9350e604e0483a6dae8596813d81c54e6fe685c066f",
+      "source_bytes": 7784,
+      "archived_bytes": 4183
+    },
+    "native/rope-1024x4098/inductor.cpp": {
+      "origin": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/inductor-cache/jw/cjwmjkj6qpixl4rttm34b3n43z773u6u3mzasm63dk3l24jkmll3.main.cpp",
+      "role": "Generated C++ for the reused, fingerprinted Inductor native entry.",
+      "source_sha256": "e36b6e8fffd78ec3ba346abd2b2041ba319dd6bff43490d9b6ab3c22c4eaa89d",
+      "archived_sha256": "e36b6e8fffd78ec3ba346abd2b2041ba319dd6bff43490d9b6ab3c22c4eaa89d",
+      "source_bytes": 6646,
+      "archived_bytes": 6646
+    }
+  },
+  "payload_retention": "Large input/output arrays, linked dylibs and screenshots remain local at the recorded paths; source, ORC objects, disassembly, output hashes, validation and exact commands are retained here."
+}

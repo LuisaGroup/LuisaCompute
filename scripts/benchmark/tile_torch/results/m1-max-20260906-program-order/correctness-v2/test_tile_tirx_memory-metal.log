@@ -1,0 +1,15 @@
+
+Running test "tile_native_memory_ancestor_resources"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m
+
+
+Running test "tile_native_memory_ancestor_resources"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m
+
+
+===============================================================================
+Suite global
+tests:   14 | [31m2 failed[0m
+asserts: 448 | 13 passed | [31m2 failed[0m
+

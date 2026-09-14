@@ -1,0 +1,73 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "rmsnorm",
+  "dimensions": [
+    64,
+    256
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      64,
+      256
+    ],
+    [
+      1,
+      256
+    ],
+    [
+      1,
+      256
+    ]
+  ],
+  "output_shape": [
+    64,
+    256
+  ],
+  "fixture_ms": 0.193125,
+  "runtime_init_ms": 11.814667,
+  "compile_ms": 212.240166,
+  "allocation_upload_ms": 0.021834,
+  "cold_call_ms": 0.045458,
+  "warmup_ms": 50.048792,
+  "repetitions": 539,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 297112.000 (arithmetic 32792.000, memory 264192.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 16384,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 2.97793955939e-07
+  },
+  "throughput_us": [
+    28.1025046382,
+    28.0024730983,
+    28.3554415584,
+    27.8112244898,
+    28.09067718
+  ],
+  "latency_us": [
+    28.958,
+    27.792,
+    27.792,
+    27.833,
+    27.75
+  ]
+}

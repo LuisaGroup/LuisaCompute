@@ -102,6 +102,19 @@ option("lc_win_runtime", {default = false})
 option("lc_optimize", {default = false})
 -- custom LLVM installation path
 option("lc_llvm_path", {default = false})
+-- optional native C++ TileIR -> TVM TIRx bridge (mirrors
+-- LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE in the CMake build). Builds and links
+-- the bundled apache/tvm submodule at src/ext/tvm (tvm_ffi, tvm_runtime and
+-- tvm_compiler are compiled from source by src/ext/xmake.lua).
+option("lc_tile_tirx_bridge", {default = false,
+    description = "Enable the native C++ TileIR to TVM TIRx bridge using the bundled src/ext/tvm submodule.",
+    showmenu = true})
+-- build the bundled TVM compiler with LLVM codegen (registers the
+-- target.build.llvm pipeline used by the TIRx CPU/execution tests). Requires
+-- LLVM >= 15, resolved from lc_llvm_path or the xmake-repo llvm package.
+option("lc_tvm_llvm", {default = false,
+    description = "Enable LLVM codegen in the bundled TVM compiler.",
+    showmenu = true})
 -- custom Embree installation path
 option("lc_embree_path", {default = false})
 -- Use AST→LLVM→SPIR-V codegen for Vulkan backend (mutually exclusive with lc_vk_backend_use_xir_spirv)

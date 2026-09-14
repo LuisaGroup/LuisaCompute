@@ -31,9 +31,8 @@ auto make_simple_coro = [] {
 
 void reg_coro_compile_trigger() {
 
-    "compile_on_construction_does_not_throw"_test = [] {
+    "compile_on_construction_is_eager"_test = [] {
         // Constructing the Coroutine triggers eager compilation.
-        // Should not throw (when exceptions are enabled).
         auto c = make_simple_coro();
         expect(static_cast<bool>(c.function_builder()));
     };

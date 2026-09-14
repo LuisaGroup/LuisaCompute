@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -132,6 +133,30 @@ template<typename Kernel>
     lc::hlsl::ShaderVariableType type) noexcept {
     return static_cast<size_t>(std::ranges::count(
         compiled.property_types, type));
+}
+
+[[nodiscard]] std::unordered_set<int16_t> signed_16bit_constants(
+    const std::vector<uint32_t> &words) {
+    std::unordered_set<int16_t> result;
+    if (words.size() < 5u) { return result; }
+    std::vector<bool> signed_16bit_types(words[3u], false);
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        const auto size = words[offset] >> 16u;
+        const auto op = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (size == 0u || size > words.size() - offset) { return {}; }
+        if (op == spv::Op::OpTypeInt && size == 4u &&
+            words[offset + 1u] < signed_16bit_types.size()) {
+            signed_16bit_types[words[offset + 1u]] =
+                words[offset + 2u] == 16u && words[offset + 3u] == 1u;
+        } else if (op == spv::Op::OpConstant && size == 4u &&
+                   words[offset + 1u] < signed_16bit_types.size() &&
+                   signed_16bit_types[words[offset + 1u]]) {
+            result.emplace(std::bit_cast<int16_t>(
+                static_cast<uint16_t>(words[offset + 3u])));
+        }
+        offset += size;
+    }
+    return result;
 }
 
 struct SamplerIntegerType {
@@ -840,7 +865,11 @@ int main(int argc, char *argv[]) {
         auto compiled = compile_spirv_fixture(kernel, enabled);
         expect(eq(compiled.required_features,
                   lc::spirv::target_feature::shader_int16));
-        expect(contains(compiled.text, "OpConstantComposite"));
+        // A dynamic read of a small constant array may become scalar selects.
+        // Its signed literal payload and storage-feature contract matter, not
+        // whether the optimizer retains an OpConstantComposite instruction.
+        const auto constants = signed_16bit_constants(compiled.words);
+        for (auto value : narrow_values) { expect(constants.contains(value)); }
         expect(!contains(
             compiled.text,
             "OpCapability UniformAndStorageBuffer16BitAccess"));

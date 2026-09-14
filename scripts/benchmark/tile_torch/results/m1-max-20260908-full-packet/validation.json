@@ -1,0 +1,88 @@
+{
+  "ctest": "final-ctest.log",
+  "build": "final-build.log",
+  "source_audit": "provenance.json",
+  "evidence_audit": "audit.json",
+  "audience": "technical",
+  "surface": "existing repository Sphinx docs, as requested by user",
+  "structure": "technical summary; definitions; factorial native results; E2E limits; model implications; follow-ups",
+  "visuals": "exact cell-lookup tables for multiple fixed factors, plus native text diagrams; no cross-size absolute-time chart",
+  "documentation": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.705180083052255,
+      "warning_lines": 15068
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-full-packet.UEezjO/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 52.06038758298382,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-full-packet.UEezjO/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.45746354199945927,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/qa_docs.cjs",
+        "/tmp/luisa-full-packet.UEezjO/docs-html-final",
+        "/tmp/luisa-full-packet.UEezjO/docs-qa-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.2940812919987366,
+      "warning_lines": 0
+    }
+  ],
+  "source_sha256": {
+    "docs/source/internals/tile/xir.md": "00281f6e7f8313f7edf8de50bd2c55d8fe2493f0ad56cedd21b41c1f4eb657f6",
+    "docs/source/performance/tile/results.md": "33fe54bc302ecf3cec1c15fc79296676f1c48d7662f6b407212f6cf410bde4a1",
+    "docs/source/performance/tile/index.md": "81e29dbd81f60176d4cd0dad1b94a94ef5d00e6b21dc739d295dafc28c1231f3"
+  },
+  "complete": true
+}

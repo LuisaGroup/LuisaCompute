@@ -1,0 +1,2511 @@
+{
+  "passed": true,
+  "visits": 592,
+  "fixed_llvm_and_object_identity_groups": 18,
+  "fixed_output_identity_groups": 18,
+  "rejected_mutated_evidence": [
+    "missing_visit",
+    "duplicate_visit",
+    "failed_oracle",
+    "changed_median",
+    "mixed_inputs",
+    "wrong_worker_count"
+  ],
+  "metric": "runtime_e2e_synchronized_host_wall_us",
+  "native_time_claim": "none; fixed-grain native code is byte-identical",
+  "summaries": [
+    {
+      "suite": "pilot",
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "medians_us": {
+        "whole": 1.2987640197850001,
+        "local": 37.54181411325,
+        "joint_legacy": 36.1895493003,
+        "joint_tasks": 9.63727105396
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.2673641059500437,
+      "paired_range": [
+        0.250400082684293,
+        0.2843281292157943
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "pilot",
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "medians_us": {
+        "whole": 38.197314734399995,
+        "local": 35.8114399837,
+        "joint_legacy": 34.10035277035,
+        "joint_tasks": 5.543615596145
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            512,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.16299471142274286,
+      "paired_range": [
+        0.15362840924279497,
+        0.1723610136026907
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "pilot",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "whole": 534.706737988,
+        "local": 266.87650855749996,
+        "joint_legacy": 273.4688536625,
+        "joint_tasks": 268.563305195
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            128,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9819664957054719,
+      "paired_range": [
+        0.971104061720542,
+        0.9928289296904019
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "pilot",
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        256
+      ],
+      "medians_us": {
+        "whole": 66.00099034585,
+        "local": 59.70230745925,
+        "joint_legacy": 58.385870559699995,
+        "joint_tasks": 39.81374155665
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            512,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.681917054663885,
+      "paired_range": [
+        0.6791502242072529,
+        0.684683885120517
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "pilot",
+      "operation": "swiglu",
+      "dimensions": [
+        64,
+        256
+      ],
+      "medians_us": {
+        "whole": 53.5548598137,
+        "local": 48.670232629,
+        "joint_legacy": 48.1729452489,
+        "joint_tasks": 22.23337856185
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            64,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            512,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.4615557372499708,
+      "paired_range": [
+        0.4589401240346525,
+        0.464171350465289
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "validation",
+      "operation": "rmsnorm",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 5.13388186324,
+        "local": 0.9012933432825001,
+        "joint_legacy": 0.889418118543,
+        "joint_tasks": 0.8723955179295
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9793761571699522,
+      "paired_range": [
+        0.9380730481842794,
+        1.0354885435395462
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rmsnorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 66.05708717105,
+        "local": 51.60692984225,
+        "joint_legacy": 50.6561303051,
+        "joint_tasks": 50.54132226545
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            128,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.003466199519497,
+      "paired_range": [
+        0.9758863827437873,
+        1.0202636685556978
+      ],
+      "candidate_round_wins": 1,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rmsnorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 107.827432407,
+        "local": 301.521667781,
+        "joint_legacy": 298.9819146615,
+        "joint_tasks": 298.585254357
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9997267453050394,
+      "paired_range": [
+        0.9973369284538669,
+        1.0030462233235855
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rmsnorm",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 533.604265263,
+        "local": 259.27054978900003,
+        "joint_legacy": 264.6729728895,
+        "joint_tasks": 268.80082251
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0195838883992154,
+      "paired_range": [
+        1.0040826123121709,
+        1.0601447493854783
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "layernorm",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 7.40957109641,
+        "local": 1.37869157268,
+        "joint_legacy": 1.42697324488,
+        "joint_tasks": 1.37883741453
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.968625641375595,
+      "paired_range": [
+        0.9479935125062308,
+        1.0006340330698158
+      ],
+      "candidate_round_wins": 3,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "layernorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 72.34271972510001,
+        "local": 60.77542421015001,
+        "joint_legacy": 60.6310594932,
+        "joint_tasks": 63.75008972715
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            128,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0102403254428045,
+      "paired_range": [
+        0.9850094186556961,
+        1.093723935844005
+      ],
+      "candidate_round_wins": 1,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "layernorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 111.495265337,
+        "local": 496.7070744215,
+        "joint_legacy": 498.2322875,
+        "joint_tasks": 498.079061184
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.000212494105888,
+      "paired_range": [
+        0.9894894221758854,
+        1.0077519059440252
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "layernorm",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 644.385080645,
+        "local": 326.8859233235,
+        "joint_legacy": 359.1892956685,
+        "joint_tasks": 389.3621444445
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.1218650405462394,
+      "paired_range": [
+        0.9258853920254245,
+        1.2181168368009234
+      ],
+      "candidate_round_wins": 1,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "masked_softmax",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 22.4398032764,
+        "local": 7.230322439355,
+        "joint_legacy": 7.29866696982,
+        "joint_tasks": 7.210333456535
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9858276099940533,
+      "paired_range": [
+        0.9724683577643893,
+        0.9972830444263385
+      ],
+      "candidate_round_wins": 4,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "masked_softmax",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 123.03263797700001,
+        "local": 89.06319808514999,
+        "joint_legacy": 89.00596528795,
+        "joint_tasks": 88.8492388468
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            128,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9987291687020865,
+      "paired_range": [
+        0.9839705592925171,
+        1.010665641320247
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "masked_softmax",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 204.0592783505,
+        "local": 639.345813508,
+        "joint_legacy": 634.6487106855,
+        "joint_tasks": 638.337846774
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0066261491393889,
+      "paired_range": [
+        0.9854232867082011,
+        1.020167367238201
+      ],
+      "candidate_round_wins": 1,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "masked_softmax",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 1664.7445297650002,
+        "local": 1379.5922500000001,
+        "joint_legacy": 1377.744607145,
+        "joint_tasks": 1383.7239026
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.005213950128293,
+      "paired_range": [
+        1.0017694742770527,
+        1.1849436678893939
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "swiglu",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 16.7639528178,
+        "local": 4.17941828453,
+        "joint_legacy": 4.179939149275,
+        "joint_tasks": 4.198545660945
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0020773459617205,
+      "paired_range": [
+        0.9906857109690911,
+        1.0129558170070403
+      ],
+      "candidate_round_wins": 1,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "swiglu",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 108.593939097,
+        "local": 71.9129432989,
+        "joint_legacy": 71.78312571250001,
+        "joint_tasks": 132.57036423850002
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            2
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.8451304173286762,
+      "paired_range": [
+        1.839437358904819,
+        1.918267709758849
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "swiglu",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 177.304203319,
+        "local": 355.8221951755,
+        "joint_legacy": 353.9865934665,
+        "joint_tasks": 354.05250350899996
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0001791697174087,
+      "paired_range": [
+        0.9961670632721717,
+        1.00585768601505
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "swiglu",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 1303.142176925,
+        "local": 878.444458498,
+        "joint_legacy": 880.5581638755,
+        "joint_tasks": 888.8551136364999
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0095563911675791,
+      "paired_range": [
+        0.9622273031678509,
+        1.328408983350264
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "gelu_residual",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 32.927647783249995,
+        "local": 7.52587139529,
+        "joint_legacy": 7.57866838995,
+        "joint_tasks": 7.576288188745
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9996865104710768,
+      "paired_range": [
+        0.9832451437490463,
+        1.0012657978961168
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "gelu_residual",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 134.1334996465,
+        "local": 90.7871680945,
+        "joint_legacy": 91.2236136112,
+        "joint_tasks": 90.58955137845001
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            128,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9951918349594187,
+      "paired_range": [
+        0.9763633741288686,
+        1.0028981965846706
+      ],
+      "candidate_round_wins": 3,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "gelu_residual",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 250.1739625,
+        "local": 438.54895498049996,
+        "joint_legacy": 438.78692248050004,
+        "joint_tasks": 439.3066766305
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.000271140312635,
+      "paired_range": [
+        0.9895555544772284,
+        1.0033949468597594
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "gelu_residual",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 1949.05835,
+        "local": 1489.365346155,
+        "joint_legacy": 1496.963153845,
+        "joint_tasks": 1489.227538465
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9948508451794473,
+      "paired_range": [
+        0.9440164108841146,
+        1.0851466362373567
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rope",
+      "dimensions": [
+        3,
+        1024
+      ],
+      "medians_us": {
+        "whole": 5.787357661505,
+        "local": 0.8488921577455,
+        "joint_legacy": 0.845987496565,
+        "joint_tasks": 0.856392086765
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0143366447309057,
+      "paired_range": [
+        1.01054884108452,
+        1.0200927310876782
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rope",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "whole": 69.6602235676,
+        "local": 53.3921393046,
+        "joint_legacy": 53.552965721999996,
+        "joint_tasks": 53.487935889949995
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            128,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            128,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0041113216155413,
+      "paired_range": [
+        0.8686492747815188,
+        1.0254725768997939
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rope",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "medians_us": {
+        "whole": 121.89442764750001,
+        "local": 381.61072520150003,
+        "joint_legacy": 351.1786969945,
+        "joint_tasks": 337.38786426649995
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            256,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            256,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.9480577854842029,
+      "paired_range": [
+        0.707714166155435,
+        1.0654804924361896
+      ],
+      "candidate_round_wins": 3,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "rope",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "medians_us": {
+        "whole": 696.0606695404999,
+        "local": 412.3539777275,
+        "joint_legacy": 416.9049911615,
+        "joint_tasks": 422.41160434799997
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            512,
+            0
+          ]
+        ],
+        "local": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            8,
+            1024,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            8,
+            1024,
+            4
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0187552890367357,
+      "paired_range": [
+        1.0020876520279336,
+        1.0554479601699478
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        16,
+        32,
+        16,
+        16
+      ],
+      "medians_us": {
+        "whole": 34.79484113425,
+        "joint_legacy": 35.18855624605,
+        "joint_tasks": 14.8717479261
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            1,
+            64,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.42363137002917367,
+      "paired_range": [
+        0.38668407221422035,
+        0.4279406838109634
+      ],
+      "candidate_round_wins": 4,
+      "rounds": 4
+    },
+    {
+      "suite": "validation",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        64,
+        128,
+        32,
+        32
+      ],
+      "medians_us": {
+        "whole": 99.788492857,
+        "joint_legacy": 99.98156980665,
+        "joint_tasks": 103.0810255368
+      },
+      "plans": {
+        "whole": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "joint_legacy": [
+          [
+            1,
+            32,
+            0
+          ]
+        ],
+        "joint_tasks": [
+          [
+            1,
+            32,
+            1
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.0094106940839573,
+      "paired_range": [
+        1.0012695022192513,
+        1.0839718104998761
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 4
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 36.240785572600004,
+        "grain_1": 42.0379026982,
+        "grain_3": 41.396121534049996,
+        "grain_4294967295": 9.5928151342
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.2657821056903433,
+      "paired_range": [
+        0.24940833600485882,
+        0.28215587537582776
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rmsnorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 52.908834145,
+        "grain_1": 54.00075015345,
+        "grain_3": 49.8125901277,
+        "grain_4294967295": 25.66244167165
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.48568883956049114,
+      "paired_range": [
+        0.46927485483602993,
+        0.5021028242849523
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 281.0134842255,
+        "grain_1": 273.49022173599997,
+        "grain_3": 258.94339740249995,
+        "grain_4294967295": 1118.1084558799998
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 3.97971647259038,
+      "paired_range": [
+        3.9253091083248783,
+        4.034123836855882
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 38.86895776975,
+        "grain_1": 38.2967881731,
+        "grain_3": 37.944944114950005,
+        "grain_4294967295": 15.59076772005
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.4011113358467673,
+      "paired_range": [
+        0.40061387268413823,
+        0.4016087990093963
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "layernorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 62.95053978025,
+        "grain_1": 62.121692806949994,
+        "grain_3": 60.88861617055,
+        "grain_4294967295": 42.27177024745
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.6715790969627864,
+      "paired_range": [
+        0.6649300996159927,
+        0.6782280943095801
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 359.7948291935,
+        "grain_1": 354.193241379,
+        "grain_3": 334.458661097,
+        "grain_4294967295": 1896.0061999999998
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 5.275900679018699,
+      "paired_range": [
+        5.053387776830837,
+        5.49841358120656
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 41.42780482455,
+        "grain_1": 41.44833391505,
+        "grain_3": 41.616632964800004,
+        "grain_4294967295": 20.0088000075
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.4830558957581496,
+      "paired_range": [
+        0.4799079180300467,
+        0.48620387348625255
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "masked_softmax",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 85.6381126403,
+        "grain_1": 85.85507718855,
+        "grain_3": 85.95776913515,
+        "grain_4294967295": 227.853862183
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 2.660985666303773,
+      "paired_range": [
+        2.629609204273457,
+        2.6923621283340893
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "masked_softmax",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 1380.51042857,
+        "grain_1": 1379.88392857,
+        "grain_3": 1391.69642857,
+        "grain_4294967295": 9787.093499999999
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 7.089481983136871,
+      "paired_range": [
+        7.083943391499483,
+        7.095020574774259
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 34.178838178250004,
+        "grain_1": 34.1328509648,
+        "grain_3": 33.04538389335,
+        "grain_4294967295": 9.767598865135
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.28576716988558976,
+      "paired_range": [
+        0.2818091218147522,
+        0.2897252179564273
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "swiglu",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 73.75331686780001,
+        "grain_1": 73.50056887955,
+        "grain_3": 70.26174526630001,
+        "grain_4294967295": 132.54639
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 1.79715863147239,
+      "paired_range": [
+        1.796799415091248,
+        1.797517847853532
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 866.0570869565,
+        "grain_1": 846.6213913045001,
+        "grain_3": 878.6594130435,
+        "grain_4294967295": 5641.715333335
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 6.516421569855685,
+      "paired_range": [
+        6.398869328681828,
+        6.633973811029541
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 35.772515731,
+        "grain_1": 37.7109777005,
+        "grain_3": 34.66847442205,
+        "grain_4294967295": 11.986806577300001
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.3351240723516494,
+      "paired_range": [
+        0.3321109773762699,
+        0.33813716732702903
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "gelu_residual",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 86.0837796644,
+        "grain_1": 85.84085801045,
+        "grain_3": 82.6078711111,
+        "grain_4294967295": 239.00430789
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 2.7764248993501157,
+      "paired_range": [
+        2.768577845560588,
+        2.7842719531396436
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 1457.075307695,
+        "grain_1": 1461.41023077,
+        "grain_3": 1468.600439105,
+        "grain_4294967295": 10236.63525
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 7.025469302295458,
+      "paired_range": [
+        7.02108071343889,
+        7.029857891152027
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "medians_us": {
+        "grain_0": 34.642139778650005,
+        "grain_1": 34.4273564352,
+        "grain_3": 33.0165021646,
+        "grain_4294967295": 9.213981253755001
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.2660392077584109,
+      "paired_range": [
+        0.2617105642771691,
+        0.2703678512396527
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rope",
+      "dimensions": [
+        129,
+        768
+      ],
+      "medians_us": {
+        "grain_0": 56.5305040002,
+        "grain_1": 56.4123317035,
+        "grain_3": 53.76683848485,
+        "grain_4294967295": 27.679818738949997
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 0.48964546005066234,
+      "paired_range": [
+        0.4864369953825614,
+        0.4928539247187632
+      ],
+      "candidate_round_wins": 2,
+      "rounds": 2
+    },
+    {
+      "suite": "fixed-grain",
+      "operation": "rope",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "medians_us": {
+        "grain_0": 420.9527469565,
+        "grain_1": 419.5191210475,
+        "grain_3": 384.596909833,
+        "grain_4294967295": 1347.82251905
+      },
+      "plans": {
+        "grain_0": [
+          [
+            8,
+            32,
+            0
+          ]
+        ],
+        "grain_1": [
+          [
+            8,
+            32,
+            1
+          ]
+        ],
+        "grain_3": [
+          [
+            8,
+            32,
+            3
+          ]
+        ],
+        "grain_4294967295": [
+          [
+            8,
+            32,
+            4294967295
+          ]
+        ]
+      },
+      "paired_candidate_over_baseline": 3.2032990175600977,
+      "paired_range": [
+        3.0706677035992844,
+        3.3359303315209115
+      ],
+      "candidate_round_wins": 0,
+      "rounds": 2
+    }
+  ]
+}

@@ -41,6 +41,10 @@ struct HIPCodegenLLVMConfig {
     OptLevel opt_level{OptLevel::LEVEL_AGGRESSIVE};
     bool enable_fast_math{true};
     bool enable_debug_info{false};
+    // The caller may provide a complete immutable proof that no texture
+    // sampled by this module uses R10G10B10A2 storage. Keep the generic
+    // packed path unless this is explicitly proven.
+    bool assume_no_packed_textures{false};
     bool requires_ray_tracing{false};
     bool requires_ray_query{false};
     bool requires_motion_blur{false};

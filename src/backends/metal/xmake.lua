@@ -12,11 +12,13 @@ _config_project({
     project_kind = "shared",
     batch_size = 0
 })
-add_deps("lc-runtime")
+add_deps("lc-runtime", "lc-tile")
 add_includedirs("../common/metal-cpp")
 add_defines("METALCPP_SYMBOL_VISIBILITY_HIDDEN=1")
 add_headerfiles("*.h")
 add_files("*.mm")
+add_files("tile/*.cpp")
+add_headerfiles("tile/*.h")
 add_files("metal_builtin/*.metal", "metal-tex-compress/*.patched.metal", {rules = "utils.bin2obj"})
 
 on_load(function(target)

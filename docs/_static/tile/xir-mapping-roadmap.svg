@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="392" viewBox="0 0 1040 392" role="img" aria-labelledby="title desc">
+  <title id="title">Execution mapping extensions and proof obligations</title>
+  <desc id="desc">Root permutation and worker packing are implemented. Tile partitioning, collectives, memory planning and physical pipelining each require additional legality proofs and supported emitters. Measurements calibrate costs but cannot establish legality.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#526170" stroke-width="1.3"/></marker><style>text{font-family:Arial,sans-serif;fill:#213547;font-size:15px}.title{font-size:22px;font-weight:700}.head{font-size:16px;font-weight:700}.small{font-size:13px}.edge{fill:none;stroke:#526170;stroke-width:1.5;marker-end:url(#arrow)}</style></defs>
+  <rect width="1040" height="392" fill="white"/><text class="title" x="28" y="34">Expand the legal plan space before expanding the search algorithm</text>
+  <rect x="28" y="66" width="224" height="174" rx="8" fill="#eaf3fe" stroke="#6d8da9"/>
+  <text class="head" x="44" y="94">Implemented</text><text x="44" y="122">Root axis permutation</text><text x="44" y="147">Workers per block</text><text class="small" x="44" y="179">Bijection of existing independent</text><text class="small" x="44" y="199">programs; each worker's whole</text><text class="small" x="44" y="219">Tile computation is preserved.</text>
+  <path class="edge" d="M252 151 H279"/>
+  <rect x="282" y="66" width="224" height="174" rx="8" fill="#f8f9fb" stroke="#8793a1" stroke-dasharray="5 4"/>
+  <text class="head" x="298" y="94">Tile partition + collectives</text><text x="298" y="122">Vector/reduction axes</text><text x="298" y="147">Matrix/reduction atoms</text><text class="small" x="298" y="179">Requires dependence + alias proof,</text><text class="small" x="298" y="199">participant completeness and</text><text class="small" x="298" y="219">the numerical contract.</text>
+  <path class="edge" d="M506 151 H533"/>
+  <rect x="536" y="66" width="224" height="174" rx="8" fill="#f8f9fb" stroke="#8793a1" stroke-dasharray="5 4"/>
+  <text class="head" x="552" y="94">Resource realization</text><text x="552" y="122">Packing / cache reuse</text><text x="552" y="147">Register blocking / spills</text><text class="small" x="552" y="179">Requires address maps, live ranges,</text><text class="small" x="552" y="199">capacity and supported layout</text><text class="small" x="552" y="219">conversion/copy operations.</text>
+  <path class="edge" d="M760 151 H787"/>
+  <rect x="790" y="66" width="222" height="174" rx="8" fill="#f8f9fb" stroke="#8793a1" stroke-dasharray="5 4"/>
+  <text class="head" x="806" y="94">Physical time schedule</text><text x="806" y="122">Prefetch / overlap</text><text x="806" y="147">Versioned resources</text><text class="small" x="806" y="179">Requires dependence distances,</text><text class="small" x="806" y="199">engine capacity and safe</text><text class="small" x="806" y="219">publication / version reuse.</text>
+  <rect x="28" y="277" width="984" height="69" rx="8" fill="#fff8e7" stroke="#b49a62"/>
+  <text class="head" x="46" y="302">Correctness-checked measurements → calibrated ranking → held-out regret</text>
+  <text x="46" y="327">Cost chooses among legal emitted plans. A favorable measurement never substitutes for a correctness proof.</text>
+  <path class="edge" d="M140 277 V246"/><path class="edge" d="M394 277 V246"/><path class="edge" d="M648 277 V246"/><path class="edge" d="M901 277 V246"/>
+  <text class="small" x="28" y="376">Solid box: implemented finite search. Dashed boxes: extension design, not current backend capabilities.</text>
+</svg>

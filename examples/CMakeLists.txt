@@ -117,24 +117,6 @@ luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/compact/gdeflate.cpp MIRROR_AS_TEST)
-luisa_compute_add_example(example_tensor_stub tensor/main.cpp)
-# collect all tensor kernel source files
-file(GLOB _tensor_kernels CONFIGURE_DEPENDS tensor/kernel_*.cpp)
-# tile-language split runners: TinyCNN inference (--cnn) and polynomial-fit
-# training (--poly-fit); keep in sync with examples/xmake.lua.
-target_sources(example_tensor_stub PRIVATE
- ${_tensor_kernels}
- tensor/cnn_kernels.cpp
- tensor/cnn_inference.cpp
- tensor/poly_fit_kernels.cpp
- tensor/poly_fit.cpp
- tensor/linear_regression_kernels.cpp
- tensor/linear_regression.cpp
- tensor/mlp.cpp
- tensor/mnist.cpp
- tensor/rnn.cpp
- tensor/torch2_import.cpp
- tensor/tensor_basics.cpp)
 luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
@@ -331,4 +313,12 @@ if (TARGET luisa-compute-backend-simd)
                     $<TARGET_FILE_DIR:${_simd_graphics_target}>)
         endif ()
     endforeach ()
+endif ()
+
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal4)
+    add_test(NAME metal4_example_coro_on_demand_texture
+            COMMAND $<TARGET_FILE:example_coro_on_demand_texture> metal4 --test)
+    set_tests_properties(metal4_example_coro_on_demand_texture PROPERTIES
+            LABELS "integration;integration_metal4;integration_coro"
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_coro_on_demand_texture>)
 endif ()

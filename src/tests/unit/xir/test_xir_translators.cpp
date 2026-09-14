@@ -5,19 +5,22 @@
 // - parseable JSON schema, counts, payload, and null-module diagnostics
 
 #include "ut/ut.hpp"
+#include <algorithm>
 #include <array>
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/switch.h>
-#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/no_inline.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/translators/ast2xir.h>
@@ -173,6 +176,106 @@ void reg_ast2xir() {
                    module.get(), [](auto *function) noexcept {
                        return function->template isa<CallableFunction>();
                    }) == 0u);
+    };
+
+    "callable_name_survives_ast_xir_round_trip"_test = [] {
+        Callable callable = [](UInt value) noexcept {
+            return value + 1u;
+        };
+        callable.set_name("named_roundtrip_callable");
+        auto module = ast_to_xir_translate(callable.function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        const CallableFunction *definition = nullptr;
+        for (auto *function : module->function_list()) {
+            if (function->isa<CallableFunction>()) {
+                definition = static_cast<const CallableFunction *>(function);
+                break;
+            }
+        }
+        expect(definition != nullptr);
+        if (definition == nullptr) { return; }
+        expect(definition->name().value_or("") ==
+               "named_roundtrip_callable");
+        auto restored = xir_to_ast_translate(*definition, {});
+        expect(restored != nullptr);
+        if (restored != nullptr) {
+            expect(restored->name() == "named_roundtrip_callable")
+                << "XIR-to-AST must preserve callable symbol names";
+        }
+    };
+
+    "local_array_declaration_emits_lexical_undefined_seed"_test = [] {
+        Kernel1D kernel = [](BufferUInt output) {
+            $loop {
+                Local<uint> scratch{4u};
+                scratch.write(0u, 7u);
+                output.write(dispatch_id().x, scratch.read(0u));
+                $break;
+            };
+        };
+
+        auto ast = kernel.function()->function();
+        auto root_statements = ast.body()->statements();
+        auto loop_iter = std::find_if(
+            root_statements.begin(), root_statements.end(),
+            [](const Statement *statement) noexcept {
+                return statement->tag() == Statement::Tag::LOOP;
+            });
+        expect(loop_iter != root_statements.end());
+        if (loop_iter == root_statements.end()) { return; }
+        auto *loop = static_cast<const luisa::compute::LoopStmt *>(
+            *loop_iter);
+        auto loop_statements = loop->body()->statements();
+        expect(loop_statements.size() >= 3u);
+        if (loop_statements.size() < 3u) { return; }
+        expect(loop_statements.front()->tag() == Statement::Tag::ASSIGN);
+        if (loop_statements.front()->tag() != Statement::Tag::ASSIGN) {
+            return;
+        }
+        auto *seed_statement = static_cast<const AssignStmt *>(
+            loop_statements.front());
+        expect(is_local_undefined_lifetime_seed(seed_statement));
+        expect(seed_statement->lhs()->tag() == Expression::Tag::REF);
+        expect(seed_statement->rhs()->tag() == Expression::Tag::CALL);
+        if (seed_statement->rhs()->tag() != Expression::Tag::CALL) {
+            return;
+        }
+        auto *seed_call = static_cast<const CallExpr *>(
+            seed_statement->rhs());
+        expect(seed_call->op() == CallOp::UNDEFINED);
+        expect(seed_call->arguments().empty());
+
+        auto module = ast_to_xir_translate(ast, {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *definition = find_kernel_definition(module.get());
+        expect(definition != nullptr);
+        if (definition == nullptr) { return; }
+        const StoreInst *seed_store = nullptr;
+        definition->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                if (!instruction->isa<StoreInst>()) { return; }
+                auto *store = static_cast<const StoreInst *>(instruction);
+                if (store->value() != nullptr &&
+                    store->value()->derived_value_tag() ==
+                        DerivedValueTag::UNDEFINED) {
+                    expect(seed_store == nullptr)
+                        << "one Local declaration must emit one seed";
+                    seed_store = store;
+                }
+            });
+        expect(seed_store != nullptr);
+        if (seed_store == nullptr) { return; }
+        expect(seed_store->variable()->isa<AllocaInst>());
+        if (!seed_store->variable()->isa<AllocaInst>()) { return; }
+        expect(seed_store->parent_block() !=
+               static_cast<const AllocaInst *>(seed_store->variable())
+                   ->parent_block())
+            << "the seed must execute at the loop-local declaration, not at "
+               "the function-entry alloca";
     };
 
     "xir_ast_to_xir_preserves_undefined_aggregate"_test = [] {

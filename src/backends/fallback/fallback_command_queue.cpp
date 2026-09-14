@@ -131,6 +131,10 @@ public:
                             (*task)(j);
                         }
                     }
+                    // Publish the wait predicate under its mutex. Atomicity
+                    // alone cannot close the predicate-to-wait notification
+                    // gap, including after a spurious dispatcher wakeup.
+                    lock.lock();
                     if (_thread_working.fetch_sub(1, std::memory_order_seq_cst) == 1) {
                         _work_done.notify_all();
                     }
@@ -139,7 +143,10 @@ public:
         }
     }
     ~AkrThreadPool() noexcept {
-        _stopped.store(true, std::memory_order_seq_cst);
+        {
+            std::scoped_lock lock{_task_mutex};
+            _stopped.store(true, std::memory_order_seq_cst);
+        }
         _has_work.notify_all();
         _threads.clear();
     }

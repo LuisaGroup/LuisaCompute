@@ -1,0 +1,75 @@
+{
+  "scope": "Documentation validation only; no performance acceptance.",
+  "source_sha256": {
+    "docs/Doxyfile": "48ab0698d3a41305fc7255a9f8543f585f4372bc78c04dec05c7cf16e1ad5ede",
+    "docs/conf.py": "b64bf476e090f9c51b92f16cccba82ed9e80a72627d5ae9fb29642dd817d6d1e",
+    "docs/source/performance/tile/index.md": "17fb3c9d94845c7253f67bd7323a90a6ec1cdfe3d8f850e25cfcd9bd94d9222e",
+    "docs/source/performance/tile/results.md": "fe01e50242938afce604b707b11e12ef98ce74aa3cd5519588c3afe1a652c819",
+    "docs/source/performance/tile/validation.md": "ce53ba3bd26ca689d8c8db27dc5312bf7578c34dbcf016b0d239e65c40ea60f1",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md": "f42008be50a6353bb0961ceda46ad8715e6789b3a69e089988b279d81bb3005e",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/tables.md": "2710fa4ec5148478a5e710093c1fe45c5a49ab65e30757537659530283c0be07",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/freeze.py": "2595b52d186f7d0aa9c511305912706cb4af67824dda5c84e099c332a337d825",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/provenance.json": "0990441550960ffae53d8acf9d3d9359b65e972f7a5506737cde458ccf24b40c"
+  },
+  "frozen_unix": 1788939345.6523142,
+  "raw": "/private/tmp/luisa-packet-inline.UY1lIE",
+  "artifacts": {
+    "documentation.py": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/documentation.py",
+      "role": "Strict existing-Sphinx build or rendered QA source/receipt.",
+      "source_sha256": "aa87f722e7f204bb2633ae701cd925fb2120341180b532f5f0fc3f20f6e85724",
+      "archived_sha256": "aa87f722e7f204bb2633ae701cd925fb2120341180b532f5f0fc3f20f6e85724",
+      "source_bytes": 2551,
+      "archived_bytes": 2551
+    },
+    "documentation.json": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/documentation.json",
+      "role": "Strict existing-Sphinx build or rendered QA source/receipt.",
+      "source_sha256": "77150e880d519614ab6a425c8e55b9c93fe29e1bf5f013eb3cba8f8eaf998285",
+      "archived_sha256": "77150e880d519614ab6a425c8e55b9c93fe29e1bf5f013eb3cba8f8eaf998285",
+      "source_bytes": 5137,
+      "archived_bytes": 5137
+    },
+    "qa-docs.cjs": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/qa-docs.cjs",
+      "role": "Strict existing-Sphinx build or rendered QA source/receipt.",
+      "source_sha256": "89d7e0d28c3ba19dcba05d3a6f818e196f836d14990a2779afb2a556e168b07e",
+      "archived_sha256": "89d7e0d28c3ba19dcba05d3a6f818e196f836d14990a2779afb2a556e168b07e",
+      "source_bytes": 3151,
+      "archived_bytes": 3151
+    },
+    "docs-v3-doxygen.log.gz": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/docs-v3-doxygen.log",
+      "role": "Executed documentation command output.",
+      "source_sha256": "3fa8e02bef18774759ea57bf724d72def7fac7e2d38ce206ba87072834364abd",
+      "archived_sha256": "8e6d7bb0c397c85c4d7afb3932e0a959b62927efa9d125646d5ee32311814533",
+      "source_bytes": 3923173,
+      "archived_bytes": 267090
+    },
+    "docs-v3-sphinx.log.gz": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/docs-v3-sphinx.log",
+      "role": "Executed documentation command output.",
+      "source_sha256": "2703ad983c03c45acaa593a2a678b2e41537ee049c4ec53ae829d78c1fd97fc6",
+      "archived_sha256": "1422e73002e3c261a542236649faa6137b20861db2799014fa5e32d43150d772",
+      "source_bytes": 26628,
+      "archived_bytes": 3966
+    },
+    "docs-v3-links.log.gz": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/docs-v3-links.log",
+      "role": "Executed documentation command output.",
+      "source_sha256": "40bedf079569262fb4c9a72f256477f3dd988d616f33d9078ee238dde0570e78",
+      "archived_sha256": "2a302583cc64c131dbe966aaef595eda90dcc1111399a5682ee41485d56e4eb8",
+      "source_bytes": 116,
+      "archived_bytes": 122
+    },
+    "rendered-qa.json": {
+      "origin": "/private/tmp/luisa-packet-inline.UY1lIE/docs-qa/receipt.json",
+      "role": "Desktop/mobile DOM and screenshot receipts; screenshots remain local.",
+      "source_sha256": "126f9771773a27b42b3b3ee345475d0810866b1a2ab3596c5d58fba07b5e3e26",
+      "archived_sha256": "126f9771773a27b42b3b3ee345475d0810866b1a2ab3596c5d58fba07b5e3e26",
+      "source_bytes": 3679,
+      "archived_bytes": 3679
+    }
+  },
+  "freeze_source_sha256": "2595b52d186f7d0aa9c511305912706cb4af67824dda5c84e099c332a337d825"
+}

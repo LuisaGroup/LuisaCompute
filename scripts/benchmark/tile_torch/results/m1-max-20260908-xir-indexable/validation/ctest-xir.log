@@ -1,0 +1,76 @@
+Test project /tmp/luisa-reduction-checkpoint.gQUERp/build
+    Start 54: test_tile_xir
+1/3 Test #54: test_tile_xir ....................Subprocess aborted***Exception:   0.96 sec
+[2026-09-08 10:51:45.929] [console] [error] Assertion 'is_valid_name_head(name.front()) && std::all_of(name.begin() + 1, name.end(), is_valid_name_tail)' failed: Invalid name 'tile.snapshot'. [/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/metadata/name.cpp:18]
+     0 [0x000105a2a258]: libluisa-xir.dylib :: luisa::compute::xir::detail::name_metadata_validate(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 284
+     1 [0x000105a2a398]: libluisa-xir.dylib :: luisa::compute::xir::NameMD::set_name(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 40
+     2 [0x000104fd0a28]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_define(luisa::compute::tile::Value const*, std::__1::vector<luisa::compute::xir::Value*, std::__1::allocator<luisa::compute::xir::Value*>>) + 368
+     3 [0x000104fcdfb4]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 10800
+     4 [0x000104fd12ac]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_region(luisa::compute::tile::Block const&) + 80
+     5 [0x000104fcef10]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 14732
+     6 [0x000104fcacc0]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::lower(luisa::compute::tile::Function const&, luisa::compute::tile::bridge::xir::LowerOptions const&) + 1416
+     7 [0x000104f73010]: test_tile_xir :: main::$_0::__invoke() + 1900
+     8 [0x000104f7c03c]: test_tile_xir :: auto boost::ext::ut::v2_3_1::runner<boost::ext::ut::v2_3_1::reporter_junit<boost::ext::ut::v2_3_1::printer>, 16>::on<void (*)(), boost::ext::ut::v2_3_1::none>(boost::ext::ut::v2_3_1::events::test<void (*)(), boost::ext::ut::v2_3_1::none>) + 1236
+     9 [0x000104f7ba44]: test_tile_xir :: decltype(auto) boost::ext::ut::v2_3_1::detail::on<boost::ext::ut::v2_3_1::events::test<void (*)(), boost::ext::ut::v2_3_1::none>>(boost::ext::ut::v2_3_1::events::test<void (*)(), boost::ext::ut::v2_3_1::none>&&) + 116
+    10 [0x000104f6fd88]: test_tile_xir :: auto boost::ext::ut::v2_3_1::detail::test::operator=<>(boost::ext::ut::v2_3_1::detail::test_location<void (*)()>) + 256
+    11 [0x000104f6faa4]: test_tile_xir :: main + 96
+    12 [0x0001861804e4]: dyld :: start + 6992
+
+    Start 55: test_tile_xir_runtime
+2/3 Test #55: test_tile_xir_runtime ............Subprocess aborted***Exception:   1.50 sec
+[2026-09-08 10:51:46.554] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 10:51:46.555] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 10:51:46.975] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 419.31 ms.
+[2026-09-08 10:51:46.975] [console] [info] Test device backend: simd.
+[2026-09-08 10:51:47.431] [console] [error] Assertion 'is_valid_name_head(name.front()) && std::all_of(name.begin() + 1, name.end(), is_valid_name_tail)' failed: Invalid name 'tile.snapshot'. [/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/metadata/name.cpp:18]
+     0 [0x00010389a258]: libluisa-xir.dylib :: luisa::compute::xir::detail::name_metadata_validate(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 284
+     1 [0x00010389a398]: libluisa-xir.dylib :: luisa::compute::xir::NameMD::set_name(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 40
+     2 [0x000102bbca28]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_define(luisa::compute::tile::Value const*, std::__1::vector<luisa::compute::xir::Value*, std::__1::allocator<luisa::compute::xir::Value*>>) + 368
+     3 [0x000102bb93c0]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 7740
+     4 [0x000102bbd2ac]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_region(luisa::compute::tile::Block const&) + 80
+     5 [0x000102bbaf10]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 14732
+     6 [0x000102bb6cc0]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::lower(luisa::compute::tile::Function const&, luisa::compute::tile::bridge::xir::LowerOptions const&) + 1416
+     7 [0x000109806994]: libluisa-backend-simd.so :: luisa::compute::simd::SIMDDevice::create_tile_kernel(luisa::compute::ShaderOption const&, luisa::compute::tile::Function const&, luisa::compute::tile::CompileOptions const&, luisa::compute::tile::KernelMetadata&) + 936
+     8 [0x000102ab7de4]: test_tile_xir_runtime :: luisa::compute::tile::compile(luisa::compute::Device&, luisa::compute::tile::Kernel const&, luisa::compute::tile::CompileOptions const&, luisa::compute::ShaderOption const&) + 608
+     9 [0x000102a95db8]: test_tile_xir_runtime :: main + 2212
+    10 [0x0001861804e4]: dyld :: start + 6992
+
+    Start 56: test_tile_xir_llm
+3/3 Test #56: test_tile_xir_llm ................Subprocess aborted***Exception:   0.13 sec
+[2026-09-08 10:51:47.554] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-08 10:51:47.555] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 10:51:47.558] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 3.295709 ms.
+[2026-09-08 10:51:47.558] [console] [info] Test device backend: simd.
+[2026-09-08 10:51:47.559] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 10:51:47.559] [console] [error] Assertion 'is_valid_name_head(name.front()) && std::all_of(name.begin() + 1, name.end(), is_valid_name_tail)' failed: Invalid name 'tile.snapshot'. [/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/metadata/name.cpp:18]
+     0 [0x0001055a6258]: libluisa-xir.dylib :: luisa::compute::xir::detail::name_metadata_validate(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 284
+     1 [0x0001055a6398]: libluisa-xir.dylib :: luisa::compute::xir::NameMD::set_name(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 40
+     2 [0x0001049c0a28]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_define(luisa::compute::tile::Value const*, std::__1::vector<luisa::compute::xir::Value*, std::__1::allocator<luisa::compute::xir::Value*>>) + 368
+     3 [0x0001049bdfb4]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 10800
+     4 [0x0001049c12ac]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_region(luisa::compute::tile::Block const&) + 80
+     5 [0x0001049bef10]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 14732
+     6 [0x0001049bacc0]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::lower(luisa::compute::tile::Function const&, luisa::compute::tile::bridge::xir::LowerOptions const&) + 1416
+     7 [0x00010b62e994]: libluisa-backend-simd.so :: luisa::compute::simd::SIMDDevice::create_tile_kernel(luisa::compute::ShaderOption const&, luisa::compute::tile::Function const&, luisa::compute::tile::CompileOptions const&, luisa::compute::tile::KernelMetadata&) + 936
+     8 [0x0001048c6d84]: test_tile_xir_llm :: luisa::compute::tile::compile(luisa::compute::Device&, luisa::compute::tile::Kernel const&, luisa::compute::tile::CompileOptions const&, luisa::compute::ShaderOption const&) + 608
+     9 [0x0001048c4f78]: test_tile_xir_llm :: (anonymous namespace)::run(luisa::compute::Device&, luisa::test::tile_llm::Case const&) + 500
+    10 [0x0001048a5c68]: test_tile_xir_llm :: main + 1876
+    11 [0x0001861804e4]: dyld :: start + 6992
+
+
+0% tests passed, 3 tests failed out of 3
+
+Label Time Summary:
+integration             =   1.63 sec*proc (2 tests)
+integration_simd        =   1.63 sec*proc (2 tests)
+integration_tile_xir    =   1.63 sec*proc (2 tests)
+unit                    =   0.96 sec*proc (1 test)
+unit_tile               =   0.96 sec*proc (1 test)
+unit_tile_xir           =   0.96 sec*proc (1 test)
+
+Total Test time (real) =   2.59 sec
+
+The following tests FAILED:
+	 54 - test_tile_xir (Subprocess aborted)                unit unit_tile unit_tile_xir
+	 55 - test_tile_xir_runtime (Subprocess aborted)        integration integration_simd integration_tile_xir
+	 56 - test_tile_xir_llm (Subprocess aborted)            integration integration_simd integration_tile_xir
+Errors while running CTest

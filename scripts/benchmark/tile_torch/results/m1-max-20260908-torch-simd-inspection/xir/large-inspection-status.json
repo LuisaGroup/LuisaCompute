@@ -1,0 +1,21 @@
+{
+  "operation": "rmsnorm",
+  "dimensions": [1024, 4096],
+  "purpose": "assembly diagnostics, not a performance measurement",
+  "command": ["/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir", "llm", "rmsnorm", "1024,4096", "1", "1", "2", "5", "10", "/tmp/luisa-torch-simd.IxI6kn/xir-rmsnorm.f32"],
+  "environment": {
+    "LUISA_SIMD_DUMP_ASSEMBLY_DIR": "/tmp/luisa-torch-simd.IxI6kn/xir-rmsnorm",
+    "LUISA_SIMD_REPORT_ASSEMBLY": "1",
+    "LUISA_SIMD_WARP_WIDTH": "8",
+    "LUISA_SIMD_WORKER_COUNT": "8",
+    "LUISA_TILE_BENCH_DUMP_SOURCE": "/tmp/luisa-torch-simd.IxI6kn/xir-rmsnorm.ll"
+  },
+  "pid": 42341,
+  "status": "manually_terminated_during_diagnostic_assembly_copy",
+  "last_observed_process_elapsed_seconds": 415,
+  "shell_exit_code": 143,
+  "sampled_stack": "LLVMJIT::emit_assembly_copy -> LLVMJIT::_emit_assembly -> MachineSinkingLegacy -> MachineSinking::run",
+  "source_output_produced": false,
+  "numerical_output_checked": false,
+  "limitation": "Elapsed time includes diagnostic code emission; this is neither normal JIT latency nor kernel execution time. Subsequent small diagnostic invocations use a 60-second subprocess timeout."
+}

@@ -1,0 +1,34 @@
+{
+  "passed": true,
+  "command": [
+    "uv",
+    "run",
+    "--offline",
+    "--no-project",
+    "--python",
+    "3.13",
+    "--with",
+    "numpy",
+    "--with",
+    "torch",
+    "python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "scripts/benchmark/tile_torch",
+    "-p",
+    "test_*.py"
+  ],
+  "exit_code": 0,
+  "tests": 105,
+  "output": ".........................................................................................................\n----------------------------------------------------------------------\nRan 105 tests in 0.874s\n\nOK\n",
+  "source_sha256": {
+    "scripts/benchmark/tile_torch/run.py": "d3552ac3b6723caa5694bed3c287b4f9ef2ea617e944ec00787a46181bec2389",
+    "scripts/benchmark/tile_torch/repeat.py": "2bacbcb7bee42a871df3913515715fe1de75c92dedf0c1401cf8649a8bbd54e9",
+    "scripts/benchmark/tile_torch/test_compare_lowerings.py": "47f0b6a32b5ad9b71f0cb0d7e6dbde8c603fd7a4fa451605765b6ae51c94c43b",
+    "scripts/benchmark/tile_torch/test_compare_mpp.py": "3440e1d28e5b0ab664addffbf50f3b8aa340151316d4065f81180e42e7a2d2bc",
+    "scripts/benchmark/tile_torch/test_compare_xir.py": "70fbc5660bca80b0812124a605ff33e68d67b08ff510b705e61b3c03a5a67efc",
+    "scripts/benchmark/tile_torch/test_run.py": "b8701ca66777ed6039834e8337dec0370e0a525b1cbbf732541bc180ed70cfeb"
+  }
+}

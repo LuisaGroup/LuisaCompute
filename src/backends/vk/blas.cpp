@@ -243,12 +243,9 @@ Blas::~Blas() {
         auto accel = i->accel;
         accel->_all_instance[i->accel_index].handle = nullptr;
         // A mesh-refresh entry queued by the last BLAS recreate (_sync_tlas)
-        // may still reference this handle; drop it so a later TLAS build never
-        // dereferences the destroyed handle.
-        if (auto ite = accel->_set_map.find(i->accel_index);
-            ite != accel->_set_map.end() && ite->second == i) {
-            accel->_set_map.erase(ite);
-        }
+        // may still reference this BLAS; drop it so a later TLAS build never
+        // bakes the address of a destroyed BLAS into an instance descriptor.
+        accel->_drop_refresh(i->accel_index, this);
         MeshHandle::destroy_handle(i);
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());

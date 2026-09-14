@@ -1,0 +1,7 @@
+{
+  "source": "\n\n\ndef forward(self, L_u_ : torch.Tensor, L_x_ : torch.Tensor):\n    l_u_ = L_u_\n    l_x_ = L_x_\n    getitem = l_u_[0];  l_u_ = None\n    rms_norm = torch.rms_norm(l_x_, (768,), getitem, 1e-05);  l_x_ = getitem = None\n    return (rms_norm,)\n    ",
+  "inputs": [
+    "L_u_",
+    "L_x_"
+  ]
+}

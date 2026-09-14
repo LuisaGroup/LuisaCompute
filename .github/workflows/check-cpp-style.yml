@@ -1,0 +1,14 @@
+name: check-cpp-style
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  no-project-exceptions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check project C++ exception policy
+        run: python3 scripts/check_cpp_no_throw.py

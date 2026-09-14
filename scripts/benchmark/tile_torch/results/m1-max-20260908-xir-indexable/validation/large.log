@@ -1,0 +1,6 @@
+00-rmsnorm-17x1537-0-baseline FAILED Command '['/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir', 'llm', 'rmsnorm', '17,1537', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-baseline.f32']' timed out after 60 seconds
+00-rmsnorm-17x1537-0-candidate FAILED Command '['/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '17,1537', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-candidate.f32']' timed out after 60 seconds
+01-rmsnorm-1024x4096-0-baseline FAILED Command '['/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir', 'llm', 'rmsnorm', '1024,4096', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-baseline.f32']' timed out after 60 seconds
+01-rmsnorm-1024x4096-0-candidate FAILED Command '['/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '1024,4096', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-candidate.f32']' timed out after 60 seconds
+02-rmsnorm-64x16384-0-baseline FAILED benchmark exit 2
+02-rmsnorm-64x16384-0-candidate FAILED benchmark exit 2

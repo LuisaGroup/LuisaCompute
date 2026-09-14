@@ -1,0 +1,922 @@
+{
+  "ab": {
+    "valid_visits": 32,
+    "failed_visits": [],
+    "summaries": [
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          7
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          0.9981930095821698,
+          0.9890601925281123
+        ],
+        "baseline": {
+          "throughput_us": 0.34100857945749996,
+          "latency_us": 0.479,
+          "compile_ms": 125.354708
+        },
+        "candidate": {
+          "throughput_us": 0.34319714463749995,
+          "latency_us": 0.4585,
+          "compile_ms": 125.1185835
+        }
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          127
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          1.4959398564626727,
+          1.5039089379267119
+        ],
+        "baseline": {
+          "throughput_us": 8.335404342385,
+          "latency_us": 8.5,
+          "compile_ms": 1423.0640210000001
+        },
+        "candidate": {
+          "throughput_us": 5.557218702425001,
+          "latency_us": 5.521,
+          "compile_ms": 37.462624500000004
+        }
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          1.656339124796596,
+          1.7631249155305881
+        ],
+        "baseline": {
+          "throughput_us": 93.71275093635,
+          "latency_us": 83.583,
+          "compile_ms": 5806.3776255
+        },
+        "candidate": {
+          "throughput_us": 54.8925321975,
+          "latency_us": 57.4165,
+          "compile_ms": 80.7279585
+        }
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          256
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          2.405914985746225,
+          2.453286214260261
+        ],
+        "baseline": {
+          "throughput_us": 383.43797123,
+          "latency_us": 377.95849999999996,
+          "compile_ms": 5834.765042
+        },
+        "candidate": {
+          "throughput_us": 157.825932836,
+          "latency_us": 153.52100000000002,
+          "compile_ms": 166.710625
+        }
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          513
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          2.0293870346794436,
+          2.1237593413473026
+        ],
+        "baseline": {
+          "throughput_us": 145.24021751200002,
+          "latency_us": 133.7705,
+          "compile_ms": 25722.098458
+        },
+        "candidate": {
+          "throughput_us": 69.98341110165,
+          "latency_us": 75.375,
+          "compile_ms": 33.285208
+        }
+      },
+      {
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          1.5473204636726579,
+          1.6326767523456034
+        ],
+        "baseline": {
+          "throughput_us": 112.560271282,
+          "latency_us": 104.646,
+          "compile_ms": 8927.6598335
+        },
+        "candidate": {
+          "throughput_us": 70.84222714735,
+          "latency_us": 73.4375,
+          "compile_ms": 50.347688
+        }
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          65
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          0.46415234148576495,
+          0.4603435926558917
+        ],
+        "baseline": {
+          "throughput_us": 3.8784640597799998,
+          "latency_us": 4.0415,
+          "compile_ms": 432.63
+        },
+        "candidate": {
+          "throughput_us": 8.390420791,
+          "latency_us": 8.625,
+          "compile_ms": 62.4607295
+        }
+      },
+      {
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          65
+        ],
+        "complete_pairs": 2,
+        "paired_ratios": [
+          0.7822637604521486,
+          0.767382271814159
+        ],
+        "baseline": {
+          "throughput_us": 4.37280164899,
+          "latency_us": 4.5,
+          "compile_ms": 1434.4878330000001
+        },
+        "candidate": {
+          "throughput_us": 5.644065587655,
+          "latency_us": 5.625,
+          "compile_ms": 25.3128125
+        }
+      }
+    ]
+  },
+  "pre_workspace": {
+    "valid_visits": 38,
+    "failures": [
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          16384
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '64,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r0-native.f32']' died with <Signals.SIGSEGV: 11>."
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          16384
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '64,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r1-native.f32']' died with <Signals.SIGSEGV: 11>."
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '64,4096', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r0-native.f32']' died with <Signals.SIGSEGV: 11>."
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '64,4096', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r1-native.f32']' died with <Signals.SIGSEGV: 11>."
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '17,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r0-native.f32']' returned non-zero exit status 2."
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "path": "native",
+        "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '17,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r1-native.f32']' returned non-zero exit status 2."
+      }
+    ],
+    "summaries": [
+      {
+        "operation": "attention",
+        "dimensions": [
+          2,
+          4,
+          2,
+          16,
+          32,
+          32,
+          32
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 235.602999549,
+            "torch": 61.26874179874095
+          },
+          "native_over_torch": 3.847339680362432
+        },
+        "latency_us": {
+          "medians": {
+            "native": 232.14600000000002,
+            "torch": 53.2915
+          },
+          "native_over_torch": 4.361986582007326
+        },
+        "compile_ms": 7701.1538335000005
+      },
+      {
+        "operation": "gelu_residual",
+        "dimensions": [
+          64,
+          1537
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 324.567713953,
+            "torch": 219.05653961853557
+          },
+          "native_over_torch": 1.4817035653530723
+        },
+        "latency_us": {
+          "medians": {
+            "native": 333.16650000000004,
+            "torch": 230.54149999999998
+          },
+          "native_over_torch": 1.4451476319993635
+        },
+        "compile_ms": 28.9910835
+      },
+      {
+        "operation": "layernorm",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 1526.44475877,
+            "torch": 87.29219388195064
+          },
+          "native_over_torch": 17.486996338232263
+        },
+        "latency_us": {
+          "medians": {
+            "native": 1521.084,
+            "torch": 89.437
+          },
+          "native_over_torch": 17.158173574105867
+        },
+        "compile_ms": 48.5487915
+      },
+      {
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 729.4661139535,
+            "torch": 86.36715740854785
+          },
+          "native_over_torch": 8.446696146998804
+        },
+        "latency_us": {
+          "medians": {
+            "native": 736.7080000000001,
+            "torch": 82.1455
+          },
+          "native_over_torch": 9.009488751641921
+        },
+        "compile_ms": 48.674583
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "complete": false
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": false
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          1537
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 63.54967355375,
+            "torch": 18.332939360108632
+          },
+          "native_over_torch": 3.467152295096591
+        },
+        "latency_us": {
+          "medians": {
+            "native": 64.3335,
+            "torch": 17.9375
+          },
+          "native_over_torch": 3.587622239362946
+        },
+        "compile_ms": 34.009146
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          16384
+        ],
+        "complete": false
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 1894.91188125,
+            "torch": 1188.8164871175522
+          },
+          "native_over_torch": 1.5939432364592439
+        },
+        "latency_us": {
+          "medians": {
+            "native": 1922.958,
+            "torch": 1192.6875
+          },
+          "native_over_torch": 1.6123165122099148
+        },
+        "compile_ms": 164.4566045
+      },
+      {
+        "operation": "rope",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 419.299838445,
+            "torch": 371.4332443305375
+          },
+          "native_over_torch": 1.1318518160843836
+        },
+        "latency_us": {
+          "medians": {
+            "native": 428.52049999999997,
+            "torch": 359.83349999999996
+          },
+          "native_over_torch": 1.1950988324340583
+        },
+        "compile_ms": 84.3390835
+      },
+      {
+        "operation": "swiglu",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 3407.109375,
+            "torch": 1633.9427244582043
+          },
+          "native_over_torch": 2.0852265248713113
+        },
+        "latency_us": {
+          "medians": {
+            "native": 3440.7705,
+            "torch": 1607.542
+          },
+          "native_over_torch": 2.1407567651195736
+        },
+        "compile_ms": 135.15168699999998
+      }
+    ]
+  },
+  "large": {
+    "valid_visits": 44,
+    "failures": [],
+    "summaries": [
+      {
+        "operation": "attention",
+        "dimensions": [
+          2,
+          4,
+          2,
+          16,
+          32,
+          32,
+          32
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 239.761785562,
+            "torch": 63.82937708555012
+          },
+          "native_over_torch": 3.756336646020738
+        },
+        "latency_us": {
+          "medians": {
+            "native": 235.70850000000002,
+            "torch": 65.81200000000001
+          },
+          "native_over_torch": 3.5975521356722755
+        },
+        "compile_ms": 7812.6860005
+      },
+      {
+        "operation": "gelu_residual",
+        "dimensions": [
+          64,
+          1537
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 319.6116629315,
+            "torch": 214.01360644604318
+          },
+          "native_over_torch": 1.4936066014509
+        },
+        "latency_us": {
+          "medians": {
+            "native": 308.771,
+            "torch": 205.417
+          },
+          "native_over_torch": 1.5046720677394312
+        },
+        "compile_ms": 27.625875
+      },
+      {
+        "operation": "layernorm",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 1943.88409375,
+            "torch": 83.35637993138937
+          },
+          "native_over_torch": 23.321423460586487
+        },
+        "latency_us": {
+          "medians": {
+            "native": 1898.4375,
+            "torch": 82.8125
+          },
+          "native_over_torch": 22.949489288285704
+        },
+        "compile_ms": 48.1944375
+      },
+      {
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 947.7845285715,
+            "torch": 81.37687591268633
+          },
+          "native_over_torch": 11.646515539275796
+        },
+        "latency_us": {
+          "medians": {
+            "native": 968.0830000000001,
+            "torch": 79.3125
+          },
+          "native_over_torch": 12.229551366729002
+        },
+        "compile_ms": 47.3719165
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 2808.18465909,
+            "torch": 246.89822247706422
+          },
+          "native_over_torch": 11.37403850741422
+        },
+        "latency_us": {
+          "medians": {
+            "native": 2780.3125,
+            "torch": 248.66649999999998
+          },
+          "native_over_torch": 11.201011700162788
+        },
+        "compile_ms": 60.481062
+      },
+      {
+        "operation": "masked_softmax",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 1212.81582,
+            "torch": 243.66152751543095
+          },
+          "native_over_torch": 4.977591757342005
+        },
+        "latency_us": {
+          "medians": {
+            "native": 1193.3955,
+            "torch": 260.5415
+          },
+          "native_over_torch": 4.580471629970392
+        },
+        "compile_ms": 59.113937
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          1537
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 65.2160316434,
+            "torch": 18.35947703156411
+          },
+          "native_over_torch": 3.5521857207610967
+        },
+        "latency_us": {
+          "medians": {
+            "native": 64.646,
+            "torch": 18.6875
+          },
+          "native_over_torch": 3.459360909660668
+        },
+        "compile_ms": 35.9536045
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          16384
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 2094.916964285,
+            "torch": 363.7486009569378
+          },
+          "native_over_torch": 5.774948176987336
+        },
+        "latency_us": {
+          "medians": {
+            "native": 2090.5205,
+            "torch": 351.33299999999997
+          },
+          "native_over_torch": 5.972076086928178
+        },
+        "compile_ms": 79.835708
+      },
+      {
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 3690.5599375,
+            "torch": 1155.9791875
+          },
+          "native_over_torch": 3.192631235618484
+        },
+        "latency_us": {
+          "medians": {
+            "native": 3564.5834999999997,
+            "torch": 1162.7295
+          },
+          "native_over_torch": 3.0666503301204515
+        },
+        "compile_ms": 165.5336455
+      },
+      {
+        "operation": "rope",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 523.652526786,
+            "torch": 287.87668918918916
+          },
+          "native_over_torch": 1.8206156096119803
+        },
+        "latency_us": {
+          "medians": {
+            "native": 511.375,
+            "torch": 282.584
+          },
+          "native_over_torch": 1.8101912751011977
+        },
+        "compile_ms": 82.579229
+      },
+      {
+        "operation": "swiglu",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "complete": true,
+        "throughput_us": {
+          "medians": {
+            "native": 5222.0707999999995,
+            "torch": 1636.7025555555556
+          },
+          "native_over_torch": 3.1905833477816614
+        },
+        "latency_us": {
+          "medians": {
+            "native": 5272.6669999999995,
+            "torch": 1664.8335
+          },
+          "native_over_torch": 3.1682658078164367
+        },
+        "compile_ms": 136.74479150000002
+      }
+    ]
+  },
+  "native_entry_us": {
+    "baseline": 98.56962109375,
+    "candidate": 28.836446044921875,
+    "inductor": 8.995427490234375
+  },
+  "actual_object_text_bytes": 11564,
+  "rejected_mutations": 5,
+  "sha256": {
+    "ab/00-rmsnorm-17x7-0-baseline.json": "1e3a7fc077d56664fa0c6d4e3b15d3b69c4047ec671670866cce4836b325ded6",
+    "ab/00-rmsnorm-17x7-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/00-rmsnorm-17x7-0-candidate.json": "843d50f9c0496651212219a97e8213b9ed6ab89651b997c2d8ffb141a616217c",
+    "ab/00-rmsnorm-17x7-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/00-rmsnorm-17x7-1-baseline.json": "0d94d515cc3e3fd2927b6f6f99089db99f80ca7d7ae6eb06864a99e2e6e06223",
+    "ab/00-rmsnorm-17x7-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/00-rmsnorm-17x7-1-candidate.json": "dbc3eee1a71440b18498f39cd31139c05f05d7eec5425bcf685096adda81ba15",
+    "ab/00-rmsnorm-17x7-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/01-rmsnorm-17x127-0-baseline.json": "fc3089775228596d43853e5761781aab0106106d803c59b2320bdd63e84ba8f7",
+    "ab/01-rmsnorm-17x127-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/01-rmsnorm-17x127-0-candidate.json": "140e7708702581f744c5a140d60d3ae96cd9a6728065d205854a1550ef043b0f",
+    "ab/01-rmsnorm-17x127-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/01-rmsnorm-17x127-1-baseline.json": "17d79104a05d66da8d97f624341765ceda3cefa4c91e51db93fe97e917f7d503",
+    "ab/01-rmsnorm-17x127-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/01-rmsnorm-17x127-1-candidate.json": "3118fbd5c27e03190fb51da2fabc19e48d2dee2de1dc1bbd937dfc0b40e4ea24",
+    "ab/01-rmsnorm-17x127-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/02-rmsnorm-64x256-0-baseline.json": "d123ad1bd02accceddb729ab3cbf584a1fd745d8d30cefcb120a3a2623a880d5",
+    "ab/02-rmsnorm-64x256-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/02-rmsnorm-64x256-0-candidate.json": "9800abf5c3610c49fea17ddbeefbf3a90cc2bc5826669b4c627250e0e1f5a163",
+    "ab/02-rmsnorm-64x256-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/02-rmsnorm-64x256-1-baseline.json": "cbc9c1bd29cd31e6c582aa7bba12190461662c9b0aa74c2831c77f6286349b3d",
+    "ab/02-rmsnorm-64x256-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/02-rmsnorm-64x256-1-candidate.json": "3e1bdac0cb2cfd4ddf6b4847ee0fbb60b7e985f10475780b205956a8c5b801bc",
+    "ab/02-rmsnorm-64x256-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/03-rmsnorm-1024x256-0-baseline.json": "44a630648cf677c55c4ab3faea17c2a7a0b21f7b8e0b50c3fa5c316bb8d83212",
+    "ab/03-rmsnorm-1024x256-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/03-rmsnorm-1024x256-0-candidate.json": "c19eef3e0001a0e11db3a67ec328777cd457c5bd1f3803c2fb4ab32f8938de66",
+    "ab/03-rmsnorm-1024x256-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/03-rmsnorm-1024x256-1-baseline.json": "bcf57092891c8b12313dfa168e84de6e33584f7ef7840035608ad1e9dd75f52b",
+    "ab/03-rmsnorm-1024x256-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/03-rmsnorm-1024x256-1-candidate.json": "26cabe461af1bb38b0606d2ab0dbcd340b411ccefc566992fe5a206d14b7c449",
+    "ab/03-rmsnorm-1024x256-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/04-rmsnorm-64x513-0-baseline.json": "b73ce0ffb2661c612365200894c70d313b3376910a90d1e6e98a32aa0f1864ef",
+    "ab/04-rmsnorm-64x513-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/04-rmsnorm-64x513-0-candidate.json": "1400e8c681f837b40577fbc775e7218173a294e67061642b26e89b6a0b024aea",
+    "ab/04-rmsnorm-64x513-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/04-rmsnorm-64x513-1-baseline.json": "0ffdf8c60ef07e265f57692fb61493e1c05c1428ef93e737e44ec8d945f06972",
+    "ab/04-rmsnorm-64x513-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/04-rmsnorm-64x513-1-candidate.json": "0d363ebf4a793c3c75e83ca8daf5aeba97a5c61ca85f4c0cbf4a39b81d088539",
+    "ab/04-rmsnorm-64x513-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/05-layernorm-64x256-0-baseline.json": "16fa1c18cf0f1b98a41c9f55ecedaed715c056bdca46e10d343abfa1a7d669ad",
+    "ab/05-layernorm-64x256-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/05-layernorm-64x256-0-candidate.json": "91d07aaf9a9f2a7c0f75c390cb847de48e1614c2f7d04700b459650bc3791464",
+    "ab/05-layernorm-64x256-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/05-layernorm-64x256-1-baseline.json": "ba3e2fa1a021dd1ecc1dbe21466da3253784ee72ae77ee790582c7007989292a",
+    "ab/05-layernorm-64x256-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/05-layernorm-64x256-1-candidate.json": "6f2cedea87f1c9967b3e94e992ea665c721a63cbc18cc3856cdf165c6546e42a",
+    "ab/05-layernorm-64x256-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/06-masked_softmax-17x65-0-baseline.json": "293290dd96b87e5e0f5784ec5e8752e5f67491408bcff576acca8f4483c2a9a0",
+    "ab/06-masked_softmax-17x65-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/06-masked_softmax-17x65-0-candidate.json": "593209ee832cf5b29ff3ffe0ca0895e7370e6135883468cfb3ad6719e4026086",
+    "ab/06-masked_softmax-17x65-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/06-masked_softmax-17x65-1-baseline.json": "374f795ee95a8c9a912ff8d3c866d660056441c13a4019df20c7258670fb3f02",
+    "ab/06-masked_softmax-17x65-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/06-masked_softmax-17x65-1-candidate.json": "f82038ddfb2fd2e47cc0ddd265972ceadeea0a745279b1f18282d3ad90788a66",
+    "ab/06-masked_softmax-17x65-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/07-swiglu-17x65-0-baseline.json": "c9f80747d4694fe2e806e71b4c27f6cc10b3826b2b440f09c259cfd61761c10c",
+    "ab/07-swiglu-17x65-0-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/07-swiglu-17x65-0-candidate.json": "6bb2d1f3912e4fbf9eb2809de03881f995b23b7095cf08ca2d08a0dc3fdbdae4",
+    "ab/07-swiglu-17x65-0-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/07-swiglu-17x65-1-baseline.json": "6a173caa6462844411a2635248534e3939114fceb7cc24cdd80da60e4d999481",
+    "ab/07-swiglu-17x65-1-baseline.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/07-swiglu-17x65-1-candidate.json": "2c16e7474ab541a562e74eb467b36880103eb20b16db28f2611f36faf31cf6ee",
+    "ab/07-swiglu-17x65-1-candidate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ab/report.json": "8ae78476c5daa50d4f47ebe5191a9ebb1c878cb88546454958aaa5ee7df33d57",
+    "archive_provenance.py": "03cc0a263dcb55963271996b79be0e388878ebdde3d69489974276e119829c23",
+    "audit.py": "82b91001e72136617ab5739f1d644638befdb82c68665904da67b6983c65382a",
+    "code/capture.log": "c78b24d1e4b1dbfdb9fe56d86ef8f17ce8c7ab985e0e640baaf1a85b005fde99",
+    "code/kernel.ll.gz": "bc413f4089ef2617918672e98c8ec9911b449f91315377244cd6e0ec7cf8da3f",
+    "code/kernel.o.gz": "6a76de7da61aed49d242a8fd02d9cec4abe6a3e732ebad695542e463ccb567db",
+    "code/measurement.json": "a4f650c1a30392c66909a869b9615239f71f96d591005b1c1ad3cb3455ed554c",
+    "code/object.asm.gz": "d02289cc19ff520535be6a98744b03b6b79e6eb8e8419ba12d3485af32f5461d",
+    "large/attention-2x4x2x16x32x32x32-r0-native.ll": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+    "large/attention-2x4x2x16x32x32x32-r0-native.log": "19fded9e74b7e6f4fede5e7e25b7a300ebbdbeb398fa3de8f58dac2d6d83d94b",
+    "large/attention-2x4x2x16x32x32x32-r1-native.ll": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+    "large/attention-2x4x2x16x32x32x32-r1-native.log": "aa0588ba98e3d0ed4deef1e9e9e4177e9d5ae7cbf7dc4077e1141d1739c4ecf3",
+    "large/build.log": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+    "large/gelu_residual-64x1537-r0-native.ll": "fe1c9fa117cd668cb2f9d4c4dc0ea3253c53ea47a98ddce0ca3915cbf0bd7348",
+    "large/gelu_residual-64x1537-r0-native.log": "b1b511bb7a7a6d704b79db5ad4a567edc208fa74095ec8e715b5653b5b49fd6d",
+    "large/gelu_residual-64x1537-r1-native.ll": "fe1c9fa117cd668cb2f9d4c4dc0ea3253c53ea47a98ddce0ca3915cbf0bd7348",
+    "large/gelu_residual-64x1537-r1-native.log": "a5d06132e2be6ef9b6457392a799adf3da9cbd3a0a61e94ed9b0e8c1edafe9e7",
+    "large/layernorm-17x16384-r0-native.ll": "a71689100651220a90a57fcbe14dd612d573c389eac72ed1d492c0674758848f",
+    "large/layernorm-17x16384-r0-native.log": "5dac29ce6d732a2c69710a5c6328e5eabf542ed96bc0df6f2df645b4743476f5",
+    "large/layernorm-17x16384-r1-native.ll": "a71689100651220a90a57fcbe14dd612d573c389eac72ed1d492c0674758848f",
+    "large/layernorm-17x16384-r1-native.log": "1c31854500e865efc6b604d2e77581159a7eb9b0dc07fc0c6c9f60691a3ef1eb",
+    "large/layernorm-64x4096-r0-native.ll": "64f762117eeb8cbd11ed41d4a4dcde4afeb5953db74fe1461caef549cbf32c2f",
+    "large/layernorm-64x4096-r0-native.log": "c3c1ca9b050e798de190d32890f478c34cdb2f6598cf1ba6ce8120cb91e447bd",
+    "large/layernorm-64x4096-r1-native.ll": "64f762117eeb8cbd11ed41d4a4dcde4afeb5953db74fe1461caef549cbf32c2f",
+    "large/layernorm-64x4096-r1-native.log": "7a7c1c9551490be3d4fecd6694a366a2d8f3c37d5ff5653a91186a7c7e8f73e0",
+    "large/masked_softmax-17x16384-r0-native.ll": "6db2480d0ee9f358a529947a62e1c32edbed74748872bb70c3f29a3e6228ed6f",
+    "large/masked_softmax-17x16384-r0-native.log": "582d84dd73d32b130d23e33850742fe05376582c2130fbc7d4384f792f8e76c6",
+    "large/masked_softmax-17x16384-r1-native.ll": "6db2480d0ee9f358a529947a62e1c32edbed74748872bb70c3f29a3e6228ed6f",
+    "large/masked_softmax-17x16384-r1-native.log": "bd0fb4f2de74020beb41589c91491382191fe7a2ecb7e52425edf65e6e9eef7a",
+    "large/masked_softmax-64x4096-r0-native.ll": "495d8c9c3ba6cd2765c2eb49876bf98e3adb641494d46719db60f46635643337",
+    "large/masked_softmax-64x4096-r0-native.log": "7bcd97ce8cee5f2e46a190acca75428904023a0b077386e0116a32057ca85f7b",
+    "large/masked_softmax-64x4096-r1-native.ll": "495d8c9c3ba6cd2765c2eb49876bf98e3adb641494d46719db60f46635643337",
+    "large/masked_softmax-64x4096-r1-native.log": "673d120eca05303050377782094193ff60b1ef321fc44c35493df22ade655a76",
+    "large/results.json": "a5f33007b406418a545189c1e0cc1c580a9e8194ae4ac759381f2de581e6a62e",
+    "large/rmsnorm-1024x4096-r0-native.ll": "cbe5449d869947b04172f8404f12b3d0e5419c0bd58b66acbd7eb7b6ec77c446",
+    "large/rmsnorm-1024x4096-r0-native.log": "5d775b505ffa61b8fdbe4a05e9cb4f1e90a26140b263646d95c0dea4b4d4dcb0",
+    "large/rmsnorm-1024x4096-r1-native.ll": "cbe5449d869947b04172f8404f12b3d0e5419c0bd58b66acbd7eb7b6ec77c446",
+    "large/rmsnorm-1024x4096-r1-native.log": "e803ceb2387a3d05dd2e84eb667ddbf8067f3d8aebf18133b53839efa2766b1e",
+    "large/rmsnorm-17x1537-r0-native.ll": "addf1c8f4452d39647b5d56d487df0116abaaa444d1cc06028fcfcb7ac2fb36d",
+    "large/rmsnorm-17x1537-r0-native.log": "38b9fcba871c2fcd85d7387fa7d39055cd7164948638188e9b770037c8f88f38",
+    "large/rmsnorm-17x1537-r1-native.ll": "addf1c8f4452d39647b5d56d487df0116abaaa444d1cc06028fcfcb7ac2fb36d",
+    "large/rmsnorm-17x1537-r1-native.log": "0615c4ce379eb84bd74de57961cbe70b4ef1364c60e4fdd70bd61872e4444e3b",
+    "large/rmsnorm-64x16384-r0-native.ll": "72a210913dc43e60d4dd232c09b3219d57f7203a54aadcdd2ee92baef81969c9",
+    "large/rmsnorm-64x16384-r0-native.log": "c5878545aedb51a7db0a41ae8248aa8b6171ed5a0fdd8225479d4fc3b39b2783",
+    "large/rmsnorm-64x16384-r1-native.ll": "72a210913dc43e60d4dd232c09b3219d57f7203a54aadcdd2ee92baef81969c9",
+    "large/rmsnorm-64x16384-r1-native.log": "81c53e54580cee54813401ac9e4884e21168f860c259e2bce95fa5a611cad661",
+    "large/rope-64x4096-r0-native.ll": "64cca15041b5aa180acf5a33c54edcdd9806bd7c7c0a9cde434c305ea9db55c6",
+    "large/rope-64x4096-r0-native.log": "2ac31395cb397d123ea7b6db6871709476c93f2604370059c6585df0e04db3da",
+    "large/rope-64x4096-r1-native.ll": "64cca15041b5aa180acf5a33c54edcdd9806bd7c7c0a9cde434c305ea9db55c6",
+    "large/rope-64x4096-r1-native.log": "47e45944a94984d430312724a451e209f678548d94b8db1dfb4fa1fc045e7071",
+    "large/swiglu-1024x4096-r0-native.ll": "cc7fdd8065fbc721da0c5b70076749a510b806785b2caaa2ac625d17c28f8265",
+    "large/swiglu-1024x4096-r0-native.log": "9d68ce375cbbf22585e92cc61c549dce4c9bbedef1fd96072bf38d0be80fdcdd",
+    "large/swiglu-1024x4096-r1-native.ll": "cc7fdd8065fbc721da0c5b70076749a510b806785b2caaa2ac625d17c28f8265",
+    "large/swiglu-1024x4096-r1-native.log": "bbb7a08cddca5b0e79e11f978ef61eed73ae6322bb1070581f79500346f54017",
+    "native/baseline-capture.json": "b302807992298e536952c285f0150a68e90eb59b54fb1a6c0b4a4e12fa64bb69",
+    "native/baseline.ll.gz": "d0337af1fb22005cac1a507dc4992288a16f59dcaf3601c6c8aaec8b47fc4a62",
+    "native/baseline.o.gz": "977c07625c1ed4e476f7d2ed74e9b6d37d9b98e0d225d7923f8b3bac02a15b62",
+    "native/inductor.asm": "31abd7317d39557c23c4b07f4792ed160c47a9e5f6e6460dd7e4b0562239bbd9",
+    "native/inductor.cpp": "ffac225ed4d18b40dbcd78afafa4bac452f513bd5203033b819efb1a77f92d82",
+    "native/results.json": "acfca1288317cb4b8b67f1f921ed26ac7baaea42c70f880ef4d0569883356af7",
+    "notes.md": "15e3fcb670c8a0157b4521573774c45547e46e29d4ef66a0d40672eebffafd9d",
+    "pre-workspace/attention-2x4x2x16x32x32x32-r0-native.ll": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+    "pre-workspace/attention-2x4x2x16x32x32x32-r0-native.log": "47725ee4be42ef1a8b389de58063e72ae41ab4e497b0e3495fb2d770e6d58bda",
+    "pre-workspace/attention-2x4x2x16x32x32x32-r1-native.ll": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+    "pre-workspace/attention-2x4x2x16x32x32x32-r1-native.log": "d0d615e1a4d52dfef343c36ae1acfb9b8bdc44e9264a0711b352ccfd6ad5f184",
+    "pre-workspace/build.log": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+    "pre-workspace/gelu_residual-64x1537-r0-native.ll": "6471d48f23776d2c42d53d1668db9fea62c8294a1c5b311331ac54848ff9e8c2",
+    "pre-workspace/gelu_residual-64x1537-r0-native.log": "3ecc3dd91aa34eaf38e848dcfb51ca55263d5c9f358d23c6333d9dfd63f5d518",
+    "pre-workspace/gelu_residual-64x1537-r1-native.ll": "6471d48f23776d2c42d53d1668db9fea62c8294a1c5b311331ac54848ff9e8c2",
+    "pre-workspace/gelu_residual-64x1537-r1-native.log": "fe721d5e252c91a7f3fe778fdfbb630b92bd14d89d1164ef6a04ad81c7248c78",
+    "pre-workspace/layernorm-17x16384-r0-native.ll": "ca7e5f749e3c8074b3dc7239af2f4f01af9957806c0878cc6e9ed5e0593cb155",
+    "pre-workspace/layernorm-17x16384-r0-native.log": "450efd7617fc874dd2dc6924f397ecd33323d4d714a4b2b3230f86a92302fff3",
+    "pre-workspace/layernorm-17x16384-r1-native.ll": "ca7e5f749e3c8074b3dc7239af2f4f01af9957806c0878cc6e9ed5e0593cb155",
+    "pre-workspace/layernorm-17x16384-r1-native.log": "1ed958b56479358ffaba489ab7ef7454f07ffe9fe776cf543a31e2f5f4631065",
+    "pre-workspace/layernorm-64x4096-r0-native.ll": "1fc2e1e15cc4527b355e942425e04cc38451c5b50547b7f3834eaf064d4f21dd",
+    "pre-workspace/layernorm-64x4096-r0-native.log": "63734d48b86999e9d86912e278feceeb796ddbc2c3fcf2611915cfc7756ae365",
+    "pre-workspace/layernorm-64x4096-r1-native.ll": "1fc2e1e15cc4527b355e942425e04cc38451c5b50547b7f3834eaf064d4f21dd",
+    "pre-workspace/layernorm-64x4096-r1-native.log": "4ead779329c647a339870fce5340513272d0b6094a565277fae5e118ded38907",
+    "pre-workspace/masked_softmax-17x16384-r0-native.log": "96887e8e5f00e9bfb5a5fe0eecabccbc5e7fc8f080f65a5aedf975959b2302c6",
+    "pre-workspace/masked_softmax-17x16384-r1-native.log": "96887e8e5f00e9bfb5a5fe0eecabccbc5e7fc8f080f65a5aedf975959b2302c6",
+    "pre-workspace/masked_softmax-64x4096-r0-native.ll": "16d922fbd973ce88fe460c380da661f51c04e431a2bb3dd9603362e71b155233",
+    "pre-workspace/masked_softmax-64x4096-r0-native.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pre-workspace/masked_softmax-64x4096-r1-native.ll": "16d922fbd973ce88fe460c380da661f51c04e431a2bb3dd9603362e71b155233",
+    "pre-workspace/masked_softmax-64x4096-r1-native.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pre-workspace/results.json": "6d03d3fd8b7517bfcc4522aea4c4779c1507ae1a71731c03d8e9149e3ef753ce",
+    "pre-workspace/rmsnorm-1024x4096-r0-native.ll": "67d519ce93694fd02cc3ae73085b70633e697ec53367a99ed106c35a023bc33e",
+    "pre-workspace/rmsnorm-1024x4096-r0-native.log": "0a4f33d10c7a73753d2f08fe0bc5167566ba37239556e66d0888f870539ad99d",
+    "pre-workspace/rmsnorm-1024x4096-r1-native.ll": "67d519ce93694fd02cc3ae73085b70633e697ec53367a99ed106c35a023bc33e",
+    "pre-workspace/rmsnorm-1024x4096-r1-native.log": "241a6b9489a72658291a1b88f3c56e30ba65082daeab6fa6f861cb8cc5149dc6",
+    "pre-workspace/rmsnorm-17x1537-r0-native.ll": "71a744b4f0e01efbdf5806683f55cf2fe1f39642933a6a9d9f57079e5563c1a4",
+    "pre-workspace/rmsnorm-17x1537-r0-native.log": "cec5bcf7145e3d699500ec322aed9ab72787425c6c891636f19e1bedc13e5656",
+    "pre-workspace/rmsnorm-17x1537-r1-native.ll": "71a744b4f0e01efbdf5806683f55cf2fe1f39642933a6a9d9f57079e5563c1a4",
+    "pre-workspace/rmsnorm-17x1537-r1-native.log": "e97013685855fb5a6614e8d05a167c1bc5ad77cc50caac478209a9c3e54af430",
+    "pre-workspace/rmsnorm-64x16384-r0-native.ll": "a7a4b257331aeabff7c83bec6a3742d0d1fe64eeea58290be44adf3973d51f73",
+    "pre-workspace/rmsnorm-64x16384-r0-native.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pre-workspace/rmsnorm-64x16384-r1-native.ll": "a7a4b257331aeabff7c83bec6a3742d0d1fe64eeea58290be44adf3973d51f73",
+    "pre-workspace/rmsnorm-64x16384-r1-native.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pre-workspace/rope-64x4096-r0-native.ll": "18e6418b1f4e45e249fbe542f4d0ff1780682447799bb6d2e263cce67abd6872",
+    "pre-workspace/rope-64x4096-r0-native.log": "0ec636c6b61587482220856bc317e42338a7993f9cf2d557090c8b3b11f9c902",
+    "pre-workspace/rope-64x4096-r1-native.ll": "18e6418b1f4e45e249fbe542f4d0ff1780682447799bb6d2e263cce67abd6872",
+    "pre-workspace/rope-64x4096-r1-native.log": "9d918d8f22a09d7cbab6fdf11f278697c54ad27b8c90013113a763e5641aa2b1",
+    "pre-workspace/swiglu-1024x4096-r0-native.ll": "c6ea2736a4ce71f83eefe8c7a26bcf6c3aa1f53d25e18ba280d17c10822b5f30",
+    "pre-workspace/swiglu-1024x4096-r0-native.log": "1ca863cb47dae0541fb2f9cf5231531858067d840d819bdb700f4712c9d1df8e",
+    "pre-workspace/swiglu-1024x4096-r1-native.ll": "c6ea2736a4ce71f83eefe8c7a26bcf6c3aa1f53d25e18ba280d17c10822b5f30",
+    "pre-workspace/swiglu-1024x4096-r1-native.log": "18f39dd2e8c576d08d16c4593b909ff7486a5a321e1fc876789a0fd841617794",
+    "provenance.json": "203bcc6582f8793b199e11c0a6d7e980fb26558a7fed9f159eb1971b394e9896",
+    "qa_docs.cjs": "480ccd0354291fbb5c5a722d32dfa0b91009005922946cd40e735129582214e2",
+    "replay_native.cpp": "01556691ad700b8bc24da89920d344a25525a89b84c77df4ae1d668f84842b27",
+    "replay_native.py": "ab60f1b147dc5c02a03de43d31ff843e16e5989d40cc2a715a4ed67f3c6d0618",
+    "source-overlay.patch.gz": "ed3c68eba0d470185c90f917619d255697cef98bd828050036452eb58905aafd",
+    "validation/build-6.log": "990319eac7745ab78fa7f177e0b7d35845855430768c45d7f37415a6d4f8deaf",
+    "validation/build-8.log": "7cf6fddc170e500cc9de42391ece6fce609aef9e48601efda5718e754f95c671",
+    "validation/crash-lldb-2.log": "f81ce27a463beb9b1f91da25303f08ce8dcb300441660bac449454735a20cbfa",
+    "validation/ctest-all.log": "2e87a566d7484e71efb16988adc3393a9383e12d75b84768b75b2985aff1d9ce",
+    "validation/ctest-final.log": "9cb87daf88c8f42e2e4d4483dd83749c3094c28121d638828e29fb327e679868",
+    "validation/ctest-xir.log": "60afa7324c9cf5d10c6a9c766546e29ed305562519c28806b348e1d23f8d766e",
+    "validation/docs-links.log": "6cd443e6fd896b1f09ff91fef4dca4ac7182e1e1c685801cf4e5197e5167ba07",
+    "validation/docs-qa.json": "58f672d152f747678316b9a0d11f8f3689087df2746f2be7d231c463961b26b8",
+    "validation/doxygen.log.gz": "2b2049df6988d8f852085a8ec16ccdd40171571978db2000f56830f957a5b559",
+    "validation/runtime-diagnostic.log": "fe916abd633da102bc9ded0e2dc218822fd1ab6962cf4ba57aacb040d8b72128",
+    "validation/runtime-w1.log": "be4225a77f5e483e7349738289f80b20452e39e0da4626152bcc6f784cdc74f7",
+    "validation/runtime-w16.log": "4dd606cfdca3924aef95c4d831a5e65feb11a6a286b6edacd488dc95952a2d33",
+    "validation/runtime-w2.log": "93490100ed875376e9758caaa455ea6ca173ed71ec6cb4b15f8674d156552849",
+    "validation/runtime-w4.log": "1f3f0018d497b9966f24bc74760a37dc34eac5ea16c46fe766a6f33345e0626c",
+    "validation/sphinx.log": "da1251fc599894d8d99c39d33f6db7f546e0382cadefeeff04b46e5da9b4cab9",
+    "validation/syntax-lower-final.log": "fc60da3bd48ef507a1b6dd379fea6b20ca25101b46adfab387214ad1f9b0a9aa",
+    "validation/syntax-rest.log": "8d62d13fd05ea5245d3c967a5e5575a7cc36ceb596167d30e1165422a479ab25"
+  }
+}

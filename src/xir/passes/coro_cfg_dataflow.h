@@ -114,6 +114,18 @@ struct DenseScopeDataflowResult {
     const DenseValueDomain &value_domain,
     CoroReplayableValueAnalysis &replayable) noexcept;
 
+// Context states belong only to analysis. The emitted graph retains one block
+// and one continuation per shared source region.
+struct CoroCallContextDataflow {
+    size_t state_count{0u};
+    luisa::vector<DenseValueSet> scope_live;
+    luisa::vector<DenseValueSet> scope_external;
+    luisa::vector<DenseValueSet> edge_target_live;
+};
+[[nodiscard]] CoroCallContextDataflow analyze_coro_call_contexts(
+    FunctionDefinition *definition, const CoroCfgDistillResult &cfg,
+    const DenseValueDomain &domain, CoroReplayableValueAnalysis &replayable) noexcept;
+
 void append_legacy_values(
     luisa::vector<Value *> &dst,
     const DenseValueSet &atoms,

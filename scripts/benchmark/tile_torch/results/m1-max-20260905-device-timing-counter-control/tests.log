@@ -1,0 +1,31 @@
+Test project /Users/mike/CLionProjects/luisa/cmake-build-tirx
+    Start 52: test_tile_native_runtime
+1/7 Test #52: test_tile_native_runtime .........   Passed    1.10 sec
+    Start 53: test_tile_metal_timing
+2/7 Test #53: test_tile_metal_timing ...........   Passed    0.07 sec
+    Start 54: test_tile_system_cpu
+3/7 Test #54: test_tile_system_cpu .............   Passed    0.54 sec
+    Start 55: test_tile_system_metal
+4/7 Test #55: test_tile_system_metal ...........   Passed    0.10 sec
+    Start 58: test_tile_tirx_execution
+5/7 Test #58: test_tile_tirx_execution .........   Passed    4.72 sec
+    Start 63: test_tile_tirx_planner
+6/7 Test #63: test_tile_tirx_planner ...........   Passed    0.05 sec
+    Start 72: test_tile_tirx_execution_metal
+7/7 Test #72: test_tile_tirx_execution_metal ...   Passed    2.41 sec
+
+100% tests passed out of 7
+
+Label Time Summary:
+integration                =   1.27 sec*proc (3 tests)
+integration_tile_native    =   1.10 sec*proc (1 test)
+integration_tile_system    =   0.10 sec*proc (1 test)
+integration_tile_timing    =   0.07 sec*proc (1 test)
+unit                       =   7.73 sec*proc (4 tests)
+unit_tile                  =   7.73 sec*proc (4 tests)
+unit_tile_poc              =   2.41 sec*proc (1 test)
+unit_tile_system           =   0.64 sec*proc (2 tests)
+unit_tile_targets          =   2.41 sec*proc (1 test)
+unit_tile_tirx             =   7.19 sec*proc (3 tests)
+
+Total Test time (real) =   9.01 sec

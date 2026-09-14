@@ -1,0 +1,3896 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-04T18:01:25.708726+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "git_revision": "b8c3c54f81f2a4ad947e295f1f75e57605bf8833",
+    "worktree_dirty": true,
+    "torch_version": "2.14.0",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "numpy_version": "2.5.2",
+    "rounds": 6,
+    "samples": 5,
+    "sample_ms": 20,
+    "warmup_ms": 100,
+    "requested_threads": 8,
+    "removed_environment": {},
+    "artifacts_sha256": {
+      "/opt/homebrew/Cellar/llvm@21/21.1.8/lib/libLLVM.dylib": "59946933215b2876552739560af533e22a05e318995b0ba65f341f680b63255e",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir": "c906f36f2ebccae03ad72b9faf9c7dd5e1abe1af34c1153555751855425f5e51",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libSPIRV.16.3.0.dylib": "b7be78508871167f76051de75b6ba56b519b96492c60155e8b6453b7838f23a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang-default-resource-limits.16.3.0.dylib": "a722bbd9db115f842367af935597674cd2a74ad73fabfac8df715a3b6cbbca9d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang.16.3.0.dylib": "f864c25ca330cb53a2d755a50a73579b61f8940829ecf35494f235d6f659ca33",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-ast.dylib": "efdfc70e3e1af9d9afa376566715d0c0a87668858fd920d9ec67db72cc7542fa",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-metal.so": "bdc02c2ca32363889a0ed943662a9d3d086e3ee9a1710d5f06e9dbbaaf4085f0",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-simd.so": "df36242b03f520ec679d4c416ad77ce887b2f8ed768516e2cd74da9a7dd44e12",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-core.dylib": "dde51f1ec8a0816aa2caa5575a7354ecd4d70fad4717cdbdeddccef40cc6caa1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-coro.dylib": "32362a079d25ff8ccec8fb4b06f45f9340a2ebca8ef492889379f868a07c6799",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-dsl.dylib": "eeca4ef1d2daee1c3dfde4bbd9a4c9644257c17d72727b0633d5a884aed9ef31",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-osl.dylib": "a9d317aad4a4138783e09944c6bf114351b2590b52d70f6a37cdd01b8451ba53",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-runtime.dylib": "d8175fa0364baab7dc7d70cc88cc16ca55641691dd6abf0400a5d6cd3f0292bc",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-tirx.dylib": "08b4a5b06d17dd6e61a2134d1e3f33e51b5abd6c7a9f5349f053484d3093b10f",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-validation-layer.so": "99c030dccc550f37260c6343797c251207e35e4e872c83bcb7bf36cf95d4e86c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-xir.dylib": "5743ace9b004f3b61714ae8a7f7dc62c95e868eeb35988602a45046a23091d1c"
+    },
+    "script_sha256": "afaccf2920524e6a52de0a64c27714301d2f9323f94c0ef1ca0769045e6f37a6",
+    "timing": "warm synchronized host wall including each path's dispatch; no JIT/allocation/upload",
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "round": 0,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r0-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 498,
+        "runtime_init_ms": 12.224667,
+        "capture_ms": 0.053375,
+        "compile_ms": 41.286083,
+        "allocation_upload_ms": 0.023458,
+        "cold_call_ms": 0.107583,
+        "warmup_ms": 100.097792,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          46.943439759,
+          50.1734437751,
+          49.0916164659,
+          47.7305060241,
+          48.1762048193
+        ],
+        "latency_us": [
+          46.75,
+          51.5,
+          58.375,
+          42.125,
+          55.583
+        ],
+        "throughput_us_p50": 48.1762048193,
+        "throughput_us_p90": 49.74071285142,
+        "latency_us_p50": 51.5,
+        "latency_us_p90": 57.2582
+      },
+      "output": "r0-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r0-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 343,
+        "runtime_init_ms": 12.375042,
+        "capture_ms": 0.065833,
+        "compile_ms": 39.548041,
+        "allocation_upload_ms": 0.012834,
+        "cold_call_ms": 0.063959,
+        "warmup_ms": 100.224125,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          51.8947988338,
+          45.1031341108,
+          48.9944110787,
+          53.4515306122,
+          52.1789358601
+        ],
+        "latency_us": [
+          48.333,
+          68.458,
+          38.666,
+          38.958,
+          31.042
+        ],
+        "throughput_us_p50": 51.8947988338,
+        "throughput_us_p90": 52.94249271136,
+        "latency_us_p50": 38.958,
+        "latency_us_p90": 60.408
+      },
+      "output": "r0-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.107667,
+        "warmup_ms": 100.00125,
+        "repetitions": 22951,
+        "throughput_us": [
+          0.9724485207616226,
+          0.9074949675395406,
+          0.9712503594614614,
+          1.0517188793516623,
+          0.9658275892117991
+        ],
+        "latency_us": [
+          2.083,
+          1.042,
+          1.0,
+          1.083,
+          1.083
+        ],
+        "throughput_us_p50": 0.9712503594614614,
+        "throughput_us_p90": 1.0200107359156465,
+        "latency_us_p50": 1.083,
+        "latency_us_p90": 1.6830000000000003
+      },
+      "output": "r0-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r0-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 87,
+        "runtime_init_ms": 12.855875,
+        "capture_ms": 0.057542,
+        "compile_ms": 40.065958,
+        "allocation_upload_ms": 0.017083,
+        "cold_call_ms": 0.24375,
+        "warmup_ms": 100.964459,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          271.022988506,
+          272.284965517,
+          303.187252874,
+          295.503827586,
+          273.013896552
+        ],
+        "latency_us": [
+          286.125,
+          287.041,
+          240.75,
+          295.25,
+          239.333
+        ],
+        "throughput_us_p50": 273.013896552,
+        "throughput_us_p90": 300.1138827588,
+        "latency_us_p50": 286.125,
+        "latency_us_p90": 291.9664
+      },
+      "output": "r0-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.067125,
+        "warmup_ms": 100.037083,
+        "repetitions": 3840,
+        "throughput_us": [
+          5.00870234375,
+          5.109559375,
+          5.130023958333334,
+          5.058430989583333,
+          5.07803828125
+        ],
+        "latency_us": [
+          5.1659999999999995,
+          4.875,
+          4.917000000000001,
+          4.959,
+          5.4590000000000005
+        ],
+        "throughput_us_p50": 5.07803828125,
+        "throughput_us_p90": 5.121838125,
+        "latency_us_p50": 4.959,
+        "latency_us_p90": 5.3418
+      },
+      "output": "r0-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r0-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 69,
+        "runtime_init_ms": 12.144792,
+        "capture_ms": 0.0505,
+        "compile_ms": 39.946292,
+        "allocation_upload_ms": 0.025584,
+        "cold_call_ms": 0.256166,
+        "warmup_ms": 100.506791,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          291.530797101,
+          306.277173913,
+          306.275362319,
+          338.865333333,
+          295.987318841
+        ],
+        "latency_us": [
+          282.667,
+          246.625,
+          302.875,
+          251.333,
+          266.875
+        ],
+        "throughput_us_p50": 306.275362319,
+        "throughput_us_p90": 325.83006956500003,
+        "latency_us_p50": 266.875,
+        "latency_us_p90": 294.79179999999997
+      },
+      "output": "r0-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r0-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 78,
+        "runtime_init_ms": 12.007458,
+        "capture_ms": 0.052208,
+        "compile_ms": 59.350084,
+        "allocation_upload_ms": 0.01175,
+        "cold_call_ms": 0.3155,
+        "warmup_ms": 100.767125,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          248.845628205,
+          249.005871795,
+          254.975435897,
+          248.907589744,
+          249.755884615
+        ],
+        "latency_us": [
+          279.292,
+          243.833,
+          256,
+          249.833,
+          261.167
+        ],
+        "throughput_us_p50": 249.005871795,
+        "throughput_us_p90": 252.88761538420002,
+        "latency_us_p50": 256.0,
+        "latency_us_p90": 272.042
+      },
+      "output": "r0-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r0-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r0-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 88,
+        "runtime_init_ms": 11.84175,
+        "capture_ms": 0.055917,
+        "compile_ms": 57.325125,
+        "allocation_upload_ms": 0.014125,
+        "cold_call_ms": 0.346166,
+        "warmup_ms": 100.914166,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          279.052556818,
+          252.080965909,
+          249.918568182,
+          255.16525,
+          253.82575
+        ],
+        "latency_us": [
+          332,
+          343.167,
+          223.625,
+          220.292,
+          246.25
+        ],
+        "throughput_us_p50": 253.82575,
+        "throughput_us_p90": 269.49763409080003,
+        "latency_us_p50": 246.25,
+        "latency_us_p90": 338.7002
+      },
+      "output": "r0-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 0,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.078667,
+        "warmup_ms": 100.043333,
+        "repetitions": 2637,
+        "throughput_us": [
+          6.777730375426621,
+          6.752401592719,
+          6.841913158892681,
+          6.882758437618506,
+          6.61239097459234
+        ],
+        "latency_us": [
+          6.5,
+          6.5,
+          7.042,
+          7.625,
+          7.0
+        ],
+        "throughput_us_p50": 6.777730375426621,
+        "throughput_us_p90": 6.866420326128176,
+        "latency_us_p50": 7.0,
+        "latency_us_p90": 7.3918
+      },
+      "output": "r0-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r1-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 67,
+        "runtime_init_ms": 12.035459,
+        "capture_ms": 0.058291,
+        "compile_ms": 40.411959,
+        "allocation_upload_ms": 0.014792,
+        "cold_call_ms": 0.28925,
+        "warmup_ms": 101.0415,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          287.612552239,
+          270.310328358,
+          276.498134328,
+          259.375626866,
+          257.508716418
+        ],
+        "latency_us": [
+          236.583,
+          237.792,
+          282.584,
+          228.834,
+          270.708
+        ],
+        "throughput_us_p50": 270.310328358,
+        "throughput_us_p90": 283.1667850746,
+        "latency_us_p50": 237.792,
+        "latency_us_p90": 277.8336
+      },
+      "output": "r1-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r1-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 68,
+        "runtime_init_ms": 12.051959,
+        "capture_ms": 0.055583,
+        "compile_ms": 38.655708,
+        "allocation_upload_ms": 0.016167,
+        "cold_call_ms": 0.308875,
+        "warmup_ms": 100.164541,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          275.332117647,
+          271.80575,
+          271.718147059,
+          271.257352941,
+          274.305147059
+        ],
+        "latency_us": [
+          228.916,
+          298.5,
+          232.959,
+          262.833,
+          235.458
+        ],
+        "throughput_us_p50": 271.80575,
+        "throughput_us_p90": 274.9213294118,
+        "latency_us_p50": 235.458,
+        "latency_us_p90": 284.2332
+      },
+      "output": "r1-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.066042,
+        "warmup_ms": 100.016375,
+        "repetitions": 3871,
+        "throughput_us": [
+          4.978321880650994,
+          5.049082924308964,
+          4.979086024283132,
+          4.956482045982949,
+          5.005317489020925
+        ],
+        "latency_us": [
+          5.0,
+          5.041,
+          5.3340000000000005,
+          5.25,
+          4.666
+        ],
+        "throughput_us_p50": 4.979086024283132,
+        "throughput_us_p90": 5.031576750193748,
+        "latency_us_p50": 5.041,
+        "latency_us_p90": 5.300400000000001
+      },
+      "output": "r1-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r1-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 73,
+        "runtime_init_ms": 12.0935,
+        "capture_ms": 0.051334,
+        "compile_ms": 57.958416,
+        "allocation_upload_ms": 0.013708,
+        "cold_call_ms": 0.28525,
+        "warmup_ms": 101.791791,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          278.503424658,
+          287.877849315,
+          305.354452055,
+          277.361876712,
+          287.942356164
+        ],
+        "latency_us": [
+          294.166,
+          265.75,
+          256.334,
+          251.583,
+          247
+        ],
+        "throughput_us_p50": 287.877849315,
+        "throughput_us_p90": 298.3896136986,
+        "latency_us_p50": 256.334,
+        "latency_us_p90": 282.7996
+      },
+      "output": "r1-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.063208,
+        "warmup_ms": 100.046209,
+        "repetitions": 2743,
+        "throughput_us": [
+          6.742405030987968,
+          6.628478672985781,
+          6.734491068173532,
+          6.714196864746627,
+          6.615734232592052
+        ],
+        "latency_us": [
+          6.292,
+          6.25,
+          6.625,
+          6.708,
+          7.167
+        ],
+        "throughput_us_p50": 6.714196864746627,
+        "throughput_us_p90": 6.739239445862194,
+        "latency_us_p50": 6.625,
+        "latency_us_p90": 6.9834
+      },
+      "output": "r1-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r1-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 88,
+        "runtime_init_ms": 12.328708,
+        "capture_ms": 0.051,
+        "compile_ms": 56.216791,
+        "allocation_upload_ms": 0.026125,
+        "cold_call_ms": 0.232958,
+        "warmup_ms": 101.532375,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          253.791670455,
+          254.315340909,
+          268.804920455,
+          254.689386364,
+          252.705965909
+        ],
+        "latency_us": [
+          254.375,
+          258.375,
+          262,
+          271.667,
+          256.458
+        ],
+        "throughput_us_p50": 254.315340909,
+        "throughput_us_p90": 263.1587068186,
+        "latency_us_p50": 258.375,
+        "latency_us_p90": 267.80019999999996
+      },
+      "output": "r1-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r1-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 480,
+        "runtime_init_ms": 11.708583,
+        "capture_ms": 0.053291,
+        "compile_ms": 42.155875,
+        "allocation_upload_ms": 0.013542,
+        "cold_call_ms": 0.064709,
+        "warmup_ms": 100.144958,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          48.0613729167,
+          49.3407979167,
+          50.3491333333,
+          51.1332458333,
+          50.56935625
+        ],
+        "latency_us": [
+          44.167,
+          40.917,
+          50.792,
+          65.209,
+          47.708
+        ],
+        "throughput_us_p50": 50.3491333333,
+        "throughput_us_p90": 50.90768999998,
+        "latency_us_p50": 47.708,
+        "latency_us_p90": 59.4422
+      },
+      "output": "r1-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.05275,
+        "warmup_ms": 100.006542,
+        "repetitions": 17152,
+        "throughput_us": [
+          0.9851013875932835,
+          0.9842802588619403,
+          0.9607869053171643,
+          1.0004664179104477,
+          0.9831482042910447
+        ],
+        "latency_us": [
+          1.3339999999999999,
+          1.042,
+          1.042,
+          1.083,
+          1.083
+        ],
+        "throughput_us_p50": 0.9842802588619403,
+        "throughput_us_p90": 0.9943204057835819,
+        "latency_us_p50": 1.083,
+        "latency_us_p90": 1.2336
+      },
+      "output": "r1-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 1,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r1-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r1-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 398,
+        "runtime_init_ms": 11.862916,
+        "capture_ms": 0.054959,
+        "compile_ms": 41.436167,
+        "allocation_upload_ms": 0.016625,
+        "cold_call_ms": 0.08425,
+        "warmup_ms": 100.129875,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          49.6683417085,
+          48.2620376884,
+          49.3627512563,
+          50.507120603,
+          51.3913316583
+        ],
+        "latency_us": [
+          42.083,
+          46.292,
+          53.208,
+          59.583,
+          110.583
+        ],
+        "throughput_us_p50": 49.6683417085,
+        "throughput_us_p90": 51.03764723618,
+        "latency_us_p50": 53.208,
+        "latency_us_p90": 90.183
+      },
+      "output": "r1-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.028708,
+        "warmup_ms": 100.043042,
+        "repetitions": 3116,
+        "throughput_us": [
+          6.7208225288831835,
+          6.695188703465981,
+          6.664246148908858,
+          6.756846277278562,
+          6.654952824133505
+        ],
+        "latency_us": [
+          6.708,
+          6.875,
+          7.375,
+          6.458,
+          6.2909999999999995
+        ],
+        "throughput_us_p50": 6.695188703465981,
+        "throughput_us_p90": 6.74243677792041,
+        "latency_us_p50": 6.708,
+        "latency_us_p90": 7.175
+      },
+      "output": "r2-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r2-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 76,
+        "runtime_init_ms": 11.779958,
+        "capture_ms": 0.049917,
+        "compile_ms": 57.588875,
+        "allocation_upload_ms": 0.0155,
+        "cold_call_ms": 0.29375,
+        "warmup_ms": 101.508167,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          255.918868421,
+          249.806460526,
+          251.774131579,
+          260.229171053,
+          277.029605263
+        ],
+        "latency_us": [
+          254.5,
+          270.625,
+          275.125,
+          280.209,
+          275.125
+        ],
+        "throughput_us_p50": 255.918868421,
+        "throughput_us_p90": 270.30943157900003,
+        "latency_us_p50": 275.125,
+        "latency_us_p90": 278.1754
+      },
+      "output": "r2-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r2-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 80,
+        "runtime_init_ms": 11.548417,
+        "capture_ms": 0.051125,
+        "compile_ms": 59.720791,
+        "allocation_upload_ms": 0.013083,
+        "cold_call_ms": 0.244417,
+        "warmup_ms": 101.833292,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          296.822925,
+          274.952075,
+          279.9755125,
+          304.8296875,
+          306.2505125
+        ],
+        "latency_us": [
+          310.291,
+          357.75,
+          261.416,
+          282.875,
+          279.958
+        ],
+        "throughput_us_p50": 296.822925,
+        "throughput_us_p90": 305.6821825,
+        "latency_us_p50": 282.875,
+        "latency_us_p90": 338.7664
+      },
+      "output": "r2-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r2-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 403,
+        "runtime_init_ms": 12.744834,
+        "capture_ms": 0.066625,
+        "compile_ms": 39.562542,
+        "allocation_upload_ms": 0.00875,
+        "cold_call_ms": 0.070458,
+        "warmup_ms": 100.233584,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          48.8745880893,
+          46.9455111663,
+          49.6170397022,
+          49.4642282878,
+          51.7679900744
+        ],
+        "latency_us": [
+          36.875,
+          26.75,
+          53.375,
+          47.375,
+          59.416
+        ],
+        "throughput_us_p50": 49.4642282878,
+        "throughput_us_p90": 50.90760992552,
+        "latency_us_p50": 47.375,
+        "latency_us_p90": 56.9996
+      },
+      "output": "r2-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r2-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 390,
+        "runtime_init_ms": 11.922542,
+        "capture_ms": 0.075,
+        "compile_ms": 40.837084,
+        "allocation_upload_ms": 0.019541,
+        "cold_call_ms": 0.055542,
+        "warmup_ms": 100.268125,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          50.3503205128,
+          51.6951923077,
+          52.1213692308,
+          50.5063051282,
+          51.6311948718
+        ],
+        "latency_us": [
+          69.084,
+          59.25,
+          77.875,
+          36.208,
+          63.75
+        ],
+        "throughput_us_p50": 51.6311948718,
+        "throughput_us_p90": 51.95089846156,
+        "latency_us_p50": 63.75,
+        "latency_us_p90": 74.3586
+      },
+      "output": "r2-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "planned",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.053083,
+        "warmup_ms": 100.003042,
+        "repetitions": 17777,
+        "throughput_us": [
+          0.9166455532429543,
+          0.9253928109354783,
+          0.940034876525848,
+          0.9217059683861167,
+          0.8987924846712043
+        ],
+        "latency_us": [
+          1.042,
+          1.0,
+          1.0,
+          0.958,
+          0.9169999999999999
+        ],
+        "throughput_us_p50": 0.9217059683861167,
+        "throughput_us_p90": 0.9341780502897001,
+        "latency_us_p50": 1.0,
+        "latency_us_p90": 1.0252000000000001
+      },
+      "output": "r2-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r2-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 71,
+        "runtime_init_ms": 12.081542,
+        "capture_ms": 0.055167,
+        "compile_ms": 39.396791,
+        "allocation_upload_ms": 0.012042,
+        "cold_call_ms": 0.270917,
+        "warmup_ms": 101.362375,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          285.237084507,
+          286.393197183,
+          291.893197183,
+          289.592140845,
+          271.508225352
+        ],
+        "latency_us": [
+          257.625,
+          388.5,
+          329.916,
+          354.291,
+          302.25
+        ],
+        "throughput_us_p50": 286.393197183,
+        "throughput_us_p90": 290.9727746478,
+        "latency_us_p50": 329.916,
+        "latency_us_p90": 374.8164
+      },
+      "output": "r2-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.058791,
+        "warmup_ms": 100.020166,
+        "repetitions": 3265,
+        "throughput_us": [
+          4.9687978560490045,
+          5.034303215926493,
+          4.968861868300153,
+          4.92303460949464,
+          5.020061255742726
+        ],
+        "latency_us": [
+          5.208,
+          5.375,
+          4.959,
+          4.708,
+          4.708
+        ],
+        "throughput_us_p50": 4.968861868300153,
+        "throughput_us_p90": 5.028606431852986,
+        "latency_us_p50": 4.959,
+        "latency_us_p90": 5.3082
+      },
+      "output": "r2-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 2,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r2-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r2-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 70,
+        "runtime_init_ms": 12.84525,
+        "capture_ms": 0.057083,
+        "compile_ms": 39.004709,
+        "allocation_upload_ms": 0.011417,
+        "cold_call_ms": 0.311709,
+        "warmup_ms": 100.6405,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          268.573214286,
+          268.922014286,
+          272.210714286,
+          273.784528571,
+          270.783328571
+        ],
+        "latency_us": [
+          236.667,
+          232.667,
+          242.458,
+          288.75,
+          304.042
+        ],
+        "throughput_us_p50": 270.783328571,
+        "throughput_us_p90": 273.155002857,
+        "latency_us_p50": 242.458,
+        "latency_us_p90": 297.92519999999996
+      },
+      "output": "r2-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r3-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 421,
+        "runtime_init_ms": 11.561083,
+        "capture_ms": 0.055125,
+        "compile_ms": 41.806917,
+        "allocation_upload_ms": 0.014375,
+        "cold_call_ms": 0.082792,
+        "warmup_ms": 100.263542,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          50.7166484561,
+          48.9380427553,
+          48.5545344418,
+          49.2948337292,
+          52.2898859857
+        ],
+        "latency_us": [
+          59.667,
+          64.417,
+          49.625,
+          49.542,
+          45.542
+        ],
+        "throughput_us_p50": 49.2948337292,
+        "throughput_us_p90": 51.66059097386,
+        "latency_us_p50": 49.625,
+        "latency_us_p90": 62.517
+      },
+      "output": "r3-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.049084,
+        "warmup_ms": 100.007875,
+        "repetitions": 16556,
+        "throughput_us": [
+          0.999232362889587,
+          0.9906403720705486,
+          0.9856673109446726,
+          0.9926058830635418,
+          1.0063848755738103
+        ],
+        "latency_us": [
+          1.25,
+          1.0839999999999999,
+          1.0410000000000001,
+          1.083,
+          1.083
+        ],
+        "throughput_us_p50": 0.9926058830635418,
+        "throughput_us_p90": 1.003523870500121,
+        "latency_us_p50": 1.083,
+        "latency_us_p90": 1.1836
+      },
+      "output": "r3-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "canonical",
+        "torch",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r3-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 417,
+        "runtime_init_ms": 12.091042,
+        "capture_ms": 0.055125,
+        "compile_ms": 42.845833,
+        "allocation_upload_ms": 0.010167,
+        "cold_call_ms": 0.053709,
+        "warmup_ms": 100.194916,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          50.0809352518,
+          51.9876091127,
+          52.2798752998,
+          51.4307553957,
+          49.866206235
+        ],
+        "latency_us": [
+          45.25,
+          38.625,
+          69.416,
+          43.875,
+          42.25
+        ],
+        "throughput_us_p50": 51.4307553957,
+        "throughput_us_p90": 52.16296882496,
+        "latency_us_p50": 43.875,
+        "latency_us_p90": 59.7496
+      },
+      "output": "r3-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.021333,
+        "warmup_ms": 100.015375,
+        "repetitions": 3995,
+        "throughput_us": [
+          5.057843053817272,
+          4.978003754693367,
+          4.978233291614518,
+          4.9662182728410516,
+          4.933385481852316
+        ],
+        "latency_us": [
+          5.084,
+          4.917000000000001,
+          5.0,
+          5.2090000000000005,
+          5.0
+        ],
+        "throughput_us_p50": 4.978003754693367,
+        "throughput_us_p90": 5.02599914893617,
+        "latency_us_p50": 5.0,
+        "latency_us_p90": 5.159
+      },
+      "output": "r3-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r3-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 66,
+        "runtime_init_ms": 11.652125,
+        "capture_ms": 0.050458,
+        "compile_ms": 38.661541,
+        "allocation_upload_ms": 0.016,
+        "cold_call_ms": 0.315333,
+        "warmup_ms": 100.911167,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          275.421727273,
+          275.289772727,
+          267.259469697,
+          269.313121212,
+          276.90719697
+        ],
+        "latency_us": [
+          297.708,
+          296.209,
+          302.25,
+          295.125,
+          313.125
+        ],
+        "throughput_us_p50": 275.289772727,
+        "throughput_us_p90": 276.3130090912,
+        "latency_us_p50": 297.708,
+        "latency_us_p90": 308.775
+      },
+      "output": "r3-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r3-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 77,
+        "runtime_init_ms": 11.976292,
+        "capture_ms": 0.0555,
+        "compile_ms": 39.602167,
+        "allocation_upload_ms": 0.019708,
+        "cold_call_ms": 0.306084,
+        "warmup_ms": 100.951709,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          284.02325974,
+          293.345246753,
+          329.212662338,
+          333.082792208,
+          324.852818182
+        ],
+        "latency_us": [
+          281.583,
+          274.792,
+          282.75,
+          272.75,
+          288.125
+        ],
+        "throughput_us_p50": 324.852818182,
+        "throughput_us_p90": 331.53474026,
+        "latency_us_p50": 281.583,
+        "latency_us_p90": 285.975
+      },
+      "output": "r3-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.025208,
+        "warmup_ms": 100.048167,
+        "repetitions": 3038,
+        "throughput_us": [
+          6.679929229756419,
+          6.665953587886767,
+          6.72228176431863,
+          6.664458525345622,
+          6.659671823568137
+        ],
+        "latency_us": [
+          7.042,
+          7.625,
+          6.2090000000000005,
+          6.333,
+          6.4590000000000005
+        ],
+        "throughput_us_p50": 6.665953587886767,
+        "throughput_us_p90": 6.705340750493746,
+        "latency_us_p50": 6.4590000000000005,
+        "latency_us_p90": 7.3918
+      },
+      "output": "r3-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r3-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 67,
+        "runtime_init_ms": 12.269416,
+        "capture_ms": 0.053792,
+        "compile_ms": 59.793125,
+        "allocation_upload_ms": 0.017292,
+        "cold_call_ms": 0.23175,
+        "warmup_ms": 101.54275,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          281.888671642,
+          287.922268657,
+          281.932835821,
+          277.895522388,
+          280.047895522
+        ],
+        "latency_us": [
+          291.917,
+          331.458,
+          259.375,
+          219.167,
+          217.583
+        ],
+        "throughput_us_p50": 281.888671642,
+        "throughput_us_p90": 285.52649552260004,
+        "latency_us_p50": 259.375,
+        "latency_us_p90": 315.6416
+      },
+      "output": "r3-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 3,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r3-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r3-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 76,
+        "runtime_init_ms": 11.666708,
+        "capture_ms": 0.048875,
+        "compile_ms": 57.084625,
+        "allocation_upload_ms": 0.015875,
+        "cold_call_ms": 0.290041,
+        "warmup_ms": 101.322625,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          295.174342105,
+          266.379934211,
+          258.309210526,
+          251.848684211,
+          250.010407895
+        ],
+        "latency_us": [
+          259,
+          254.958,
+          266.625,
+          259,
+          253.333
+        ],
+        "throughput_us_p50": 258.309210526,
+        "throughput_us_p90": 283.65657894739996,
+        "latency_us_p50": 259.0,
+        "latency_us_p90": 263.575
+      },
+      "output": "r3-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.025625,
+        "warmup_ms": 100.02325,
+        "repetitions": 4067,
+        "throughput_us": [
+          5.052454880747479,
+          5.019844602901401,
+          5.215689451684288,
+          5.132489058273912,
+          5.129190312269486
+        ],
+        "latency_us": [
+          5.5409999999999995,
+          5.417,
+          5.2909999999999995,
+          5.042,
+          5.0
+        ],
+        "throughput_us_p50": 5.129190312269486,
+        "throughput_us_p90": 5.182409294320138,
+        "latency_us_p50": 5.2909999999999995,
+        "latency_us_p90": 5.4914
+      },
+      "output": "r4-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r4-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 69,
+        "runtime_init_ms": 12.097166,
+        "capture_ms": 0.053458,
+        "compile_ms": 40.320167,
+        "allocation_upload_ms": 0.027542,
+        "cold_call_ms": 0.287208,
+        "warmup_ms": 101.372375,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          268.621376812,
+          261.579710145,
+          297.111115942,
+          280.486115942,
+          262.525971014
+        ],
+        "latency_us": [
+          239.042,
+          251.833,
+          251.666,
+          245.125,
+          257.416
+        ],
+        "throughput_us_p50": 268.621376812,
+        "throughput_us_p90": 290.46111594200005,
+        "latency_us_p50": 251.666,
+        "latency_us_p90": 255.1828
+      },
+      "output": "r4-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r4-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 60,
+        "runtime_init_ms": 12.592834,
+        "capture_ms": 0.06225,
+        "compile_ms": 39.188625,
+        "allocation_upload_ms": 0.016583,
+        "cold_call_ms": 0.311167,
+        "warmup_ms": 101.420667,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          270.034033333,
+          270.777083333,
+          274.6757,
+          266.96735,
+          308.897233333
+        ],
+        "latency_us": [
+          331.125,
+          302.167,
+          432.625,
+          316.75,
+          308.417
+        ],
+        "throughput_us_p50": 270.777083333,
+        "throughput_us_p90": 295.20861999979996,
+        "latency_us_p50": 316.75,
+        "latency_us_p90": 392.025
+      },
+      "output": "r4-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r4-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 76,
+        "runtime_init_ms": 12.183,
+        "capture_ms": 0.063125,
+        "compile_ms": 57.812083,
+        "allocation_upload_ms": 0.0115,
+        "cold_call_ms": 0.273042,
+        "warmup_ms": 101.413292,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          256.076210526,
+          287.825657895,
+          268.779052632,
+          255.088263158,
+          255.696263158
+        ],
+        "latency_us": [
+          232.042,
+          229.75,
+          261.958,
+          225.959,
+          226
+        ],
+        "throughput_us_p50": 256.076210526,
+        "throughput_us_p90": 280.2070157898,
+        "latency_us_p50": 229.75,
+        "latency_us_p90": 249.9916
+      },
+      "output": "r4-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r4-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 56,
+        "runtime_init_ms": 11.754875,
+        "capture_ms": 0.049375,
+        "compile_ms": 57.938625,
+        "allocation_upload_ms": 0.01525,
+        "cold_call_ms": 0.312625,
+        "warmup_ms": 101.500833,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          306.197910714,
+          293.814,
+          280.741803571,
+          267.979910714,
+          258.504464286
+        ],
+        "latency_us": [
+          273.416,
+          259.459,
+          263.166,
+          254.083,
+          294.958
+        ],
+        "throughput_us_p50": 280.741803571,
+        "throughput_us_p90": 301.2443464284,
+        "latency_us_p50": 263.166,
+        "latency_us_p90": 286.3412
+      },
+      "output": "r4-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.066583,
+        "warmup_ms": 100.033708,
+        "repetitions": 3057,
+        "throughput_us": [
+          6.660369643441283,
+          6.694703303892704,
+          6.697238469087341,
+          6.667471050049069,
+          6.778363755315668
+        ],
+        "latency_us": [
+          6.667,
+          6.25,
+          6.375,
+          6.667,
+          7.125
+        ],
+        "throughput_us_p50": 6.694703303892704,
+        "throughput_us_p90": 6.745913640824337,
+        "latency_us_p50": 6.667,
+        "latency_us_p90": 6.9418
+      },
+      "output": "r4-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.008333,
+        "warmup_ms": 100.00125,
+        "repetitions": 20876,
+        "throughput_us": [
+          0.9648160567158459,
+          0.9177783579229738,
+          0.9516210959954015,
+          0.936707654723127,
+          0.9332247557003257
+        ],
+        "latency_us": [
+          1.167,
+          1.0,
+          1.0,
+          1.125,
+          1.125
+        ],
+        "throughput_us_p50": 0.936707654723127,
+        "throughput_us_p90": 0.9595380724276681,
+        "latency_us_p50": 1.125,
+        "latency_us_p90": 1.1502000000000001
+      },
+      "output": "r4-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r4-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 443,
+        "runtime_init_ms": 12.351916,
+        "capture_ms": 0.062625,
+        "compile_ms": 40.412459,
+        "allocation_upload_ms": 0.01125,
+        "cold_call_ms": 0.081458,
+        "warmup_ms": 100.041667,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          49.3284424379,
+          50.2334446953,
+          47.5835214447,
+          49.3793273138,
+          51.8889209932
+        ],
+        "latency_us": [
+          35.958,
+          43.917,
+          58.583,
+          97.542,
+          36.167
+        ],
+        "throughput_us_p50": 49.3793273138,
+        "throughput_us_p90": 51.226730474040004,
+        "latency_us_p50": 43.917,
+        "latency_us_p90": 81.95840000000001
+      },
+      "output": "r4-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 4,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "planned",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r4-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r4-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 399,
+        "runtime_init_ms": 12.05825,
+        "capture_ms": 0.056708,
+        "compile_ms": 40.244583,
+        "allocation_upload_ms": 0.007917,
+        "cold_call_ms": 0.12625,
+        "warmup_ms": 100.010375,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          51.1223884712,
+          53.1232255639,
+          55.0393709273,
+          51.0510651629,
+          51.2417518797
+        ],
+        "latency_us": [
+          55.583,
+          46.916,
+          42.416,
+          52.333,
+          46.25
+        ],
+        "throughput_us_p50": 51.2417518797,
+        "throughput_us_p90": 54.27291278194,
+        "latency_us_p50": 46.916,
+        "latency_us_p90": 54.283
+      },
+      "output": "r4-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-127x193x61-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r5-127x193x61-planned.ll",
+      "source_sha256": "6a43109f9a94bfbfcc1bc02101a98e6653aa22c8933fb42ed2ee5d3d73bc4c3f",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 66,
+        "runtime_init_ms": 11.858209,
+        "capture_ms": 0.0525,
+        "compile_ms": 59.14225,
+        "allocation_upload_ms": 0.014792,
+        "cold_call_ms": 0.275875,
+        "warmup_ms": 100.598917,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 202368.000 (arithmetic 52854.000, memory 148604.000, dispatch 384.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "11657457316770022393",
+        "throughput_us": [
+          261.395833333,
+          258.39330303,
+          253.539136364,
+          255.503166667,
+          253.74180303
+        ],
+        "latency_us": [
+          240.417,
+          275.5,
+          226.375,
+          255.083,
+          255.167
+        ],
+        "throughput_us_p50": 255.503166667,
+        "throughput_us_p90": 260.1948212118,
+        "latency_us_p50": 255.083,
+        "latency_us_p90": 267.3668
+      },
+      "output": "r5-127x193x61-planned.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.071459,
+        "warmup_ms": 100.049958,
+        "repetitions": 2807,
+        "throughput_us": [
+          6.747892055575347,
+          6.692331670822942,
+          6.669843249020307,
+          6.697645529034557,
+          6.706967937299607
+        ],
+        "latency_us": [
+          7.4159999999999995,
+          7.458,
+          6.625,
+          6.583,
+          6.583
+        ],
+        "throughput_us_p50": 6.697645529034557,
+        "throughput_us_p90": 6.731522408265051,
+        "latency_us_p50": 6.625,
+        "latency_us_p90": 7.4412
+      },
+      "output": "r5-127x193x61-torch.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "torch",
+        "canonical"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "127",
+        "193",
+        "61",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-127x193x61-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r5-127x193x61-canonical.ll",
+      "source_sha256": "2b7aa2bc165314527f0220195e54b8cdf37bdcda82a57ab4dfbd5426ff66a068",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 127,
+        "n": 193,
+        "k": 61,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 94,
+        "runtime_init_ms": 11.938083,
+        "capture_ms": 0.055625,
+        "compile_ms": 59.349083,
+        "allocation_upload_ms": 0.014708,
+        "cold_call_ms": 0.345084,
+        "warmup_ms": 100.366458,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 208128.000 (arithmetic 52854.000, memory 148604.000, dispatch 6144.000, imbalance 526.000), root order [0,1]",
+        "source_hash": "3702352524845778090",
+        "throughput_us": [
+          266.8555,
+          280.44637234,
+          261.418882979,
+          251.172425532,
+          249.061170213
+        ],
+        "latency_us": [
+          249.25,
+          260.458,
+          281,
+          272.083,
+          241.25
+        ],
+        "throughput_us_p50": 261.418882979,
+        "throughput_us_p90": 275.010023404,
+        "latency_us_p50": 260.458,
+        "latency_us_p90": 277.4332
+      },
+      "output": "r5-127x193x61-canonical.f32",
+      "output_sha256": "a24b7417f99dd1a6df1e2fc23ec5fd0d95e77e8d37be44a012df5457b515c91b",
+      "checked_elements": 24511,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "torch",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.016459,
+        "warmup_ms": 100.005917,
+        "repetitions": 17137,
+        "throughput_us": [
+          1.0250675730874717,
+          0.9885652097800083,
+          0.9932772363890997,
+          0.9789004493201845,
+          0.9799605531890062
+        ],
+        "latency_us": [
+          1.583,
+          1.125,
+          1.042,
+          1.0410000000000001,
+          1.083
+        ],
+        "throughput_us_p50": 0.9885652097800083,
+        "throughput_us_p90": 1.012351438408123,
+        "latency_us_p50": 1.083,
+        "latency_us_p90": 1.3998
+      },
+      "output": "r5-32x32x32-torch.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "canonical",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-32x32x32-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r5-32x32x32-canonical.ll",
+      "source_sha256": "bf7ef0b73438497d58ad2eb96b14e52992169ef888928f543a3d3c8f32b46a85",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 524,
+        "runtime_init_ms": 11.928792,
+        "capture_ms": 0.049417,
+        "compile_ms": 40.498708,
+        "allocation_upload_ms": 0.008125,
+        "cold_call_ms": 0.110667,
+        "warmup_ms": 100.003708,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 2944.000 (arithmetic 1120.000, memory 1568.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17543330425543272407",
+        "throughput_us": [
+          50.3956736641,
+          50.3223587786,
+          50.404740458,
+          51.9125324427,
+          52.5496183206
+        ],
+        "latency_us": [
+          49.125,
+          39.833,
+          51.959,
+          52.791,
+          46.042
+        ],
+        "throughput_us_p50": 50.404740458,
+        "throughput_us_p90": 52.29478396944,
+        "latency_us_p50": 49.125,
+        "latency_us_p90": 52.4582
+      },
+      "output": "r5-32x32x32-canonical.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "policy": "planned",
+      "order": [
+        "torch",
+        "canonical",
+        "planned"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "32",
+        "32",
+        "32",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-32x32x32-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r5-32x32x32-planned.ll",
+      "source_sha256": "9a64331d0fb200025f42e3bdb86d491a2c2a8b18ef4a080223732223cb33898a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 32,
+        "n": 32,
+        "k": 32,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 388,
+        "runtime_init_ms": 11.951125,
+        "capture_ms": 0.047916,
+        "compile_ms": 41.203,
+        "allocation_upload_ms": 0.008125,
+        "cold_call_ms": 0.066042,
+        "warmup_ms": 100.099792,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 2816.000 (arithmetic 1120.000, memory 1568.000, dispatch 128.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "15865701254462994352",
+        "throughput_us": [
+          49.1756881443,
+          50.8625412371,
+          52.0211572165,
+          51.2948891753,
+          51.5756030928
+        ],
+        "latency_us": [
+          49.666,
+          56.959,
+          32.834,
+          45.208,
+          43.042
+        ],
+        "throughput_us_p50": 51.2948891753,
+        "throughput_us_p90": 51.84293556702,
+        "latency_us_p50": 45.208,
+        "latency_us_p90": 54.0418
+      },
+      "output": "r5-32x32x32-planned.f32",
+      "output_sha256": "2266bcc919fa523423b7c908a7a96752bf86f4d7dad3d9a7f78b8122623af39a",
+      "checked_elements": 1024,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "planned",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-128x128x128-planned.f32",
+        "1",
+        "1",
+        "8",
+        "planned"
+      ],
+      "source": "r5-128x128x128-planned.ll",
+      "source_sha256": "e5c6eb4ebda67f1ad8813e141a0a075b8145f4ce822cb8ee9014effb0efc97bf",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "planned",
+        "repetitions": 68,
+        "runtime_init_ms": 11.561875,
+        "capture_ms": 0.067666,
+        "compile_ms": 38.396834,
+        "allocation_upload_ms": 0.013666,
+        "cold_call_ms": 0.3185,
+        "warmup_ms": 100.094708,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 12 candidates, uncalibrated cost 169216.000 (arithmetic 70144.000, memory 98816.000, dispatch 256.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "7754490809881099399",
+        "throughput_us": [
+          302.025117647,
+          287.621941176,
+          271.879897059,
+          271.632970588,
+          279.844985294
+        ],
+        "latency_us": [
+          241.125,
+          287.167,
+          354.792,
+          302.875,
+          243.75
+        ],
+        "throughput_us_p50": 279.844985294,
+        "throughput_us_p90": 296.2638470586,
+        "latency_us_p50": 287.167,
+        "latency_us_p90": 334.0252
+      },
+      "output": "r5-128x128x128-planned.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "canonical",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "fp32",
+        "128",
+        "128",
+        "128",
+        "5",
+        "20",
+        "100",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/r5-128x128x128-canonical.f32",
+        "1",
+        "1",
+        "8",
+        "canonical",
+        "64"
+      ],
+      "source": "r5-128x128x128-canonical.ll",
+      "source_sha256": "f3931c418cdbf18694ad05a4e43b96aac2c523daab4dd0c09d083e018694b587",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "m": 128,
+        "n": 128,
+        "k": 128,
+        "block": [
+          1,
+          1,
+          8
+        ],
+        "planner_policy": "canonical",
+        "repetitions": 71,
+        "runtime_init_ms": 11.90125,
+        "capture_ms": 0.050125,
+        "compile_ms": 41.128334,
+        "allocation_upload_ms": 0.022208,
+        "cold_call_ms": 0.389458,
+        "warmup_ms": 101.311792,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=4, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 1 candidates, uncalibrated cost 173056.000 (arithmetic 70144.000, memory 98816.000, dispatch 4096.000, imbalance 0.000), root order [0,1]",
+        "source_hash": "17007113173794089550",
+        "throughput_us": [
+          291.090380282,
+          282.925464789,
+          262.26056338,
+          261.452464789,
+          258.696014085
+        ],
+        "latency_us": [
+          232.417,
+          299.708,
+          299.667,
+          233.917,
+          256.5
+        ],
+        "throughput_us_p50": 262.26056338,
+        "throughput_us_p90": 287.8244140848,
+        "latency_us_p50": 256.5,
+        "latency_us_p90": 299.6916
+      },
+      "output": "r5-128x128x128-canonical.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    {
+      "round": 5,
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "policy": "torch",
+      "order": [
+        "planned",
+        "canonical",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.0645,
+        "warmup_ms": 100.000209,
+        "repetitions": 3664,
+        "throughput_us": [
+          4.935964792576419,
+          5.006504912663756,
+          4.9291872270742365,
+          4.867381004366812,
+          4.954899017467249
+        ],
+        "latency_us": [
+          5.458,
+          4.875,
+          5.125,
+          4.832999999999999,
+          4.832999999999999
+        ],
+        "throughput_us_p50": 4.935964792576419,
+        "throughput_us_p90": 4.985862554585153,
+        "latency_us_p50": 4.875,
+        "latency_us_p90": 5.3248
+      },
+      "output": "r5-128x128x128-torch.f32",
+      "output_sha256": "ac5e8c7b70a340a5a79d3d1c913d1c036ec00978147c3d8ada930b47bed5db50",
+      "checked_elements": 16384,
+      "max_abs_error": 0.0,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    }
+  ],
+  "summary": [
+    {
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "median_us": {
+        "planned": 50.8220112543,
+        "canonical": 50.03654108325,
+        "torch": 0.9777653091617009
+      },
+      "paired_planned_over_fixed": {
+        "median": 1.0156833857541054,
+        "min": 0.928343608645458,
+        "max": 1.0438087615840652
+      },
+      "planned_slower_rounds": 4
+    },
+    {
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "median_us": {
+        "planned": 272.409823276,
+        "canonical": 278.3517627705,
+        "torch": 4.97854488948825
+      },
+      "paired_planned_over_fixed": {
+        "median": 0.9755136071389252,
+        "min": 0.8474292273886566,
+        "max": 1.067049432394154
+      },
+      "planned_slower_rounds": 3
+    },
+    {
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "median_us": {
+        "planned": 255.71101754400001,
+        "canonical": 281.3152376065,
+        "torch": 6.696417116250269
+      },
+      "paired_planned_over_fixed": {
+        "median": 0.9142466134798339,
+        "min": 0.8621937420130201,
+        "max": 1.0193564841272822
+      },
+      "planned_slower_rounds": 1
+    }
+  ]
+}

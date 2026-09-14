@@ -2,6 +2,11 @@
 
 LuisaCompute features an embedded Domain Specific Language (DSL) that allows you to write GPU kernels directly in modern C++. The DSL uses C++ metaprogramming techniques to trace your kernel code and build an Abstract Syntax Tree (AST) that is then compiled for different backends.
 
+This page documents the worker-oriented **SIMT DSL**. The experimental
+[Tile programming guide](tile/index.md) covers execution Nests and Tile-level
+operations. They share Runtime resources, but intra-kernel mixing is not yet
+implemented.
+
 ## Overview
 
 The DSL provides:

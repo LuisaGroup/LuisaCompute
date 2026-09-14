@@ -33,6 +33,7 @@
 #include "metal_pinned_memory.h"
 #include "metal_debug_capture.h"
 #include "metal_tex_compress.h"
+#include "metal_timing.h"
 #ifdef LUISA_ENABLE_XIR
 #include "../common/xir_autodiff.h"
 #endif
@@ -47,7 +48,7 @@ namespace {
 // Bump this whenever a Metal AIR lowering or ABI change can alter generated
 // code without changing the source AST, ShaderOption, or target tuple.
 constexpr auto metal_air_compute_cache_revision =
-    0x4c55495341414909ull;
+    0x4c5549534141490bull;
 
 [[nodiscard]] uint64_t pack_air_version(
     MetalAIRVersion version) noexcept {
@@ -946,6 +947,11 @@ luisa::string MetalDevice::query(luisa::string_view property) noexcept {
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
     return with_autorelease_pool([=, this]() noexcept -> DeviceExtension * {
+        if (name == Metal4TimingExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (!_timing_ext) { _timing_ext = luisa::make_unique<MetalTimingExt>(_handle); }
+            return _timing_ext.get();
+        }
         if (name == DStorageExt::name) {
             std::scoped_lock lock{_ext_mutex};
             if (!_dstorage_ext) { _dstorage_ext = luisa::make_unique<MetalDStorageExt>(this); }
@@ -1075,7 +1081,6 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 instance->set_name(name);
                 break;
             }
-            case Resource::Tag::TENSOR_GRAPH: break;
         }
     });
 }

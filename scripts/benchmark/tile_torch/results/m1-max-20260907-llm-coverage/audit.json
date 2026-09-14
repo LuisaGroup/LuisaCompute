@@ -1,0 +1,43 @@
+{
+  "status": "pass",
+  "cohorts": {
+    "metal-screen": {
+      "rows": 16,
+      "valid_outputs": 16,
+      "output_elements": 456220,
+      "failures": 0
+    },
+    "simd-screen": {
+      "rows": 12,
+      "valid_outputs": 10,
+      "output_elements": 35532,
+      "failures": 2
+    },
+    "metal-replay": {
+      "rows": 144,
+      "valid_outputs": 144,
+      "output_elements": 757027260,
+      "failures": 0
+    },
+    "simd-operators": {
+      "rows": 24,
+      "valid_outputs": 24,
+      "output_elements": 2359296,
+      "failures": 0
+    },
+    "metal-prefill": {
+      "rows": 4,
+      "valid_outputs": 4,
+      "output_elements": 65536,
+      "failures": 0
+    },
+    "metal-decode": {
+      "rows": 4,
+      "valid_outputs": 4,
+      "output_elements": 2048,
+      "failures": 0
+    }
+  },
+  "negative_audits": 3,
+  "control": "four SwiGLU old/new sources identical; four RoPE sources changed; no full private arrays"
+}

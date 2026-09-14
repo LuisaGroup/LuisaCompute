@@ -21,9 +21,6 @@ LUISA_CUDA_DECL_VARNAME(cuda_device_math_h)
 LUISA_CUDA_DECL_VARNAME(cuda_device_resource_h)
 #define luisa_compute_cuda_device_resource ((unsigned char *)_binary_cuda_device_resource_h_start)
 #define luisa_compute_cuda_device_resource_size ((unsigned long long)(_binary_cuda_device_resource_h_end - _binary_cuda_device_resource_h_start))
-LUISA_CUDA_DECL_VARNAME(cuda_device_tensor_h)
-#define luisa_compute_cuda_device_tensor ((unsigned char *)_binary_cuda_device_tensor_h_start)
-#define luisa_compute_cuda_device_tensor_size ((unsigned long long)(_binary_cuda_device_tensor_h_end - _binary_cuda_device_tensor_h_start))
 }
 #else
 #include "cuda_builtin_embedded.h"

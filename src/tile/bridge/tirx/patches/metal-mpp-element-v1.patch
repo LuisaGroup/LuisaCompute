@@ -1,0 +1,106 @@
+diff --git a/include/tvm/tirx/builtin.h b/include/tvm/tirx/builtin.h
+--- a/include/tvm/tirx/builtin.h
++++ b/include/tvm/tirx/builtin.h
+@@ -567,6 +567,27 @@
+ TVM_DLL const Op& cooperative_tensor_fill();
+ 
+ /*!
++ * \brief Thread-local element access to an existing FP32 destination fragment.
++ *
++ * int32 cooperative_tensor_capacity(Var d, int32 fragment);
++ * bool cooperative_tensor_is_valid_element(Var d, int32 fragment, int32 element);
++ * float32 cooperative_tensor_element_load(Var d, int32 fragment, int32 element);
++ * void cooperative_tensor_element_store(Var d, int32 fragment, int32 element, float32 value);
++ *
++ * The constant fragment index selects a declared cooperative destination.
++ * Element ordinals are local to the calling thread, not matrix coordinates.
++ * Load/store require 0 <= element < capacity and is_valid_element(element).
++ * The caller must initialize the fragment before reading it. These accessors
++ * never synchronize, redistribute, or implicitly allocate fragment storage.
++ * Capacity/validity do not depend on element values; loads read state and
++ * stores modify it. Compose scalar arithmetic with ordinary TIRx expressions.
++ */
++TVM_DLL const Op& cooperative_tensor_capacity();
++TVM_DLL const Op& cooperative_tensor_is_valid_element();
++TVM_DLL const Op& cooperative_tensor_element_load();
++TVM_DLL const Op& cooperative_tensor_element_store();
++
++/*!
+  * \brief Load data from device or threadgroup memory into a cooperative_tensor.
+  *
+  * void cooperative_tensor_load(Var d, PrimExpr index, PrimExpr ptr,
+diff --git a/src/tirx/op/builtin.cc b/src/tirx/op/builtin.cc
+--- a/src/tirx/op/builtin.cc
++++ b/src/tirx/op/builtin.cc
+@@ -288,6 +288,22 @@
+ TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_fill)
+     .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
+ 
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_capacity)
++    .set_num_inputs(2)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kPure));
++
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_is_valid_element)
++    .set_num_inputs(3)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kPure));
++
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_element_load)
++    .set_num_inputs(3)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kReadState));
++
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_element_store)
++    .set_num_inputs(4)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
++
+ TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_load)
+     .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
+ 
+diff --git a/src/backend/metal/codegen/codegen_metal.cc b/src/backend/metal/codegen/codegen_metal.cc
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -801,7 +801,36 @@
+   static const Op& simdgroup_store_op = Op::Get("tirx.simdgroup_store");
+   static const Op& simdgroup_multiply_accumulate_op = Op::Get("tirx.simdgroup_multiply_accumulate");
+ 
+-  if (op->op.same_as(builtin::cooperative_tensor_fill()) ||
++  if (op->op.same_as(builtin::cooperative_tensor_capacity()) ||
++      op->op.same_as(builtin::cooperative_tensor_is_valid_element()) ||
++      op->op.same_as(builtin::cooperative_tensor_element_load()) ||
++      op->op.same_as(builtin::cooperative_tensor_element_store())) {
++    bool capacity = op->op.same_as(builtin::cooperative_tensor_capacity());
++    bool valid = op->op.same_as(builtin::cooperative_tensor_is_valid_element());
++    bool store = op->op.same_as(builtin::cooperative_tensor_element_store());
++    TVM_FFI_ICHECK_EQ(op->args.size(), capacity ? 2 : store ? 4 : 3);
++    TVM_FFI_ICHECK(op->ty == (capacity ? PrimType::Int(32) : valid ? PrimType::Bool()
++                                                        : store ? PrimType::Void() : PrimType::Float(32)));
++    std::string fragment = CooperativeTensorRef(op->args[0], op->args[1]);
++    if (capacity) {
++      os << "int(" << fragment << ".get_capacity())";
++    } else {
++      TVM_FFI_ICHECK(op->args[2]->ty == PrimType::Int(32));
++      if (auto literal = op->args[2].as<IntImmNode>()) {
++        TVM_FFI_ICHECK_GE(literal->value, 0) << "Negative cooperative element index";
++      }
++      std::string index = PrintExpr(op->args[2]);
++      if (valid) {
++        os << fragment << ".is_valid_element(" << index << ")";
++      } else {
++        os << fragment << '[' << index << ']';
++        if (store) {
++          TVM_FFI_ICHECK(op->args[3]->ty == PrimType::Float(32));
++          os << " = " << PrintExpr(op->args[3]);
++        }
++      }
++    }
++  } else if (op->op.same_as(builtin::cooperative_tensor_fill()) ||
+       op->op.same_as(builtin::cooperative_tensor_load()) ||
+       op->op.same_as(builtin::cooperative_tensor_store()) ||
+       op->op.same_as(builtin::cooperative_tensor_multiply_from_memory()) ||
+@@ -968,6 +997,7 @@
+   refl::GlobalDef().def("target.metal.mpp_bounded_k_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.metal.mpp_bounded_mnk_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.metal.mpp_bounded_store_contract_version", []() { return 1; });
++  refl::GlobalDef().def("target.metal.mpp_element_contract_version", []() { return 1; });
+ }
+ }  // namespace codegen
+ }  // namespace tvm

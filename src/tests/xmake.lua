@@ -1,12 +1,12 @@
 local lc_enable_gui = has_config("lc_enable_gui")
 
-local function test_proj(name, source, gui_dep, callable, kind)
+local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
     if gui_dep and not lc_enable_gui then
         return
     end
     target(name)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
-    _config_project({project_kind = kind or "binary"})
+    _config_project({project_kind = kind or "binary", cxx_standard = cxx_standard})
     add_files(source)
     add_includedirs("./", "./common")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
@@ -23,6 +23,9 @@ local function test_proj(name, source, gui_dep, callable, kind)
 end
 
 -- unit/core
+if is_plat("macosx") then
+    test_proj("test_metal_shared_ptr", "unit/ext/test_metal_shared_ptr.cpp")
+end
 test_proj("test_basic_traits", "unit/core/test_basic_traits.cpp")
 test_proj("test_basic_types", "unit/core/test_basic_types.cpp")
 test_proj("test_binary_file_stream", "unit/core/test_binary_file_stream.cpp")
@@ -217,15 +220,71 @@ test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, func
     add_includedirs("$(projectdir)/src/runtime")
 end)
 test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
-test_proj("test_tensor_ast", "unit/ast/test_tensor_ast.cpp")
-test_proj("test_tile_function_builder", "unit/ast/test_tile_function_builder.cpp")
-test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
-test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
-test_proj("test_tensor", "unit/ast/test_tensor.cpp")
-test_proj("test_tensor_element_types", "unit/ast/test_tensor_element_types.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
+
+-- unit/tile
+test_proj("test_tile_layout", "unit/tile/test_tile_layout.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_ir", "unit/tile/test_tile_ir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_dsl", "unit/tile/test_tile_dsl.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_memory", "unit/tile/test_tile_memory.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_migrated", "unit/tile/test_tile_migrated.cpp", false, function()
+    add_deps("lc-tile")
+    add_includedirs("$(projectdir)/examples")
+end)
+test_proj("test_tile_types", "unit/tile/test_tile_types.cpp", false, function()
+    add_deps("lc-tile")
+    add_includedirs("$(projectdir)/examples")
+end)
+test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", false, function()
+    add_deps("lc-tile")
+    add_includedirs("$(projectdir)/examples")
+end)
+-- TileIR -> XIR -> AST -> create_shader fallback on DX/VK; run with
+-- `xmake run test_tile_xir_runtime_gpu dx` (or vk).
+test_proj("test_tile_xir", "unit/tile/bridge/test_xir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_xir_runtime_gpu", "unit/tile/bridge/test_xir_runtime_gpu.cpp", false, function()
+    add_deps("lc-tile")
+end)
+-- GEMM benchmark through the same XIR->AST fallback on GPU backends; run with
+-- `xmake run benchmark_tile_xir_gpu -- dx 1024 1024 1024 16 16 128`.
+test_proj("benchmark_tile_xir_gpu", "benchmark/benchmark_tile_xir_gpu.cpp", false, function()
+    add_deps("lc-tile")
+end)
+for _, standard in ipairs({20, 23}) do
+    test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
+        add_deps("lc-tile")
+        add_includedirs("$(projectdir)/docs/source/tile")
+        -- Keep the C++23 compatibility target opt-in on older toolchains.
+        if standard == 23 then
+            set_default(false)
+        end
+    end, nil, "cxx" .. standard)
+end
+if has_config("lc_metal_backend") and is_plat("macosx") then
+    test_proj("test_tile_native_codegen", "unit/tile/test_tile_native_codegen.cpp", false, function()
+        add_deps("lc-tile")
+        add_files("../backends/metal/tile/metal_tile_codegen.cpp")
+        add_includedirs("../backends/metal/tile")
+    end)
+    test_proj("test_tile_native_runtime", "unit/tile/test_tile_native_runtime.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+    test_proj("benchmark_tile_native", "benchmark/benchmark_tile_native.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+end
 
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
@@ -251,9 +310,10 @@ test_proj("test_polymorphic", "unit/dsl/test_polymorphic.cpp")
 test_proj("test_dsl_autodiff", "unit/dsl/test_autodiff.cpp")
 
 -- unit/runtime
-test_proj("test_accel_build_modes", "unit/runtime/test_accel_build_modes.cpp")
-test_proj("test_accel_blas_lifetime", "unit/runtime/test_accel_blas_lifetime.cpp")
-test_proj("test_accel_visibility", "unit/runtime/test_accel_visibility.cpp")
+  test_proj("test_accel_build_modes", "unit/runtime/test_accel_build_modes.cpp")
+  test_proj("test_accel_blas_lifetime", "unit/runtime/test_accel_blas_lifetime.cpp")
+  test_proj("test_accel_tlas_instances", "unit/runtime/test_accel_tlas_instances.cpp")
+  test_proj("test_accel_visibility", "unit/runtime/test_accel_visibility.cpp")
 test_proj("test_atomic", "unit/runtime/test_atomic.cpp")
 test_proj("test_atomic_queue", "unit/runtime/test_atomic_queue.cpp")
 test_proj("test_byte_buffer", "unit/runtime/test_byte_buffer.cpp")
@@ -274,8 +334,6 @@ test_proj("test_printer_custom_callback", "unit/runtime/test_printer_custom_call
 test_proj("test_sampler", "unit/runtime/test_sampler.cpp")
 test_proj("test_shared_memory", "unit/runtime/test_shared_memory.cpp")
 test_proj("test_softmax", "unit/runtime/test_softmax.cpp")
--- test_tensor requires lc-tensor which is currently disabled
--- test_proj("test_tensor", "unit/runtime/test_tensor.cpp")
 test_proj("test_texture_compress", "unit/runtime/test_texture_compress.cpp")
 test_proj("test_pbrt_curve_parser", "unit/runtime/test_pbrt_curve_parser.cpp")
 test_proj("test_texture_io", "unit/runtime/test_texture_io.cpp")
@@ -295,9 +353,18 @@ test_proj("test_out_of_range", "unit/runtime/test_out_of_range.cpp")
 test_proj("test_buffer_view", "unit/runtime/test_buffer_view.cpp")
 test_proj("test_device_test", "unit/runtime/test_device.cpp")
 test_proj("test_external_buffer", "unit/runtime/test_external_buffer.cpp")
-test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
+    test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
+    test_proj("test_block_size_bench", "unit/runtime/test_block_size_bench.cpp")
 test_proj("benchmark_simd_gemm", "unit/simd/benchmark_simd_gemm.cpp")
 test_proj("test_hip_codegen_arithmetic", "unit/runtime/test_hip_codegen_arithmetic.cpp")
+test_proj("test_hip_fmod", "unit/runtime/test_hip_fmod.cpp")
+test_proj("test_switch_case_group", "unit/dsl/test_switch_case_group.cpp")
+if has_config("lc_enable_xir") then
+    test_proj("test_switch_case_group_runtime", "unit/runtime/test_switch_case_group_runtime.cpp", false, function()
+        add_deps("lc-coro")
+    end)
+end
+test_proj("test_xir_restructure_shared_switch", "unit/xir/test_xir_restructure_shared_switch.cpp")
 test_proj("test_hip_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
 test_proj("test_hip_motion_instance_matrix", "unit/runtime/test_hip_motion_instance_matrix.cpp")
 test_proj("test_hip_motion_instance_device_ops", "unit/runtime/test_hip_motion_instance_device_ops.cpp")
@@ -335,6 +402,9 @@ if has_config("lc_enable_xir") then
         add_defines("LUISA_ENABLE_XIR")
     end)
     test_proj("test_xir_passes", "unit/xir/test_xir_passes.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_ast_callable_swizzle", "unit/xir/test_ast_callable_swizzle.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
     test_proj("test_xir_aggregate_field_bitmask", "unit/xir/test_xir_aggregate_field_bitmask.cpp", false, function()
@@ -385,7 +455,16 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir2ast_translators", "unit/xir/test_xir2ast_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir_pass_restructure_cfg_semantics", "unit/xir/test_xir_pass_restructure_cfg_semantics.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
     test_proj("test_xir_pass_restructure_cfg", "unit/xir/test_xir_pass_restructure_cfg.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_xir_pass_restructure_cfg_loop_scopes", "unit/xir/test_xir_pass_restructure_cfg_loop_scopes.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_xir_pass_restructure_cfg_owned_blocks", "unit/xir/test_xir_pass_restructure_cfg_owned_blocks.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
     test_proj("test_xir_module", "unit/xir/test_xir_module.cpp", false, function()
@@ -447,12 +526,16 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
     coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp", true)
     coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
+    coro_xir_test_proj("test_coro_packed_word", "unit/coro/test_coro_packed_word.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
+    coro_xir_test_proj("test_coro_callable_rendering", "integration/runtime/test_coro_callable_rendering.cpp")
+    coro_xir_test_proj("test_coro_shared_callable", "unit/coro/test_coro_shared_callable.cpp")
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_dataflow", "unit/xir/test_coro_cfg_dataflow.cpp")
     coro_xir_test_proj("test_xir_pass_coro_alloca_scope", "unit/xir/test_xir_pass_coro_alloca_scope.cpp")
+    coro_xir_test_proj("test_xir_pass_coro_discriminated_prefix", "unit/xir/test_xir_pass_coro_discriminated_prefix.cpp")
     coro_xir_test_proj("test_xir_coro_materialize", "unit/xir/test_coro_materialize.cpp")
     coro_xir_test_proj("test_coro_dead_field", "unit/xir/test_coro_dead_field.cpp")
     coro_xir_test_proj("test_coro_frame_size", "unit/xir/test_coro_frame_size.cpp")
@@ -469,6 +552,7 @@ if has_config("lc_enable_xir") then
 end
 
 -- integration/runtime
+test_proj("test_metal4_switch_lookup", "integration/runtime/test_metal4_switch_lookup.cpp")
 test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
@@ -513,9 +597,55 @@ test_proj("test_transient_resource", "integration/runtime/test_transient_resourc
     add_files("integration/runtime/transient_resource_device/*.cpp")
 end)
 
--- integration/runtime: CUDA-only tests
-if has_config("lc_cuda_backend") then
-    test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+-- unit/tile/bridge: host-side TIRx bridge tests (mirror the
+-- LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE block in src/tests/CMakeLists.txt).
+-- The bridge is compiled into lc-tile; the tests only need to link lc-tile.
+if has_config("lc_tile_tirx_bridge") then
+    for _, name in ipairs({"test_tile_tirx_layout",
+                           "test_tile_tirx_values",
+                           "test_tile_tirx_execution",
+                           "test_tile_tirx_cooperative",
+                           "test_tile_tirx_memory",
+                           "test_tile_tirx_pipeline",
+                           "test_tile_tirx_matrix",
+                           "test_tile_tirx_planner"}) do
+        local source = "unit/tile/bridge/" .. name:gsub("test_tile_tirx", "test_tirx") .. ".cpp"
+          test_proj(name, source, false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
+    end
+end
+
+  -- integration/runtime: CUDA-only tests
+  if has_config("lc_cuda_backend") then
+      -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
+      test_proj("test_cuda_ptx_version", "unit/runtime/test_cuda_ptx_version.cpp", false, function()
+          add_includedirs("../backends/cuda")
+      end)
+      test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+    -- The optional TIRx bridge is compiled into lc-tile when
+    -- lc_tile_tirx_bridge is enabled. Without it this executable verifies the
+    -- CUDA backend fails closed for tile TIRX requests; with it, the same
+    -- source is compiled with LUISA_TEST_TILE_CUDA_TIRX=1 and runs the full
+    -- oracle suite (mirrors the CMake LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
+    -- wiring in src/tests/CMakeLists.txt).
+    test_proj("test_tile_cuda_ptx", "unit/tile/test_tile_cuda_ptx.cpp", false, function()
+        add_deps("lc-tile")
+          if has_config("lc_tile_tirx_bridge") then
+              add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end
+    end)
+    if has_config("lc_tile_tirx_bridge") then
+          test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
+    end
 end
 
 -- integration/runtime: external device config extension tests

@@ -28,6 +28,8 @@ inline constexpr size_t simd_max_cooperative_frame_bytes =
     4u * 1024u * 1024u;
 inline constexpr size_t simd_max_shared_memory_bytes =
     1u * 1024u * 1024u;
+inline constexpr size_t simd_max_private_workspace_bytes =
+    16u * 1024u * 1024u;
 inline constexpr uint32_t simd_cooperative_packet_running =
     UINT32_MAX - 2u;
 inline constexpr uint32_t simd_cooperative_packet_complete =
@@ -753,6 +755,10 @@ struct SIMDPacketLaunchConfig {
     // indeterminate tail padding in launch-record comparisons.
     uint32_t enable_predicated_acyclic_surface_filter{1u};
     uint32_t reserved_runtime_flags{0u};
+    // Optional 64-byte-aligned workspace for a non-cooperative packet's
+    // private arrays. Runtime owns one allocation per executing CPU thread;
+    // consecutive packets reuse it only after the preceding packet returns.
+    void *private_workspace{nullptr};
 };
 inline constexpr auto
     simd_packet_launch_flag_compact_surface_filter_state = 1u << 0u;
@@ -763,8 +769,8 @@ inline constexpr auto
     simd_packet_launch_flag_w16_sparse_direct_output_surface_filter_packet_narrowing =
         1u << 2u;
 static_assert(
-    offsetof(SIMDPacketLaunchConfig, reserved_runtime_flags) +
-        sizeof(uint32_t) ==
+    offsetof(SIMDPacketLaunchConfig, private_workspace) +
+        sizeof(void *) ==
     sizeof(SIMDPacketLaunchConfig));
 
 struct SIMDLLVMPrintFormat {
@@ -836,6 +842,10 @@ struct LLVMScheduleCodegenResult {
     // resets thread_index before issuing each complete block.
     ::llvm::Function *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
+    size_t private_workspace_size{0u};
+    uint32_t interleaved_private_arrays{0u};
+    size_t contiguous_private_read_count{0u};
+    size_t contiguous_private_write_count{0u};
     std::vector<SIMDLLVMPrintFormat> print_formats{};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
@@ -908,6 +918,9 @@ struct LLVMScheduleCodegenResult {
     size_t linear_1d_thread_id_count{0u};
     size_t linear_1d_packet_tail_narrowing_count{0u};
     size_t linear_1d_block_coalescing_count{0u};
+    // Bounded opt-in full-width body cloning; excludes the generic tail body.
+    size_t full_packet_specialization_count{0u};
+    size_t full_packet_cloned_instruction_count{0u};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
     size_t block_barrier_loop_epoch_count{0u};
@@ -970,7 +983,17 @@ struct LLVMScheduleCodegenResult {
     bool enable_gathered_native_texture_read = false,
     // Host TTI must price W4/W8/W16 float<->half casts as packed operations.
     // The emitted IR remains target-independent and contains no ISA intrinsic.
-    bool enable_native_half4_texture_packet = false);
+    bool enable_native_half4_texture_packet = false,
+    // Zero retains the standalone stack ABI. Runtime clients may request
+    // private-array promotion when their total packet bytes exceed this cap.
+    // This does not estimate the complete machine frame or register spills.
+    size_t private_stack_budget_bytes = 0u,
+    // Scalar private arrays with nonescaping typed element accesses may use
+    // [element][lane] storage. This does not coalesce SSA lifetimes or loads.
+    bool enable_interleaved_private_arrays = false,
+    // Preserve exact active-lane addresses while exposing same-slot private
+    // accesses as masked vectors. Independent of the physical layout switch.
+    bool enable_contiguous_private_access = true);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

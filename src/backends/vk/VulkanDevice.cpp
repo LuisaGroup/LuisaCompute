@@ -152,7 +152,7 @@ VulkanDevice::~VulkanDevice() {
 	* 
 	* @return Index of the requested memory type
 	*
-	* @throw Throws an exception if memTypeFound is null and no memory type could be found that supports the requested properties
+	* Reports a fatal error if mem_type_found is null and no matching memory type exists.
 	*/
 uint32_t VulkanDevice::get_memory_type(uint32_t type_bits, VkMemoryPropertyFlags properties, VkBool32 *mem_type_found) const {
     for (uint32_t i = 0; i < memory_properties.memoryTypeCount; i++) {
@@ -183,7 +183,7 @@ uint32_t VulkanDevice::get_memory_type(uint32_t type_bits, VkMemoryPropertyFlags
 	*
 	* @return Index of the queue family index that matches the flags
 	*
-	* @throw Throws an exception if no queue family index could be found that supports the requested flags
+	* Reports a fatal error if no queue family supports the requested flags.
 	*/
 uint32_t VulkanDevice::get_queue_family_index(VkQueueFlags queueFlags) const {
     // Dedicated queue for compute

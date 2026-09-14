@@ -1,0 +1,6 @@
+{
+  "source": "\n\n\ndef forward(self, L_x_ : torch.Tensor):\n    l_x_ = L_x_\n    arange = torch.arange(65)\n    getitem = arange[(None, slice(None, None, None))];  arange = None\n    arange_1 = torch.arange(17)\n    getitem_1 = arange_1[(slice(None, None, None), None)];  arange_1 = None\n    mod = getitem_1 % 65;  getitem_1 = None\n    mask = getitem <= mod;  getitem = mod = None\n    where = torch.where(mask, l_x_, -1e+30);  mask = l_x_ = None\n    softmax = torch.softmax(where, dim = -1);  where = None\n    return (softmax,)\n    ",
+  "inputs": [
+    "L_x_"
+  ]
+}

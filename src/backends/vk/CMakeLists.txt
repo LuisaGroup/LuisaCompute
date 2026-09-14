@@ -2,7 +2,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     message(STATUS "Build with Vulkan backend")
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
-    target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+    target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen luisa::tile-xir)
 
     # CUDA interop (external memory + VK_NV_cuda_kernel_launch) links the CUDA
     # driver API only; the module image is produced by the cuda backend, so

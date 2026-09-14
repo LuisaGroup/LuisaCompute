@@ -18,42 +18,22 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     if (split == nullptr || !split->convergence) {
         return std::nullopt;
     }
+    auto memory_effects = luisa::compute::detail::env_flag(
+                              "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS") &&
+                          !luisa::compute::detail::env_flag(
+                              "LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS");
     auto *condition = _source.value(split->condition);
     if (condition == nullptr ||
         condition->value_class != schedule::ValueClass::varying ||
-        !split->true_edge.assignments.empty() ||
-        !split->false_edge.assignments.empty() ||
-        !split->true_edge.joins.empty() ||
-        !split->false_edge.joins.empty() ||
         split->true_edge.loop_back || split->false_edge.loop_back ||
         split->true_edge.target == split->false_edge.target) {
         return std::nullopt;
     }
-    auto *true_block = _source.block(split->true_edge.target);
-    auto *false_block = _source.block(split->false_edge.target);
-    if (true_block == nullptr || false_block == nullptr) {
-        return std::nullopt;
-    }
-    auto *true_branch = std::get_if<schedule::BranchTerminator>(
-        &true_block->terminator);
-    auto *false_branch = std::get_if<schedule::BranchTerminator>(
-        &false_block->terminator);
-    if (true_branch == nullptr || false_branch == nullptr ||
-        true_branch->edge.target != false_branch->edge.target ||
-        true_branch->edge.loop_back || false_branch->edge.loop_back ||
-        true_branch->edge.joins.size() != 1u ||
-        false_branch->edge.joins.size() != 1u ||
-        true_branch->edge.joins.front() != *split->convergence ||
-        false_branch->edge.joins.front() != *split->convergence) {
-        return std::nullopt;
-    }
     auto *point = _source.convergence(*split->convergence);
-    auto merge = true_branch->edge.target;
-    if (point == nullptr || point->target != merge ||
-        merge == block.id || merge == true_block->id ||
-        merge == false_block->id) {
+    if (point == nullptr || point->target == block.id) {
         return std::nullopt;
     }
+    auto merge = point->target;
     auto assignments_are_lane_masked = [&](const auto &assignments) noexcept {
         for (auto assignment : assignments) {
             auto *destination = _source.value(assignment.destination);
@@ -66,8 +46,29 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         }
         return true;
     };
-    if (!assignments_are_lane_masked(true_branch->edge.assignments) ||
-        !assignments_are_lane_masked(false_branch->edge.assignments)) {
+    auto closes_merge = [&](const schedule::ControlEdge &edge) {
+        return edge.target == merge && !edge.loop_back &&
+               edge.joins.size() == 1u && edge.joins.front() == *split->convergence &&
+               assignments_are_lane_masked(edge.assignments);
+    };
+    auto arm = [&](const schedule::ControlEdge &entry, const schedule::BasicBlock *&body,
+                   const schedule::ControlEdge *&exit) {
+        if (entry.target == merge) {
+            exit = &entry;
+            return memory_effects && closes_merge(entry);
+        }
+        if (!entry.assignments.empty() || !entry.joins.empty()) { return false; }
+        body = _source.block(entry.target);
+        if (body == nullptr || body->id == block.id) { return false; }
+        auto *branch = std::get_if<schedule::BranchTerminator>(&body->terminator);
+        if (branch == nullptr || !closes_merge(branch->edge)) { return false; }
+        exit = &branch->edge;
+        return true;
+    };
+    const schedule::BasicBlock *true_block = nullptr, *false_block = nullptr;
+    const schedule::ControlEdge *true_exit = nullptr, *false_exit = nullptr;
+    if (!arm(split->true_edge, true_block, true_exit) ||
+        !arm(split->false_edge, false_block, false_exit)) {
         return std::nullopt;
     }
 
@@ -118,12 +119,12 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         }
         return count;
     };
-    if (predecessor_count(true_block->id) != 1u ||
-        predecessor_count(false_block->id) != 1u) {
+    if ((true_block && predecessor_count(true_block->id) != 1u) ||
+        (false_block && predecessor_count(false_block->id) != 1u)) {
         return std::nullopt;
     }
 
-    auto safe_arithmetic = [](xir::ArithmeticOp op) noexcept {
+    auto safe_arithmetic = [&](xir::ArithmeticOp op, const schedule::Instruction &instruction) noexcept {
         switch (op) {
             case xir::ArithmeticOp::UNARY_MINUS:
             case xir::ArithmeticOp::UNARY_BIT_NOT:
@@ -148,11 +149,54 @@ ScheduleEmitter::_find_predicated_memory_diamond(
             case xir::ArithmeticOp::ISINF:
             case xir::ArithmeticOp::ISNAN:
             case xir::ArithmeticOp::COPYSIGN: return true;
+            case xir::ArithmeticOp::BINARY_DIV:
+            case xir::ArithmeticOp::EXP:
+            case xir::ArithmeticOp::TANH:
+            case xir::ArithmeticOp::SQRT:
+            case xir::ArithmeticOp::RSQRT: {
+                // Floating-point math is total under XIR's non-trapping
+                // semantics. Integer division, dynamic extracts and float
+                // to integer conversions still cannot be speculated.
+                auto *result = instruction.result ? _source.value(*instruction.result) : nullptr;
+                return memory_effects && result != nullptr && result->type != nullptr &&
+                       result->type->is_float_or_float_vector();
+            }
             default: return false;
         }
     };
     auto safe_instruction = [&](const schedule::Instruction &instruction,
                                 bool &has_memory) noexcept {
+        if (instruction.participant_mask) { return false; }
+        if (memory_effects && instruction.opcode == schedule::Opcode::resource_write) {
+            // Keep exactly the arm mask on external effects. No volatile,
+            // atomic, shared-memory, collective or opaque effect is admitted.
+            auto *index = instruction.operands.size() == 3u ? _source.value(instruction.operands[1u]) : nullptr;
+            if (!instruction.source_op || *instruction.source_op != static_cast<uint32_t>(xir::ResourceWriteOp::BUFFER_WRITE) ||
+                instruction.result || instruction.cohort_uniform_operand_index || index == nullptr ||
+                index->value_class != schedule::ValueClass::varying) { return false; }
+            has_memory = true;
+            return true;
+        }
+        if (memory_effects && (instruction.opcode == schedule::Opcode::load ||
+                               instruction.opcode == schedule::Opcode::store ||
+                               instruction.opcode == schedule::Opcode::gep)) {
+            if (instruction.operands.empty() || !_is_local_lvalue(instruction.operands.front()) ||
+                _is_shared_lvalue(instruction.operands.front())) { return false; }
+            if (instruction.opcode == schedule::Opcode::gep) {
+                // Address formation has no memory effect; local gather/scatter
+                // and the closed-private contiguous path both retain masking.
+                return instruction.result && _is_local_lvalue(*instruction.result) && !_is_shared_lvalue(*instruction.result);
+            }
+            if (instruction.opcode == schedule::Opcode::load) {
+                auto *result = instruction.result ? _source.value(*instruction.result) : nullptr;
+                if (instruction.operands.size() != 1u || result == nullptr ||
+                    result->value_class != schedule::ValueClass::varying) { return false; }
+            } else if (instruction.operands.size() != 2u || instruction.result) {
+                return false;
+            }
+            has_memory = true;
+            return true;
+        }
         if (instruction.opcode == schedule::Opcode::resource_read) {
             if (!instruction.source_op ||
                 *instruction.source_op != static_cast<uint32_t>(
@@ -176,7 +220,8 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         if (instruction.opcode == schedule::Opcode::arithmetic &&
             instruction.source_op) {
             return safe_arithmetic(static_cast<xir::ArithmeticOp>(
-                *instruction.source_op));
+                                       *instruction.source_op),
+                                   instruction);
         }
         if (instruction.opcode == schedule::Opcode::cast &&
             instruction.source_op && instruction.result &&
@@ -199,14 +244,17 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         }
         return false;
     };
-    static constexpr auto max_instruction_count = size_t{8u};
-    auto instruction_count = true_block->instructions.size() +
-                             false_block->instructions.size();
+    // Bounded if-conversion is a generic realization choice, not a Tile or
+    // operator-name rule. Retain the historical default until broad testing.
+    auto max_instruction_count = memory_effects ? size_t{32u} : size_t{8u};
+    auto instruction_count = (true_block ? true_block->instructions.size() : 0u) +
+                             (false_block ? false_block->instructions.size() : 0u);
     if (instruction_count > max_instruction_count) {
         return std::nullopt;
     }
     auto has_memory = false;
     for (auto *arm : {true_block, false_block}) {
+        if (arm == nullptr) { continue; }
         for (auto &&instruction : arm->instructions) {
             if (!safe_instruction(instruction, has_memory)) {
                 return std::nullopt;
@@ -217,6 +265,8 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     return PredicatedMemoryDiamond{
         .true_block = true_block,
         .false_block = false_block,
+        .true_exit = true_exit,
+        .false_exit = false_exit,
         .merge = merge,
         .instruction_count = instruction_count,
     };
@@ -235,10 +285,15 @@ void ScheduleEmitter::_emit_predicated_memory_diamond(
     auto *true_mask = _builder.CreateAnd(outer_mask, condition);
     auto *false_mask = _builder.CreateAnd(
         outer_mask, _builder.CreateNot(condition));
-    auto emit_arm = [&](const schedule::BasicBlock &arm,
-                        ::llvm::Value *mask) noexcept {
+    auto emit_arm = [&](const schedule::BasicBlock *body,
+                        const schedule::ControlEdge &exit, ::llvm::Value *mask) noexcept {
         _active_mask = mask;
         _seed_lane = _safe_first_lane(mask);
+        if (body == nullptr) {
+            _apply_assignments(exit.assignments, mask);
+            return;
+        }
+        auto &arm = *body;
         for (auto &&instruction : arm.instructions) {
             auto *lane_affine_seed = static_cast<::llvm::Value *>(nullptr);
             if (instruction.lane_consecutive_operand_index) {
@@ -266,12 +321,10 @@ void ScheduleEmitter::_emit_predicated_memory_diamond(
                 instruction, lane_affine_seed, mask);
             if (_failed()) { return; }
         }
-        auto *branch = std::get_if<schedule::BranchTerminator>(
-            &arm.terminator);
-        _apply_assignments(branch->edge.assignments, mask);
+        _apply_assignments(exit.assignments, mask);
     };
-    emit_arm(*diamond.true_block, true_mask);
-    if (!_failed()) { emit_arm(*diamond.false_block, false_mask); }
+    emit_arm(diamond.true_block, *diamond.true_exit, true_mask);
+    if (!_failed()) { emit_arm(diamond.false_block, *diamond.false_exit, false_mask); }
     _active_mask = outer_mask;
     _seed_lane = outer_seed;
     if (_failed()) { return; }

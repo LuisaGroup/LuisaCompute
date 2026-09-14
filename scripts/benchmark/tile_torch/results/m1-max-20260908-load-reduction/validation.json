@@ -1,0 +1,100 @@
+{
+  "full_build": {
+    "command": "cmake --build /tmp/luisa-reduction-checkpoint.gQUERp/build --parallel 8",
+    "exit_code": 0
+  },
+  "ctest": {
+    "passed": 38,
+    "real_seconds": 216.81,
+    "log": "shipping-ctest.log"
+  },
+  "syntax": {
+    "tool": "scripts/check_cpp_syntax.py + LLVM 21 clangd, isolated compile_commands.json",
+    "passed": [
+      "lower.cpp",
+      "planner.cpp",
+      "simd_tile.cpp",
+      "test_xir.cpp",
+      "test_xir_runtime.cpp"
+    ]
+  },
+  "formatting": "bridge files and changed test regions checked",
+  "documentation": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.631759125040844,
+      "warning_lines": 15068
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-load-reduction.5Rhilw/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 52.50920908304397,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-load-reduction.5Rhilw/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.4556097920285538,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/qa_docs.cjs",
+        "/tmp/luisa-load-reduction.5Rhilw/docs-html-final",
+        "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.2089967080391943,
+      "warning_lines": 0
+    }
+  ],
+  "documentation_source_sha256": {
+    "docs/source/internals/tile/xir.md": "c0e706b2b50dfeeb9a21da334bcedf84ff30a5957db01eb6f51849bfba34d7b6",
+    "docs/source/performance/tile/results.md": "c6ab135e6ec7e8979b50d0b8ff82cef75e3528d3dcdaef5320e0d64b12a0b661",
+    "docs/source/performance/tile/index.md": "196677ea930031fbb79fd3cbf52d52600338fb449cfdd38980cadd905c8b4c67"
+  },
+  "complete": true
+}

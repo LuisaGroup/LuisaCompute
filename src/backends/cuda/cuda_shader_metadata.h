@@ -15,6 +15,7 @@ struct CUDAShaderMetadata {
         UNKNOWN,
         COMPUTE,
         RAY_TRACING,
+        TILE,
     };
 
     uint64_t checksum;

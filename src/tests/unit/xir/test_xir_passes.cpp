@@ -9450,6 +9450,25 @@ void reg_promote_ref_arg() {
         expect(info.promoted_ref_arg_count == 0u);
     };
 
+    "promote_ref_arg_root_callable_signature_is_preserved"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *ref = c->create_reference_argument(Type::of<int>());
+        auto *body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_(b.load(Type::of<int>(), ref));
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = promote_ref_arg_pass_run_on_module(&m);
+        expect(!info.changed());
+        expect(c->arguments().count_size() == 1u);
+        expect(c->arguments().front() == ref);
+        if (c->arguments().front() != ref) { return; }
+        expect(ref->is_reference());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "promote_ref_arg_null_and_bodyless_inputs_are_noops"_test = [] {
         PassReport report;
         auto null_info =
@@ -9499,6 +9518,145 @@ void reg_promote_ref_arg() {
         expect(call->argument(0u) == local);
         expect(call->argument(1u) == local);
         expect(loaded_after_store->variable() == read_ref);
+    };
+
+    "promote_ref_arg_promotes_readonly_disjoint_from_writable_local"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *read_ref = c->create_reference_argument(Type::of<int>());
+        auto *write_ref = c->create_reference_argument(Type::of<int>());
+        auto *callee_body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        int32_t two_value = 2;
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+        b.store(write_ref, two);
+        auto *loaded_after_store = b.load(Type::of<int>(), read_ref);
+        b.return_(loaded_after_store);
+
+        BasicBlock *caller_body;
+        auto *k = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *read_local = b.alloca_local(Type::of<int>());
+        auto *write_local = b.alloca_local(Type::of<int>());
+        b.store(read_local, m.create_constant_one(Type::of<int>()));
+        b.store(write_local, m.create_constant_zero(Type::of<int>()));
+        auto *call = b.call(Type::of<int>(), c,
+                            {read_local, write_local});
+        auto *sink = b.alloca_local(Type::of<int>());
+        b.store(sink, call);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = promote_ref_arg_pass_run_on_module(&m);
+        expect(info.promoted_ref_arg_count == 1u);
+        expect(c->arguments().count_size() == 2u);
+        expect(!c->arguments().front()->is_reference());
+        expect(c->arguments().back()->is_reference());
+        auto *snapshot = call->argument(0u);
+        expect(snapshot->isa<LoadInst>());
+        if (snapshot->isa<LoadInst>()) {
+            expect(static_cast<LoadInst *>(snapshot)->variable() ==
+                   read_local);
+        }
+        expect(call->argument(1u) == write_local);
+        expect(loaded_after_store->variable() != read_ref);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "promote_ref_arg_selects_only_readonly_roots_disjoint_from_writes"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *aliased_read =
+            c->create_reference_argument(Type::of<int>());
+        auto *disjoint_read =
+            c->create_reference_argument(Type::of<int>());
+        auto *write_ref =
+            c->create_reference_argument(Type::of<int>());
+        auto *callee_body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.store(write_ref, m.create_constant_zero(Type::of<int>()));
+        auto *aliased_load = b.load(Type::of<int>(), aliased_read);
+        auto *disjoint_load = b.load(Type::of<int>(), disjoint_read);
+        auto *sum = b.call(Type::of<int>(),
+                           ArithmeticOp::BINARY_ADD,
+                           {aliased_load, disjoint_load});
+        b.return_(sum);
+
+        BasicBlock *caller_body;
+        auto *k = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *aliased_local = b.alloca_local(Type::of<int>());
+        auto *disjoint_local = b.alloca_local(Type::of<int>());
+        b.store(aliased_local, m.create_constant_one(Type::of<int>()));
+        b.store(disjoint_local, m.create_constant_one(Type::of<int>()));
+        auto *call = b.call(Type::of<int>(), c,
+                            {aliased_local, disjoint_local,
+                             aliased_local});
+        auto *sink = b.alloca_local(Type::of<int>());
+        b.store(sink, call);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = promote_ref_arg_pass_run_on_module(&m);
+        expect(info.promoted_ref_arg_count == 1u);
+        expect(c->arguments().count_size() == 3u);
+        expect(c->arguments().front()->is_reference());
+        auto second = c->arguments().front()->next();
+        expect(second != nullptr && !second->is_reference());
+        expect(c->arguments().back()->is_reference());
+        expect(call->argument(0u) == aliased_local);
+        auto *snapshot = call->argument(1u);
+        expect(snapshot->isa<LoadInst>());
+        if (snapshot->isa<LoadInst>()) {
+            expect(static_cast<LoadInst *>(snapshot)->variable() ==
+                   disjoint_local);
+        }
+        expect(call->argument(2u) == aliased_local);
+        expect(aliased_load->variable() == aliased_read);
+        expect(disjoint_load->variable() != disjoint_read);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "promote_ref_arg_same_alloca_geps_remain_conservative"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *read_ref = c->create_reference_argument(Type::of<int>());
+        auto *write_ref = c->create_reference_argument(Type::of<int>());
+        auto *callee_body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        b.store(write_ref, m.create_constant_zero(Type::of<int>()));
+        auto *loaded = b.load(Type::of<int>(), read_ref);
+        b.return_(loaded);
+
+        BasicBlock *caller_body;
+        auto *k = make_kernel_with_body(m, caller_body);
+        b.set_insertion_point(caller_body);
+        auto *array_type = Type::array(Type::of<int>(), 2u);
+        auto *storage = b.alloca_local(array_type);
+        b.store(storage, m.create_constant_zero(array_type));
+        auto *first = b.gep(
+            Type::of<int>(), storage,
+            {m.create_constant_zero(Type::of<uint>())});
+        auto *second = b.gep(
+            Type::of<int>(), storage,
+            {m.create_constant_one(Type::of<uint>())});
+        auto *call = b.call(Type::of<int>(), c, {first, second});
+        auto *sink = b.alloca_local(Type::of<int>());
+        b.store(sink, call);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = promote_ref_arg_pass_run_on_module(&m);
+        expect(!info.changed());
+        expect(c->arguments().front()->is_reference());
+        expect(c->arguments().back()->is_reference());
+        expect(call->argument(0u) == first);
+        expect(call->argument(1u) == second);
+        expect(loaded->variable() == read_ref);
+        expect(xir_verify_module(&m).succeeded());
     };
 
     "promote_ref_arg_rejects_shared_memory_snapshot"_test = [] {

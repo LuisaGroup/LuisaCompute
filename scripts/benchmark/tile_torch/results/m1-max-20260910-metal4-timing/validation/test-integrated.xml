@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="20"
+	failures="1"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="379"
+	timestamp="2026-09-10T11:54:00"
+	>
+	<testcase name="test_stl_containers" classname="test_stl_containers" time="1.4432" status="fail">
+		<failure message="SEGFAULT"/>
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out></system-out>
+	</testcase>
+	<testcase name="test_map_at_reject_mutable" classname="test_map_at_reject_mutable" time="0.110104" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out>-- Verified map::at mutable rejection: Subprocess aborted
+</system-out>
+	</testcase>
+	<testcase name="test_map_at_reject_const" classname="test_map_at_reject_const" time="0.110337" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out>-- Verified map::at const rejection: Subprocess aborted
+</system-out>
+	</testcase>
+	<testcase name="test_tile_ir" classname="test_tile_ir" time="0.590325" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (340 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_target_info" classname="test_tile_xir_target_info" time="0.805938" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (642 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_metal4_timing" classname="test_metal4_timing" time="83.6767" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal4;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 11:54:04.264] [console] [info] Created context for program 'test_metal4_timing'.
+[2026-09-10 11:54:04.264] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:54:05.196] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 931.203042 ms.
+[2026-09-10 11:54:05.231] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:54:05.231] [console] [info] Test device backend: metal4.
+[2026-09-10 11:54:05.231] [console] [info] Metal4 timing capabilities: feedback=true, timestamp_heap=true, frequency_hz=24000000, error=''
+[2026-09-10 11:54:05.244] [console] [info] Metal4 timing setup: creating primary stream
+[2026-09-10 11:54:05.245] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:54:05.245] [console] [info] Metal4 timing setup: uploading shared inputs
+[2026-09-10 11:54:05.246] [console] [info] Metal4 timing setup: initial primary reset begin
+[2026-09-10 11:54:13.716] [console] [info] Metal4 timing setup: initial primary reset complete
+[2026-09-10 11:54:13.716] [console] [info] Metal4 timing case: feedback counts, boundaries and empty submissions
+[2026-09-10 11:54:16.750] [console] [info] Metal4 timing feedback: begin sample 101, expected_dispatches=1
+[2026-09-10 11:54:35.033] [console] [info] Metal4 timing feedback: begin sample 103, expected_dispatches=3
+[2026-09-10 11:54:44.249] [console] [info] Metal4 timing case: precise ticks and command-buffer ownership
+[2026-09-10 11:54:56.951] [console] [info] Metal4 timing case: stream isolation; creating secondary stream
+[2026-09-10 11:54:56.951] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:54:56.951] [console] [info] Metal4 timing isolation: primary reset begin
+[2026-09-10 11:54:58.518] [console] [info] Metal4 timing isolation: secondary reset begin
+[2026-09-10 11:54:59.718] [console] [info] Metal4 timing isolation: primary sample begin
+[2026-09-10 11:54:59.951] [console] [info] Metal4 timing isolation: secondary sample begin
+[2026-09-10 11:55:00.059] [console] [info] Metal4 timing isolation: dispatching independent outputs
+[2026-09-10 11:55:00.059] [console] [info] Metal4 timing isolation: primary sample end
+[2026-09-10 11:55:00.063] [console] [info] Metal4 timing isolation: secondary sample end
+[2026-09-10 11:55:00.868] [console] [info] Metal4 timing case: overflow preserves actual dispatches
+[2026-09-10 11:55:01.695] [console] [info] Metal4 timing case: lifecycle errors and dispatch after disarm
+[2026-09-10 11:55:05.685] [console] [info] Metal4 timing case: indirect range as the first sampled command
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (8515 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_metal" classname="test_tile_xir_metal" time="147.032" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal4;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 11:55:28.028] [console] [info] Created context for program 'test_tile_xir_metal'.
+[2026-09-10 11:55:28.029] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:55:28.044] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 14.533792 ms.
+[2026-09-10 11:55:28.073] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:55:28.073] [console] [info] Test device backend: metal4.
+[2026-09-10 11:55:28.073] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 11:55:28.082] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:32.019] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 11:55:32.025] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:33.220] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:55:33.237] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:36.120] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=32
+[2026-09-10 11:55:36.126] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:39.319] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=1
+[2026-09-10 11:55:39.330] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:44.719] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=32
+[2026-09-10 11:55:44.730] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:47.085] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 11:55:47.095] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:55:51.519] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 11:55:51.527] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:00.061] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:56:00.086] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:00.558] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=32
+[2026-09-10 11:56:00.565] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:00.891] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=1
+[2026-09-10 11:56:00.908] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:01.537] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=32
+[2026-09-10 11:56:01.550] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:02.618] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 11:56:02.625] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:06.019] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 11:56:06.023] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:09.018] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:56:09.032] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:16.721] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=32
+[2026-09-10 11:56:16.726] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:20.588] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=1
+[2026-09-10 11:56:20.597] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:28.920] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=32
+[2026-09-10 11:56:28.929] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:31.321] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 11:56:31.328] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:37.020] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 11:56:37.024] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:44.120] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:56:44.136] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:45.919] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=32
+[2026-09-10 11:56:45.924] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:51.820] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=1
+[2026-09-10 11:56:51.829] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:54.085] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=32
+[2026-09-10 11:56:54.095] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:55.184] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 11:56:55.194] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:57.285] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 11:56:57.293] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:56:59.385] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:56:59.406] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:01.224] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=32
+[2026-09-10 11:57:01.231] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:01.256] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=1
+[2026-09-10 11:57:01.271] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:01.332] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=65 local_lanes=32
+[2026-09-10 11:57:01.348] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:01.666] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=128 local_lanes=1
+[2026-09-10 11:57:01.677] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:06.719] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=128 local_lanes=32
+[2026-09-10 11:57:06.729] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:09.085] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=129 local_lanes=1
+[2026-09-10 11:57:09.095] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:10.117] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=129 local_lanes=32
+[2026-09-10 11:57:10.129] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:17.518] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=1024 local_lanes=1
+[2026-09-10 11:57:17.534] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:27.431] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=1024 local_lanes=32
+[2026-09-10 11:57:27.446] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:30.254] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=1025 local_lanes=1
+[2026-09-10 11:57:30.268] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:38.299] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=1025 local_lanes=32
+[2026-09-10 11:57:38.317] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:42.486] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=6 local_lanes=1
+[2026-09-10 11:57:42.492] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:44.687] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=32 local_lanes=1
+[2026-09-10 11:57:44.701] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:57:49.320] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=66 local_lanes=1
+[2026-09-10 11:57:49.344] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (98682 asserts in 3 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_runtime" classname="test_tile_xir_runtime" time="54.029" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 11:57:52.968] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-10 11:57:52.969] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:57:53.540] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 570.405458 ms.
+[2026-09-10 11:57:53.541] [console] [info] Test device backend: simd.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (5085897 asserts in 18 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm" classname="test_tile_xir_llm" time="18.7795" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 11:58:48.024] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-10 11:58:48.025] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:58:48.043] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 17.5945 ms.
+[2026-09-10 11:58:48.044] [console] [info] Test device backend: simd.
+[2026-09-10 11:58:48.054] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 11:58:48.102] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-10 11:58:48.142] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 11:58:48.172] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 11:58:48.266] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:48.361] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 11:58:48.392] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 11:58:48.415] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:48.525] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 11:58:48.542] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 11:58:48.585] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:48.885] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 11:58:48.920] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 11:58:48.979] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:49.416] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 11:58:49.433] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 11:58:49.472] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:49.716] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 11:58:49.739] [console] [info] Checking llm_rows with 102 output elements
+[2026-09-10 11:58:49.872] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 11:58:50.020] [console] [info] Checking llm_rows with 1122 output elements
+[2026-09-10 11:58:50.488] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-10 11:58:50.623] [console] [info] Checking llm_attention with 392 output elements
+[2026-09-10 11:58:51.702] [console] [info] Checking llm_attention with 56 output elements
+[2026-09-10 11:58:51.888] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 11:58:51.943] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 11:58:53.146] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 11:59:04.930] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-10 11:59:05.084] [console] [info] Checking llm_attention with 14 output elements
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (2370853 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm_reject_heads" classname="test_tile_xir_llm_reject_heads" time="0.103106" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>-- Verified attention heads rejection: Subprocess aborted
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm_reject_block" classname="test_tile_xir_llm_reject_block" time="0.106822" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>-- Verified attention block rejection: Subprocess aborted
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx" classname="test_tile_tirx" time="1.51667" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (130709 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_values" classname="test_tile_tirx_values" time="2.14267" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (931 asserts in 11 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_execution" classname="test_tile_tirx_execution" time="7.06119" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (92627 asserts in 40 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_cooperative" classname="test_tile_tirx_cooperative" time="7.87109" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (602 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_memory" classname="test_tile_tirx_memory" time="5.67551" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (445 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_pipeline" classname="test_tile_tirx_pipeline" time="3.92474" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (345 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_matrix" classname="test_tile_tirx_matrix" time="42.2341" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3159 asserts in 39 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_planner" classname="test_tile_tirx_planner" time="0.533015" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (14429 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_targets" classname="test_tile_tirx_targets" time="1.50052" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3273 asserts in 4 tests)
+</system-out>
+	</testcase>
+</testsuite>

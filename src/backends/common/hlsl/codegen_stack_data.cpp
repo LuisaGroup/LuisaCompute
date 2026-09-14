@@ -144,7 +144,7 @@ struct CodegenGlobalPool {
             allCodegen.pop_back();
             return ite;
         }
-        return vstd::unique_ptr<CodegenStackData>(new CodegenStackData());
+        return vstd::make_unique<CodegenStackData>();
     }
     void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
         std::lock_guard lck(mtx);

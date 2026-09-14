@@ -345,6 +345,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     new Shader(shader.handle, kernel.bound_arguments());
     return shader;
 }
+ShaderCreationInfo Device::create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                             const tile::CompileOptions &tile_options,
+                                             tile::KernelMetadata &metadata) noexcept {
+    auto shader = _native->create_tile_kernel(option, kernel, tile_options, metadata);
+    if (shader.valid()) { new Shader(shader.handle, {}); }
+    return shader;
+}
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
     auto shader = _native->load_shader(name, arg_types);
     new Shader(shader.handle, {});

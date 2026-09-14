@@ -2,6 +2,12 @@
 // Covers: vector + helpers (enlarge_by, size_bytes, vector_resize),
 //         string + format, map/set, unordered_map/set, optional, lru_cache.
 
+// Keep this first: the memory wrapper must provide its own trait dependencies.
+#include <luisa/core/stl/memory.h>
+
+static_assert(sizeof(luisa::aligned_storage_t<32u, 16u>) >= 32u);
+static_assert(alignof(luisa::aligned_storage_t<32u, 16u>) == 16u);
+
 #include "ut/ut.hpp"
 
 #include <luisa/core/stl/vector.h>
@@ -11,7 +17,6 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/lru_cache.h>
-#include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
 
 using namespace boost::ut;
@@ -206,31 +211,20 @@ void reg_map_basic() {
     };
 }
 
-void reg_map_at_missing_key() {
+void reg_map_at() {
 
-#if __cpp_exceptions
-    "map_at_missing_key_throws"_test = [] {
+    "map_at_present_key"_test = [] {
         luisa::map<int, luisa::string> m;
         m.emplace(1, "one");
-
-        auto mutable_threw = false;
-        try {
-            static_cast<void>(m.at(2));
-        } catch (const std::out_of_range &) {
-            mutable_threw = true;
-        }
-        expect(mutable_threw);
-
-        auto const_threw = false;
-        try {
-            const auto &cm = m;
-            static_cast<void>(cm.at(2));
-        } catch (const std::out_of_range &) {
-            const_threw = true;
-        }
-        expect(const_threw);
+        expect(m.at(1) == "one");
+        m.at(1) = "updated";
+        const auto &cm = m;
+        expect(cm.at(1) == "updated");
+        expect(&m.at(1) == &cm.at(1));
+        expect(m.size() == 1u);
+        expect(!m.contains(2));
+        expect(m.find(2) == m.end());
     };
-#endif
 }
 
 void reg_set_basic() {
@@ -531,6 +525,26 @@ void reg_size_literals() {
 
 int main(int argc, char *argv[]) {
 
+    // CTest checks fatal preconditions in fresh processes and requires the
+    // missing-key diagnostic. Reaching return 0 means unexpected acceptance.
+    // Keep the argc guard separate: Boost.UT's overloaded logical operators
+    // eagerly evaluate their operands instead of short-circuiting.
+    if (argc == 2) {
+        const auto mode = luisa::string_view{argv[1]};
+        if (mode == "--reject-map-at-mutable") {
+            luisa::map<int, luisa::string> m;
+            m.emplace(1, "one");
+            static_cast<void>(m.at(2));
+            return 0;
+        }
+        if (mode == "--reject-map-at-const") {
+            luisa::map<int, luisa::string> m;
+            m.emplace(1, "one");
+            const auto &cm = m;
+            static_cast<void>(cm.at(2));
+            return 0;
+        }
+    }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_vector_basic();
     reg_vector_enlarge_by();
@@ -542,7 +556,7 @@ int main(int argc, char *argv[]) {
     reg_format_basic();
     reg_format_hash_to_string();
     reg_map_basic();
-    reg_map_at_missing_key();
+    reg_map_at();
     reg_set_basic();
     reg_unordered_map_basic();
     reg_unordered_set_basic();

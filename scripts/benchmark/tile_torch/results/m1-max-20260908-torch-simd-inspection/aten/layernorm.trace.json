@@ -1,0 +1,186 @@
+ {
+    "schemaVersion": 1,
+    "deviceProperties": [],
+    
+      "trace_id": "5848A7D15B7A4C13BA545C9FF3588848",
+      "record_shapes": 1,
+      "host_name": "MikedeMacBook-Pro.local",
+    "displayTimeUnit": "ms",
+    "baseTimeNanoseconds": 1782967788000000000,
+    "traceEvents": [
+    
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865349289899.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865349289899.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865349289899.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865349289899.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::layer_norm",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290015.754,
+    "dur": 416.383
+    ,
+    "args": {
+      "External id": 513,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", "[4096]", "", "", "1.0000000000000001e-05", "True"], "Record function id": 0, "Input type": ["float", "ScalarList", "float", "float", "Scalar", "Scalar"], "Input Strides": [[4096, 1], [], [1], [1], [], []], "Input Dims": [[1024, 4096], [], [4096], [4096], [], []], "Ev Idx": 0
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::native_layer_norm",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290017.755,
+    "dur": 413.423
+    ,
+    "args": {
+      "External id": 514,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", "[4096]", "", "", "1.0000000000000001e-05"], "Record function id": 0, "Input type": ["float", "ScalarList", "float", "float", "Scalar"], "Input Strides": [[4096, 1], [], [1], [1], []], "Input Dims": [[1024, 4096], [], [4096], [4096], []], "Ev Idx": 1
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::empty",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290020.257,
+    "dur": 2.752
+    ,
+    "args": {
+      "External id": 515,"Concrete Inputs": ["[1024, 4096]", "6", "0", "", "", "0"], "Record function id": 0, "Input type": ["ScalarList", "Scalar", "Scalar", "", "", "Scalar"], "Input Strides": [[], [], [], [], [], []], "Input Dims": [[], [], [], [], [], []], "Ev Idx": 2
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::empty",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290023.718,
+    "dur": 0.333
+    ,
+    "args": {
+      "External id": 516,"Concrete Inputs": ["[1024]", "6", "0", "", "", ""], "Record function id": 0, "Input type": ["ScalarList", "Scalar", "Scalar", "", "", ""], "Input Strides": [[], [], [], [], [], []], "Input Dims": [[], [], [], [], [], []], "Ev Idx": 3
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::empty",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290024.343,
+    "dur": 0.209
+    ,
+    "args": {
+      "External id": 517,"Concrete Inputs": ["[1024]", "6", "0", "", "", ""], "Record function id": 0, "Input type": ["ScalarList", "Scalar", "Scalar", "", "", ""], "Input Strides": [[], [], [], [], [], []], "Input Dims": [[], [], [], [], [], []], "Ev Idx": 4
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::view",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290429.009,
+    "dur": 1.126
+    ,
+    "args": {
+      "External id": 518,"Concrete Inputs": ["", "[1024, 1]"], "Record function id": 0, "Input type": ["float", "ScalarList"], "Input Strides": [[1], []], "Input Dims": [[1024], []], "Ev Idx": 5
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::view",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865349290430.802,
+    "dur": 0.167
+    ,
+    "args": {
+      "External id": 519,"Concrete Inputs": ["", "[1024, 1]"], "Record function id": 0, "Input type": ["float", "ScalarList"], "Input Strides": [[1], []], "Input Dims": [[1024], []], "Ev Idx": 6
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "Trace",
+    "name": "PyTorch Profiler (0)",
+    "pid": "Spans",
+    "tid": "PyTorch Profiler",
+    "ts": 5865349289818.000,
+    "dur": 636.000
+    ,
+    "args": {
+      "Op count": 0
+    }
+  },
+  {
+    "ph": "M",
+    "name": "process_sort_index",
+    "ts": 5865349289818.000,
+    "pid": "Spans",
+    "tid": 0,
+    "args": {
+      "sort_index": 536870912
+    }
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Iteration Start: PyTorch Profiler",
+    "pid": "Traces",
+    "tid": "Trace PyTorch Profiler",
+    "ts": 5865349289818.000
+    
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Record Window End",
+    "pid": "",
+    "tid": "",
+    "ts": 5865349290529.000
+    
+  }
+  ],"traceName": "/tmp/luisa-torch-simd.IxI6kn/torch-run/layernorm.trace.json" }

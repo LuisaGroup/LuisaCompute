@@ -1204,6 +1204,61 @@ void reg_remaining_misc_instruction_round_trip() {
         expect(canonical.text == encoded.text);
     };
 
+    "xir_interchange_preserves_alias_projections_and_return_selectors"_test = [] {
+        Module module;
+        auto *function = module.create_callable(nullptr);
+        XIRBuilder b;
+        b.set_insertion_point(function->create_body_block());
+        auto *a = b.alloca_local(Type::of<uint>());
+        auto *selector = b.alloca_local(Type::of<uint>());
+        selector->set_coro_return_selector(3u);
+        b.store(selector, module.create_constant_one(Type::of<uint>()));
+        auto lifetime = CoroSuspendBindingLifetime::resumed;
+        CoroSuspendBinding logical_binding{"output", CoroSuspendBindingAccess::write, lifetime, 0u};
+        auto logical = make_coro_suspend_extension_data("test.projected", 1u, CoroSuspendFallback::reject,
+                                                        {logical_binding}, {{"opaque", luisa::string{"unchanged"}}});
+        CoroSuspendBindingProjection projection{logical_binding, {{0u, 1u}}};
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_projected_extension(std::move(logical),
+                                                                      {{"candidate", CoroSuspendBindingAccess::read_write, lifetime, 0u},
+                                                                       {"guard", CoroSuspendBindingAccess::read, lifetime, 1u}},
+                                                                      {projection}));
+        luisa::vector<Value *> values{a, module.create_constant_one(Type::of<bool>())};
+        b.coro_suspend(1u, "alias", nullptr, {}, {}, std::move(extensions), values);
+        expect(xir_verify_module(&module).succeeded());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto canonical = xir_to_interchange_text(decoded.module.get());
+        expect(canonical.succeeded());
+        expect(canonical.text == encoded.text);
+        for (auto *f : decoded.module->function_list()) {
+            for (auto *bb : f->basic_blocks()) {
+                for (auto *inst : bb->instructions()) {
+                    if (inst->isa<CoroSuspendInst>()) {
+                        auto &extension = static_cast<CoroSuspendInst *>(inst)->extensions().front();
+                        expect(extension->binding_projections().size() == 1u);
+                        auto restored = extension->clone_logical();
+                        expect(restored->bindings().size() == 1u);
+                        expect(restored->bindings().front().name == "output");
+                        expect(restored->bindings().front().access == CoroSuspendBindingAccess::write);
+                        expect(restored->attributes().size() == 1u);
+                    }
+                }
+            }
+        }
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (bitcode.succeeded()) {
+            auto restored = xir_from_bitcode(bitcode.bitcode);
+            expect(restored.succeeded());
+            if (restored.succeeded()) { expect(xir_to_interchange_text(restored.module.get()).text == encoded.text); }
+        }
+    };
+
     "xir_interchange_preserves_complete_suspend_extensions"_test = [] {
         Module module;
         auto *function = module.create_callable(nullptr);

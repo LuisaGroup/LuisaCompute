@@ -1,0 +1,310 @@
+diff --git a/src/backends/metal4/metal_command_encoder.cpp b/src/backends/metal4/metal_command_encoder.cpp
+index b336b0715..8db856f5f 100644
+--- a/src/backends/metal4/metal_command_encoder.cpp
++++ b/src/backends/metal4/metal_command_encoder.cpp
+@@ -65,6 +65,10 @@ void MetalCommandEncoder::_prepare_command_buffer() noexcept {
+         _command_buffer->beginCommandBuffer(
+             _command_allocator,
+             _stream->command_buffer_options());
++        if (auto session = _stream->timing_session()) {
++            _timing.ordinal = session->begin_command_buffer();
++            _timing.session = std::move(session);
++        }
+     }
+ }
+ 
+@@ -91,6 +95,9 @@ MTL4::ComputeCommandEncoder *MetalCommandEncoder::compute_encoder() noexcept {
+ MTL4::RenderCommandEncoder *MetalCommandEncoder::render_encoder(
+     MTL4::RenderPassDescriptor *descriptor) noexcept {
+     _prepare_command_buffer();
++    // Presentation can create a render encoder without visiting a Runtime
++    // command. Its GPU interval is not an empty synchronization submission.
++    if (_timing.session) { _timing.contains_non_dispatch_work = true; }
+     auto encoder = _command_buffer->renderCommandEncoder(descriptor);
+     LUISA_ASSERT(encoder != nullptr,
+                  "Failed to create Metal4 render command encoder.");
+@@ -140,6 +147,31 @@ void MetalCommandEncoder::use_resource(
+     if (allocation != nullptr) { _allocations.emplace(allocation); }
+ }
+ 
++void MetalCommandEncoder::note_timing_non_dispatch_work() noexcept {
++    if (_stream->timing_enabled()) {
++        _prepare_command_buffer();
++        if (_timing.session) { _timing.contains_non_dispatch_work = true; }
++    }
++}
++
++void MetalCommandEncoder::note_timing_indirect_dispatch() noexcept {
++    if (_timing.session) {
++        _timing.contains_non_dispatch_work = true;
++        _timing.session->unsupported_indirect_dispatch();
++    }
++}
++
++uint32_t MetalCommandEncoder::begin_dispatch_timing(MTL4::ComputeCommandEncoder *encoder,
++                                                   uint64_t shader_checksum, uint3 dispatch_size, uint3 block_size) noexcept {
++    if (!_timing.session) { return UINT32_MAX; }
++    _timing.dispatch_count++;
++    return _timing.session->begin_dispatch(encoder, _timing.ordinal, shader_checksum, dispatch_size, block_size);
++}
++
++void MetalCommandEncoder::end_dispatch_timing(MTL4::ComputeCommandEncoder *encoder, uint32_t ordinal) noexcept {
++    if (_timing.session) { _timing.session->end_dispatch(encoder, ordinal); }
++}
++
+ MetalStream::SubmissionHandle MetalCommandEncoder::submit(
+     CommandList::CallbackContainer &&user_callbacks) noexcept {
+     if (!user_callbacks.empty()) {
+@@ -183,19 +215,17 @@ MetalStream::SubmissionHandle MetalCommandEncoder::submit(
+         _allocations.clear();
+         return _stream->submit(
+             command_buffer, command_allocator,
+-            std::move(callbacks));
++            std::move(callbacks), std::exchange(_timing, {}));
+     }
+     auto submission = luisa::make_shared<MetalStream::Submission>();
+-    submission->completed.store(true, std::memory_order_relaxed);
++    submission->complete();
+     return submission;
+ }
+ 
+ void MetalCommandEncoder::submit_and_wait(
+     CommandList::CallbackContainer &&user_callbacks) noexcept {
+     auto submission = submit(std::move(user_callbacks));
+-    while (!submission->completed.load(std::memory_order_acquire)) {
+-        std::this_thread::yield();
+-    }
++    submission->wait();
+ }
+ 
+ void MetalCommandEncoder::visit(BufferUploadCommand *command) noexcept {
+diff --git a/src/backends/metal4/metal_stream.cpp b/src/backends/metal4/metal_stream.cpp
+index cb080250c..865bfc90c 100644
+--- a/src/backends/metal4/metal_stream.cpp
++++ b/src/backends/metal4/metal_stream.cpp
+@@ -15,11 +15,22 @@
+ #include "metal_swapchain.h"
+ #include "metal_command_encoder.h"
+ #include "metal_stream.h"
++#include "../common/env_flag.h"
+ 
+ namespace luisa::compute::metal {
+ 
+ namespace {
+ 
++[[nodiscard]] bool blocking_submission_wait_enabled() noexcept {
++    static const auto enabled = compute::detail::env_flag("LUISA_METAL4_BLOCKING_WAIT");
++    return enabled;
++}
++
++[[nodiscard]] bool submission_trace_enabled() noexcept {
++    static const auto enabled = compute::detail::env_flag("LUISA_METAL4_SUBMISSION_TRACE");
++    return enabled;
++}
++
+ struct MetalCommandBufferProfileStats {
+     uint64_t count{};
+     double total_ms{};
+@@ -172,6 +183,19 @@ inline constexpr auto shader_log_bool_suffix =
+ 
+ }// namespace
+ 
++void MetalStream::Submission::wait() const noexcept {
++    if (blocking_submission_wait_enabled()) {
++        completed.wait(false, std::memory_order_acquire);
++    } else {
++        while (!completed.load(std::memory_order_acquire)) { std::this_thread::yield(); }
++    }
++}
++
++void MetalStream::Submission::complete() noexcept {
++    completed.store(true, std::memory_order_release);
++    if (blocking_submission_wait_enabled()) { completed.notify_all(); }
++}
++
+ MetalStream::MetalStream(MTL::Device *device,
+                          size_t max_commands) noexcept
+     : _max_commands{max_commands} {
+@@ -200,6 +224,15 @@ MetalStream::MetalStream(MTL::Device *device,
+     _command_buffer_options->setLogState(_log_state);
+     auto queue_descriptor = NS::TransferPtr(
+         MTL4::CommandQueueDescriptor::alloc()->init());
++    if (compute::detail::env_flag("LUISA_METAL4_EXPLICIT_FEEDBACK_QUEUE")) {
++        // Diagnostic alternative to Metal's default internal feedback queue.
++        // The descriptor borrows this serial queue; retain it through teardown.
++        auto attributes = dispatch_queue_attr_make_with_qos_class(
++            DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0);
++        _feedback_queue = dispatch_queue_create("org.luisa.compute.metal4.feedback", attributes);
++        LUISA_ASSERT(_feedback_queue != nullptr, "Failed to create Metal4 feedback dispatch queue.");
++        queue_descriptor->setFeedbackQueue(_feedback_queue);
++    }
+     NS::Error *queue_error = nullptr;
+     _queue = device->newMTL4CommandQueue(
+         queue_descriptor.get(), &queue_error);
+@@ -235,6 +268,7 @@ MetalStream::~MetalStream() noexcept {
+         _acceleration_structure_compatibility_queue->release();
+     }
+     _queue->release();
++    if (_feedback_queue != nullptr) { dispatch_release(_feedback_queue); }
+     _log_state->release();
+     if (_name != nullptr) { _name->release(); }
+ }
+@@ -391,6 +425,7 @@ void MetalStream::set_name(luisa::string_view name) noexcept {
+ 
+ void MetalStream::_encode(MetalCommandEncoder &encoder,
+                           Command *command) noexcept {
++    if (command->tag() != Command::Tag::EShaderDispatchCommand) { encoder.note_timing_non_dispatch_work(); }
+     command->accept(encoder);
+ }
+ 
+@@ -422,7 +457,8 @@ void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexce
+ MetalStream::SubmissionHandle MetalStream::submit(
+     MTL4::CommandBuffer *command_buffer,
+     MTL4::CommandAllocator *command_allocator,
+-    MetalStream::CallbackContainer &&callbacks) noexcept {
++    MetalStream::CallbackContainer &&callbacks,
++    MetalTimingSubmission timing) noexcept {
+     LUISA_ASSERT(command_buffer != nullptr && command_allocator != nullptr,
+                  "Invalid Metal4 command-buffer submission.");
+     auto submission = luisa::make_shared<Submission>();
+@@ -449,8 +485,14 @@ MetalStream::SubmissionHandle MetalStream::submit(
+         MTL4::CommitOptions::alloc()->init());
+     options->addFeedbackHandler(MTL4::CommitFeedbackHandlerFunction{
+         [this, command_buffer, command_allocator, submission,
+-         has_callbacks, label = std::move(label)](
++         has_callbacks, timing, label = std::move(label)](
+             MTL4::CommitFeedback *feedback) noexcept {
++            if (submission_trace_enabled()) {
++                std::fprintf(stderr, "LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=%p submission=%p command_buffer=%p\n",
++                             static_cast<void *>(this), static_cast<void *>(submission.get()), static_cast<void *>(command_buffer));
++            }
++            // Record receipt before user callbacks or allocator recycling.
++            if (timing.session) { timing.session->feedback(timing.ordinal, feedback); }
+             if (has_callbacks) {
+                 std::scoped_lock execution_lock{
+                     _callback_execution_mutex};
+@@ -469,6 +511,7 @@ MetalStream::SubmissionHandle MetalStream::submit(
+                 _completed_callback_lists.fetch_add(
+                     1u, std::memory_order_release);
+             }
++            if (timing.session) { timing.session->callbacks_finished(timing.ordinal); }
+             if (metal_command_buffer_profiling_enabled()) {
+                 auto begin = feedback->GPUStartTime();
+                 auto end = feedback->GPUEndTime();
+@@ -507,11 +550,57 @@ MetalStream::SubmissionHandle MetalStream::submit(
+             // MetalStream reference and destroy the stream as soon as this
+             // becomes true, so the feedback handler must not touch `this`
+             // afterwards.
+-            submission->completed.store(true, std::memory_order_release);
++            if (timing.session) { timing.session->completing(timing.ordinal); }
++            if (submission_trace_enabled()) {
++                std::fprintf(stderr, "LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=%p submission=%p\n",
++                             static_cast<void *>(this), static_cast<void *>(submission.get()));
++            }
++            submission->complete();
+         }});
+     const MTL4::CommandBuffer *command_buffers[]{command_buffer};
++    if (timing.session) { timing.session->will_commit(timing.ordinal, timing.dispatch_count, timing.contains_non_dispatch_work); }
++    if (submission_trace_enabled()) {
++        std::fprintf(stderr, "LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=%p submission=%p command_buffer=%p callbacks=%u\n",
++                     static_cast<void *>(this), static_cast<void *>(submission.get()), static_cast<void *>(command_buffer), has_callbacks ? 1u : 0u);
++    }
+     _queue->commit(command_buffers, 1u, options.get());
++    if (submission_trace_enabled()) {
++        std::fprintf(stderr, "LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=%p submission=%p\n",
++                     static_cast<void *>(this), static_cast<void *>(submission.get()));
++    }
++    if (timing.session) { timing.session->did_commit(timing.ordinal); }
+     return submission;
+ }
+ 
++luisa::shared_ptr<MetalTimingSession> MetalStream::timing_session() noexcept {
++    if (!timing_enabled()) { return {}; }
++    std::scoped_lock lock{_timing_mutex};
++    return _timing_session;
++}
++
++bool MetalStream::begin_timing(luisa::shared_ptr<MetalTimingSession> session) noexcept {
++    // The public extension requires externally serialized sample boundaries.
++    if (timing_enabled()) { return false; }
++    synchronize();
++    std::scoped_lock lock{_timing_mutex};
++    if (_timing_session) { return false; }
++    _timing_session = std::move(session);
++    _timing_enabled.store(true, std::memory_order_release);
++    return true;
++}
++
++Metal4TimingSample MetalStream::end_timing() noexcept {
++    luisa::shared_ptr<MetalTimingSession> session;
++    {
++        std::scoped_lock lock{_timing_mutex};
++        if (!_timing_session) { return {.error = "No Metal4 timing sample is active on this stream"}; }
++        _timing_enabled.store(false, std::memory_order_release);
++        session = std::move(_timing_session);
++    }
++    // This synchronization's own empty command buffer is deliberately not
++    // attached to the disarmed sample. Earlier buffers retain their session.
++    synchronize();
++    return session->finish();
++}
++
+ }// namespace luisa::compute::metal
+diff --git a/src/backends/metal4/metal_stream.h b/src/backends/metal4/metal_stream.h
+index 36c7bcdbb..5abb589e3 100644
+--- a/src/backends/metal4/metal_stream.h
++++ b/src/backends/metal4/metal_stream.h
+@@ -12,6 +12,7 @@
+ #include <luisa/runtime/command_list.h>
+ #include "metal_api.h"
+ #include "metal_stage_buffer_pool.h"
++#include "metal_timing.h"
+ 
+ namespace luisa::compute::metal {
+ 
+@@ -28,11 +29,14 @@ public:
+ 
+     struct Submission {
+         std::atomic_bool completed{false};
++        void wait() const noexcept;
++        void complete() noexcept;
+     };
+     using SubmissionHandle = luisa::shared_ptr<Submission>;
+ 
+ private:
+     MTL4::CommandQueue *_queue{nullptr};
++    dispatch_queue_t _feedback_queue{nullptr};
+     MTL::CommandQueue *_acceleration_structure_compatibility_queue{nullptr};
+     MTL::LogState *_log_state{nullptr};
+     MTL4::CommandBufferOptions *_command_buffer_options{nullptr};
+@@ -55,6 +59,11 @@ private:
+     luisa::queue<CallbackContainer> _callback_lists{};
+     luisa::vector<MTL4::CommandAllocator *> _command_allocator_pool;
+     LogCallback _log_callback;
++    // Only the opt-in diagnostic path takes this mutex. The disabled path
++    // does not allocate counters or alter command encoding/submission.
++    std::atomic_bool _timing_enabled{false};
++    spin_mutex _timing_mutex;
++    luisa::shared_ptr<MetalTimingSession> _timing_session;
+ 
+ protected:
+     void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;
+@@ -89,12 +98,17 @@ public:
+     [[nodiscard]] auto command_buffer_options() const noexcept { return _command_buffer_options; }
+     [[nodiscard]] auto name() const noexcept { return _name; }
+     void set_log_callback(LogCallback callback) noexcept;
++    [[nodiscard]] bool timing_enabled() const noexcept { return _timing_enabled.load(std::memory_order_acquire); }
++    [[nodiscard]] luisa::shared_ptr<MetalTimingSession> timing_session() noexcept;
++    [[nodiscard]] bool begin_timing(luisa::shared_ptr<MetalTimingSession> session) noexcept;
++    [[nodiscard]] Metal4TimingSample end_timing() noexcept;
+     [[nodiscard]] MetalStageBufferPool *upload_pool() noexcept;
+     [[nodiscard]] MetalStageBufferPool *download_pool() noexcept;
+     [[nodiscard]] virtual SubmissionHandle submit(
+         MTL4::CommandBuffer *command_buffer,
+         MTL4::CommandAllocator *command_allocator,
+-        CallbackContainer &&callbacks) noexcept;
++        CallbackContainer &&callbacks,
++        MetalTimingSubmission timing = {}) noexcept;
+ };
+ 
+ }// namespace luisa::compute::metal

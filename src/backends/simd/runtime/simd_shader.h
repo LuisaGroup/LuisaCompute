@@ -46,6 +46,7 @@ private:
     bool _enable_w16_sparse_empty_surface_filter_packet_narrowing{true};
     bool _enable_w16_sparse_direct_output_surface_filter_packet_narrowing{true};
     uint3 _block_size{1u, 1u, 1u};
+    uint32_t _blocks_per_task{0u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;
     luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>>
@@ -64,6 +65,10 @@ public:
     SIMDShader(
         const ShaderOption &option, Function kernel,
         uint32_t warp_width, uint32_t dispatch_worker_count) noexcept;
+    // A verified, already compiled XIR entry uses the same argument packing,
+    // worker pool, command encoder and resource lifetime as a SIMT kernel.
+    SIMDShader(SIMDCompiledKernel compiled, uint3 block_size,
+               luisa::vector<Usage> argument_usages, uint32_t blocks_per_task = 0u) noexcept;
     ~SIMDShader() noexcept;
 
     void dispatch(

@@ -1,0 +1,2 @@
+# Preserve raw command output verbatim as reproducible evidence.
+*.log -whitespace

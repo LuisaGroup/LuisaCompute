@@ -1,0 +1,14 @@
+{
+  "patch": "src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch",
+  "patch_sha256": "4d1d2cff8be07149004395f8bb9e427a8cd3a581f0a052b84753cabe81d8e500",
+  "baseline_source": "/tmp/luisa-mpp-store-baseline.u37ixE",
+  "test_directory": "/tmp/luisa-bounded-store-patchcheck.e53XvR",
+  "forward_check": "passed",
+  "forward_apply": "passed",
+  "reverse_check_against_compiled_source": "passed",
+  "applied_files_equal_compiled_sources": true,
+  "sha256": {
+    "src/backend/metal/codegen/codegen_metal.cc": "5be29800d9d6170a03c1b39fc308d211b966071f10c6f2d73bf2cf7a71be034b",
+    "include/tvm/tirx/builtin.h": "2a5826db47767375915f7f2cc729a10f3a3d55c1e88dc84252638764c4f66118"
+  }
+}

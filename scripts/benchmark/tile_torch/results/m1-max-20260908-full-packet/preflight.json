@@ -1,0 +1,21 @@
+{
+  "records": [
+    {
+      "directory": "native-64-l1-f0",
+      "included_in_performance_summary": false,
+      "completed_visits": 18
+    },
+    {
+      "directory": "native-64-l1-f1",
+      "included_in_performance_summary": false,
+      "completed_visits": 18
+    },
+    {
+      "directory": "native-64-l8-f0",
+      "included_in_performance_summary": false,
+      "completed_visits": 0,
+      "stopped": "old replay rejects compiler-emitted _memcpy before timing"
+    }
+  ],
+  "reason": "Original no-import replay aborted on the first local p1 object. All eight cells were rerun with the exact memcpy allowlist, not selected by timings."
+}

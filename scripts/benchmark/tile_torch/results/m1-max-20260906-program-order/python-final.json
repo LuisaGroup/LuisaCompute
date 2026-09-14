@@ -1,0 +1,5 @@
+{
+  "command": "uv run --offline --no-project --python 3.13 --with numpy --with torch python -m unittest discover -s scripts/benchmark/tile_torch -p 'test_*.py'",
+  "exit_code": 0,
+  "output": "......................................................................................................\n----------------------------------------------------------------------\nRan 102 tests in 0.935s\n\nOK\n"
+}

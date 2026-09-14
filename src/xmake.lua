@@ -1,5 +1,5 @@
 includes("ext")
-includes("core", "vstl", "runtime")
+includes("core", "vstl", "tile", "runtime")
 if has_config("lc_enable_osl") then
     includes("osl")
 end
