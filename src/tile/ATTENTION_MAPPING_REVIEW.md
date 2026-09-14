@@ -779,3 +779,36 @@ Torch比较另用同时支持Tile与Inductor ABI的`native_rows`共同C++ timer�
 新增 bool/int8/uint8 私有数组回归检查 W2/4/8/16、空／部分／非前缀 masks、完整 byte 存储及退出快照。bool 以 i8 保存、以 i1 计算，连续 store 保留 inactive bytes；没有把硬件存储布局变成 DSL 限制。test 的新增 `cells` 初始化警告后紧接全数组 `fill(0xa5u)`，属于可能误报，原警告与源码均保留，不称零警告。
 
 这些结果只确认当前候选的正确性门禁，不代表性能已改善。下一步使用保留 full11 入口做新的独立配对；静态 gather/scatter 与连续 RMW 数量不是动态周期，也不要求所有 i8 fallback 消失。对应通用 planner 的工作量分类、不可重复计价和验证边界记录在 [private-access cost 提案](PRIVATE_ACCESS_COST_MODEL.md)，仍属未实现／未校准方案。
+
+### 21.17 full12 byte-private：纯 kernel 配对结果
+
+在上述源码 freeze 上完成新的22组 full12/full11 配对和8组 Torch 配对；没有重用旧计时或删除异常样本。所有 capture、prepare、replay、Torch 阶段分别完成22/22、22/22、22/22、8/8。正式360次访问、1800个样本均通过完整FP64输出、guards与输入不变检查。计时口径沿用21.15：`native_tile` 测两个 Luisa 版本，另一组 `native_rows` 测 Luisa/Torch；两组分母不可混用。这里不是Runtime dispatch、Metal或MPS结果。
+
+下表为 **full12/full11 配对耗时比中位数**，小于1表示full12更快。RMS/Softmax均为129行；列名是显式 local lanes，物理packet宽度固定8、单worker，不是自动planner选出的配置。
+
+| 形状 | local1 | local8 |
+|---|---:|---:|
+| RMS width65 | 1.002 | 1.000 |
+| RMS width512 | 0.997 | 1.005 |
+| RMS width1024 | 0.998 | 0.993 |
+| RMS width4096 | 0.998 | 1.005 |
+| Softmax width65 | 0.776 | 0.854 |
+| Softmax width512 | 0.764 | 0.763 |
+| Softmax width1024 | 0.766 | 0.752 |
+| Softmax width4096 | 0.767 | 0.755 |
+| Attention BK33, Q3 | 0.875 | 0.979 |
+| Attention BK65, Q3 | 0.950 | 0.997 |
+| Attention BK65, Q17 | 0.966 | 0.984 |
+
+Softmax耗时降低14.6%–24.8%；RMS变化约−0.7%至+0.5%，不宣称稳定收益。实际生成IR中，14个Softmax/attention配置原有的i8 gather/scatter均被连续byte存储访问取代；8个RMS配置原来就没有这些指令。这支持优化机制的解释，但不是逐指令因果分解，也不证明所有kernel都没有fallback。Softmax512/local1的一项配对比达到1.047，其余样本及该项均保留，中位数不能隐藏离散性。
+
+独立Torch配对中，四种形状在已测local1/8里择优后的结果如下（仅作事后对照，不称自动寻优）：
+
+| 形状 | local | Torch µs | full12 µs | 配对 full12/Torch |
+|---|---:|---:|---:|---:|
+| RMS129×65 | 1 | 5.606 | 6.732 | 1.209 |
+| Softmax129×65 | 1 | 16.554 | 21.764 | 1.314 |
+| RMS129×512 | 1 | 35.508 | 48.846 | 1.379 |
+| Softmax129×512 | 8 | 117.071 | 161.478 | 1.370 |
+
+µs列分别是各版本访问中位数；配对比先逐对计算再取中位数，因此不等于直接相除。**仍未超过Torch**：上述形状慢约20.9%、31.4%、37.9%、37.0%。本次落地的是不依赖算子名的SIMD byte-private实现，尚未实现／校准21.16所述planner私有访问成本特征。剩余差距仍需从循环、快照、owner通信和执行映射继续分析，不能仅靠下调gather系数宣称解决。
