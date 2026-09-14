@@ -1,0 +1,42 @@
+// ---------------------------------------------------------------------------
+// Out-of-range access detection runtime, part 2: host reporting.
+//
+// Emitted into the incremental-function section (i.e. after the resource
+// declarations, because it references _printCounter / _printBuffer). Only
+// active when `_LC_OOB_CHECK` is defined by the codegen, which happens only
+// for host debug builds (`#ifndef NDEBUG`) on the DX compute path with
+// enable_debug_info. See oob_runtime.bytes for the overall design.
+//
+// The record reuses the existing device-printer ABI so the host needs no new
+// read-back path: a 4-byte printer index followed by a 24-byte payload of six
+// uints (kind, index, bound, dispatch x/y/z), padded to a 32-byte slot.
+// `_LC_OOB_PRINTER_IDX` is defined by the codegen to the printer slot
+// registered for the violation message.
+// ---------------------------------------------------------------------------
+#ifdef _LC_OOB_CHECK
+#ifndef _LC_OOB_PRINTER_IDX
+#define _LC_OOB_PRINTER_IDX 0u
+#endif
+// Publish the recorded violation through the device printer, then clear the
+// per-thread flag so a thread reports at most one violation.
+void _lc_oob_flush(){
+if(_lc_oob_err){
+_lc_oob_err=false;
+uint _lc_oob_c;
+InterlockedAdd(_printCounter[0],32u,_lc_oob_c);
+if(_lc_oob_c<1048576u){
+_printBuffer.Store(_lc_oob_c,_LC_OOB_PRINTER_IDX);
+_printBuffer.Store(_lc_oob_c+4u,_lc_oob_kind);
+_printBuffer.Store(_lc_oob_c+8u,_lc_oob_idx);
+_printBuffer.Store(_lc_oob_c+12u,_lc_oob_bound);
+_printBuffer.Store(_lc_oob_c+16u,_lc_oob_dsp.x);
+_printBuffer.Store(_lc_oob_c+20u,_lc_oob_dsp.y);
+_printBuffer.Store(_lc_oob_c+24u,_lc_oob_dsp.z);
+}
+}
+}
+// Kernel-entry early exit: report the violation, then quit the invocation.
+void _lc_oob_exit(){
+_lc_oob_flush();
+}
+#endif

@@ -55,6 +55,12 @@ end
 example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
+example_proj("example_image_process", "gui/image_process/main.cpp", true, function()
+    add_files("gui/image_process/image_process.cpp", "gui/image_process/headless_test.cpp")
+    if is_plat("windows") then
+        add_syslinks("comdlg32")
+    end
+end)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
@@ -78,7 +84,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
         end)
     end
     example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
-        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
+        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
     end)
     includes("compute/tokenize")
     includes("compute/compact")

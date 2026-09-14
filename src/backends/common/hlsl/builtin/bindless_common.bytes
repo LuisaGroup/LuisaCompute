@@ -65,6 +65,33 @@ return s[idx*3];
 #define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx)
 #define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[_TYPED_BUFFER_INDEX(arr,arrIdx)].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx)
 #endif
+
+// Debug-only out-of-range detection (see builtin/oob_runtime.bytes): when the
+// host was built without NDEBUG and the shader enables debug info, the codegen
+// defines `_LC_OOB_CHECK` and these macros override the plain clamped variants
+// above. A bindless slot index is routed through `_lc_oob_guard` so an invalid
+// descriptor is never dereferenced (which would silently remove the D3D12
+// device); the violation is recorded per thread and the codegen then returns
+// from every function (manual multiple return). Kind 2 = bindless array.
+#ifdef _LC_OOB_CHECK
+#undef _READ_BUFFER
+#undef _READ_BUFFER_BYTES
+#undef _uniform_READ_BUFFER
+#undef _uniform_READ_BUFFER_BYTES
+#undef _typed_READ_BUFFER
+#undef _typed_READ_BUFFER_BYTES
+#undef _typed_uniform_READ_BUFFER
+#undef _typed_uniform_READ_BUFFER_BYTES
+#define _LC_BDLS_GUARD(arrIdx,bound) _lc_oob_guard((arrIdx),(bound),2u)
+#define _READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound)     bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(size*idx)
+#define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound)     bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(idx)
+#define _uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound)     bf[(_ReadBdlsBuffer(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(size*idx)
+#define _uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound)     bf[(_ReadBdlsBuffer(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(idx)
+#define _typed_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound)     bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx)
+#define _typed_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound)     bf[NonUniformResourceIndex(_TYPED_BUFFER_INDEX(arr,_LC_BDLS_GUARD(arrIdx,bound)))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx)
+#define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound)     bf[_TYPED_BUFFER_INDEX(arr,_LC_BDLS_GUARD(arrIdx,bound))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+size*idx)
+#define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,bound)     bf[_TYPED_BUFFER_INDEX(arr,_LC_BDLS_GUARD(arrIdx,bound))].template Load<type>(_TYPED_BUFFER_BIAS(arr,arrIdx)+idx)
+#endif
 template<typename T,typename I,typename J>
 uint _bdlsBfSize(StructuredBuffer<uint> arr,I arrIdx,J size,T bf){
 uint sz;

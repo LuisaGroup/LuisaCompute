@@ -165,6 +165,7 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 | `bindless_common` | Bindless utils |
 | `auto_diff` | Autodiff |
 | `reduce` | Parallel reduction |
+| `oob_runtime` / `oob_flush` | Out-of-range access detection (debug only) |
 
 ### DXIL Files (`.dxil`)
 | Key | Description |
@@ -181,6 +182,32 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 3. Register: `LC_HLSL_INSERT_VARNAME(my_bytes, "my_key")`
 
 Build: `.hlsl` → `.bytes`, shaders → `.dxil`, embedded via `bin2obj`.
+
+### Out-of-Range Access Detection (debug only)
+An out-of-range index into a buffer, bindless array, local array, shared
+array or accel instance silently removes the D3D12 device (no exception, no
+log). The detector is active only for **host debug builds** (`#ifndef NDEBUG`
+gate in `CodegenUtility::Codegen`) with `ShaderOption{.enable_debug_info=true}`
+on the **DXIL compute path** (not SPIR-V): it sets `CodegenStackData::oob_check`,
+emits `#define _LC_OOB_CHECK 1` plus the `oob_runtime`/`oob_flush` builtins, and
+every generated code path is wrapped in `#ifdef _LC_OOB_CHECK`.
+
+| Resource | Guard | Bound source |
+|---|---|---|
+| buffer read/write/atomic | `_bfread`/`_bfwrite` macros, `AccessChain::call_this_func` | cbuffer `_validate_N` slot (existing debug-validation ABI) |
+| bindless slot | `_READ_BUFFER*` macros | cbuffer `_validate_N` slot |
+| local / struct-member array | `StringStateVisitor::visit(const AccessExpr *)` | compile-time `Type::dimension()` |
+| shared array | same | compile-time `Variable::type()->dimension()` |
+| accel instance | `accel_header.bytes` `_LC_OOB_INST_IDX` | `GetDimensions` on the instance buffer |
+
+HLSL has no exceptions, so "quit and return from all function calls" is a
+**manually generated multiple return**: `_lc_oob_guard` records the violation
+and clamps the index to 0 (so no invalid access reaches the GPU), then
+`StringStateVisitor::EmitOobGuard` appends `if(_lc_oob_err){ return; }`
+(`return (T)0;` for typed callables) after every statement, and `visit(const/nReturnStmt *)` materializes the returned value before checking. The kernel entry
+calls `_lc_oob_exit()`, which flushes kind/index/bound/dispatch-id through the
+device-printer ABI, so the host reports it via `Stream::set_log_callback`.
+Covered by `src/tests/unit/runtime/test_out_of_range.cpp` (run with `dx`).
 
 ### Codegen Debug
 

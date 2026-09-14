@@ -37,6 +37,10 @@ public:
         bool docking{true};
         bool multi_viewport{true};
         uint back_buffers{2};
+        /// Scale the GUI style/fonts (and the initial window size) to the
+        /// monitor content scale reported by GLFW. Disable for pixel-exact
+        /// rendering independent of the display DPI.
+        bool dpi_aware{true};
 
         [[nodiscard]] static Config make_default() noexcept { return {}; }
     };
@@ -93,6 +97,10 @@ public:
     [[nodiscard]] GLFWwindow *handle() const noexcept;
     [[nodiscard]] Swapchain &swapchain() const noexcept;
     [[nodiscard]] Image<float> &framebuffer() const noexcept;
+
+    /// Content scale currently applied to the style/fonts
+    /// (1.0 when DPI awareness is disabled).
+    [[nodiscard]] float dpi_scale() const noexcept;
 
     [[nodiscard]] auto valid() const noexcept { return _impl != nullptr; }
     [[nodiscard]] explicit operator bool() const noexcept { return valid(); }

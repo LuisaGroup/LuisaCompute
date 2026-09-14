@@ -173,6 +173,17 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
+#ifndef NDEBUG
+    // Out-of-range access detection is a debug-build-only feature. It turns a
+    // silent D3D12 device removal (caused by an out-of-range buffer / bindless
+    // / array / shared-array / accel-instance index) into a reported violation
+    // plus an early return from every generated function. DXIL compute only:
+    // the SPIR-V path has no matching host-side validation-slot plumbing.
+    constexpr bool host_debug_build = true;
+#else
+    constexpr bool host_debug_build = false;
+#endif
+    opt->oob_check = enable_debug_info && host_debug_build && !isSpirV;
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -197,6 +208,13 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
+    if (opt->oob_check) {
+        // Must precede the builtin headers so their `LUISA_DEBUG_INFO` macros
+        // select the range-guarded variants and `_lc_oob_guard` is declared
+        // before use (see builtin/oob_runtime.bytes).
+        finalResult << "#define _LC_OOB_CHECK 1\n";
+        finalResult << CodegenUtility::ReadInternalHLSLFile("oob_runtime");
+    }
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
@@ -218,6 +236,21 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     // the _Global args load when a cbuffer is present, and the kernel/callable
     // bodies through StringStateVisitor. Custom callables are emitted recursively
     // so the resulting HLSL is self-contained.
+    if (opt->oob_check) {
+        // Reserve printer slot 0 for the out-of-range violation report BEFORE
+        // any user device_log printer is registered, and emit the flush helper
+        // into the incremental section (it references _printCounter/_printBuffer
+        // declared in varData, which precedes incrementalFunc in the output).
+        LUISA_ASSUME(opt->printer.empty());
+        auto oob_printer_idx = AddPrinter(
+            "LC OOB access: kind={} index={} bound={} dispatch=({},{},{})"sv,
+            Type::structure({Type::of<uint>(), Type::of<uint>(), Type::of<uint>(),
+                             Type::of<uint>(), Type::of<uint>(), Type::of<uint>()}));
+        incrementalFunc << "#define _LC_OOB_PRINTER_IDX "sv;
+        vstd::to_string(static_cast<int64_t>(oob_printer_idx), incrementalFunc);
+        incrementalFunc << "u\n"sv;
+        incrementalFunc << CodegenUtility::ReadInternalHLSLFile("oob_flush");
+    }
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer || enable_debug_info, true);
     if (isSpirV) {
         if (opt->noRegister) {
@@ -742,6 +775,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
             if (cbufferNonEmpty) {
                 result << "_Args a = _Global[0];\n"sv;
             }
+            if (opt->oob_check && !opt->isRayTracing) {
+                // Remember the dispatch coordinate so a reported violation can
+                // be located on the host.
+                result << "_lc_oob_dsp=dspId;\n"sv;
+            }
             opt->arguments.clear();
             opt->arguments.reserve(func.arguments().size());
             size_t idx = 0;
@@ -759,6 +797,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
             StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
             vis.VisitFunction(func);
+        }
+        if (opt->oob_check && opt->funcType == CodegenStackData::FuncType::Kernel) {
+            // Report a violation that was recorded by the last statement even
+            // when no guard ran after it.
+            result << "_lc_oob_exit();\n"sv;
         }
         result << "}\n"sv;
     };

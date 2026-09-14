@@ -109,6 +109,15 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     if (WIN32 AND LUISA_COMPUTE_ENABLE_DX)
         luisa_compute_add_example(example_win_hdr gui/win_hdr.cpp)
     endif ()
+    # interactive image processing window (load/process/save, headless self test)
+    luisa_compute_add_example(example_image_process
+            gui/image_process/main.cpp
+            gui/image_process/image_process.cpp
+            gui/image_process/headless_test.cpp)
+    if (WIN32)
+        # native open/save file dialogs
+        target_link_libraries(example_image_process PRIVATE comdlg32)
+    endif ()
 
 endif ()
 
@@ -128,6 +137,7 @@ luisa_compute_add_example(example_multi_head_attention
         ml/attention_host_data.cpp
         ml/attention_cpu_reference.cpp
         ml/attention_runner.cpp
+        ml/paged_attention.cpp
         MIRROR_AS_TEST)
 
 # coroutine (headless)
