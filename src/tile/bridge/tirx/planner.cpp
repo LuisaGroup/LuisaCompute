@@ -247,13 +247,6 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
            distribution.atom_columns == workload.columns / 8u / distribution.subgroups_n;
 }
 
-ReductionCost ExecutionCostPolicy::reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
-    auto score = reduction_score(candidate, model);
-    auto waves = std::max(1.0, std::ceil(static_cast<double>(candidate.programs) /
-                                         std::max(1u, model.preferred_concurrent_programs)));
-    return {score, waves, score * waves};
-}
-
 bool ServiceExecutionCostPolicy::valid() const noexcept {
     if (_model.concurrent_subgroups == 0u) { return false; }
     for (auto coefficient : {_model.dispatch, _model.scalar_round, _model.collective,
@@ -291,15 +284,18 @@ ReductionCost ServiceExecutionCostPolicy::reduction_cost(const ReductionCandidat
     return {score, waves, kernel_score};
 }
 
-double AnalyticExecutionCostPolicy::reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
+ReductionCost AnalyticExecutionCostPolicy::reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
     auto &access = candidate.payload_accesses_per_worker;
     auto access_score = candidate.payload_accesses_known ?
                             (access.global_read_bytes + access.global_write_bytes) * model.subgroup_reduction_global_access_byte +
                                 (access.private_read_bytes + access.private_write_bytes) * model.subgroup_reduction_private_access_byte :
                             0.0;
-    return access_score + candidate.scalar_rounds * model.subgroup_reduction_scalar_round +
-           static_cast<double>(candidate.reductions) * candidate.subgroups_per_program * model.subgroup_reduction_collective +
-           model.subgroup_reduction_group_setup / candidate.programs_per_group;
+    auto score = access_score + candidate.scalar_rounds * model.subgroup_reduction_scalar_round +
+                 static_cast<double>(candidate.reductions) * candidate.subgroups_per_program * model.subgroup_reduction_collective +
+                 model.subgroup_reduction_group_setup / candidate.programs_per_group;
+    auto waves = std::max(1.0, std::ceil(static_cast<double>(candidate.programs) /
+                                         std::max(1u, model.preferred_concurrent_programs)));
+    return {score, waves, score * waves};
 }
 
 PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &limits, const PlannerOptions &requested,

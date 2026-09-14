@@ -7,7 +7,9 @@
 #include <luisa/tile/bridge/tirx/layout.h>
 
 #include <algorithm>
+#include <concepts>
 #include <limits>
+#include <type_traits>
 
 using namespace luisa;
 using namespace luisa::compute::tile::bridge::tirx;
@@ -15,6 +17,26 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
+
+template<typename Policy>
+concept SupportsReductionCost = requires(const Policy &policy, const ReductionCandidate &candidate, const ExecutionCostModel &model) {
+    { policy.reduction_cost(candidate, model) } noexcept -> std::same_as<ReductionCost>;
+};
+
+template<typename Policy>
+concept HasReductionScore = requires(const Policy &policy, const ReductionCandidate &candidate, const ExecutionCostModel &model) {
+    policy.reduction_score(candidate, model);
+};
+
+static_assert(SupportsReductionCost<ExecutionCostPolicy>);
+static_assert(SupportsReductionCost<AnalyticExecutionCostPolicy>);
+static_assert(SupportsReductionCost<ServiceExecutionCostPolicy>);
+static_assert(!HasReductionScore<ExecutionCostPolicy>);
+static_assert(!HasReductionScore<AnalyticExecutionCostPolicy>);
+static_assert(!HasReductionScore<ServiceExecutionCostPolicy>);
+static_assert(std::is_abstract_v<ExecutionCostPolicy>);
+static_assert(!std::is_abstract_v<AnalyticExecutionCostPolicy>);
+static_assert(!std::is_abstract_v<ServiceExecutionCostPolicy>);
 
 [[nodiscard]] GroupWorkload workload(uint64_t m, uint64_t n, uint64_t k) {
     return GroupWorkload{64u, (m + n) * k, std::max({m * n, m * k, k * n}), 4u * (2u * m * n + m * k + k * n), {{m, n, k, 7u}}};
@@ -611,15 +633,15 @@ void test_reduction_access_service_policy() {
     candidate.payload_accesses_per_worker = {64.0, 32.0, 96.0, 16.0};
     ExecutionCostModel model;
     AnalyticExecutionCostPolicy policy;
-    auto historical = policy.reduction_score(candidate, model);
-    expect(eq(historical, 44.0));
+    auto baseline = policy.reduction_cost(candidate, model).program_score;
+    expect(eq(baseline, 44.0));
     // Deliberately synthetic units test independent service coefficients, not
-    // a calibrated GPU profile. The default remains exactly the old score.
+    // a calibrated GPU profile. The default analytic prior is unchanged.
     model.subgroup_reduction_global_access_byte = 0.25;
     model.subgroup_reduction_private_access_byte = 0.0625;
-    expect(eq(policy.reduction_score(candidate, model), 75.0));
+    expect(eq(policy.reduction_cost(candidate, model).program_score, 75.0));
     candidate.payload_accesses_known = false;
-    expect(eq(policy.reduction_score(candidate, model), historical));
+    expect(eq(policy.reduction_cost(candidate, model).program_score, baseline));
     PlannerOptions options;
     for (auto invalid : {-1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
         options.cost.subgroup_reduction_global_access_byte = invalid;
@@ -643,9 +665,9 @@ void test_reduction_machine_cost() {
     candidate.payload_accesses_per_worker = {64.0, 32.0, 96.0, 16.0};
     candidate.payload_accesses_per_program = {128.0, 64.0, 192.0, 32.0};
     ExecutionCostModel prior;
-    AnalyticExecutionCostPolicy legacy;
-    auto original = legacy.reduction_cost(candidate, prior);
-    expect(eq(original.program_score, legacy.reduction_score(candidate, prior)));
+    AnalyticExecutionCostPolicy analytic;
+    auto original = analytic.reduction_cost(candidate, prior);
+    expect(eq(original.program_score, 44.0));
     expect(eq(original.concurrent_waves, 16.0));
     expect(eq(original.kernel_score, original.program_score * 16.0));
     // Synthetic arithmetic, deliberately unrelated to the M1 Max fit.

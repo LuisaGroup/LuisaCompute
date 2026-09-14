@@ -240,13 +240,10 @@ public:
     [[nodiscard]] virtual ExecutionCostModel coefficients(
         const ExecutionLimits &limits, MatrixCostBasis basis,
         const ExecutionCostModel &prior) const noexcept = 0;
-    [[nodiscard]] virtual double reduction_score(
-        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept = 0;
-    // The compatibility implementation applies the historical program-wave
-    // prior to reduction_score(). Override this hook for a machine objective;
-    // the bridge will not multiply the returned kernel score a second time.
+    // Return the complete machine objective. The bridge does not multiply
+    // kernel_score by concurrent_waves a second time.
     [[nodiscard]] virtual ReductionCost reduction_cost(
-        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept;
+        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept = 0;
 };
 
 // Existing deterministic prior. Backends can inherit and override either
@@ -255,7 +252,7 @@ class LUISA_TILE_TIRX_BRIDGE_API AnalyticExecutionCostPolicy : public ExecutionC
 public:
     [[nodiscard]] ExecutionCostModel coefficients(
         const ExecutionLimits &, MatrixCostBasis, const ExecutionCostModel &prior) const noexcept override { return prior; }
-    [[nodiscard]] double reduction_score(
+    [[nodiscard]] ReductionCost reduction_cost(
         const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override;
 };
 

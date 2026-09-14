@@ -1085,10 +1085,13 @@ void test_metal_reduction_packing_and_policy(Runtime &runtime) {
     public:
         mutable uint32_t candidates{0u};
         bool invalid{false};
-        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &) const noexcept override {
+        ReductionCost reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
             candidates++;
-            if (invalid) { return std::numeric_limits<double>::quiet_NaN(); }
-            return candidate.subgroups_per_program == 1u && candidate.programs_per_group == 2u ? 0.0 : 1.0;
+            auto cost = AnalyticExecutionCostPolicy::reduction_cost(candidate, model);
+            cost.program_score = invalid ? std::numeric_limits<double>::quiet_NaN() :
+                                           (candidate.subgroups_per_program == 1u && candidate.programs_per_group == 2u ? 0.0 : 1.0);
+            cost.kernel_score = cost.program_score * cost.concurrent_waves;
+            return cost;
         }
     } policy;
     constexpr auto rows = int64_t{5}, columns = int64_t{257};
@@ -1202,9 +1205,9 @@ void test_reduction_lane_elements(Runtime &runtime) {
     class Policy final : public AnalyticExecutionCostPolicy {
     public:
         mutable uint32_t observed_width{0u};
-        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
+        ReductionCost reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
             observed_width = candidate.lane_elements;
-            return AnalyticExecutionCostPolicy::reduction_score(candidate, model);
+            return AnalyticExecutionCostPolicy::reduction_cost(candidate, model);
         }
     } policy;
     for (auto width : {2u, 4u, 8u}) {
@@ -1629,7 +1632,7 @@ void test_reduction_complete_width_search(Runtime &runtime) {
     public:
         mutable std::array<bool, 32u> widths{};
         mutable bool features_valid{true};
-        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
+        ReductionCost reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
             widths[candidate.subgroups_per_program - 1u] = true;
             features_valid &= candidate.threadgroups == ceil_div(candidate.programs, uint64_t{candidate.programs_per_group});
             features_valid &= candidate.lane_utilization > 0.0 && candidate.lane_utilization <= 1.0;
@@ -1637,8 +1640,10 @@ void test_reduction_complete_width_search(Runtime &runtime) {
             features_valid &= std::abs(candidate.lane_utilization * candidate.scalar_rounds * workers - candidate.scalar_elements) < 1e-8;
             // Deliberately choose a non-power-of-two width from the automatic
             // family, independently of the default coefficient ranking.
-            return candidate.subgroups_per_program == 3u ? 0.0 :
-                                                           1.0 + AnalyticExecutionCostPolicy::reduction_score(candidate, model);
+            auto cost = AnalyticExecutionCostPolicy::reduction_cost(candidate, model);
+            cost.program_score = candidate.subgroups_per_program == 3u ? 0.0 : 1.0 + cost.program_score;
+            cost.kernel_score = cost.program_score * cost.concurrent_waves;
+            return cost;
         }
     } policy;
     constexpr auto rows = int64_t{5};
