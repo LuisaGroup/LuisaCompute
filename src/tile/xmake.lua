@@ -13,51 +13,48 @@ add_defines("LUISA_TILE_EXPORT_DLL")
 add_headerfiles("../../include/luisa/tile/**.h", "../../include/luisa/tile.h")
 -- Include the whole tile source tree so the always-on XIR bridge and the
 -- optional TVM TIRx bridge are compiled, mirroring the CMake source layout.
--- The TIRx bridge stays excluded unless lc_tile_tirx_bridge is enabled with
--- TVM include/library paths (same optionality as LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE).
-add_files("**.cpp")
+-- The TIRx bridge stays excluded unless lc_tile_tirx_bridge is enabled, in
+-- which case the bundled apache/tvm submodule (src/ext/tvm) is built from
+-- source by src/ext/xmake.lua and linked directly.
+add_files("*.cpp", "bridge/xir/**.cpp")
+-- The TIRx bridge translation units define same-named anonymous-namespace
+-- helpers (e.g. ElementDomain) that collide when merged by the unity build,
+-- so they are always compiled as standalone units. The files are only added
+-- when the bridge is enabled: remove_files with a glob does not match inside
+-- on_load, so an else-branch removal cannot exclude them.
+if has_config("lc_tile_tirx_bridge") then
+    add_files("bridge/tirx/**.cpp", {unity_ignored = true})
+end
 add_defines("LUISA_TILE_XIR_BRIDGE_EXPORT_DLL")
 
-local function tirx_paths_configured()
-    local names = {
-        "lc_tvm_include_dir",
-        "lc_tvm_ffi_include_dir",
-        "lc_tvm_library_dir",
-        "lc_tvm_ffi_library_dir"
-    }
-    for _, name in ipairs(names) do
-        local value = get_config(name)
-        if type(value) ~= "string" or value == "" then
-            return false
+on_load(function(target)
+      if has_config("lc_tile_tirx_bridge") then
+          target:add("defines", "LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
+          -- The bundled TVM/tvm-ffi headers use throw, so this target needs
+          -- C++ exceptions even though the project default disables them.
+          target:set("exceptions", "cxx")
+        -- The TVM targets carry the tvm/include, tvm-ffi/include and dlpack
+        -- include directories in their public interface, so depending on them
+        -- wires up both the headers and the linker inputs.
+        target:add("deps", "tvm_compiler", "tvm_runtime", "tvm_ffi")
+        -- tvm_ffi.dll / tvm_runtime.dll / tvm_compiler.dll live next to
+        -- luisa-tile in the shared bin directory.
+        if is_plat("macosx") then
+            target:add("rpathdirs", "@loader_path")
+        elseif is_plat("linux") then
+            target:add("rpathdirs", "$ORIGIN")
         end
     end
-    return true
-end
-
-if has_config("lc_tile_tirx_bridge") then
-    add_defines("LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
-    if tirx_paths_configured() then
-        local tvm_include = get_config("lc_tvm_include_dir")
-        local tvm_ffi_include = get_config("lc_tvm_ffi_include_dir")
-        local tvm_library_dir = get_config("lc_tvm_library_dir")
-        local tvm_ffi_library_dir = get_config("lc_tvm_ffi_library_dir")
-        add_includedirs(tvm_include, tvm_ffi_include)
-        local dlpack_include = path.join(tvm_ffi_include, "../3rdparty/dlpack/include")
-        if os.exists(dlpack_include) then
-            add_includedirs(path.normalize(dlpack_include))
-        end
-        add_linkdirs(tvm_library_dir, tvm_ffi_library_dir)
-        add_links("tvm_compiler", "tvm_runtime", "tvm_ffi")
-    end
-else
-    remove_files("bridge/tirx/*.cpp")
-end
+end)
 
 on_config(function(target)
-    if has_config("lc_tile_tirx_bridge") and not tirx_paths_configured() then
-        raise("lc_tile_tirx_bridge requires --lc_tvm_include_dir, " ..
-              "--lc_tvm_ffi_include_dir, --lc_tvm_library_dir and " ..
-              "--lc_tvm_ffi_library_dir (mirrors the CMake TVM options).")
+    if has_config("lc_tile_tirx_bridge") then
+        local tvm_cmake = path.join(get_config("lc_ext_path"), "tvm", "CMakeLists.txt")
+        if not os.exists(tvm_cmake) then
+            raise("lc_tile_tirx_bridge requires the bundled TVM submodule. " ..
+                  "Run `git submodule update --init src/ext/tvm` (with " ..
+                  "`3rdparty/tvm-ffi` and its `3rdparty/dlpack`).")
+        end
     end
 end)
 target_end()

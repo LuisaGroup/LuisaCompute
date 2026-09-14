@@ -451,7 +451,8 @@ namespace {
         static_cast<uint32_t>(LUISA_XIR_ELIMINATE_EARLY_RETURN) << 2u |
         static_cast<uint32_t>(LUISA_XIR_NORMALIZE_CFG) << 3u |
         static_cast<uint32_t>(LUISA_XIR_RESTRUCTURE_CFG) << 4u |
-        static_cast<uint32_t>(kernel.requires_autodiff()) << 5u;
+        static_cast<uint32_t>(kernel.requires_autodiff()) << 5u |
+        static_cast<uint32_t>(option.assume_no_packed_textures) << 6u;
     writer.write_u32(flags);
     writer.write_string(option.native_include);
     return std::move(writer).finish();
@@ -1426,6 +1427,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             .opt_level = HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE,
             .enable_fast_math = option.enable_fast_math,
             .enable_debug_info = option.enable_debug_info,
+            .assume_no_packed_textures = option.assume_no_packed_textures,
             .requires_ray_tracing = kernel.requires_raytracing(),
             .requires_ray_query = builtin_callables.uses_ray_query(),
             .requires_motion_blur = kernel.requires_motion_blur(),

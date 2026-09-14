@@ -1,0 +1,50 @@
+// ---------------------------------------------------------------------------
+// Out-of-range access detection runtime, part 1: per-thread error state.
+//
+// Emitted by the HLSL codegen into the source prelude ONLY when the host is
+// built without NDEBUG and the shader is compiled with enable_debug_info on
+// the non-SPIR-V (DX) compute path; `_LC_OOB_CHECK` is defined at the very top
+// of the generated source in that case, so this file compiles to nothing
+// otherwise (mirroring the `#ifndef NDEBUG` host gate).
+//
+// When a checked resource access (buffer, bindless array, local array, shared
+// array or acceleration-structure instance) uses an out-of-range index, the
+// access is redirected to index 0 so that no invalid memory access happens
+// (an out-of-range access on D3D12 silently removes the device), the
+// violation is recorded in per-thread static state, and every generated
+// function returns early. HLSL has no exceptions, so the "quit" is a manual
+// multiple return: the codegen appends
+//
+//     if(_lc_oob_err){ return; }   // typed callables: return (T)0;
+//
+// after every statement of every generated function
+// (StringStateVisitor::EmitOobGuard). The kernel entry additionally flushes
+// the record into the device print buffer (oob_flush builtin), so the host
+// reports the violation through the stream log callback.
+//
+// Kinds: 1=buffer, 2=bindless array, 3=array, 4=shared array, 5=accel instance
+// ---------------------------------------------------------------------------
+#ifdef _LC_OOB_CHECK
+// Per-thread (HLSL `static`) error state: no cross-thread races, no bindings.
+static bool _lc_oob_err=false;
+static uint _lc_oob_kind=0u;
+static uint _lc_oob_idx=0u;
+static uint _lc_oob_bound=0u;
+static uint3 _lc_oob_dsp=uint3(0u,0u,0u);
+void _lc_oob_record(uint kind,uint idx,uint bound){
+if(!_lc_oob_err){
+_lc_oob_err=true;
+_lc_oob_kind=kind;
+_lc_oob_idx=idx;
+_lc_oob_bound=bound;
+}
+}
+// Returns a safe index and records the violation when out of range.
+uint _lc_oob_guard(uint idx,uint bound,uint kind){
+if(idx>=bound){
+_lc_oob_record(kind,idx,bound);
+return 0u;
+}
+return idx;
+}
+#endif

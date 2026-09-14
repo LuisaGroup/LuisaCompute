@@ -166,9 +166,12 @@ public:
         if ((cooperative_matrix || planner.metal_subgroup_reductions) && _target == "metal") {
             // Opt-in tests/benchmarks require an Apple-family-7+ device, not
             // merely the existence of an arbitrary Metal runtime.
-            options.target = luisa::string{R"({"kind":"metal","thread_warp_size":32,"max_num_threads":)"} +
-                             std::to_string(_metal_max_threads) + R"(,"max_threads_per_block":)" +
-                             std::to_string(_metal_max_threads) + "}";
+                // std::to_string yields std::string, which has no operator+
+                // with the custom-allocator luisa::string; append via c_str().
+                auto metal_max_threads = std::to_string(_metal_max_threads);
+                options.target = luisa::string{R"({"kind":"metal","thread_warp_size":32,"max_num_threads":)"} +
+                                 metal_max_threads.c_str() + R"(,"max_threads_per_block":)" +
+                                 metal_max_threads.c_str() + "}";
         }
         options.noalias = noalias;
         options.cooperative_matrix = cooperative_matrix;

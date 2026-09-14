@@ -82,9 +82,12 @@ struct Access {
     bool external_write{false};
     bool opaque{false};
 
-    void merge(const Access &other) {
-        reads.insert(other.reads.begin(), other.reads.end());
-        writes.insert(other.writes.begin(), other.writes.end());
+        void merge(const Access &other) {
+            // The range insert of the ankerl-backed set is ambiguous with the
+            // hint overloads on MSVC (the raw-pointer const_iterator also
+            // matches the hinted insert signature), so insert element-wise.
+            for (auto buffer : other.reads) { reads.insert(buffer); }
+            for (auto buffer : other.writes) { writes.insert(buffer); }
         external_read |= other.external_read;
         external_write |= other.external_write;
         opaque |= other.opaque;

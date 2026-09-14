@@ -68,12 +68,15 @@ on_load(function(target)
     end
     target:add("defines", "LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
     target:add("deps", "lc-vulkan-swapchain", "lc-volk")
-    if has_config("lc_tile_tirx_bridge") then
-        -- The TIRx bridge sources are compiled into lc-tile for xmake. This
-        -- define mirrors the CMake `if (TARGET ...tirx)` wiring in
-        -- src/backends/cuda/CMakeLists.txt.
-        target:add("defines", "LUISA_CUDA_TILE_TIRX")
-    end
+      if has_config("lc_tile_tirx_bridge") then
+          -- The TIRx bridge sources are compiled into lc-tile for xmake. This
+          -- define mirrors the CMake `if (TARGET ...tirx)` wiring in
+          -- src/backends/cuda/CMakeLists.txt.
+          target:add("defines", "LUISA_CUDA_TILE_TIRX")
+          -- cuda_tile.cpp includes the TIRx compiler header, which pulls in
+          -- tvm-ffi headers that use throw.
+          target:set("exceptions", "cxx")
+      end
 end)
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
 add_links("cuda")

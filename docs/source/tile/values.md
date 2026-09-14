@@ -60,8 +60,11 @@ byte merely because the Runtime is byte-addressable.
 
 **Current target boundary:** FP16/BF16 and INT8/UINT8 mixed-precision examples
 are exercised on XIR/SIMD and Metal/TIRx; native Metal MPP remains its existing
-FP32 subset. Both bridges reject BF16 MMA accumulation until its rounding is
-qualified; BF16 inputs with an explicit FP32 accumulator are supported.
+FP32 subset. XIR lowers FP16/BF16 MMA accumulators through FP32 internal
+accumulation when `MmaPolicy::allow_reassociation` is enabled, then rounds the
+result to the declared type. Strict BF16 accumulation still rejects, as does
+BF16 accumulation on TIRx; BF16 inputs with an explicit FP32 accumulator are
+supported on both bridges.
 FP8 capture and typed Buffer allocation are available, but these
 two Runtime routes reject FP8 execution explicitly. The XIR FP8 legalizer is
 not implemented, and the pinned TIRx/Metal FP8 path is not qualified. Manual

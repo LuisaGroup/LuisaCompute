@@ -1104,21 +1104,32 @@ int main(int argc, char *argv[]) {
             expect(!bx::lower(kernel.function(), {.mma_output_block = width}));
             expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.mma_output_block = width}));
         }
-        auto bf16 = tile_kernel("unsupported_mma_accumulator", [](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
-                        auto m = axis("m", 1), n = axis("n", 2), k = axis("k", 3);
-                        for (auto &nest : parallel(shape(1))) {
-                            static_cast<void>(nest);
-                            auto seed = cast<tile::bfloat16>(c.tile(coord(0, 0), shape(m, n)).load());
-                            auto value = mma(a.tile(coord(0, 0), shape(m, k)).load(), b.tile(coord(0, 0), shape(k, n)).load(), seed);
-                            c(coord(0, 0), shape(m, n)).store(cast<float>(value));
-                        }
-                    }).capture(tensor_shape(1, 3), tensor_shape(3, 2), tensor_shape(1, 2));
+        auto bf16_fixture = [](bool strict) {
+            return tile_kernel("bf16_mma_accumulator_policy", [=](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                       auto m = axis("m", 1), n = axis("n", 2), k = axis("k", 3);
+                       for (auto &nest : parallel(shape(1))) {
+                           static_cast<void>(nest);
+                           auto seed = cast<tile::bfloat16>(c.tile(coord(0, 0), shape(m, n)).load());
+                           auto value = mma(a.tile(coord(0, 0), shape(m, k)).load(), b.tile(coord(0, 0), shape(k, n)).load(), seed, {.allow_reassociation = !strict});
+                           c(coord(0, 0), shape(m, n)).store(cast<float>(value));
+                       }
+                   })
+                .capture(tensor_shape(1, 3), tensor_shape(3, 2), tensor_shape(1, 2));
+        };
+        auto bf16 = bf16_fixture(true);
+        auto wide_bf16 = bf16_fixture(false);
         expect(bf16.valid());
+        expect(wide_bf16.valid());
         for (auto width : {1u, 4u}) {
             auto rejected = bx::lower(bf16.function(), {.mma_output_block = width});
             expect(!rejected && rejected.error.find("BF16 MMA accumulation") != string::npos);
             expect(!bx::analyze_resources(bf16.function(), {.mma_output_block = width}));
             expect(!bx::plan(bf16.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.mma_output_block = width}));
+            auto admitted = check_resources(wide_bf16, {.mma_output_block = width});
+            expect(admitted.ok()) << admitted.error;
+            auto planned = bx::plan(wide_bf16.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.mma_output_block = width});
+            expect(planned.ok()) << planned.error;
+            if (admitted && planned) { expect_same_resources(admitted.resources, planned.selected.resources); }
         }
     };
 
@@ -1161,12 +1172,14 @@ int main(int argc, char *argv[]) {
                                     auto updates = static_cast<double>(columns * terms * repeats);
                                     auto common = static_cast<double>(groups * terms * repeats);
                                     auto rolled = cap != 0u && terms > cap;
+                                    auto blocked = admitted && width != 1u;
+                                    auto loop_terms = blocked ? terms : terms / 8u;
                                     expect(eq(mma.multiply_adds, updates));
                                     expect(eq(mma.lhs_reads, swap ? updates : common));
                                     expect(eq(mma.rhs_reads, swap ? common : updates));
                                     expect(eq(mma.seed_reads, static_cast<double>(columns * repeats)));
                                     expect(eq(mma.loop_invocations, rolled ? static_cast<double>(groups * repeats) : 0.0));
-                                    expect(eq(mma.loop_iterations, rolled ? common : 0.0));
+                                    expect(eq(mma.loop_iterations, rolled ? static_cast<double>(groups * loop_terms * repeats) : 0.0));
                                     expect(eq(work.arithmetic_per_packet, 2.0 * updates));
                                     // A/B view loads are uniform across programs;
                                     // C loads/stores have stride N. Cap8
@@ -1177,7 +1190,11 @@ int main(int argc, char *argv[]) {
                                     auto external = static_cast<double>(terms + terms * columns) +
                                                     2.0 * static_cast<double>(columns) * (columns == 1u ? 2.0 : 16.0);
                                     auto snapshots = rolled && columns != 0u ? static_cast<double>(terms + terms * columns) * 16.0 : 0.0;
-                                    auto reads = rolled && columns != 0u ? (updates + common) * 16.0 : 0.0;
+                                    // Scalar k_pack tails use constant SSA
+                                    // indices; only the complete chunks read
+                                    // the small operand snapshots dynamically.
+                                    auto read_terms = blocked ? terms : terms / 8u * 8u;
+                                    auto reads = rolled && columns != 0u ? static_cast<double>((columns + groups) * read_terms * repeats) * 16.0 : 0.0;
                                     expect(eq(work.memory_per_packet, external + snapshots + reads));
                                 }
                             }
@@ -1201,7 +1218,7 @@ int main(int argc, char *argv[]) {
             expect(eq(a.arithmetic_per_packet, b.arithmetic_per_packet));
             expect(eq(a.mma_per_packet.lhs_reads, 585.0));
             expect(eq(b.mma_per_packet.lhs_reads, 153.0));
-            expect(eq(a.memory_per_packet - b.memory_per_packet, cap ? (585.0 - 153.0) * 16.0 : 0.0));
+            expect(eq(a.memory_per_packet - b.memory_per_packet, cap ? (520.0 - 153.0) * 16.0 : 0.0));
         }
         // A requested width is not an admitted width: the expansion budget
         // can keep the reference contraction, and costs must do the same.
@@ -1238,11 +1255,14 @@ int main(int argc, char *argv[]) {
                         selects += static_cast<xir::ArithmeticInst *>(instruction)->op() == xir::ArithmeticOp::SELECT;
                     }
                 });
-                auto expected_selects = cap ? ceil_div(5u, width) * 9u + 5u * 45u : 0u;
+                auto per_term_selects = ceil_div(5u, width) * 9u + 5u * 45u;
+                auto scalar = width == 1u;
+                auto expected_selects = cap ? per_term_selects * (scalar ? 8u : 1u) : 0u;
                 expect(eq(selects, expected_selects));
                 expect_same_resources(lowered.resources, {});
                 const auto &work = policy.observed_work.front();
-                expect(eq(work.arithmetic_per_packet, 90.0 + 9.0 * 2.0 * expected_selects));
+                auto dynamic_selects = cap ? per_term_selects * (scalar ? 8u : 9u) : 0u;
+                expect(eq(work.arithmetic_per_packet, 90.0 + 2.0 * dynamic_selects));
                 expect(eq(work.memory_per_packet, 160.0));
             }
         }
@@ -1316,6 +1336,7 @@ int main(int argc, char *argv[]) {
                             auto two_dimensional = enabled && rows > 1u && columns > 1u;
                             auto column_group = !two_dimensional && columns > 1u && !(swap && transpose);
                             auto row_group = !two_dimensional && columns == 1u && rows > 1u && swap;
+                            auto blocked = two_dimensional || column_group || row_group;
                             auto groups = outputs;
                             double a_reads = static_cast<double>(outputs * terms), b_reads = a_reads;
                             if (two_dimensional) {
@@ -1330,7 +1351,7 @@ int main(int argc, char *argv[]) {
                                 b_reads = static_cast<double>(groups * terms);
                             }
                             expect(eq(lowered.two_dimensional_mmas, two_dimensional ? 1u : 0u)) << context;
-                            expect(eq(lowered.blocked_mmas, two_dimensional || column_group || row_group ? 1u : 0u)) << context;
+                            expect(eq(lowered.blocked_mmas, blocked ? 1u : 0u)) << context;
                             expect_same_resources(lowered.resources, baseline.resources);
                             expect_same_resources(planned.selected.resources, lowered.resources);
                             auto a_snapshot = cap != 0u || a_elements > 64u;
@@ -1344,10 +1365,18 @@ int main(int argc, char *argv[]) {
                             expect(eq(work.mma_per_packet.rhs_reads, swap ? a_reads : b_reads)) << context;
                             expect(eq(work.mma_per_packet.seed_reads, static_cast<double>(outputs))) << context;
                             expect(eq(work.mma_per_packet.loop_invocations, cap ? static_cast<double>(groups) : 0.0)) << context;
-                            expect(eq(work.mma_per_packet.loop_iterations, cap ? static_cast<double>(groups * terms) : 0.0)) << context;
+                            auto loop_terms = blocked ? terms : terms / 8u;
+                            expect(eq(work.mma_per_packet.loop_iterations, cap ? static_cast<double>(groups * loop_terms) : 0.0)) << context;
                             expect(eq(work.arithmetic_per_packet, static_cast<double>(2u * outputs * terms))) << context;
                             auto external = static_cast<double>(a_elements + b_elements) + 2.0 * static_cast<double>(outputs) * (outputs == 1u ? 2.0 : 16.0);
-                            auto reads = (a_snapshot ? a_reads : 0.0) + (b_snapshot ? b_reads : 0.0);
+                            auto snapshot_reads = [&](bool snapshot, uint32_t elements, double count) {
+                                if (!snapshot) { return 0.0; }
+                                // A small SSA-backed operand's constant tail
+                                // bypasses its snapshot; a large array cannot.
+                                auto read_terms = cap && !blocked && elements <= 64u ? terms / 8u * 8u : terms;
+                                return count / terms * read_terms;
+                            };
+                            auto reads = snapshot_reads(a_snapshot, a_elements, a_reads) + snapshot_reads(b_snapshot, b_elements, b_reads);
                             expect(eq(work.memory_per_packet, external + (static_cast<double>(stored) + reads) * 16.0)) << context;
                             uint32_t indices = 0u, accumulators = 0u;
                             lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {

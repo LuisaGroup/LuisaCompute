@@ -234,8 +234,32 @@ int main(int argc, char *argv[]) {
         test_gemm<int8_t, int32_t>(device, stream, options);
         test_gemm<uint8_t, int32_t>(device, stream, options);
     };
-    "bf16_mma_accumulator_is_explicitly_unavailable"_test = [&] {
+    "bf16_mma_accumulator_default_is_backend_qualified"_test = [&] {
+        if (backend == "simd") {
+            test_gemm<t::bf16, t::bf16>(device, stream, options);
+            return;
+        }
+        // The TIRx route has not qualified BF16 accumulation yet, even with
+        // reassociation allowed. Do not erase that independent route boundary.
         auto kernel = example::tile::gemm<t::bf16, t::bf16>(1, 1, 1, {1, 1, 1});
+        expect(kernel.valid());
+        auto shader = t::compile(device, kernel, options);
+        expect(!static_cast<bool>(shader));
+        expect(shader.metadata().error.find("BF16") != string::npos) << shader.metadata().error;
+    };
+    "bf16_mma_strict_accumulator_is_explicitly_unavailable"_test = [&] {
+        auto kernel = t::tile_kernel("strict_bf16_mma", [](t::TensorView<const t::bf16, 2> A,
+                                                           t::TensorView<const t::bf16, 2> B,
+                                                           t::TensorView<t::bf16, 2> C) {
+                          auto m = t::axis("m", 1), n = t::axis("n", 1), k = t::axis("k", 1);
+                          for (auto &nest : t::parallel(t::shape(1))) {
+                              static_cast<void>(nest);
+                              auto a = A[t::coord(0, 0), t::shape(m, k)];
+                              auto b = B[t::coord(0, 0), t::shape(k, n)];
+                              auto result = t::mma(a, b, t::zeros<t::bf16>(t::shape(m, n)), {.allow_reassociation = false});
+                              C(t::coord(0, 0), t::shape(m, n)).store(result);
+                          }
+                      }).capture(t::tensor_shape(1, 1), t::tensor_shape(1, 1), t::tensor_shape(1, 1));
         expect(kernel.valid());
         auto shader = t::compile(device, kernel, options);
         expect(!static_cast<bool>(shader));

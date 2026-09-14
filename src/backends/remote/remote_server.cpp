@@ -586,6 +586,7 @@ private:
         option.enable_scalarizer = reader.read_bool();
         option.enable_ray_query_pipeline = reader.read_bool();
         option.force_ray_query_pipeline = reader.read_bool();
+        option.assume_no_packed_textures = reader.read_bool();
         option.enable_driver_optimization = reader.read_bool();
         option.name = reader.read_string();
         return option;

@@ -4,7 +4,7 @@ _config_project({
     project_kind = "shared",
     batch_size = 8
 })
-add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen")
+add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen", "lc-tile")
 add_files("**.cpp")
 add_headerfiles("**.h")
 add_includedirs("./")

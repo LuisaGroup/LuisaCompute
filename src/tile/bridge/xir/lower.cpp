@@ -393,12 +393,19 @@ private:
         _builder.br(merge);
         _at(merge);
     }
+    // Preserve lexicographic accumulation order while grouping an allowed
+    // runtime fold into unrolled chunks. The loop requirement and unrolling
+    // policy are independent: team traversal and narrow accumulation can
+    // require a rolled recurrence even when scalar folds use k_pack.
     template<typename F>
-    [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit, bool force_loop = false) {
+    [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit, bool force_loop = false, bool allow_unroll = true) {
         if (count == 0u || (!force_loop && !_bounded(count))) {
             for (uint64_t i = 0u; i < count; i++) { initial = emit(_index(i), initial); }
             return initial;
         }
+        constexpr uint64_t unroll = 8u;
+        auto step = allow_unroll ? unroll : 1u;
+        auto chunks = count / step;
         auto preheader = _block;
         auto header = _output.function->create_basic_block();
         auto body = _output.function->create_basic_block();
@@ -407,14 +414,18 @@ private:
         _at(header);
         auto index = _builder.phi(XType::of<int64_t>(), {{_index(0u), preheader}});
         auto sum = _builder.phi(initial->type(), {{initial, preheader}});
-        _builder.cond_br(_compare(A::BINARY_LESS, index, _index(count)), body, exit);
+        _builder.cond_br(_compare(A::BINARY_LESS, index, _index(chunks)), body, exit);
         _at(body);
-        auto next = emit(index, sum);
+        x::Value *next = sum;
+        auto base = step == 1u ? index : _binary(A::BINARY_MUL, index, _index(step));
+        for (uint64_t u = 0u; u < step; u++) { next = emit(step == 1u ? index : _binary(A::BINARY_ADD, base, _index(u)), next); }
         sum->add_incoming(next, _block);
         index->add_incoming(_binary(A::BINARY_ADD, index, _index(1u)), _block);
         _builder.br(header);
         _at(exit);
-        return sum;
+        x::Value *folded = sum;
+        for (uint64_t k = chunks * step; k < count; k++) { folded = emit(_index(k), folded); }
+        return folded;
     }
     template<typename F>
     [[nodiscard]] Elements _fold_many(uint64_t count, Elements initial, F &&emit, bool force_loop = false) {
@@ -1506,17 +1517,35 @@ private:
                 static_cast<void>(domain.add(axis.dimension, axis.extent));
             }
         }
+        // Wide accumulation (the legacy TileLang AccType rule): F16/BF16
+        // results accumulate the contraction in FP32 and round once at
+        // write-back. MmaPolicy::allow_reassociation permits target atoms at
+        // the declared input and accumulator types; wider internal accumulation
+        // preserves input precision, so it is contract-legal and removes the
+        // BF16 hard failure. With the policy disabled the reference fold in
+        // the declared accumulator type is retained (BF16 stays fail-closed).
+        auto scalar = result->type().scalar_type();
+        auto wide = op.mma_policy().allow_reassociation &&
+                    (scalar == ScalarType::FLOAT16 || scalar == ScalarType::BFLOAT16);
+        // Narrow-accumulator contractions keep the serial fold emission: the
+        // unrolled body regressed the DX HLSL fallback at large grids (device
+        // crash at 4096 programs), and narrow-accumulator GEMMs are not the
+        // workload the k_pack unroll targets. FP32/FP64/integer folds unroll.
+        auto allow_unroll = scalar != ScalarType::FLOAT16 && scalar != ScalarType::BFLOAT16;
+        auto accumulate = Type::scalar(ScalarType::FLOAT32);
         if (_team) {
             _output.rolled_mmas++;
             _emit_tile(result, [&](x::Value *flat) {
                 auto coordinates = _coordinates(space, flat);
                 auto initial = _read(_get(op.operand(2u)), flat);
-                return _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
+                if (wide) { initial = _cast(accumulate, result->type(), initial); }
+                auto folded = _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
                     auto full = coordinates;
                     for (auto coordinate : _coordinates(contraction, k)) { full.emplace_back(coordinate); }
-                    auto a = _cast(result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
-                    auto b = _cast(result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
-                    return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, true);
+                    auto a = _cast(wide ? accumulate : result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
+                    auto b = _cast(wide ? accumulate : result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
+                    return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, true, false);
+                return wide ? _cast(result->type(), accumulate, folded) : folded;
             });
             return;
         }
@@ -1539,7 +1568,8 @@ private:
                                                                                                  _binary(A::BINARY_ADD, base, _index(offset));
                         flats.emplace_back(flat);
                         coordinates.emplace_back(_coordinates(space, flat));
-                        initial.emplace_back(_read(_get(op.operand(2u)), flat));
+                        auto seed = _read(_get(op.operand(2u)), flat);
+                        initial.emplace_back(wide ? _cast(accumulate, result->type(), seed) : seed);
                     }
                 }
                 auto values = _fold_many(_volume(contraction), std::move(initial), [&](x::Value *k, const Elements &sums) {
@@ -1547,7 +1577,7 @@ private:
                     auto project = [&](uint32_t operand, uint32_t output) {
                         auto full = coordinates[output];
                         full.insert(full.end(), reduced.begin(), reduced.end());
-                        return _cast(result->type(), op.operand(operand)->type(), _project(_get(op.operand(operand)), domain, full));
+                        return _cast(wide ? accumulate : result->type(), op.operand(operand)->type(), _project(_get(op.operand(operand)), domain, full));
                     };
                     Elements next;
                     if (plan.output_rows > 1u) {
@@ -1575,6 +1605,7 @@ private:
                     }
                     return next; }, plan.contraction_runtime_loop);
                 for (auto j = 0u; j < width * height; j++) {
+                    if (wide) { values[j] = _cast(result->type(), accumulate, values[j]); }
                     if (storage) {
                         _store_local(result->type(), storage, flats[j], values[j]);
                     } else if (plan.output_rows > 1u) {
@@ -1650,15 +1681,17 @@ private:
         _emit_tile(result, [&](x::Value *flat) {
             auto coordinates = _coordinates(space, flat);
             auto initial = _read(_get(op.operand(2u)), flat);
-            return _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
+            if (wide) { initial = _cast(accumulate, result->type(), initial); }
+            auto folded = _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
                 auto full = coordinates;
                 for (auto coordinate : _coordinates(contraction, k)) { full.emplace_back(coordinate); }
-                auto a = _cast(result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
-                auto b = _cast(result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
-                if (result->type().scalar_type() == ScalarType::BFLOAT16) {
+                auto a = _cast(wide ? accumulate : result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
+                auto b = _cast(wide ? accumulate : result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
+                if (!wide && scalar == ScalarType::BFLOAT16) {
                     _fail("Tile to XIR: BF16 MMA accumulation requires an explicit FP32 accumulator");
                 }
-                return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, plan.contraction_runtime_loop);
+                return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, plan.contraction_runtime_loop, allow_unroll);
+            return wide ? _cast(result->type(), accumulate, folded) : folded;
         });
     }
     void _operation(const Operation &op) {

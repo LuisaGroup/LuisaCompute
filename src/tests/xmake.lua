@@ -257,6 +257,19 @@ end)
 test_proj("benchmark_tile_xir", "benchmark/benchmark_tile_xir.cpp", false, function()
     add_deps("lc-tile")
 end)
+-- TileIR -> XIR -> AST -> create_shader fallback on DX/VK; run with
+-- `xmake run test_tile_xir_runtime_gpu dx` (or vk).
+test_proj("test_tile_xir", "unit/tile/bridge/test_xir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_xir_runtime_gpu", "unit/tile/bridge/test_xir_runtime_gpu.cpp", false, function()
+    add_deps("lc-tile")
+end)
+-- GEMM benchmark through the same XIR->AST fallback on GPU backends; run with
+-- `xmake run benchmark_tile_xir_gpu -- dx 1024 1024 1024 16 16 128`.
+test_proj("benchmark_tile_xir_gpu", "benchmark/benchmark_tile_xir_gpu.cpp", false, function()
+    add_deps("lc-tile")
+end)
 for _, standard in ipairs({20, 23}) do
     test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
         add_deps("lc-tile")
@@ -592,6 +605,27 @@ test_proj("test_transient_resource", "integration/runtime/test_transient_resourc
     add_files("integration/runtime/transient_resource_device/*.cpp")
 end)
 
+-- unit/tile/bridge: host-side TIRx bridge tests (mirror the
+-- LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE block in src/tests/CMakeLists.txt).
+-- The bridge is compiled into lc-tile; the tests only need to link lc-tile.
+if has_config("lc_tile_tirx_bridge") then
+    for _, name in ipairs({"test_tile_tirx_layout",
+                           "test_tile_tirx_values",
+                           "test_tile_tirx_execution",
+                           "test_tile_tirx_cooperative",
+                           "test_tile_tirx_memory",
+                           "test_tile_tirx_pipeline",
+                           "test_tile_tirx_matrix",
+                           "test_tile_tirx_planner"}) do
+        local source = "unit/tile/bridge/" .. name:gsub("test_tile_tirx", "test_tirx") .. ".cpp"
+          test_proj(name, source, false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
+    end
+end
+
   -- integration/runtime: CUDA-only tests
   if has_config("lc_cuda_backend") then
       -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
@@ -607,14 +641,18 @@ end)
     -- wiring in src/tests/CMakeLists.txt).
     test_proj("test_tile_cuda_ptx", "unit/tile/test_tile_cuda_ptx.cpp", false, function()
         add_deps("lc-tile")
-        if has_config("lc_tile_tirx_bridge") then
-            add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
-        end
+          if has_config("lc_tile_tirx_bridge") then
+              add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end
     end)
     if has_config("lc_tile_tirx_bridge") then
-        test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
-            add_deps("lc-tile")
-        end)
+          test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
     end
 end
 

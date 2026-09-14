@@ -1,6 +1,22 @@
+#ifdef _LC_OOB_CHECK
+// Debug builds only: the instance buffer is sized exactly to the instance
+// count, so its first dimension is the valid index range. An out-of-range
+// instance index would silently remove the D3D12 device, so it is recorded and
+// clamped; the codegen then returns from every function (manual multi-return).
+template<typename T>
+uint _lc_oob_inst_bound(T instBuffer){
+uint c;
+uint s;
+instBuffer.GetDimensions(c,s);
+return c;
+}
+#define _LC_OOB_INST_IDX(buf,idx) _lc_oob_guard((idx),_lc_oob_inst_bound(buf),5u)
+#else
+#define _LC_OOB_INST_IDX(buf,idx) (idx)
+#endif
 template<typename T>
 float4x4 _InstMatrix(T instBuffer,uint index){
-_MeshInst v=instBuffer[index];
+_MeshInst v=instBuffer[_LC_OOB_INST_IDX(instBuffer,index)];
 return float4x4(
 float4(v.p0.x,v.p1.x,v.p2.x,0),
 float4(v.p0.y,v.p1.y,v.p2.y,0),
@@ -9,11 +25,11 @@ float4(v.p0.w,v.p1.w,v.p2.w,1));
 }
 template<typename T>
 uint _InstId(T instBuffer,uint index){
-return instBuffer[index].InstanceID;
+return instBuffer[_LC_OOB_INST_IDX(instBuffer,index)].InstanceID;
 }
 template<typename T>
 uint _InstVis(T instBuffer,uint index){
-return instBuffer[index].InstanceMask;
+return instBuffer[_LC_OOB_INST_IDX(instBuffer,index)].InstanceMask;
 }
 void _SetInstTransform(inout _MeshInst i,float4x4 mat){
 i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
@@ -21,14 +37,14 @@ i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
 i.p2=float4(mat[0].z,mat[1].z,mat[2].z,mat[3].z);
 }
 void _SetAccelTransform(RWStructuredBuffer<_MeshInst> buffer,uint index,float4x4 mat){
-_SetInstTransform(buffer[index],mat);
+_SetInstTransform(buffer[_LC_OOB_INST_IDX(buffer,index)],mat);
 }
 void _SetAccelVis(RWStructuredBuffer<_MeshInst> buffer,uint index,uint mask){
-buffer[index].InstanceMask=mask;
+buffer[_LC_OOB_INST_IDX(buffer,index)].InstanceMask=mask;
 }
 void _SetAccelOpaque(RWStructuredBuffer<_MeshInst> buffer,uint index,bool opaque){
-buffer[index].Flags=select(opaque,4,8);
+buffer[_LC_OOB_INST_IDX(buffer,index)].Flags=select(opaque,4,8);
 }
 void _SetUserId(RWStructuredBuffer<_MeshInst> buffer,uint index,uint id){
-buffer[index].InstanceID=id;
+buffer[_LC_OOB_INST_IDX(buffer,index)].InstanceID=id;
 }

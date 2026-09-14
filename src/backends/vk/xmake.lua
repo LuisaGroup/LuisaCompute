@@ -95,7 +95,7 @@ _config_project({
 })
 add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen",
          "lc-glslang-standalone", "lc-vk-validate-spirv",
-         "lc-vk-embed-device-lib")
+           "lc-vk-embed-device-lib", "lc-tile")
 add_headerfiles("*.h")
 add_files("*.cpp")
 lc_set_pcxxheader("lc_vk_pch.h")
