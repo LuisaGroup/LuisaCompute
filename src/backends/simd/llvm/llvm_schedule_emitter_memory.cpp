@@ -172,8 +172,12 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
             if (allocation.opcode != schedule::Opcode::alloca || !allocation.result || _is_shared_lvalue(*allocation.result)) { continue; }
             auto id = allocation.result->value;
             auto type = _source.value(*allocation.result)->type;
-            if (!type || !type->is_array() || !type->element()->is_scalar() ||
-                (type->element()->size() != 4u && type->element()->size() != 8u) || escapes[id]) { continue; }
+            if (!type || !type->is_array() || !type->element()->is_scalar() || escapes[id]) { continue; }
+            auto element = type->element();
+            // Admit byte storage explicitly: bool computes as i1 but stores
+            // as i8. FP8 and sub-byte quantized types need separate lowering.
+            if (element->size() != 4u && element->size() != 8u &&
+                !element->is_bool() && !element->is_int8() && !element->is_uint8()) { continue; }
             // A closed, typed address tree: allocation -> element GEP ->
             // scalar load/store, or a preflighted typed copy destination.
             // The copy emitter implements the same physical element stride.
@@ -259,15 +263,21 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
         return nullptr;
     }
     if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
-        auto lanes = ::llvm::FixedVectorType::get(_data_type(result->type, false), _width);
+        auto element = result->type->is_bool() ?
+                           static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                           _data_type(result->type, false);
+        auto lanes = ::llvm::FixedVectorType::get(element, _width);
         _result.contiguous_private_read_count++;
         // This closed allocation is private to this packet invocation. A
         // common valid slot contains W readable lanes, including inactive
         // lanes. Select away their values; no external-buffer overread or
         // widened shared-memory effect is admitted by this realization.
-        auto loaded = _builder.CreateAlignedLoad(lanes, _contiguous_private_address(handle, result->type, access->second),
-                                                 ::llvm::Align{result->type->alignment()}, "private.contiguous.load");
-        return _builder.CreateSelect(_active_mask, loaded, ::llvm::Constant::getNullValue(lanes));
+        ::llvm::Value *loaded = _builder.CreateAlignedLoad(lanes, _contiguous_private_address(handle, result->type, access->second),
+                                                           ::llvm::Align{result->type->alignment()}, "private.contiguous.load");
+        if (result->type->is_bool()) {
+            loaded = _builder.CreateICmpNE(loaded, ::llvm::Constant::getNullValue(lanes));
+        }
+        return _builder.CreateSelect(_active_mask, loaded, ::llvm::Constant::getNullValue(loaded->getType()));
     }
     return _gather_data(
         _local_base(_builder, handle),
@@ -295,10 +305,15 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _result.contiguous_private_write_count++;
         auto address = _contiguous_private_address(handle, written_value->type, access->second);
         auto alignment = ::llvm::Align{written_value->type->alignment()};
-        auto previous = _builder.CreateAlignedLoad(written->getType(), address, alignment, "private.contiguous.preserve");
+        auto stored = written;
+        if (written_value->type->is_bool()) {
+            stored = _builder.CreateZExt(written, ::llvm::FixedVectorType::get(_builder.getInt8Ty(), _width));
+        }
+        auto previous = _builder.CreateAlignedLoad(stored->getType(), address, alignment, "private.contiguous.preserve");
         // Preserve every inactive lane bit-for-bit. There are no concurrent
         // observers or escaping aliases of this packet-private allocation.
-        _builder.CreateAlignedStore(_builder.CreateSelect(_active_mask, written, previous), address, alignment);
+        // In particular, do not round-trip inactive bool bytes through i1.
+        _builder.CreateAlignedStore(_builder.CreateSelect(_active_mask, stored, previous), address, alignment);
     } else {
         _scatter_data(_local_base(_builder, handle), _local_offsets(_builder, handle), written_value->type, written);
     }

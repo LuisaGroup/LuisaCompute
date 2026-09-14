@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #if defined(__unix__) || defined(__APPLE__)
@@ -16901,6 +16902,237 @@ template<typename T>
 }
 
 template<typename T>
+[[nodiscard]] bool run_byte_private_accesses() {
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>);
+    ScopedEnvironmentVariable effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", "1"};
+    ScopedEnvironmentVariable cohort_default{"LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS", nullptr};
+    auto encode = [](int32_t value) noexcept {
+        if constexpr (std::is_same_v<T, bool>) {
+            return static_cast<uint8_t>(value != 0);
+        } else {
+            return static_cast<uint8_t>(value);
+        }
+    };
+    auto decode = [](uint8_t value) noexcept {
+        if constexpr (std::is_same_v<T, bool>) {
+            return static_cast<int32_t>(value != 0u);
+        } else if constexpr (std::is_same_v<T, int8_t>) {
+            return static_cast<int32_t>(value) - (value >= 128u ? 256 : 0);
+        } else {
+            return static_cast<int32_t>(value);
+        }
+    };
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto kernel = module.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        auto type = Type::of<T>();
+        auto index_type = Type::of<uint32_t>();
+        auto integer_type = Type::of<int32_t>();
+        auto flags = kernel->create_resource_argument(Type::buffer(index_type));
+        auto output = kernel->create_resource_argument(Type::buffer(integer_type));
+        auto entry_block = kernel->create_body_block();
+        auto arm = kernel->create_basic_block();
+        auto merge = kernel->create_basic_block();
+        auto header = kernel->create_basic_block();
+        auto body = kernel->create_basic_block();
+        auto exit = kernel->create_basic_block();
+        xir::XIRBuilder builder;
+        auto constant = [&](auto value) { return module.create_constant(Type::of<decltype(value)>(), &value); };
+        auto alu = [&](const Type *t, xir::ArithmeticOp op, xir::Value *a, xir::Value *b) {
+            return builder.call(t, op, {a, b});
+        };
+        builder.set_insertion_point(entry_block);
+        auto lane = module.create_warp_lane_id();
+        auto lane_integer = builder.static_cast_if_necessary(integer_type, lane);
+        auto payload = [&](int32_t scale, int32_t bias) {
+            return alu(integer_type, xir::ArithmeticOp::BINARY_ADD,
+                       alu(integer_type, xir::ArithmeticOp::BINARY_MUL, lane_integer, constant(scale)), constant(bias));
+        };
+        auto storage = builder.alloca_local(Type::array(type, 17u));
+        auto store = [&](xir::Value *slot, xir::Value *value) {
+            auto pointer = builder.gep(type, storage, {slot});
+            builder.store(pointer, builder.static_cast_if_necessary(type, value));
+            return pointer;
+        };
+        auto write_output = [&](uint32_t field, xir::Value *value) {
+            auto index = alu(index_type, xir::ArithmeticOp::BINARY_ADD, lane, constant(field * width));
+            builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, index, builder.static_cast_if_necessary(integer_type, value)});
+        };
+        // Only these exit-observable slots need initialization. Slot 15 is
+        // written inside a non-prefix cohort, leaving genuine 0xa5 bytes in
+        // the other lanes for the host workspace oracle to inspect.
+        store(constant(2u), payload(0, 0));
+        store(constant(3u), payload(0, 1));
+        auto initial = store(constant(16u), payload(7, -40));
+        write_output(0u, builder.load(type, initial));
+        auto flag = builder.call(index_type, xir::ResourceReadOp::BUFFER_READ, {flags, lane});
+        builder.cond_br(alu(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, flag, constant(0u)), arm, merge);
+        builder.set_insertion_point(arm);
+        auto fixed = store(constant(15u), payload(5, -20));
+        write_output(1u, builder.load(type, fixed));
+        auto varying = store(lane, payload(3, -19));
+        write_output(2u, builder.load(type, varying));
+        auto first = builder.call(index_type, xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, {lane});
+        auto cohort = store(first, payload(1, -7));
+        write_output(3u, builder.load(type, cohort));
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        auto limit = alu(index_type, xir::ArithmeticOp::BINARY_ADD,
+                         alu(index_type, xir::ArithmeticOp::BINARY_MOD, lane, constant(5u)), constant(1u));
+        builder.br(header);
+        builder.set_insertion_point(header);
+        auto iteration = builder.phi(index_type, {{constant(0u), merge}});
+        auto sum = builder.phi(integer_type, {{constant(int32_t{0}), merge}});
+        auto population = builder.call(index_type, xir::ThreadGroupOp::WARP_ACTIVE_SUM, {constant(1u)});
+        builder.cond_br(alu(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, iteration, limit), body, exit);
+        builder.set_insertion_point(body);
+        auto slot = alu(index_type, xir::ArithmeticOp::BINARY_ADD,
+                        alu(index_type, xir::ArithmeticOp::BINARY_MUL, iteration, constant(2u)), constant(1u));
+        auto value = alu(integer_type, xir::ArithmeticOp::BINARY_ADD,
+                         payload(3, -25), builder.static_cast_if_necessary(integer_type, iteration));
+        auto loop_pointer = store(slot, value);
+        auto loaded = builder.static_cast_if_necessary(integer_type, builder.load(type, loop_pointer));
+        sum->add_incoming(alu(integer_type, xir::ArithmeticOp::BINARY_ADD, sum, loaded), body);
+        iteration->add_incoming(alu(index_type, xir::ArithmeticOp::BINARY_ADD, iteration, constant(1u)), body);
+        builder.br(header);
+        builder.set_insertion_point(exit);
+        // The header collective leaves at different epochs. Its derived
+        // index must keep per-lane snapshots, not pick one first-active slot.
+        auto exit_slot = alu(index_type, xir::ArithmeticOp::BINARY_ADD, constant(2u),
+                             alu(index_type, xir::ArithmeticOp::BINARY_BIT_AND, population, constant(1u)));
+        write_output(4u, sum);
+        write_output(5u, builder.load(type, builder.gep(type, storage, {exit_slot})));
+        builder.return_void();
+        CHECK(xir::xir_verify_module(&module).succeeded());
+
+        std::vector<int32_t> lane_wise_oracle;
+        auto gathered_byte_reads = size_t{0u};
+        std::pair<size_t, size_t> without_loop_cohorts;
+        // 0: lane-major gather/scatter; 1: interleaved gather/scatter;
+        // 2: contiguous private accesses without recurrence inference;
+        // 3: contiguous accesses plus the production cohort-index analysis.
+        for (auto mode : {0u, 1u, 2u, 3u}) {
+            ScopedEnvironmentVariable disable_cohort{"LUISA_SIMD_DISABLE_COHORT_PRIVATE_ACCESS", mode == 2u ? "1" : nullptr};
+            auto compiled = compile_simd_kernel(kernel, width, "byte_private_accesses", false, true, true, false, 1u, false, false, true, 1u, mode != 0u, mode >= 2u);
+            if (!compiled.succeeded()) {
+                for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                return false;
+            }
+            CHECK(compiled.interleaved_private_arrays == (mode == 0u ? 0u : 1u));
+            CHECK(compiled.private_workspace_size == size_t{17u} * width);
+            CHECK((compiled.contiguous_private_read_count != 0u) == (mode >= 2u));
+            CHECK((compiled.contiguous_private_write_count != 0u) == (mode >= 2u));
+            if (mode == 2u) {
+                without_loop_cohorts = {compiled.contiguous_private_read_count, compiled.contiguous_private_write_count};
+            } else if (mode == 3u) {
+                CHECK(compiled.contiguous_private_read_count > without_loop_cohorts.first);
+                CHECK(compiled.contiguous_private_write_count > without_loop_cohorts.second);
+            }
+            auto byte_lanes = "<" + std::to_string(width) + " x i8>";
+            auto bool_lanes = "<" + std::to_string(width) + " x i1>";
+            auto gather = "@llvm.masked.gather.v" + std::to_string(width) + "i8";
+            auto gather_count = size_t{0u};
+            for (auto pos = compiled.llvm_ir.find(gather); pos != std::string::npos; pos = compiled.llvm_ir.find(gather, pos + gather.size())) { gather_count++; }
+            if (mode == 1u) {
+                gathered_byte_reads = gather_count;
+            } else if (mode >= 2u) {
+                CHECK(gather_count < gathered_byte_reads);
+                CHECK(compiled.llvm_ir.find("private.contiguous.load = load " + byte_lanes) != std::string::npos);
+            }
+            // Scheduler mask spills may themselves store i1 vectors. Check
+            // the private address operands, not unrelated mask-state memory.
+            for (auto begin = size_t{0u}; begin < compiled.llvm_ir.size();) {
+                auto end = compiled.llvm_ir.find('\n', begin);
+                if (end == std::string::npos) { end = compiled.llvm_ir.size(); }
+                auto line = std::string_view{compiled.llvm_ir}.substr(begin, end - begin);
+                if (line.find("private.contiguous.") != std::string_view::npos &&
+                    (line.find("load ") != std::string_view::npos || line.find("store ") != std::string_view::npos)) {
+                    CHECK(line.find(byte_lanes) != std::string_view::npos);
+                    CHECK(line.find(bool_lanes) == std::string_view::npos);
+                }
+                begin = end + 1u;
+            }
+            struct alignas(64) Chunk {
+                std::byte bytes[64];
+            };
+            std::vector<Chunk> workspace((compiled.private_workspace_size + 63u) / 64u + 2u);
+            auto memory = reinterpret_cast<std::byte *>(workspace.data());
+            using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto visit = size_t{0u};
+            for (auto active = 0u; active <= width; active++) {
+                for (auto pattern = 0u; pattern < 4u; pattern++) {
+                    std::vector<uint32_t> mask(width);
+                    auto first_lane = width;
+                    for (auto l = 0u; l < width; l++) {
+                        mask[l] = pattern == 3u || (pattern == 1u && (l & 1u)) || (pattern == 2u && !(l & 1u));
+                        if (l < active && mask[l]) { first_lane = std::min(first_lane, l); }
+                    }
+                    std::vector<int32_t> result(6u * width + 34u, 731);
+                    auto expected_output = result;
+                    std::vector<std::byte> expected(workspace.size() * sizeof(Chunk), std::byte{0xa5});
+                    for (auto l = 0u; l < active; l++) {
+                        std::array<uint8_t, 17u> cells;
+                        cells.fill(0xa5u);
+                        auto lane_int = static_cast<int32_t>(l);
+                        cells[2u] = encode(0);
+                        cells[3u] = encode(1);
+                        cells[16u] = encode(7 * lane_int - 40);
+                        expected_output[17u + l] = decode(cells[16u]);
+                        if (mask[l]) {
+                            cells[15u] = encode(5 * lane_int - 20);
+                            expected_output[17u + width + l] = decode(cells[15u]);
+                            cells[l] = encode(3 * lane_int - 19);
+                            expected_output[17u + 2u * width + l] = decode(cells[l]);
+                            cells[first_lane] = encode(lane_int - 7);
+                            expected_output[17u + 3u * width + l] = decode(cells[first_lane]);
+                        }
+                        auto limit_value = l % 5u + 1u;
+                        auto expected_sum = int32_t{0};
+                        for (auto i = 0u; i < limit_value; i++) {
+                            auto q = 2u * i + 1u;
+                            cells[q] = encode(3 * lane_int + static_cast<int32_t>(i) - 25);
+                            expected_sum += decode(cells[q]);
+                        }
+                        auto exit_population = 0u;
+                        for (auto other = 0u; other < active; other++) { exit_population += other % 5u + 1u >= limit_value; }
+                        expected_output[17u + 4u * width + l] = expected_sum;
+                        expected_output[17u + 5u * width + l] = decode(cells[2u + (exit_population & 1u)]);
+                        for (auto q = 0u; q < 17u; q++) {
+                            auto offset = mode == 0u ? l * 17u + q : q * width + l;
+                            expected[64u + offset] = static_cast<std::byte>(cells[q]);
+                        }
+                    }
+                    alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+                        SIMDHostBufferView{mask.data(), width * sizeof(uint32_t)},
+                        SIMDHostBufferView{result.data() + 17u, 6u * width * sizeof(int32_t)}};
+                    std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
+                    auto config = launch_1d(active, 32u);
+                    config.private_workspace = memory + 64u;
+                    entry(arguments.data(), nullptr, &config, active);
+                    CHECK(result == expected_output);
+                    // The kernel's address tree stays closed. This byte-level
+                    // observation is through the host-owned packet workspace
+                    // ABI after execution, never a kernel-side escaping alias
+                    // or a comparison through potentially noncanonical bools.
+                    CHECK(std::memcmp(memory, expected.data(), expected.size()) == 0);
+                    for (auto value : result) {
+                        if (mode == 0u) {
+                            lane_wise_oracle.emplace_back(value);
+                        } else {
+                            CHECK(value == lane_wise_oracle[visit++]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
+template<typename T>
 [[nodiscard]] bool run_cohort_private_loop_accesses() {
     ScopedEnvironmentVariable effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", "1"};
     // Exercise the production default; the explicit DISABLE arm below is
@@ -17714,6 +17946,9 @@ int main() {
         {"typed strided MMA owned metadata and private vector codegen", &run_strided_mma_codegen_boundary},
         {"cohort private 32-bit loop indices and exit epochs", &run_cohort_private_loop_accesses<uint32_t>},
         {"cohort private 64-bit loop indices and exit epochs", &run_cohort_private_loop_accesses<uint64_t>},
+        {"private bool byte storage, masks and loop exit snapshots", &run_byte_private_accesses<bool>},
+        {"private int8 storage, masks and loop exit snapshots", &run_byte_private_accesses<int8_t>},
+        {"private uint8 storage, masks and loop exit snapshots", &run_byte_private_accesses<uint8_t>},
         {"predicated private memory triangles and counted loops", &run_predicated_private_memory_effects},
         {"contiguous private 32-bit masks and slots", &run_contiguous_private_accesses<uint32_t>},
         {"contiguous private 64-bit masks and slots", &run_contiguous_private_accesses<uint64_t>},
