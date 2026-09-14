@@ -341,7 +341,7 @@ void test_all_structured_regions(Runtime &runtime) {
             for (auto &nest : parallel(shape(row))) {
                 auto sum = zeros<float>(shape(r));
                 for (auto &phase_nest : nest.serial(shape(phase))) {
-                    for (auto &step_nest : phase_nest.pipeline(shape(step), {.stages = 2, .initiation_interval = 1})) {
+                    for (auto &step_nest : phase_nest.pipeline(shape(step), {.window = 2, .interval = 1})) {
                         step_nest.stage("load");
                         auto value = source[coord(nest.index(row), phase_nest.index(phase), step_nest.index(step), 0), shape(r, p, s, lane)];
                         step_nest.stage("consume");

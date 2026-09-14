@@ -217,7 +217,7 @@ inline void sibling_parallel_outer_views_capture() {
             auto row_max = full<float>(shape(b, h, m), -1e30f);
             auto row_sum = zeros<float>(shape(b, h, m));
             auto acc = zeros<float>(shape(b, h, m, dv));
-            for (auto &step : nest.pipeline(shape(ceil_div(keys, block_keys)), {.stages = 2u, .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(keys, block_keys)), {.window = 2u, .interval = 1u})) {
                 auto k0 = step.index() * block_keys;
                 step.stage("load");
                 auto key = K.tile(coord(0, 0, k0, 0), shape(b, h, n, d), bounds::zero).load();

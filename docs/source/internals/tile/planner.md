@@ -105,8 +105,8 @@ atom has separate issue/completion events; a consumer cannot start merely
 because the producer was issued. For a periodic region:
 
 ```text
-s[v] + distance(u,v)*II >= s[u] + latency(u,v)
-sum_{u,k: s[u]+k*II <= t < s[u]+k*II+d[u]} r[u,q] <= capacity[q]
+s[v] + distance(u,v)*interval >= s[u] + latency(u,v)
+sum_{u,k: s[u]+k*interval <= t < s[u]+k*interval+d[u]} r[u,q] <= capacity[q]
 sum_{v: birth[v] <= t < last_completion[v]} rounded_storage[v,q] <= storage_capacity[q]
 ```
 
@@ -128,7 +128,7 @@ joint-scheduling result.
 For a version ring of size `V`, version `k` and `k+V` must not overlap in live
 time in the same slot; producer completion precedes reads and final consumer
 completion precedes reuse. For uniform steady-state lifetimes, this yields
-`V*II >= live_duration`, using half-open intervals. Irregular lifetimes require
+`V*interval >= live_duration`, using half-open intervals. Irregular lifetimes require
 their actual interval constraints. Extra buffering is therefore coupled to
 mapping capacity: a second pipeline slot may exclude a cooperative group that
 fits with ordered stages. Pipeline depth is not an independent positive-speedup
@@ -148,7 +148,7 @@ Useful conditional lower bounds are critical-path latency, total demand over
 each resource's service capacity, and recurrence bounds:
 
 ```text
-II >= max_cycle(sum edge_latencies / sum iteration_distances)
+interval >= max_cycle(sum edge_latencies / sum iteration_distances)
 ```
 
 A positive-latency zero-distance cycle is infeasible. These are lower bounds
@@ -293,10 +293,10 @@ for shared bottlenecks and only overlap independent work. A possible hierarchy
 is:
 
 ~~~text
-engine demand = work on that engine / calibrated effective service rate
-steady II     >= max(recurrence bound, each shared-engine demand bound)
-pipeline time = fill + (iterations - 1) * II + drain
-kernel time   = launch + resource-constrained execution of group waves
+engine demand   = work on that engine / calibrated effective service rate
+steady interval >= max(recurrence bound, each shared-engine demand bound)
+pipeline time   = fill + (iterations - 1) * interval + drain
+kernel time     = launch + resource-constrained execution of group waves
 ~~~
 
 These are bounds/estimates, not an unconditional equality between runtime and
@@ -372,7 +372,7 @@ schedule with start offsets `s`, dependence `u -> v` at distance `d`, and
 producer latency `ell[u]`, the timing constraint is:
 
 ~~~text
-s[v] + d * II >= s[u] + ell[u]
+s[v] + d * interval >= s[u] + ell[u]
 ~~~
 
 Engine capacity and buffer-version reuse impose additional constraints. The

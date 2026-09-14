@@ -424,10 +424,10 @@ Legality is intentionally conservative:
   Metal group mapping. If versioning would overflow it, the legal ordered
   implementation is retained.
 
-`PipelinePolicy::stages` is the current C++ spelling of the scheduling-window
-bound (`0` lets the planner choose; `1` disables iteration overlap), not a
+`PipelinePolicy::window` bounds in-flight iterations
+(`0` lets the planner choose; `1` disables iteration overlap), not a
 source-stage count. This initial planner uses at most two in-flight iterations.
-It requires unit `initiation_interval`; other positive intervals retain ordered
+It requires `PipelinePolicy::interval == 1`; other positive intervals retain ordered
 reference execution until a target latency/issue model is available. Zero
 intervals and invalid IR policy payloads are rejected. Pipelines without cuts,
 opaque effects, unsupported placement, or unproved dependencies likewise keep

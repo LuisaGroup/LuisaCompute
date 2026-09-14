@@ -24,7 +24,7 @@ struct Gemm {
         for (auto &nest : parallel(shape(gm, gn))) {
             auto m0 = nest.index(gm) * cfg.bm, n0 = nest.index(gn) * cfg.bn;
             auto acc = full<float>(shape(m, n), cfg.initial);
-            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = cfg.window, .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.window = cfg.window, .interval = 1u})) {
                 step.stage("load");
                 auto k0 = step.index() * cfg.bk;
                 auto a = cfg.transpose_a ? A.tile(coord(k0, m0), shape(k, m)).load() : A.tile(coord(m0, k0), shape(m, k)).load();

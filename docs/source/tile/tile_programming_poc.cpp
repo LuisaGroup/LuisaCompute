@@ -11,7 +11,7 @@ struct GemmConfig {
     uint32_t block_m{8u};
     uint32_t block_n{8u};
     uint32_t block_k{8u};
-    uint32_t stages{2u};
+    uint32_t window{2u};
 };
 
 // Host configuration is captured normally. Each capture/JIT with a different
@@ -32,8 +32,8 @@ auto make_gemm(GemmConfig cfg) {
             auto n0 = nest.index(gn) * cfg.block_n;
             auto acc = zeros<float>(shape(m, n));
 
-            for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.stages,
-                                                        .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(kt), {.window = cfg.window,
+                                                        .interval = 1u})) {
                 auto k0 = step.index() * cfg.block_k;
                 step.stage("load");
                 auto a = A[coord(m0, k0), shape(m, k)];
@@ -79,8 +79,8 @@ auto make_manual_gemm(GemmConfig cfg, exec::Scope scope = exec::Scope::AUTOMATIC
             auto Bs = memory<float>(layout(shape(k, n), stride(1, cfg.block_k)), resource);
             auto acc = zeros<float>(shape(m, n));
 
-            for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.stages,
-                                                        .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(kt), {.window = cfg.window,
+                                                        .interval = 1u})) {
                 auto k0 = step.index() * cfg.block_k;
                 step.stage("load");
                 As.store(A[coord(m0, k0), shape(m, k)]);

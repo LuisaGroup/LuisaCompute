@@ -58,7 +58,7 @@ struct Shape {
             auto m0 = nest.index(gm) * cfg.bm;
             auto n0 = nest.index(gn) * cfg.bn;
             auto acc = literal_initial ? full<float>(shape(m, n), literal_value) : C.tile(coord(m0, n0), shape(m, n)).load();
-            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = window, .initiation_interval = interval})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.window = window, .interval = interval})) {
                 step.stage("load");
                 auto ordinal = reverse_k ? ceil_div(cfg.k, cfg.bk) - 1 - step.index() : step.index();
                 auto k0 = ordinal * cfg.bk;
@@ -831,7 +831,7 @@ void test_mpp_subgroup_isolation(Runtime &runtime) {
                               auto space = shape(32, 64);
                               auto emit = [&](auto &owner) {
                                   auto acc = full<float>(space, 0.5f);
-                                  for (auto &step : owner.pipeline(shape(2), {.stages = 1})) {
+                                  for (auto &step : owner.pipeline(shape(2), {.window = 1})) {
                                       step.stage("load");
                                       auto k0 = step.index() * 16;
                                       auto a = A.tile(coord(0, k0), shape(32, 16)).load();
@@ -2063,7 +2063,7 @@ void test_matrix_prefetch_rejects_global_writes(Runtime &runtime) {
                       auto k = axis("k", 32);
                       for (auto &nest : parallel(shape(1), exec::Scope::GROUP)) {
                           auto acc = zeros<float>(shape(m, n));
-                          for (auto &step : nest.pipeline(shape(2), {.stages = 2u})) {
+                          for (auto &step : nest.pipeline(shape(2), {.window = 2u})) {
                               step.stage("read");
                               auto a = A[coord(0, step.index() * 32), shape(m, k)];
                               auto b = B[coord(step.index() * 32, 0), shape(k, n)];
@@ -2107,7 +2107,7 @@ void test_observed_accumulator_stays_visible(Runtime &runtime) {
                               for (auto &nest : parallel(shape(1), exec::Scope::GROUP)) {
                                   auto acc = full<float>(shape(m, n), 0.5f);
                                   auto history = zeros<float>(shape(m, n));
-                                  for (auto &step : nest.pipeline(shape(iterations), {.stages = window})) {
+                                  for (auto &step : nest.pipeline(shape(iterations), {.window = window})) {
                                       step.stage("load");
                                       auto a = A[coord(0, step.index() * 8), shape(m, k)];
                                       auto b = B[coord(step.index() * 8, 0), shape(k, n)];
@@ -2210,7 +2210,7 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false, uint32_t
                               auto m0 = nest.index(gm) * cfg.bm;
                               auto n0 = nest.index(gn) * cfg.bn;
                               auto acc = full<float>(shape(m, n), 0.375f);
-                              for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = 1u})) {
+                              for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.window = 1u})) {
                                   step.stage("load");
                                   auto a = A[coord(m0, step.index() * cfg.bk), shape(m, k)];
                                   auto b = B[coord(step.index() * cfg.bk, n0), shape(k, n)];
@@ -2342,7 +2342,7 @@ void test_mpp_epilogue_proof_boundaries(Runtime &runtime) {
                           auto m = axis("m", 16), n = axis("n", 16), k = axis("k", 8);
                           for (auto &nest : parallel(shape(1), exec::Scope::GROUP)) {
                               auto acc = zeros<float>(shape(m, n));
-                              for (auto &step : nest.pipeline(shape(2), {.stages = 1u})) {
+                              for (auto &step : nest.pipeline(shape(2), {.window = 1u})) {
                                   step.stage("load");
                                   auto a = A[coord(0, step.index() * 8), shape(m, k)];
                                   auto b = B[coord(step.index() * 8, 0), shape(k, n)];
@@ -2478,7 +2478,7 @@ void test_accumulator_as_multiplicand(Runtime &runtime) {
                           auto n = axis("n", 8);
                           for (auto &nest : parallel(shape(1), scope)) {
                               auto acc = full<float>(shape(m, n), 0.25f);
-                              for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                              for (auto &step : nest.pipeline(shape(3), {.window = 1u})) {
                                   step.stage("load");
                                   auto x = X[coord(step.index() * 8, 0), shape(m, n)];
                                   step.stage("compute");
@@ -2551,7 +2551,7 @@ void test_interrupted_accumulator_update(Runtime &runtime) {
                       auto n = axis("n", 8);
                       for (auto &nest : parallel(shape(1), scope)) {
                           auto acc = full<float>(shape(m, n), 0.25f);
-                          for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                          for (auto &step : nest.pipeline(shape(3), {.window = 1u})) {
                               step.stage("load");
                               auto x = X[coord(step.index() * 8, 0), shape(m, n)];
                               step.stage("compute");
@@ -2610,7 +2610,7 @@ void test_interrupted_accumulator_update(Runtime &runtime) {
             auto m0 = nest.index(gm) * cfg.bm;
             auto n0 = nest.index(gn) * cfg.bn;
             auto accumulator = zeros<float>(shape(m, n));
-            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = 2u})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.window = 2u})) {
                 auto k0 = step.index() * cfg.bk;
                 step.stage("load");
                 auto a = A[coord(m0, k0), shape(m, k)];

@@ -73,10 +73,11 @@ inline constexpr auto tensor = Resource::TENSOR;
 }// namespace mem
 
 struct PipelinePolicy {
-    // Scheduling-window bound (zero lets the planner choose), not the
-    // number of source stage() cuts and not a depth for every allocation.
-    uint32_t stages{0u};
-    uint32_t initiation_interval{1u};
+    // In-flight iteration bound (zero lets the planner choose; one disables
+    // overlap), not the number of stage() cuts or every allocation's depth.
+    uint32_t window{0u};
+    // Positive iteration issue interval in the scheduling model.
+    uint32_t interval{1u};
 };
 
 namespace bounds {

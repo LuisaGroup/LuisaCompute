@@ -89,7 +89,7 @@ void test_program_traversal(Runtime &runtime) {
             for (auto &nest : parallel(shape(batch, gr, gc), exec::Scope::GROUP)) {
                 auto b0 = nest.index(batch), r0 = nest.index(gr) * bm, c0 = nest.index(gc) * bn;
                 auto value = zeros<float>(shape(b, r, c));
-                for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                for (auto &step : nest.pipeline(shape(3), {.window = 1u})) {
                     value += input[coord(b0, r0, c0 - step.index()), shape(b, r, c)];
                 }
                 if (reduction) { value += reduce(value, c, add); }

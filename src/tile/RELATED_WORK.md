@@ -213,7 +213,7 @@ TileLang 提供 tile 操作、布局推导、tensorization 与 pipeline，论文
 
 Pallas/Mosaic GPU 已暴露 pipeline 并发深度、warp-specialized 执行和延迟释放等控制；官方示例说明异步 MMA 未完成时不能提前复用输入 buffer。[Mosaic GPU Pipelining](https://docs.jax.dev/en/latest/pallas/gpu/pipelining.html)。我们可以自动推导更多常规生命周期，但不能因此删掉专家处理困难情形所需的控制能力。
 
-## 5. 时间、资源和调度：不能只写一个 II 和一个 latency
+## 5. 时间、资源和调度：不能只写一个 interval 和一个 latency
 
 ### 5.1 Tawa：ready 与 reusable 是两个状态
 

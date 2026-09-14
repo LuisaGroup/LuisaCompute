@@ -325,18 +325,18 @@ void test_pipeline_policy() {
                })
             .capture();
     };
-    expect(capture({0u, 1u}).valid());
-    expect(capture({1u, 3u}).valid());
-    expect(!capture({2u, 0u}).valid());
-    auto kernel = capture({2u, 1u});
+    expect(capture({.window = 0u, .interval = 1u}).valid());
+    expect(capture({.window = 1u, .interval = 3u}).valid());
+    expect(!capture({.window = 2u, .interval = 0u}).valid());
+    auto kernel = capture({.window = 2u, .interval = 1u});
     expect(kernel.valid());
     auto pipeline = only_root_operation(kernel);
     expect(pipeline != nullptr);
     if (pipeline != nullptr) {
-        pipeline->set_attribute("stages", Attribute{int64_t{-1}});
+        pipeline->set_attribute("window", Attribute{int64_t{-1}});
         expect(!verify(kernel.module()).ok());
-        pipeline->set_attribute("stages", Attribute{uint64_t{2u}});
-        pipeline->set_attribute("initiation_interval", Attribute{uint64_t{1u} << 32u});
+        pipeline->set_attribute("window", Attribute{uint64_t{2u}});
+        pipeline->set_attribute("interval", Attribute{uint64_t{1u} << 32u});
         expect(!verify(kernel.module()).ok());
     }
 }

@@ -66,7 +66,7 @@ void expect_near(const luisa::vector<float> &actual, const luisa::vector<float> 
 }
 
 void test_prefetch(Runtime &runtime, int32_t iterations, int32_t columns,
-                   exec::Scope scope, PipelinePolicy policy = {.stages = 2}, bool multi_axis = false) {
+                   exec::Scope scope, PipelinePolicy policy = {.window = 2}, bool multi_axis = false) {
     constexpr auto rows = 3;
     auto height = std::max(1, rows * iterations);
     auto definition = tile_kernel("pipeline_prefetch", [=](TensorView<const float, 2> input,
@@ -108,7 +108,7 @@ void test_prefetch(Runtime &runtime, int32_t iterations, int32_t columns,
     auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
-    if (runtime.target() == "metal" && iterations == 5 && columns == 37 && policy.stages == 2 && policy.initiation_interval == 1) {
+    if (runtime.target() == "metal" && iterations == 5 && columns == 37 && policy.window == 2 && policy.interval == 1) {
         auto source = metal_source(executable.module.value());
         auto code = std::string_view{source.data(), source.size()};
         // This is a structural acceptance check, not just equivalent serial
@@ -242,7 +242,7 @@ void test_stable_yield(Runtime &runtime, bool pipelined, uint32_t window) {
             for (auto &nest : parallel(shape(1), scope)) {
                 auto current = zeros<float>(space);
                 auto history = full<float>(space, 1.0f);
-                auto range = pipelined ? nest.pipeline(shape(iterations), {.stages = window}) : nest.serial(shape(iterations));
+                auto range = pipelined ? nest.pipeline(shape(iterations), {.window = window}) : nest.serial(shape(iterations));
                 for (auto &step : range) {
                     if (pipelined) { step.stage("load"); }
                     auto next = input[coord(step.index(), 0), space];

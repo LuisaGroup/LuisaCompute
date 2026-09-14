@@ -108,7 +108,7 @@ void root_traversal_recurrences(Device &device) {
                               if (mode == 0) {
                                   for (auto &step : nest.serial(shape(steps))) { state = state * 2.0f + values.at(coord(0, step.index())); }
                               } else if (mode == 1) {
-                                  for (auto &step : nest.pipeline(shape(steps), {.stages = 2u, .initiation_interval = 1u})) {
+                                  for (auto &step : nest.pipeline(shape(steps), {.window = 2u, .interval = 1u})) {
                                       step.stage("load");
                                       auto value = input[coord(row, step.index()), shape(1, 1)];
                                       step.stage("compute");

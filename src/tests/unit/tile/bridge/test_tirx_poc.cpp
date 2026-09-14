@@ -263,7 +263,7 @@ void test_pipelined_gemm(Runtime &runtime) {
                 auto m0 = nest.index(gm) * bm;
                 auto n0 = nest.index(gn) * bn;
                 auto acc = zeros<float>(shape(m, n));
-                for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
+                for (auto &step : nest.pipeline(shape(kt), {.window = 2, .interval = 1})) {
                     step.stage("load");
                     auto a_tile = a[coord(m0, step.index() * bk), shape(m, k)];
                     auto b_tile = b[coord(step.index() * bk, n0), shape(k, n)];

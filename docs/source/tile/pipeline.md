@@ -15,6 +15,7 @@ sub-hierarchy runs. It is not another memory hierarchy. Its natural parent is
 therefore visible in the same syntax as any other nest:
 
 ~~~cpp
+PipelinePolicy policy{.window = 2, .interval = 1};
 for (auto &nest : parallel(grid_shape)) {
     for (auto &subnest : nest.parallel(subnest_shape)) {
         for (auto &k : subnest.pipeline(iteration_space, policy)) {
@@ -42,7 +43,7 @@ through a prologue, steady state, and epilogue chosen by scheduling.
 
 ## Stage boundaries are lexical
 
-A pipeline is a repeated producer/consumer graph, not a loop with only an `II`
+A pipeline is a repeated producer/consumer graph, not a loop with only an `interval`
 annotation:
 
 ~~~text
@@ -129,8 +130,8 @@ prologue special case, but it does not select an execution role.
 For a dependence `e = (sp, sc, distance, payload)`, a legal schedule satisfies:
 
 ~~~text
-II >= 1
-Issue(stage s, iteration i) = i * II + theta(s)
+interval >= 1
+Issue(stage s, iteration i) = i * interval + theta(s)
 Issue(op in s, i) = Issue(s, i) + delta(op)
 
 Issue(sc, i + distance) >= Issue(sp, i) + latency(e)
@@ -142,10 +143,14 @@ Version(materialized edge or MemoryState, i) -> VersionCoord
 ~~~
 
 `theta(s)` places a logical stage in the modulo schedule and `delta(op)` orders
-operations within it. `max_in_flight` bounds the scheduling window; it is not
+operations within it. `window` bounds the scheduling window; it is not
 the number of logical stage segments and is not blindly copied to every
-buffer depth. `initiation_interval` belongs in `pipeline_policy` because it is
+buffer depth. `interval` belongs in `PipelinePolicy` because it is
 a primary temporal constraint.
+
+`window = 0` lets the planner choose, `window = 1` disables cross-iteration
+overlap, and `window = N` permits at most N in-flight iterations without
+promising to fill the window. `interval` must be positive; its default is 1.
 
 The compiler derives:
 

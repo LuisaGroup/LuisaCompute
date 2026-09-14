@@ -149,7 +149,7 @@ void test_tile_pipeline_and_mma() {
         auto k = axis("k", 4);
         for (auto &nest : parallel(shape(gm, gn))) {
             auto acc = zeros<float>(shape(m, n));
-            for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
+            for (auto &step : nest.pipeline(shape(kt), {.window = 2, .interval = 1})) {
                 step.stage("load");
                 auto x = a[coord(nest.index(gm) * 8, step.index() * 4), shape(m, k)];
                 auto y = b[coord(step.index() * 4, nest.index(gn) * 8), shape(k, n)];
@@ -256,10 +256,10 @@ void test_pure_map_rejects_memory() {
 }
 
 void test_documented_gemm() {
-    auto definition = poc::make_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .stages = 2});
+    auto definition = poc::make_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .window = 2});
     auto kernel = definition.capture(tensor_shape(7, 11), tensor_shape(11, 13), tensor_shape(7, 13));
     expect(kernel.valid());
-    auto manual = poc::make_manual_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .stages = 2});
+    auto manual = poc::make_manual_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .window = 2});
     auto manual_kernel = manual.capture(tensor_shape(7, 11), tensor_shape(11, 13), tensor_shape(7, 13));
     expect(manual_kernel.valid());
 }

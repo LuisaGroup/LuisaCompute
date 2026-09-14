@@ -133,7 +133,7 @@ enum class RowOp { RMS_NORM,
             auto row_max = full<float>(shape(b, h, m), -1e30f);
             auto row_sum = zeros<float>(shape(b, h, m));
             auto acc = zeros<float>(shape(b, h, m, dv));
-            for (auto &step : nest.pipeline(shape(ceil_div(keys, bk)), {.stages = 2u, .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(keys, bk)), {.window = 2u, .interval = 1u})) {
                 auto k0 = step.index() * bk;
                 step.stage("load");
                 auto key = K.tile(coord(b0, kh, k0, 0), shape(b, h, n, d)).load();

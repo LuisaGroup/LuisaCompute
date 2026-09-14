@@ -555,12 +555,12 @@ private:
         }
         if (structured) {
             if (operation->kind() == OperationKind::PIPELINE) {
-                for (auto name : {luisa::string_view{"stages"}, luisa::string_view{"initiation_interval"}}) {
+                for (auto name : {luisa::string_view{"window"}, luisa::string_view{"interval"}}) {
                     if (auto attribute = operation->attribute(name)) {
                         auto value = luisa::get_if<uint64_t>(&attribute->value());
                         if (value == nullptr || *value > std::numeric_limits<uint32_t>::max() ||
-                            (name == "initiation_interval" && *value == 0u)) {
-                            _error(operation, "pipeline policy requires a uint32 window and a positive uint32 initiation interval");
+                            (name == "interval" && *value == 0u)) {
+                            _error(operation, "pipeline policy requires a uint32 window and a positive uint32 interval");
                         }
                     }
                 }

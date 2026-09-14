@@ -244,7 +244,7 @@ void test_flash_attention_online_softmax(Runtime &runtime) {
                 auto row_max = full<float>(shape(b, h, m), -1e30f);
                 auto row_sum = zeros<float>(shape(b, h, m));
                 auto acc = zeros<float>(shape(b, h, m, dv));
-                for (auto &step : nest.pipeline(shape(key_blocks), {.stages = 2, .initiation_interval = 1})) {
+                for (auto &step : nest.pipeline(shape(key_blocks), {.window = 2, .interval = 1})) {
                     auto k0 = step.index() * bk;
                     step.stage("load");
                     auto key = k[coord(b0, h0, k0, 0), shape(b, h, s, d)];

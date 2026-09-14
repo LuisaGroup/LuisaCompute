@@ -520,7 +520,7 @@ void test_barrier_coalescing_global_aliases_and_loop_backedge(Runtime &runtime) 
                           auto n = axis("n", columns);
                           for (auto &group : parallel(shape(groups), scope)) {
                               auto origin = coord(group.index() * columns);
-                              for (auto &iteration : group.pipeline(shape(3), {.stages = 1u})) {
+                              for (auto &iteration : group.pipeline(shape(3), {.window = 1u})) {
                                   auto x = A[origin, shape(n)];
                                   auto reversed = map<float>(shape(n), [&](const Nest &element) {
                                       return x.at(coord(columns - 1 - element.index(n))) + 1.0f;

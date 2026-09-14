@@ -343,7 +343,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
                 auto m0 = nest.index(gm) * cfg.bm;
                 auto n0 = nest.index(gn) * cfg.bn;
                 auto acc = zeros<float>(shape(m, n));
-                for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.pipeline_window, .initiation_interval = 1})) {
+                for (auto &step : nest.pipeline(shape(kt), {.window = cfg.pipeline_window, .interval = 1})) {
                     auto k0 = step.index() * cfg.bk;
                     step.stage("load");
                     auto a = A[coord(m0, k0), shape(m, k)];

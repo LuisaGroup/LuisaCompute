@@ -65,7 +65,7 @@ void test_rejections() {
     expect(!metal::lower_tile_to_mpp(ordered_kernel.function(), {}, 1024u).ok());
     auto serial = tile_kernel("not_silently_erased", [] {
                       for (auto &group : parallel(shape(1), exec::Scope::GROUP)) {
-                          for (auto &step : group.pipeline(shape(2), {.stages = 2})) { step.stage("unsupported"); }
+                          for (auto &step : group.pipeline(shape(2), {.window = 2})) { step.stage("unsupported"); }
                       }
                   }).capture();
     expect(serial.valid());

@@ -30,7 +30,7 @@ auto definition = tile_kernel("gemm", [=](TensorView<const float, 2> A,
         auto m0 = nest.index(gm) * BM, n0 = nest.index(gn) * BN;
         auto acc = zeros<float>(shape(m, n));
         for (auto &step : nest.pipeline(shape(ceil_div(K, BK)),
-                                        {.stages = 2, .initiation_interval = 1})) {
+                                        {.window = 2, .interval = 1})) {
             step.stage("load");
             auto k0 = step.index() * BK;
             auto a = A.tile(coord(m0, k0), shape(m, k)).load();

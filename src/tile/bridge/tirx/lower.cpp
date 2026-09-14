@@ -1027,8 +1027,8 @@ private:
                     auto value = attribute == nullptr ? nullptr : luisa::get_if<uint64_t>(&attribute->value());
                     return tvm::IntImm::Int64(static_cast<int64_t>(value == nullptr ? fallback : *value));
                 };
-                annotations.Set(pipeline_window_annotation, unsigned_attribute("stages", 0u));
-                annotations.Set(pipeline_interval_annotation, unsigned_attribute("initiation_interval", 1u));
+                annotations.Set(pipeline_window_annotation, unsigned_attribute("window", 0u));
+                annotations.Set(pipeline_interval_annotation, unsigned_attribute("interval", 1u));
             }
             loop_body = tvm::tirx::For{
                 parallel_variable,

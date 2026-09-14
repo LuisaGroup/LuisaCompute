@@ -152,8 +152,8 @@ void enter_scope(ScopeStorage &scope) noexcept {
         if (!name.empty()) { scope.operation->set_execution_scope_constraint(name); }
     }
     if (scope.kind == OperationKind::PIPELINE) {
-        scope.operation->set_attribute("stages", Attribute{static_cast<uint64_t>(scope.pipeline_policy.stages)});
-        scope.operation->set_attribute("initiation_interval", Attribute{static_cast<uint64_t>(scope.pipeline_policy.initiation_interval)});
+        scope.operation->set_attribute("window", Attribute{static_cast<uint64_t>(scope.pipeline_policy.window)});
+        scope.operation->set_attribute("interval", Attribute{static_cast<uint64_t>(scope.pipeline_policy.interval)});
     }
     if (scope.kind == OperationKind::REDUCE) {
         scope.operation->set_reduction_policy(scope.reduction_policy);

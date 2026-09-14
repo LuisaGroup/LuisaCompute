@@ -154,7 +154,7 @@ template<scalar_cpp_type T = float, scalar_cpp_type Acc = float>
         for (auto &nest : parallel(shape(gm, gn))) {
             auto row = nest.index(gm) * block.m, column = nest.index(gn) * block.n;
             auto acc = zeros<Acc>(shape(m, n));
-            for (auto &step : nest.pipeline(shape(ceil_div(depth, block.k)), {.stages = 1u, .initiation_interval = 1u})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(depth, block.k)), {.window = 1u, .interval = 1u})) {
                 step.stage("load");
                 auto a = A.tile(coord(row, step.index() * block.k), shape(m, k)).load();
                 auto b = B.tile(coord(step.index() * block.k, column), shape(k, n)).load();

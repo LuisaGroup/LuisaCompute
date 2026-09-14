@@ -67,8 +67,8 @@ def schedules(events, edges):
     return {order for order in itertools.permutations(events) if obeys(order, edges)}
 
 
-def versions_fit(ii, live_duration, slots, count=12):
-    intervals = [(k % slots, k * ii, k * ii + live_duration) for k in range(count)]
+def versions_fit(interval, live_duration, slots, count=12):
+    intervals = [(k % slots, k * interval, k * interval + live_duration) for k in range(count)]
     return all(
         slot_a != slot_b or end_a <= start_b or end_b <= start_a
         for (slot_a, start_a, end_a), (slot_b, start_b, end_b)
@@ -164,8 +164,8 @@ class ExecutionCalculusTests(unittest.TestCase):
             self.assertEqual(sum(map(sum, (values[::2], values[1::2]))), sum(values))
 
     def test_pipeline_version_lifetimes_and_capacity(self):
-        for ii, live, slots in itertools.product(range(1, 5), range(1, 10), range(1, 5)):
-            self.assertEqual(versions_fit(ii, live, slots), slots * ii >= live)
+        for interval, live, slots in itertools.product(range(1, 5), range(1, 10), range(1, 5)):
+            self.assertEqual(versions_fit(interval, live, slots), slots * interval >= live)
         shared_capacity, other_live, one_version = 32, 12, 16
         self.assertLessEqual(other_live + one_version, shared_capacity)
         self.assertGreater(other_live + 2 * one_version, shared_capacity)

@@ -16,7 +16,7 @@
   </defs>
   <rect x="10" y="10" width="1260" height="570" rx="18" fill="#f8fafc" stroke="#e2e8f0"/>
   <text x="640" y="50" text-anchor="middle" class="title">Pipeline is time over an execution region, not a memory level</text>
-  <text x="640" y="76" text-anchor="middle" class="small">k.stage("load") → k.stage("compute") → k.stage("store"); II = 1</text>
+  <text x="640" y="76" text-anchor="middle" class="small">k.stage("load") → k.stage("compute") → k.stage("store"); interval = 1</text>
 
   <text x="190" y="112" text-anchor="end" class="small">logical issue time</text>
   <line x1="220" y1="118" x2="1160" y2="118" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
@@ -68,8 +68,8 @@
   <text x="730" y="464" text-anchor="middle" class="label">A/B version 2 live</text>
 
   <path d="M270 132 L410 132" stroke="#475569" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-  <text x="340" y="128" text-anchor="middle" class="small">II = 1</text>
+  <text x="340" y="128" text-anchor="middle" class="small">interval = 1</text>
   <rect x="940" y="488" width="250" height="58" rx="10" fill="#ffffff" stroke="#eab308" stroke-width="2"/>
   <text x="1065" y="511" text-anchor="middle" class="label">Version count comes from liveness</text>
-  <text x="1065" y="532" text-anchor="middle" class="small">not directly from max_in_flight = 3</text>
+  <text x="1065" y="532" text-anchor="middle" class="small">not directly from window = 3</text>
 </svg>

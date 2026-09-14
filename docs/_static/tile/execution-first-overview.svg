@@ -61,7 +61,7 @@
 
   <rect x="915" y="402" width="320" height="100" class="box" fill="#fefce8" stroke="#eab308"/>
   <text x="1075" y="432" text-anchor="middle" class="heading">Temporal pipeline</text>
-  <text x="1075" y="456" text-anchor="middle" class="small">stage graph · II · issue offsets · dependences</text>
+  <text x="1075" y="456" text-anchor="middle" class="small">stage graph · interval · issue offsets · dependences</text>
   <text x="1075" y="478" text-anchor="middle" class="small">versions derived for materialized edges</text>
 
   <path d="M640 356 L640 540" class="link"/>

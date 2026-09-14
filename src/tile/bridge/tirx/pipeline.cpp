@@ -282,7 +282,7 @@ protected:
         auto window = _integer_annotation(loop, pipeline_window_annotation, 0);
         auto interval = _integer_annotation(loop, pipeline_interval_annotation, 1);
         if (_diagnostic.failed()) { return loop; }
-        if (interval == 0) { return _diagnostic.reject("pipeline initiation interval must be positive", loop); }
+        if (interval == 0) { return _diagnostic.reject("pipeline interval must be positive", loop); }
         auto extent = loop->extent.as<tvm::IntImmNode>();
         // The native pass has unit issue spacing. Other timing policies need
         // a target latency model; retain their ordered reference execution.
