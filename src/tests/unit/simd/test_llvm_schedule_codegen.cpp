@@ -13211,11 +13211,11 @@ void bindless_uniform_gradient_probe(
         uint32_t row_bound{4u};
     };
     for (auto [counted_loop, iterations, row_bound] : {TestCase{false, 1u}, TestCase{true, 0u}, TestCase{true, 1u}, TestCase{true, 3u}, TestCase{false, 1u, 3u}, TestCase{true, 3u, 3u}}) {
-        // The standalone diamond uses the default memory-predication rules.
+        // The standalone diamond explicitly exercises legacy read-only rules.
         // A varying branch inside a counted loop conservatively taints the
-        // induction PHI; the existing opt-in supplies the header use-site
+        // induction PHI; the production default supplies the header use-site
         // uniformity fact required for direct CFG and full-packet admission.
-        ScopedEnvironmentVariable enable_memory_effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? "1" : nullptr};
+        ScopedEnvironmentVariable enable_memory_effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", nullptr};
         ScopedEnvironmentVariable disable_memory_effects{"LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? nullptr : "1"};
         Kernel1D kernel = [counted_loop, iterations, row_bound](BufferUInt input, BufferUInt mask, BufferUInt output) noexcept {
             set_block_size(block_size, 1u, 1u);
@@ -16694,7 +16694,9 @@ template<typename T>
 }
 
 [[nodiscard]] bool run_predicated_private_memory_effects() {
-    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", "1"};
+    // Check the production default, with explicit DISABLE below retaining the
+    // scheduler oracle even if this executable inherits an experimental flag.
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", nullptr};
     for (auto width : {2u, 4u, 8u, 16u}) {
         for (auto variant : {0u, 1u, 2u}) {
             xir::Module module;

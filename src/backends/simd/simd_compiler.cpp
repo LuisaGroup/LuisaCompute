@@ -287,7 +287,6 @@ SIMDCompiledKernel compile_simd_kernel(
                 4u :
                 25u,
         .enable_counted_loop_uniformity =
-            detail::env_flag("LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS") &&
             !detail::env_flag("LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS"),
         .enable_cohort_private_access =
             detail::env_flag("LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS") &&

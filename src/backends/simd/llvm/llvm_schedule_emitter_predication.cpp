@@ -18,10 +18,8 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     if (split == nullptr || !split->convergence) {
         return std::nullopt;
     }
-    auto memory_effects = luisa::compute::detail::env_flag(
-                              "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS") &&
-                          !luisa::compute::detail::env_flag(
-                              "LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS");
+    auto memory_effects = !luisa::compute::detail::env_flag(
+        "LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS");
     auto *condition = _source.value(split->condition);
     if (condition == nullptr ||
         condition->value_class != schedule::ValueClass::varying ||
@@ -245,7 +243,8 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         return false;
     };
     // Bounded if-conversion is a generic realization choice, not a Tile or
-    // operator-name rule. Retain the historical default until broad testing.
+    // operator-name rule. Keep the legacy read-only candidate available as
+    // a diagnostic oracle; neither choice relaxes memory-effect masking.
     auto max_instruction_count = memory_effects ? size_t{32u} : size_t{8u};
     auto instruction_count = (true_block ? true_block->instructions.size() : 0u) +
                              (false_block ? false_block->instructions.size() : 0u);
