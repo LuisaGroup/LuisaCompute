@@ -744,3 +744,22 @@ collective 的当次计算仍可是标量或逻辑向量；发射器按声明的
 新增 native 回归使用独立 SIMT-round oracle，覆盖 W2/4/8/16、active=0…W、广播开关两种设置及前后 canary。嵌套测试检查退出后的四分量 ballot/read-first，而不是只看标量求和。上述结果证明保留的反例及这些回归已修复，不等于所有浮点 bit-pattern、任意 CFG 或 Metal 路径都已验证。
 
 下一步重新测量 full11 默认路径与保留 full9 默认入口，并单独通过同时支持两套 ABI 的相同计时器重测 Tile/Inductor。full9 消融收益不能直接移植为 full11 性能结论，旧 Torch 时间也不作为新分母。
+
+### 21.15 full11 新配对性能：修复未见明显回退，但仍未追平 Torch
+
+上述重新测量已经完成，独立归档在 [epoch-storage-native](../../scripts/benchmark/tile_torch/results/m1-max-20260914-epoch-storage-native/notes.md)，完整22条新旧对照和8条Torch对照见[结果表](../../scripts/benchmark/tile_torch/results/m1-max-20260914-epoch-storage-native/results.md)。full11 producer是26文件 `collective-epoch-storage` freeze，baseline取允许后续重建之前保留的full9对象/准备物，不从当前源码重建历史版本。
+
+11个case × local1/local8的22条full11/full9边均通过：264 visits、1320个原始wall样本。两臂使用相同未修改的`native_tile` C++ timer，每条边3轮ABBA、每visit5 samples、warmup40ms/target20ms。`full11/full9`相邻配对中位数范围为 **0.993765–1.005477**；当前案例没有观察到明显性能回退，但不是加速结论，也不是正式统计等价性证明。
+
+Torch比较另用同时支持Tile与Inductor ABI的`native_rows`共同C++ timer，重新执行8条独立ABBA边；96 visits、480个原始样本，没有复用旧Torch时间。以下选择本轮较快的local mapping，时间单位µs，比率为6个相邻配对比率的中位数：
+
+| 算子／尺寸 | local | full11 | Torch Inductor | full11/Torch |
+|---|---:|---:|---:|---:|
+| RMSNorm 129×65 | 1 | 6.771 | 5.625 | 1.205 |
+| masked softmax 129×65 | 1 | 28.330 | 16.878 | 1.679 |
+| RMSNorm 129×512 | 1 | 48.907 | 35.436 | 1.380 |
+| masked softmax 129×512 | 8 | 210.228 | 117.104 | 1.791 |
+
+**性能目标尚未完成**：上述四种形状仍分别慢约20.5%、67.9%、38.0%、79.1%。两套timer cohort的分母不可混用；本轮只比较单线程native入口wall time，不是Runtime端到端、多核吞吐、GPU计时或MPS结果。尤其短行local8明显慢于local1，不能把“增大组内并行”当作通用改进。
+
+360个正式timed visits全部通过FP64完整输出、NaN初始化、guards和输入不变检查；Torch外露scratch也在原执行进程检查。离线归档核验可重读全部输出与1800个样本、重算30条边，但未持久化的guard/actual scratch bytes只保留原执行收据。该结果说明epoch修复在已测LLM形状上基本保留已有性能，不证明任意CFG完备，也没有定位剩余Torch差距的具体归因；后续仍需基于一般性资源/数据布局与代码生成机制优化。
