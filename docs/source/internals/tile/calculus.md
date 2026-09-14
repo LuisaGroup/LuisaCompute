@@ -221,6 +221,50 @@ and `addr_s` are independently chosen for every resource. A/B/accumulator may
 therefore share participants while having unrelated layouts and lifetimes.
 Copies/repartitioning implement mismatched producer and consumer distributions.
 
+### Plan phases before value placement
+
+The execution schedule is phase-local, not one distinguished axis for the
+whole program. An explicit child `parallel` exposes an independent domain;
+a tile-level `map`, `reduce` or `mma` already exposes a domain from which the
+compiler can construct an internal phase. These are two ways to express work,
+not competing programming models or additional user-visible scope kinds.
+
+```text
+source scopes / tile operations
+             |
+             v
+E_p: phase instances -> (program, participant, local time)
+             |
+             v
+L_v: reaching SSA definition -> element/owner/slot relation
+             |
+             v
+C_(v,p): producer-to-consumer communication
+             |
+             +------ joint cost / resource feedback ------> E_p, L_v
+```
+
+For each use, the selected source in `L_v` and its communication must deliver
+the element requested by that phase's access map. A value keeps its
+definition-time meaning across phases; a new schedule does not authorize
+reloading it after a write. Replication is a placement choice, not duplicated
+semantic contributions. Phase selection and value placement are jointly
+optimized: the arrows explain the semantic derivation, not a mandatory greedy
+solver order.
+
+For example, QK can distribute output keys, a row reduction can distribute its
+key contributions, and PV can distribute output value channels, using the same
+team at different times. Neither dimension labels nor a global "last axis"
+rule determine these choices. The complete access projection matters: reading
+`K[key_of_this_lane, channel]` from a channel-distributed snapshot is not a
+uniform broadcast merely because `channel % W` is uniform.
+
+Communication also constrains control flow. A lane without a valid output in a
+ragged phase can still own a value needed by another lane. Uniform broadcasts
+must therefore execute with the required participants converged; guard local
+reads/writes without predicating away the source participant. Padding never
+becomes a reduction contribution.
+
 ```{figure} ../../../_static/tile/execution-resources-calculus.svg
 :alt: Ancestor execution coordinates compose with each resource's local access and address map; one execution hierarchy can access several independently mapped resources.
 :width: 100%
@@ -350,6 +394,46 @@ python3 scripts/test_tile_execution_calculus.py
 ```
 
 ## Multiple scopes and fusion
+
+### Ancestor access is not forbidden by lexical nesting
+
+An inner scope may access an outer resource. Declaration scope determines the
+logical resource instance and lifetime; it does not, by itself, prohibit inner
+reads or writes. A target mapping must make the required access implementable,
+possibly with communication or another materialization. An implementation's
+missing capture/lowering support is not a new language restriction.
+
+For a parallel partial update of an outer Tile, the semantic model is a join
+of patches, not a sequential loop recurrence. With entry value `T0`, instance
+`i` produces a write footprint `R_i` and values `V_i`:
+
+```text
+T1[e] = V_i[e]  when e belongs to R_i
+        T0[e]   when no instance writes e
+```
+
+Ordinary `parallel` supplies the cross-instance noninterference contract. For
+mutable Memory effects this includes reads versus writes to the same storage.
+Reading an immutable entry Tile snapshot `T0`, however, does not conflict with
+another instance contributing a patch to the new value `T1`; the compiler must
+preserve that distinction when choosing storage. It is not necessary to ask
+the user to prove the contract again. The compiler must represent each write's
+footprint, preserve untouched elements and entry snapshots, and may provide
+optional overlap validation. Overlapping cross-instance Tile updates need an
+explicit supported combiner; conflicting mutable Memory effects need an
+appropriate explicit contract, such as atomics. There is no unspecified
+winning instance. Changes within one instance retain their ordinary local
+order.
+
+**Implementation boundary:** capture currently rejects changed ancestor
+`ValueSlot`s when exiting `parallel` or `tile.map`; the IR verifier also rejects
+`parallel` operands/results. This is broader than the model above. Outer
+TensorView `.store()` effects already work, whereas an outer explicit Memory's
+state update can hit that guard. Tile extraction is currently read-only: a
+partial-update/parallel-join representation is still required. Deleting the
+guard alone would not implement assembly or repair the verifier/lowerers.
+
+### Preserve cross-phase observations
 
 Sibling scopes have sequential composition semantics. Initially `A ; B` makes
 the observations of A precede B; analysis may remove only observationally

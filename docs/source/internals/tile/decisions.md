@@ -179,9 +179,15 @@ The following preserves the revision-17 design rationale and bootstrap order. It
 - A `parallel` region may carry a concise `exec::block/warp/thread/...`
   constraint. Nested bindings are verified against the target's containment
   poset and ancestor projections, never enum ordinal values.
-- A value's declaration scope constrains its logical anchor; the innermost
-  `parallel` supplies the default spatial frontier, and ancestor updates require
-  a proved assembly or explicit combiner.
+- A value's declaration scope constrains its logical anchor, not whether an
+  inner scope may read or write it. The innermost `parallel` supplies the default
+  spatial frontier. Noninterfering ancestor partial updates join into a new
+  value. Overlapping Tile updates need an explicit supported combiner;
+  conflicting mutable Memory effects need an appropriate explicit effect
+  contract, such as atomics. The compiler represents assembly and may validate
+  overlap, but does not ask the user to re-prove `parallel`'s noninterference
+  promise. Current capture/IR still lack the general Tile partial-update/join
+  protocol; see the calculus page.
 - Distribution is a typed layout map/correspondence, not a separate algebra.
 - Scalar pure operators lift directly to logical Tiles; `map` is only the custom
   scalar-region escape hatch, and physical repartition remains explicit in IR.

@@ -272,11 +272,19 @@ General ordered effects and observable prefixes remain `serial` or scan
 semantics. This is the target contract, not a claim that current capture
 already implements these algebra and policy checks.
 
-An `ancestor_update` is legal only when `Assembly` proves an exact disjoint
-cover, proves that replicas agree, or names an explicit associative combiner.
-Memory effects instead use MemorySSA, alias, and synchronization rules. This
-turns a potentially racy-looking C++ assignment into a checked collective IR
-operation rather than assuming last-writer-wins behavior.
+An inner scope may read or write an ancestor Tile. `Assembly` records the
+actual update footprints and joins their payloads; partial coverage retains
+the incoming value at untouched coordinates, and old SSA snapshots remain
+unchanged. Ordinary `parallel` supplies the cross-instance noninterference
+contract, rather than requiring capture to prove it again. Updates within one
+instance retain their local order; overlapping cross-instance updates need an
+explicit supported combiner, not an implicit last writer or inferred replica
+agreement. Mutable Memory effects instead use MemorySSA, alias, and
+synchronization rules. The compiler must validate that its chosen assembly
+implementation preserves these semantics; an inconclusive overlap analysis
+does not itself make the source program invalid. See
+[ancestor access](calculus.md#ancestor-access-is-not-forbidden-by-lexical-nesting)
+for the current capture and IR implementation gaps.
 
 These are control-flow data-flow sets, not textual scans:
 `read_before_definition_inside` means a read not dominated by an in-region
@@ -310,11 +318,16 @@ conservatively carries every mutated incoming variable; later liveness and
 canonicalization can eliminate redundant state. CPU and Metal tests cover
 Scalar and Tile snapshots, zero/one/many iterations, and nested pipelines.
 
-The pipeline and nested collective update above become conceptually:
+The proposed pipeline and nested partial update become conceptually the
+following. This is an update/join design sketch, not currently accepted IR;
+the source's explicit logical slice determines the patch, not an implicit
+hardware lane or a difference between the old and new values:
 
 ~~~text
 %acc1 = exec.parallel %subnest_shape init(%acc0) {
-  ^subnest(%subnest_coord, %acc_fragment):
+  ^subnest(%subnest_coord, %entry_acc0):
+    %origin = ... explicit logical coordinates from %subnest_coord ...
+    %acc_fragment = tile.slice %entry_acc0, %origin, %patch_shape
     %next = exec.pipeline range(...) init(%acc_fragment) {
       ^body(%k0, %acc_in):
         %a = load ...
@@ -322,11 +335,15 @@ The pipeline and nested collective update above become conceptually:
         %updated = tile.mma %a, %b, %acc_in
         yield %updated
     }
-    yield %next
-} assemble(exact_cover)
+    yield.updates result[0] (payload = %next, origin = %origin, ordinal = 0)
+} join_updates(preserve_untouched = %acc0)
 ~~~
 
-After the region closes, the surface handle `acc` denotes `%acc1`.
+Every child starts with the same entry snapshot; it does not consume the
+previous child's result. Patch payloads and origins are tracked SSA operands.
+After the region closes, the surface handle `acc` denotes `%acc1`, while prior
+snapshots still denote `%acc0`. A child reading a coordinate it has not itself
+updated reads its entry value, without requiring an explicit `old` alias.
 
 Conditional assignment constructs merge values. A verifier rejects a value
 that is not definitely assigned on every required path, or carries the old
@@ -394,8 +411,11 @@ Before backend export, at minimum verify:
    and satisfies the selected atom's participant contract.
 7. Every distributed value covers the required logical domain exactly, unless
    replication or masking is explicit.
-8. Every ancestor value updated inside a child nest has a proved exact
-   assembly, agreeing replication, or explicit combiner.
+8. Every ancestor value updated inside a child nest has a typed update/join
+   representation that preserves its footprints, untouched coordinates, old
+   snapshots, and instance-local order. Cross-instance noninterference comes
+   from `parallel`'s contract, or updates use an explicit supported combiner;
+   optional overlap validation is not a mandatory source-level proof.
 9. Every reduction has a total grouping map, a type-correct identity/update/
    merge contract, counts semantic contributions rather than storage replicas,
    and uses only reassociations allowed by its policy.
