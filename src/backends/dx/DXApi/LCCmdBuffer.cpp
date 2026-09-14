@@ -1641,7 +1641,11 @@ void LCCmdBuffer::CompressBC(
         result.offset_bytes(),
         result.size_bytes()};
 
-    constexpr uint MAX_BATCH = 1024 * 1024;
+    // Keep each command list bounded.  Large BC7/BC6 dispatches can be
+    // truncated by some D3D12 drivers (the output then contains only the
+    // first few blocks of each dispatch range).  The smaller outer batch also
+    // keeps the resource barriers and temporary descriptors manageable.
+    constexpr uint MAX_BATCH = 1024u * 32u;
     auto batch_num = static_cast<int>((num_total_blocks + MAX_BATCH - 1) / MAX_BATCH);
     uint start_block_id = 0;
     for (int batch = 0; batch < batch_num; batch++) {
@@ -1684,7 +1688,7 @@ void LCCmdBuffer::CompressBC(
                     uint3(dispatch_count, 1, 1),
                     {prop, 4});
             };
-            constexpr uint MAX_BLOCK_BATCH = 1024u * 32u;
+            constexpr uint MAX_BLOCK_BATCH = 2048u;
             if (is_hdr)//bc6
             {
                 BufferView err1_buffer{&back_buffer};
