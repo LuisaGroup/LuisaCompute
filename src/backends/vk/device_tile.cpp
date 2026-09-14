@@ -1,6 +1,6 @@
 #include "device.h"
 
-#include "../../common/tile_xir_kernel.h"
+#include "../common/tile_xir_kernel.h"
 
 #include <algorithm>
 

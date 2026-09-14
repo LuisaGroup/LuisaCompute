@@ -34,6 +34,22 @@ namespace {
 
 // ---------- helpers ----------
 
+// std::mt19937::result_type is uint_fast32_t: `unsigned long` (64-bit) on LP64
+// Linux but `unsigned int` on MSVC. Mixing raw engine output with uint32_t
+// operands breaks std::min/std::max template deduction on GCC/Clang, so every
+// fuzz draw goes through this wrapper and stays a plain uint32_t.
+class Rng32 {
+public:
+    explicit Rng32(uint32_t seed) noexcept : m_engine{seed} {}
+    // one draw in [0, bound); `bound` must be non-zero
+    [[nodiscard]] uint32_t operator()(uint32_t bound) noexcept {
+        return static_cast<uint32_t>(m_engine() % bound);
+    }
+
+private:
+    std::mt19937 m_engine;
+};
+
 // Build a library directly from a token-ID corpus (one document),
 // bypassing the tokenizer so numeric corpora can be used.
 [[nodiscard]] NgramLibrary make_id_library(luisa::span<const uint32_t> corpus) noexcept {
@@ -171,21 +187,21 @@ void register_host_tests() {
     };
 
     "reference_kmp_matches_literal_fuzz"_test = [] {
-        std::mt19937 rng{42};
+        Rng32 rng{42};
         for (auto iter = 0; iter < 200; ++iter) {
-            const uint32_t n = 1 + rng() % 48;
+            const uint32_t n = 1 + rng(48);
             luisa::vector<uint32_t> corpus(n);
-            for (auto &t : corpus) t = rng() % 6;
+            for (auto &t : corpus) t = rng(6);
             // plant a copy of an earlier chunk to create real matches
-            if (n > 8 && (rng() & 1)) {
-                uint32_t src = rng() % (n / 2);
-                uint32_t dst = n / 2 + rng() % (n / 2);
-                uint32_t len = std::min(3u + rng() % 4u, n - std::max(src, dst));
+            if (n > 8 && rng(2) != 0u) {
+                uint32_t src = rng(n / 2);
+                uint32_t dst = n / 2 + rng(n / 2);
+                uint32_t len = std::min(3u + rng(4), n - std::max(src, dst));
                 for (uint32_t i = 0; i + 1 < len; ++i) corpus[dst + i] = corpus[src + i];
             }
-            const uint32_t min_n = 1 + rng() % 2;
-            const uint32_t max_n = min_n + rng() % 3;
-            const uint32_t k = 1 + rng() % 5;
+            const uint32_t min_n = 1 + rng(2);
+            const uint32_t max_n = min_n + rng(3);
+            const uint32_t k = 1 + rng(5);
             auto via_kmp = reference_retrieve_vllm_kmp(luisa::span{corpus}, min_n, max_n, k);
             auto via_lit = reference_retrieve(luisa::span{corpus}, luisa::span{corpus}, min_n, max_n, k);
             expect(via_kmp == via_lit) << "kmp port matches literal oracle";
@@ -339,19 +355,19 @@ void register_device_tests(Device &device) {
 
     "device_fuzz_vs_reference"_test = [&device] {
         auto stream = device.create_stream();
-        std::mt19937 rng{1337};
+        Rng32 rng{1337};
         for (auto cfg = 0; cfg < 16; ++cfg) {
-            const uint32_t min_n = 1 + rng() % 3;
-            const uint32_t max_n = min_n + rng() % 4;
-            const uint32_t k = 1 + rng() % 5;
-            const uint32_t lib_len = 48 + rng() % 400;
+            const uint32_t min_n = 1 + rng(3);
+            const uint32_t max_n = min_n + rng(4);
+            const uint32_t k = 1 + rng(5);
+            const uint32_t lib_len = 48 + rng(400);
             luisa::vector<uint32_t> corpus(lib_len);
-            for (auto &t : corpus) t = rng() % 7;
+            for (auto &t : corpus) t = rng(7);
             // plant copies of earlier chunks so matches are common
             for (auto p = 0; p < 8; ++p) {
-                uint32_t src = rng() % (lib_len / 2);
-                uint32_t dst = lib_len / 2 + rng() % (lib_len / 2);
-                uint32_t len = 4 + rng() % 8;
+                uint32_t src = rng(lib_len / 2);
+                uint32_t dst = lib_len / 2 + rng(lib_len / 2);
+                uint32_t len = 4 + rng(8);
                 for (uint32_t i = 0; i < len && src + i < lib_len && dst + i < lib_len; ++i) {
                     corpus[dst + i] = corpus[src + i];
                 }
@@ -360,15 +376,15 @@ void register_device_tests(Device &device) {
             luisa::vector<luisa::vector<uint32_t>> queries;
             for (auto q = 0; q < 24; ++q) {
                 // mostly corpus suffixes, sometimes unrelated random tokens
-                if ((rng() % 4) != 0) {
-                    uint32_t begin = rng() % lib_len;
-                    uint32_t len = 1 + rng() % 24;
+                if (rng(4) != 0u) {
+                    uint32_t begin = rng(lib_len);
+                    uint32_t len = 1 + rng(24);
                     queries.emplace_back(corpus.begin() + begin,
                                          corpus.begin() + std::min(begin + len, lib_len));
                 } else {
-                    uint32_t len = 1 + rng() % 8;
+                    uint32_t len = 1 + rng(8);
                     luisa::vector<uint32_t> rq(len);
-                    for (auto &t : rq) t = rng() % 7;
+                    for (auto &t : rq) t = rng(7);
                     queries.emplace_back(std::move(rq));
                 }
             }
