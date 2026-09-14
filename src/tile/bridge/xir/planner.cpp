@@ -8,6 +8,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
 #include "representation.h"
+#include "program_plan.h"
 #include "root_mapping.h"
 #include "native_copy.h"
 
@@ -385,6 +386,197 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     }
 }
 
+// Separate from the legacy representation prior: the phase-aware realization
+// is eager, uses per-Value padded arrays, and never applies legacy recipe,
+// native-intrinsic, or producer-fusion discounts. These are relative operation
+// units, not calibrated latency, bandwidth, register pressure, or occupancy.
+class ProgramTeamWork final {
+private:
+    const detail::ProgramTeamPlan &_plan;
+    ExecutionTarget _target;
+    const ExecutionCostModel &_cost;
+    Work &_work;
+
+    [[nodiscard]] double _private_access() const noexcept { return _cost.gathered_lane * _target.packet_width; }
+    void _read(const Value *value, double repetitions, detail::ReadProjection projection) {
+        if (!value->type().is_tile()) { return; }
+        if (auto producer = value->defining_operation(); producer && producer->kind() == OperationKind::CONSTANT) { return; }
+        _work.memory += repetitions * _private_access();
+        auto &layout = _plan.layout(value);
+        _work.arithmetic += repetitions * static_cast<double>(layout.space().rank() * 2u) * _cost.arithmetic;
+        if (layout.read_transition(projection) == detail::ReadTransition::UNIFORM_BROADCAST) {
+            // The source owner performs a guarded private load. All lanes
+            // reconverge through a PHI before the payload shuffle. The memory
+            // term above intentionally retains the conservative packet prior.
+            constexpr double kOwnerPredicateBranchPhiShuffle = 4.0;
+            _work.arithmetic += repetitions * kOwnerPredicateBranchPhiShuffle * _cost.arithmetic;
+        }
+    }
+    void _loop(double repetitions, uint64_t iterations, size_t rank, bool cyclic) {
+        // Runtime traversal control and coordinate decoding, including padded
+        // owner slots. Do not discount masked tails as if they were no code.
+        constexpr double kLoopControl = 4.0;
+        constexpr double kCoordinateDecodeAndFlatten = 4.0;
+        constexpr double kCyclicOwnerAndValidity = 5.0;
+        auto per_iteration = kLoopControl + static_cast<double>(rank) * kCoordinateDecodeAndFlatten + (cyclic ? kCyclicOwnerAndValidity : 0.0);
+        _work.arithmetic += repetitions * (2.0 + static_cast<double>(iterations) * per_iteration) * _cost.arithmetic;
+    }
+    void _snapshot(const Value *value, double repetitions) {
+        if (value->type().is_tile()) {
+            _work.memory += repetitions * static_cast<double>(_plan.layout(value).local_elements()) * _private_access();
+        }
+    }
+    void _block(const Block &body, double repetitions, const Operation *skip = nullptr, const Operation *end = nullptr) {
+        for (auto op : body.operations()) {
+            if (op == end || op->kind() == OperationKind::YIELD) { break; }
+            if (op == skip) { continue; }
+            auto kind = op->kind();
+            if (kind == OperationKind::CONSTANT || kind == OperationKind::STAGE) { continue; }
+            if (kind == OperationKind::SERIAL || kind == OperationKind::PIPELINE || kind == OperationKind::PARALLEL) {
+                auto &phase = _plan.phase(op);
+                // Temporal phases are replicated: all team lanes traverse the
+                // complete time domain. Only an actual spatial phase may split
+                // its domain, as recorded by the shared phase plan.
+                auto count = kind == OperationKind::PARALLEL ? phase.local_elements() : volume(*op->domain());
+                auto iterations = repetitions * static_cast<double>(count);
+                _loop(repetitions, count, op->domain()->rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                auto block = op->region(0u)->block(0u);
+                for (size_t i = 0u; i < op->result_count(); i++) {
+                    auto result = op->result(i);
+                    if (!result->type().is_tile()) { continue; }
+                    auto &layout = _plan.layout(result);
+                    auto elements = static_cast<double>(layout.local_elements());
+                    // Each initialization and each current/next transfer has
+                    // its own rolled traversal, even for a one-element Tile.
+                    _loop(repetitions + 2.0 * iterations, layout.local_elements(), layout.space().rank(), layout.cyclic_axis().has_value());
+                    _read(op->operand(i), repetitions * elements, detail::ReadProjection::OWNER_PRESERVING);
+                    // Initialize current; for every iteration store next,
+                    // load next, then store current after all next values exist.
+                    _work.memory += (repetitions + 3.0 * iterations) * elements * _private_access();
+                    for (auto term : block->operations()) {
+                        if (term->kind() == OperationKind::YIELD) {
+                            _read(term->operand(i), iterations * elements, detail::ReadProjection::OWNER_PRESERVING);
+                        }
+                    }
+                }
+                _block(*block, iterations);
+                continue;
+            }
+            if (kind == OperationKind::REDUCE) {
+                auto &phase = _plan.phase(op);
+                auto count = phase.local_elements();
+                auto closed = detail::closed_reduction(*op);
+                // ProgramTeamPlan admits only closed scalar contributions.
+                // Their body contains no array definitions; evaluate the
+                // contribution once per padded chunk, not the carry update.
+                _loop(repetitions, count, phase.space().rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                _block(*op->region(0u)->block(0u), repetitions * static_cast<double>(count), closed->update, closed->yield);
+                constexpr double kValidityAndPayloadUpdate = 7.0;
+                _work.arithmetic += repetitions * static_cast<double>(count) * kValidityAndPayloadUpdate * _cost.arithmetic;
+                // Unit/replicated reductions still have a runtime partial,
+                // but no inter-lane tree. All reductions apply the user's
+                // initial scalar exactly once after the partial is ready.
+                double finish = 1.0;
+                if (phase.cyclic_axis()) {
+                    auto levels = 0u;
+                    for (auto width = phase.team().width(); width > 1u; width >>= 1u) { levels++; }
+                    // Every lane carries validity, including full domains.
+                    // Payload shuffle/combine, validity cast/shuffle/compare,
+                    // two selects and two Boolean operations, plus peer XOR.
+                    // This path does not inherit the old identity-free full
+                    // packet's cheaper payload-only tree.
+                    constexpr double kPayloadAndValidityTree = 9.0;
+                    constexpr double kPeerAddress = 1.0;
+                    constexpr double kRootBroadcast = 1.0;
+                    finish += levels * (kPayloadAndValidityTree + kPeerAddress) + kRootBroadcast;
+                }
+                _work.arithmetic += repetitions * finish * _cost.arithmetic;
+                continue;
+            }
+            if (kind == OperationKind::TILE_MAP) {
+                auto &phase = _plan.phase(op);
+                _loop(repetitions, phase.local_elements(), phase.space().rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                _block(*op->region(0u)->block(0u), repetitions * static_cast<double>(phase.local_elements()));
+                _snapshot(op->result(0u), repetitions);
+                continue;
+            }
+            if (kind == OperationKind::TILE_EXTRACT) {
+                _read(op->operand(0u), repetitions, _plan.extract_projection(op));
+                continue;
+            }
+            if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
+                auto &phase = _plan.phase(op);
+                auto count = phase.local_elements();
+                auto accesses = repetitions * static_cast<double>(count);
+                auto weight = _cost.gathered_lane * _target.packet_width;
+                if (auto axis = phase.cyclic_axis_index()) {
+                    auto &buffer = *op->operand(0u)->type().index_space();
+                    uint64_t stride = 1u;
+                    for (size_t i = *axis + 1u; i < buffer.rank(); i++) { stride *= buffer.axis(i).extent.constant_value(); }
+                    if (stride == 1u) { weight = _cost.contiguous_memory; }
+                } else if (kind == OperationKind::VIEW_LOAD) {
+                    weight = _cost.broadcast_load;
+                }
+                _loop(repetitions, count, phase.space().rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                _work.memory += accesses * weight;
+                if (kind == OperationKind::VIEW_STORE) {
+                    auto index = op->operand(0u)->type().index_space()->rank() + 1u;
+                    _read(op->operand(index), accesses, _plan.operand_projection(op, index));
+                } else {
+                    _snapshot(op->result(0u), repetitions);
+                }
+                continue;
+            }
+            if (kind == OperationKind::MMA) {
+                auto &phase = _plan.phase(op);
+                auto outputs = phase.local_elements();
+                auto &output = *op->result(0u)->type().index_space();
+                uint64_t contraction = 1u;
+                for (auto &axis : op->operand(0u)->type().index_space()->axes()) {
+                    if (!output.contains(axis.dimension)) { contraction *= axis.extent.constant_value(); }
+                }
+                auto output_visits = repetitions * static_cast<double>(outputs);
+                auto updates = output_visits * static_cast<double>(contraction);
+                _loop(repetitions, outputs, phase.space().rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                _loop(output_visits, contraction, op->operand(0u)->type().index_space()->rank(), false);
+                _work.mma.multiply_adds += updates;
+                _work.mma.lhs_reads += updates;
+                _work.mma.rhs_reads += updates;
+                _work.mma.seed_reads += output_visits;
+                _work.mma.loop_invocations += output_visits;
+                _work.mma.loop_iterations += updates;
+                _work.arithmetic += updates * 2.0 * _cost.arithmetic;
+                for (auto i = 0u; i < 3u; i++) {
+                    _read(op->operand(i), i == 2u ? output_visits : updates, _plan.operand_projection(op, i));
+                }
+                _snapshot(op->result(0u), repetitions);
+                continue;
+            }
+            if (kind == OperationKind::ELEMENTWISE) {
+                auto result = op->result(0u);
+                auto count = result->type().is_tile() ? _plan.phase(op).local_elements() : uint64_t{1u};
+                auto iterations = repetitions * static_cast<double>(count);
+                if (result->type().is_tile()) {
+                    auto &phase = _plan.phase(op);
+                    _loop(repetitions, count, phase.space().rank(), phase.kind() == detail::ValueLayout::Kind::CYCLIC);
+                }
+                _work.arithmetic += iterations * _cost.arithmetic;
+                for (size_t i = 0u; i < op->operand_count(); i++) {
+                    if (op->operand(i)->type().is_tile()) { _read(op->operand(i), iterations, _plan.operand_projection(op, i)); }
+                }
+                _snapshot(result, repetitions);
+                continue;
+            }
+            fail("unsupported operation in admitted XIR program-team work plan");
+        }
+    }
+
+public:
+    ProgramTeamWork(const detail::ProgramTeamPlan &plan, ExecutionTarget target, const ExecutionCostModel &cost, Work &work) noexcept
+        : _plan{plan}, _target{target}, _cost{cost}, _work{work} {}
+    void measure(const Block &body) { _block(body, 1.0); }
+};
+
 [[nodiscard]] PlanningResult solve(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) {
     auto target = info.target();
     auto reject = [](luisa::string_view message) { return PlanningResult{.error = luisa::string{message}}; };
@@ -430,7 +622,15 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         return reject("XIR local-axis distribution must span exactly one target packet");
     }
     luisa::vector<uint32_t> local_widths{1u};
-    auto local_legal = info.supports_local_distribution() && target.packet_width > 1u && count <= UINT32_MAX / target.packet_width && detail::packet_local_program(function, target.packet_width);
+    luisa::optional<detail::ProgramTeamPlan> program_team;
+    auto local_legal = false;
+    if (options.local_lanes != 1u && info.supports_local_distribution() && target.packet_width > 1u && count <= UINT32_MAX / target.packet_width) {
+        local_legal = detail::packet_local_program(function, target.packet_width);
+        if (!local_legal) {
+            program_team = detail::ProgramTeamPlan::create(function, target.packet_width);
+            local_legal = program_team.has_value();
+        }
+    }
     if (options.local_lanes > 1u) {
         if (!local_legal) { return reject("XIR local-axis distribution cannot realize this target/program access/reduction contract"); }
         local_widths = {target.packet_width};
@@ -547,7 +747,11 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                             auto digit = mapping.digits.back();
                             spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
                         }
-                        measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
+                        if (lanes > 1u && program_team) {
+                            ProgramTeamWork{*program_team, target, model, work}.measure(*body);
+                        } else {
+                            measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
+                        }
                         // Identity preserves the historical estimate. A blocked
                         // traversal uses the fastest digit or the gather prior
                         // when packets span digits; neither is a codegen proof.

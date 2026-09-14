@@ -4,6 +4,7 @@
 #include <luisa/tile/verifier.h>
 #include <luisa/xir/function.h>
 #include "representation.h"
+#include "program_plan.h"
 #include "root_mapping.h"
 
 namespace luisa::compute::tile::bridge::xir::detail {
@@ -18,6 +19,7 @@ private:
     const LowerOptions &_options;
     ResourceAnalysis _result;
     luisa::unordered_map<const Value *, uint32_t> _recipe_depths;
+    luisa::optional<ProgramTeamPlan> _program_team;
 
     [[nodiscard]] bool _error(luisa::string_view message) noexcept {
         if (_result.error.empty()) { _result.error = message; }
@@ -233,7 +235,36 @@ private:
         _recipe_depths.insert_or_assign(value, depth + 1u);
         return true;
     }
+    [[nodiscard]] bool _team_snapshot(ExecutionResources &resources, const Value *value, uint64_t allocations = 1u) noexcept {
+        auto elements = _program_team->layout(value).local_elements();
+        auto bytes = elements * scalar_type_size(value->type().scalar_type());
+        return _add(resources, ExecutionResources{bytes, 1u}, allocations);
+    }
+    [[nodiscard]] bool _team_operation(const Operation &op, ExecutionResources &resources) noexcept {
+        auto kind = op.kind();
+        if (kind == OperationKind::PARALLEL) { return _block(*op.region(0u)->block(0u), resources); }
+        if (kind == OperationKind::SERIAL || kind == OperationKind::PIPELINE || kind == OperationKind::REDUCE) {
+            // Temporal Tile state has one stable layout and two arrays for
+            // simultaneous current/next copies. Results alias current; neither
+            // body arguments nor loop results allocate again. Admitted closed
+            // reductions carry only scalars and therefore add no arrays.
+            for (size_t i = 0u; i < op.result_count(); i++) {
+                if (op.result(i)->type().is_tile() && !_team_snapshot(resources, op.result(i), 2u)) { return false; }
+            }
+            return _block(*op.region(0u)->block(0u), resources);
+        }
+        if (kind == OperationKind::CONSTANT || kind == OperationKind::VIEW_STORE ||
+            kind == OperationKind::TILE_EXTRACT || kind == OperationKind::STAGE || kind == OperationKind::YIELD) { return true; }
+        // The new phase-aware path is eager: one array per nonconstant Tile
+        // definition, with per-axis padded local volume. Every runtime map
+        // emits its body once. Splat constants require no arrays.
+        for (size_t i = 0u; i < op.result_count(); i++) {
+            if (op.result(i)->type().is_tile() && !_team_snapshot(resources, op.result(i))) { return false; }
+        }
+        return kind != OperationKind::TILE_MAP || _block(*op.region(0u)->block(0u), resources);
+    }
     [[nodiscard]] bool _operation(const Operation &op, ExecutionResources &resources, bool root) noexcept {
+        if (_program_team) { return _team_operation(op, resources); }
         switch (op.kind()) {
             case OperationKind::PARALLEL:
             case OperationKind::SERIAL:
@@ -315,8 +346,12 @@ public:
             static_cast<void>(_error("invalid XIR realization options or entry region"));
         } else if (_validate(*_function.body().block(0u), true)) {
             if (_options.local_lanes > 1u && !packet_local_program(_function, _options.local_lanes)) {
-                static_cast<void>(_error("XIR packet-local realization requires a common pointwise axis and closed unordered reductions with owner-preserving extracts"));
-            } else {
+                _program_team = ProgramTeamPlan::create(_function, _options.local_lanes);
+                if (!_program_team) {
+                    static_cast<void>(_error("XIR packet-local realization requires a common pointwise axis or an admitted phase-aware program-team layout with supported projections"));
+                }
+            }
+            if (_result.error.empty()) {
                 static_cast<void>(_block(*_function.body().block(0u), _result.resources, nullptr, nullptr, true));
             }
         }

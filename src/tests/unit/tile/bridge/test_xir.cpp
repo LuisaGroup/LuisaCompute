@@ -617,7 +617,15 @@ int main(int argc, char *argv[]) {
     };
     "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"_test = [] {
         using namespace tile;
-        for (auto variant = 0; variant < 7; variant++) {
+        constexpr std::array reasons{
+            "arithmetic reverse projection needs unsupported cross-owner redistribution",
+            "fold_left cannot use an unordered packet reduction",
+            "fold_right cannot use an unordered packet reduction",
+            "equal extents do not equate distinct reduction dimension identities",
+            "explicit worker binding cannot silently become a program team",
+            "a Tile-producing nested map inside an element region is not realized",
+            "two local rows may share a direct first-row reduction over the distributed axis"};
+        for (auto variant = uint32_t{0u}; variant < reasons.size(); variant++) {
             auto definition = tile_kernel("local_contract", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
                 auto height = variant == 6 ? 2 : 1;
                 auto m = axis("m", height), n = axis("n", 65), other = axis("other", 65);
@@ -641,10 +649,38 @@ int main(int argc, char *argv[]) {
             });
             auto rows = variant == 6 ? 34 : 17;
             auto kernel = definition.capture(tensor_shape(rows, 65), tensor_shape(rows, 65));
-            expect(kernel.valid());
-            expect(bridge::xir::lower(kernel.function()).ok());
-            expect(!bridge::xir::lower(kernel.function(), {.local_lanes = 8u}));
-            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, {.local_lanes = 8u}));
+            expect(kernel.valid()) << "variant=" << variant << ": " << reasons[variant];
+            if (!kernel.valid()) { continue; }
+            expect(bridge::xir::lower(kernel.function()).ok()) << "variant=" << variant;
+            auto lowered = bridge::xir::lower(kernel.function(), {.local_lanes = 8u});
+            auto planned = bridge::xir::plan(kernel.function(), {8u, 8u}, {.local_lanes = 8u});
+            if (variant == 6u) {
+                // ProgramTeamPlan now retains both rows while distributing n.
+                // The scalar sum reads row zero; it is not a reduction of the
+                // flattened Tile or an independent sum for every local row.
+                expect(lowered.ok()) << "variant=" << variant << ": " << lowered.error;
+                expect(planned.ok()) << "variant=" << variant << ": " << planned.error;
+                if (lowered && planned) {
+                    expect(eq(lowered.dispatch_size, 17u * 8u));
+                    expect(eq(lowered.required_packet_width, 8u));
+                    expect(eq(planned.selected.local_lanes, 8u));
+                    expect(eq(planned.selected.dispatch_size, lowered.dispatch_size));
+                    expect(xir::xir_verify_module(lowered.module.get(), {.require_reachable_blocks = true}).succeeded());
+                    // The current eager realization has two Tile definitions
+                    // (load and x + sum), each with 2 * ceil_div(65, 8) slots.
+                    // Padding is per row, not ceil_div(2 * 65, 8).
+                    constexpr auto snapshot_bytes = uint64_t{2u} * 2u * ceil_div(uint64_t{65u}, uint64_t{8u}) * sizeof(float);
+                    expect(eq(lowered.resources.snapshot_allocations, uint64_t{2u}));
+                    expect(eq(lowered.resources.snapshot_bytes_per_worker, snapshot_bytes));
+                    expect(eq(planned.selected.resources.snapshot_allocations, lowered.resources.snapshot_allocations));
+                    expect(eq(planned.selected.resources.snapshot_bytes_per_worker, snapshot_bytes));
+                }
+            } else {
+                expect(!lowered) << "variant=" << variant << ": " << reasons[variant];
+                expect(!planned) << "variant=" << variant << ": " << reasons[variant];
+                expect(!lowered.error.empty()) << "variant=" << variant << " must retain a lowering diagnostic";
+                expect(!planned.error.empty()) << "variant=" << variant << " must retain a planner diagnostic";
+            }
             auto fallback = bridge::xir::plan(kernel.function(), {8u, 8u});
             expect(fallback.ok() && fallback.candidates.size() == 6u);
             if (fallback) { expect(eq(fallback.selected.local_lanes, 1u)); }

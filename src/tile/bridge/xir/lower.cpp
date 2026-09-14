@@ -15,6 +15,7 @@
 #include "pointwise.h"
 #include "root_mapping.h"
 #include "native_copy.h"
+#include "program_plan.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -50,6 +51,7 @@ class Lowerer final {
 private:
     const Function &_input;
     LowerOptions _options;
+    luisa::optional<detail::ProgramTeamPlan> _team;
     NativeFunction _output;
     x::XIRBuilder _builder;
     x::BasicBlock *_block{nullptr};
@@ -70,6 +72,7 @@ private:
         luisa::vector<Capture> captures;
         bool splat{false};
         bool pending_producer{false};
+        const detail::ValueLayout *layout{nullptr};
     };
     luisa::vector<luisa::unique_ptr<Representation>> _definitions;
     luisa::unordered_map<const Value *, const Representation *> _values;
@@ -95,6 +98,16 @@ private:
     bool _saw_parallel{false};
     x::Value *_lane{nullptr};
     x::Value *_local_slot{nullptr};
+    luisa::optional<Dim> _phase_axis;
+    x::Value *_phase_valid{nullptr};
+    struct PhaseIndex {
+        const detail::ValueLayout *layout{nullptr};
+        x::Value *flat{nullptr};
+        x::Value *slot{nullptr};
+        Elements coordinates;
+        x::Value *cyclic_local_coordinate{nullptr};
+    };
+    PhaseIndex _phase_index;
 
     [[noreturn]] static void _fail(luisa::string_view message) {
         LUISA_ERROR("{}", message);
@@ -161,7 +174,47 @@ private:
         auto count = _volume(*type.index_space());
         return detail::snapshot_elements(count, _options);
     }
-    [[nodiscard]] x::Value *_storage_index(const Type &type, x::Value *flat) {
+    [[nodiscard]] bool _matches_phase_index(const IndexSpace &space, x::Value *flat) const noexcept {
+        return _phase_index.layout && flat == _phase_index.flat && space == _phase_index.layout->space();
+    }
+    [[nodiscard]] x::Value *_storage_index(const Type &type, x::Value *flat, const detail::ValueLayout *layout = nullptr,
+                                           const Elements *source_coordinates = nullptr) {
+        if (layout) {
+            if (_matches_phase_index(layout->space(), flat) && layout->team() == _phase_index.layout->team() &&
+                layout->cyclic_axis_index() == _phase_index.layout->cyclic_axis_index()) {
+                // Invert exactly the traversal that produced this Value. Axis
+                // equality alone is not enough: shape, placement and the SSA
+                // flat-index identity must all match this active phase.
+                return _phase_index.slot;
+            }
+            if (!layout->cyclic_axis_index()) { return flat; }
+            Elements decoded;
+            if (!source_coordinates) {
+                decoded = _coordinates(*type.index_space(), flat);
+                source_coordinates = &decoded;
+            }
+            auto &coordinates = *source_coordinates;
+            LUISA_ASSERT(coordinates.size() == layout->space().rank(), "Storage projection must provide every source coordinate");
+            auto slot = _index(0u);
+            for (size_t i = 0u; i < coordinates.size(); i++) {
+                auto coordinate = coordinates[i];
+                if (i == *layout->cyclic_axis_index()) {
+                    auto phase_axis = _phase_index.layout ? _phase_index.layout->cyclic_axis_index() : luisa::optional<size_t>{};
+                    if (phase_axis && layout->team() == _phase_index.layout->team() &&
+                        layout->space().axis(i) == _phase_index.layout->space().axis(*phase_axis) &&
+                        coordinate == _phase_index.coordinates[*phase_axis]) {
+                        // Keep the uniform quotient supplied before adding
+                        // the lane. A constant-zero/uniform projection or a
+                        // different coordinate Value cannot acquire this fact.
+                        coordinate = _phase_index.cyclic_local_coordinate;
+                    } else {
+                        coordinate = _binary(A::BINARY_DIV, coordinate, _index(layout->team().width()));
+                    }
+                }
+                slot = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, slot, _index(layout->local_extents()[i])), coordinate);
+            }
+            return slot;
+        }
         if (!_distributed(_volume(*type.index_space()))) { return flat; }
         // Admission establishes that every nonunit projection preserves the
         // current common-axis owner. Keep the split pair (slot, lane) instead
@@ -196,14 +249,15 @@ private:
     [[nodiscard]] Representation *_representation(const Value *value) {
         auto data = luisa::make_unique<Representation>();
         data->type = &value->type();
+        if (_team && value->type().is_tile()) { data->layout = &_team->layout(value); }
         auto result = data.get();
         _definitions.emplace_back(std::move(data));
         _values.insert_or_assign(value, result);
         return result;
     }
-    [[nodiscard]] x::Value *_allocate(const Type &type) {
+    [[nodiscard]] x::Value *_allocate(const Type &type, const detail::ValueLayout *layout = nullptr) {
         auto element = _type(type);
-        auto count = _storage_count(type);
+        auto count = layout ? layout->local_elements() : _storage_count(type);
         auto bytes = count * element->size();
         auto &resources = _output.resources;
         if (bytes > _options.max_local_bytes || resources.snapshot_bytes_per_worker > _options.max_local_bytes - bytes) {
@@ -215,6 +269,23 @@ private:
         auto storage = _builder.alloca_local(XType::array(element, count));
         storage->set_name("tile_snapshot");
         return storage;
+    }
+    [[nodiscard]] x::Value *_allocate(const Value *value) {
+        return _allocate(value->type(), _team ? &_team->layout(value) : nullptr);
+    }
+    template<typename F>
+    [[nodiscard]] x::Value *_guarded_value(x::Value *valid, const XType *type, F &&emit) {
+        if (!valid) { return emit(); }
+        auto before = _block;
+        auto body = _output.function->create_basic_block();
+        auto merge = _output.function->create_basic_block();
+        _builder.cond_br(valid, body, merge);
+        _at(body);
+        auto result = emit();
+        auto after = _block;
+        _builder.br(merge);
+        _at(merge);
+        return _builder.phi(type, {{_output.module->create_constant_zero(type), before}, {result, after}});
     }
     template<typename F>
     void _serial_for(uint64_t count, F &&emit, bool force_loop = false) {
@@ -262,6 +333,65 @@ private:
             _builder.br(exit);
             _at(exit);
         }
+    }
+    // A phase traverses its own local Cartesian shape. Padding is not a
+    // logical element; only owner-local effects are predicated. In particular,
+    // uniform cross-owner reads remain converged even on an output tail.
+    template<typename F>
+    void _team_coordinate(const detail::ValueLayout &layout, x::Value *slot, F &&emit) {
+        auto previous_axis = _phase_axis;
+        auto previous_valid = _phase_valid;
+        auto previous_index = std::move(_phase_index);
+        _phase_axis = layout.cyclic_axis();
+        _phase_valid = previous_valid;
+        _phase_index = PhaseIndex{.layout = &layout, .slot = slot};
+        Elements coordinates(layout.space().rank());
+        auto remaining = slot;
+        for (auto i = layout.space().rank(); i != 0u; i--) {
+            auto extent = layout.local_extents()[i - 1u];
+            auto coordinate = _binary(A::BINARY_MOD, remaining, _index(extent));
+            remaining = _binary(A::BINARY_DIV, remaining, _index(extent));
+            if (layout.cyclic_axis_index() && i - 1u == *layout.cyclic_axis_index()) {
+                _phase_index.cyclic_local_coordinate = coordinate;
+                coordinate = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, coordinate, _index(layout.team().width())), _lane);
+                auto logical_extent = _extent(layout.space(), i - 1u);
+                auto valid = _compare(A::BINARY_LESS, coordinate, _index(logical_extent));
+                _phase_valid = _phase_valid ? _binary(A::BINARY_BIT_AND, _phase_valid, valid) : valid;
+                // Keep the other coordinates uniform on padding lanes. A flat
+                // out-of-bounds index would carry into the next row and break
+                // the complete-projection proof used by a broadcast.
+                coordinate = _alu(coordinate->type(), A::SELECT, {_index(logical_extent - 1u), coordinate, valid});
+            }
+            coordinates[i - 1u] = coordinate;
+        }
+        auto flat = _index(0u);
+        for (size_t i = 0u; i < coordinates.size(); i++) {
+            flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(layout.space(), i))), coordinates[i]);
+        }
+        _phase_index.flat = flat;
+        _phase_index.coordinates = std::move(coordinates);
+        emit(flat, _phase_valid);
+        _phase_index = std::move(previous_index);
+        _phase_axis = previous_axis;
+        _phase_valid = previous_valid;
+    }
+    template<typename F>
+    void _team_for_each(const detail::ValueLayout &layout, F &&emit) {
+        _serial_for(layout.local_elements(), [&](x::Value *slot) { _team_coordinate(layout, slot, emit); }, true);
+    }
+    template<typename F>
+    void _guarded_effect(x::Value *valid, F &&emit) {
+        if (!valid) {
+            emit();
+            return;
+        }
+        auto body = _output.function->create_basic_block();
+        auto merge = _output.function->create_basic_block();
+        _builder.cond_br(valid, body, merge);
+        _at(body);
+        emit();
+        _builder.br(merge);
+        _at(merge);
     }
     template<typename F>
     [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit, bool force_loop = false) {
@@ -316,6 +446,7 @@ private:
         return current;
     }
     [[nodiscard]] Elements _coordinates(const IndexSpace &space, x::Value *flat) {
+        if (_matches_phase_index(space, flat)) { return _phase_index.coordinates; }
         Elements result(space.rank());
         uint64_t constant = 0u;
         if (x::try_decode_constant_nonnegative_integer(flat, constant)) {
@@ -335,12 +466,22 @@ private:
         }
         return result;
     }
-    void _store_local(const Type &type, x::Value *storage, x::Value *flat, x::Value *element) {
+    void _store_local(const Type &type, x::Value *storage, x::Value *flat, x::Value *element, const detail::ValueLayout *layout = nullptr) {
         _charge(2u);
-        _builder.store(_builder.gep(_type(type), storage, {_storage_index(type, flat)}), element);
+        _builder.store(_builder.gep(_type(type), storage, {_storage_index(type, flat, layout)}), element);
     }
     template<typename F>
     void _emit_tile(const Value *value, F &&emit) {
+        if (_team) {
+            auto &layout = _team->layout(value);
+            auto storage = _allocate(value);
+            _team_for_each(layout, [&](x::Value *flat, x::Value *valid) {
+                auto element = emit(flat);
+                _guarded_effect(valid, [&] { _store_local(value->type(), storage, flat, element, &layout); });
+            });
+            _representation(value)->storage = storage;
+            return;
+        }
         auto count = _volume(*value->type().index_space());
         auto op = value->defining_operation();
         auto runtime_map = op && op->kind() == OperationKind::TILE_MAP && detail::map_emission_plan(*op, count, _options).runtime_loop;
@@ -356,7 +497,7 @@ private:
     }
     void _define(const Value *value, Elements elements) {
         auto data = _representation(value);
-        if (detail::definition_snapshot(value, elements.size(), _options)) {
+        if (!_team && detail::definition_snapshot(value, elements.size(), _options)) {
             auto storage = _allocate(value->type());
             for (size_t i = 0u; i < elements.size(); i++) {
                 _store_local(value->type(), storage, _index(i), elements[i]);
@@ -468,9 +609,42 @@ private:
         for (size_t j = 0u; j < argument_ranges.size(); j++) { bind_range(body->argument(j), argument_ranges[j]); }
         return result;
     }
-    [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
+    [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat,
+                                  detail::ReadProjection projection = detail::ReadProjection::UNKNOWN,
+                                  const Elements *source_coordinates = nullptr) {
         if (auto found = _fused_elements.find(data); found != _fused_elements.end()) { return found->second; }
         if (data->splat) { return data->elements.front(); }
+        if (data->layout && data->storage) {
+            auto layout = data->layout;
+            auto type = _type(*data->type);
+            // Admission makes every shape/team divisor a positive constant.
+            // Form the integer slot before the mask, keeping only the actual
+            // memory access conditional. This avoids hiding safe address
+            // arithmetic inside a divergent load diamond.
+            auto slot = _storage_index(*data->type, flat, layout, source_coordinates);
+            auto load = [&] {
+                _charge(2u);
+                return _builder.load(type, _builder.gep(type, data->storage, {slot}));
+            };
+            if (!layout->cyclic_axis() ||
+                (projection != detail::ReadProjection::TEAM_UNIFORM && layout->cyclic_axis() == _phase_axis)) {
+                return _guarded_value(_phase_valid, type, load);
+            }
+            // Admission checks the *complete* projection is uniform. Only its
+            // owner reads the definition-time snapshot, then all lanes join
+            // the shuffle, including lanes without a valid output element.
+            Elements decoded;
+            if (!source_coordinates) {
+                decoded = _coordinates(layout->space(), flat);
+                source_coordinates = &decoded;
+            }
+            auto &coordinates = *source_coordinates;
+            auto owner = _binary(A::BINARY_MOD, coordinates[*layout->cyclic_axis_index()], _index(layout->team().width()));
+            auto value = _guarded_value(_compare(A::BINARY_EQUAL, _lane, owner), type, load);
+            _charge();
+            return _builder.call(type, x::ThreadGroupOp::WARP_READ_LANE,
+                                 {value, _builder.static_cast_if_necessary(XType::of<uint32_t>(), owner)});
+        }
         if (data->expression && !data->pending_producer) {
             if (_recipe_depth >= 64u) { _fail("XIR deferred recipe exceeds the depth budget"); }
             _recipe_depth++;
@@ -499,11 +673,14 @@ private:
         auto &space = *data->type->index_space();
         x::Value *flat = _index(0u);
         luisa::optional<uint64_t> constant_flat{0u};
+        Elements source_coordinates;
+        if (_team) { source_coordinates.reserve(space.rank()); }
         for (size_t i = 0u; i < space.rank(); i++) {
             auto axis = domain.axis_index(space.axis(i).dimension);
             if (!axis) { _fail("Tile operand dimension is absent from its XIR expression domain"); }
             auto extent = _extent(space, i);
             auto coordinate = extent == 1u ? _index(0u) : coordinates[*axis];
+            if (_team) { source_coordinates.emplace_back(coordinate); }
             uint64_t constant = 0u;
             if (constant_flat && x::try_decode_constant_nonnegative_integer(coordinate, constant)) {
                 if (constant >= extent) { _fail("Tile projection is out of bounds"); }
@@ -514,9 +691,16 @@ private:
                 flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(extent)), coordinate);
             }
         }
-        return _read(data, flat);
+        return _read(data, flat, detail::ReadProjection::UNKNOWN, _team ? &source_coordinates : nullptr);
     }
-    void _copy(const Representation *source, x::Value *destination) {
+    void _copy(const Representation *source, x::Value *destination, const detail::ValueLayout *layout = nullptr) {
+        if (layout) {
+            _team_for_each(*layout, [&](x::Value *flat, x::Value *valid) {
+                auto value = _read(source, flat);
+                _guarded_effect(valid, [&] { _store_local(*source->type, destination, flat, value, layout); });
+            });
+            return;
+        }
         _for_each(_volume(*source->type->index_space()), [&](x::Value *flat) {
             _store_local(*source->type, destination, flat, _read(source, flat));
         });
@@ -667,7 +851,8 @@ private:
         }
         return access;
     }
-    [[nodiscard]] x::Value *_view_element(const ViewAccess &access, x::Value *flat, x::Value *store_value = nullptr) {
+    [[nodiscard]] x::Value *_view_element(const ViewAccess &access, x::Value *flat, x::Value *store_value = nullptr,
+                                          x::Value *participant_valid = nullptr) {
         auto &op = *access.operation;
         auto &space = *op.operand(0u)->type().index_space();
         _charge();
@@ -696,11 +881,13 @@ private:
         if (op.kind() == OperationKind::VIEW_LOAD) {
             auto type = _type(op.result(0u)->type());
             if (access.mask) { valid = access.mask; }
-            return needs_guard || access.mask ? _guarded_load(valid, access.buffer, address, access.fill) :
-                                                _builder.call(type, x::ResourceReadOp::BUFFER_READ, {access.buffer, address});
+            if (participant_valid) { valid = _binary(A::BINARY_BIT_AND, valid, participant_valid); }
+            return needs_guard || access.mask || participant_valid ? _guarded_load(valid, access.buffer, address, access.fill) :
+                                                                     _builder.call(type, x::ResourceReadOp::BUFFER_READ, {access.buffer, address});
         } else {
             auto value = store_value ? store_value : _read(_get(op.operand(space.rank() + 1u)), flat);
-            if (needs_guard) {
+            if (participant_valid) { valid = _binary(A::BINARY_BIT_AND, valid, participant_valid); }
+            if (needs_guard || participant_valid) {
                 _guarded_store(valid, access.buffer, address, value);
             } else {
                 _builder.call(x::ResourceWriteOp::BUFFER_WRITE, {access.buffer, address, value});
@@ -774,6 +961,27 @@ private:
         auto captured = _capture_view_access(op);
         auto count = op.domain() ? _volume(*op.domain()) : 1u;
         auto access = [&](x::Value *flat) { return _view_element(captured, flat); };
+        if (_team) {
+            if (op.kind() == OperationKind::VIEW_LOAD) {
+                _emit_tile(op.result(0u), [&](x::Value *flat) {
+                    // Ownership and view bounds predicate the same effect.
+                    // Compose them once instead of nesting divergent regions.
+                    return _view_element(captured, flat, nullptr, _phase_valid);
+                });
+            } else {
+                auto &layout = _team->phase(&op);
+                auto input = _get(op.operand(op.operand(0u)->type().index_space()->rank() + 1u));
+                _team_for_each(layout, [&](x::Value *flat, x::Value *valid) {
+                    auto value = _read(input, flat);
+                    if (!layout.cyclic_axis()) {
+                        auto leader = _compare(A::BINARY_EQUAL, _lane, _index(0u));
+                        valid = valid ? _binary(A::BINARY_BIT_AND, valid, leader) : leader;
+                    }
+                    static_cast<void>(_view_element(captured, flat, value, valid));
+                });
+            }
+            return;
+        }
         if (op.kind() == OperationKind::VIEW_LOAD) {
             auto plan = detail::value_allocation_plan(op.result(0u), count, _options);
             if (auto fusion = plan.fusion) {
@@ -806,6 +1014,13 @@ private:
         }
     }
     void _bind_coordinates(const Block &body, const IndexSpace &domain, x::Value *flat, luisa::span<const uint32_t> order = {}) {
+        if (order.empty() && _matches_phase_index(domain, flat)) {
+            for (size_t i = 0u; i < domain.rank(); i++) {
+                _define(body.argument(i), Elements{_phase_index.coordinates[i]});
+                _coordinate_ranges.insert_or_assign(body.argument(i), IndexRange{0, static_cast<int64_t>(_extent(domain, i) - 1u)});
+            }
+            return;
+        }
         auto trailing = _volume(domain);
         auto major = true;
         for (size_t position = 0u; position < domain.rank(); position++) {
@@ -920,8 +1135,8 @@ private:
         _output.pointwise_alias_checks += region.alias_pairs.size();
     }
     [[nodiscard]] luisa::vector<const Representation *> _region(const Block &body) {
-        auto regions = _options.enable_pointwise_fusion ? detail::pointwise_regions(body, _options.max_unrolled_tile_elements, _options.local_lanes) :
-                                                          luisa::vector<detail::PointwiseRegion>{};
+        auto regions = !_team && _options.enable_pointwise_fusion ? detail::pointwise_regions(body, _options.max_unrolled_tile_elements, _options.local_lanes) :
+                                                                    luisa::vector<detail::PointwiseRegion>{};
         size_t region_index = 0u;
         const Operation *skip_until = nullptr;
         for (auto op : body.operations()) {
@@ -1096,6 +1311,36 @@ private:
         _define(op.result(0u), Elements{initial});
         return true;
     }
+    void _team_reduction(const Operation &op) {
+        auto closed = detail::closed_reduction(op);
+        LUISA_ASSERT(closed, "Admitted team reduction must have a closed unordered combiner");
+        auto &layout = _team->phase(&op);
+        auto body = op.region(0u)->block(0u);
+        auto type = _type(op.result(0u)->type());
+        auto combine = [&](x::Value *a, x::Value *b) {
+            return _elementwise(*closed->update, closed->carry_left ? Elements{a, b} : Elements{b, a});
+        };
+        // A pair (payload, present), not an invented identity. Every logical
+        // contribution is evaluated once; padding never joins the reduction.
+        auto partial = _fold_many(layout.local_elements(), {_output.module->create_constant_zero(type), _constant(false)}, [&](x::Value *slot, const Elements &current) {
+                                      Elements next;
+                                      _team_coordinate(layout, slot, [&](x::Value *flat, x::Value *valid) {
+                                          _bind_coordinates(*body, *op.domain(), flat);
+                                          for (auto operation : body->operations()) {
+                                              if (operation != closed->update && operation != closed->yield) { _operation(*operation); }
+                                          }
+                                          auto contribution = _scalar(closed->contribution);
+                                          auto merged = combine(current[0u], contribution);
+                                          auto seeded = _alu(type, A::SELECT, {contribution, merged, current[1u]});
+                                          auto present = valid ? valid : _constant(true);
+                                          next = {_alu(type, A::SELECT, {current[0u], seeded, present}),
+                                                  _binary(A::BINARY_BIT_OR, current[1u], present)};
+                                      });
+                                      return next; }, true);
+        auto value = partial[0u];
+        if (layout.cyclic_axis()) { value = _packet_reduction(value, layout.team().width(), combine, partial[1u]); }
+        _define(op.result(0u), Elements{combine(_scalar(op.operand(0u)), value)});
+    }
     void _loop(const Operation &op) {
         auto &domain = *op.domain();
         auto body = op.region(0u)->block(0u);
@@ -1124,7 +1369,11 @@ private:
             return;
         }
         if (!_inside_parallel) { _fail("serial work outside the root parallel requires a multi-launch program"); }
-        if (_partial_reduction(op)) { return; }
+        if (_team && op.kind() == OperationKind::REDUCE) {
+            _team_reduction(op);
+            return;
+        }
+        if (!_team && _partial_reduction(op)) { return; }
         struct Carry {
             luisa::vector<x::PhiInst *> phis;
             x::Value *current{nullptr};
@@ -1135,10 +1384,12 @@ private:
             auto &type = op.result(i)->type();
             auto count = type.is_tile() ? _volume(*type.index_space()) : 1u;
             auto plan = detail::carry_allocation_plan(body->argument(domain.rank() + i), op.result(i), count, _options);
-            if (plan.buffered) {
-                carries[i].current = _allocate(type);
-                carries[i].next = _allocate(type);
-                _copy(_get(op.operand(i)), carries[i].current);
+            if ((_team && type.is_tile()) || (!_team && plan.buffered)) {
+                auto result = op.result(i);
+                auto layout = _team ? &_team->layout(result) : nullptr;
+                carries[i].current = _allocate(type, layout);
+                carries[i].next = _allocate(type, layout);
+                _copy(_get(op.operand(i)), carries[i].current, layout);
             }
         }
         auto preheader = _block;
@@ -1182,14 +1433,15 @@ private:
         // Stage every large incoming before overwriting any current carry.
         // This is a parallel copy, including swaps and interdependent Tiles.
         for (size_t i = 0u; i < carries.size(); i++) {
-            if (carries[i].next) { _copy(yielded[i], carries[i].next); }
+            if (carries[i].next) { _copy(yielded[i], carries[i].next, _team ? &_team->layout(op.result(i)) : nullptr); }
         }
         for (size_t i = 0u; i < carries.size(); i++) {
             if (carries[i].current) {
                 Representation staged;
                 staged.type = &op.result(i)->type();
                 staged.storage = carries[i].next;
-                _copy(&staged, carries[i].current);
+                staged.layout = _team ? &_team->layout(op.result(i)) : nullptr;
+                _copy(&staged, carries[i].current, staged.layout);
             }
         }
         for (size_t i = 0u; i < carries.size(); i++) {
@@ -1211,7 +1463,7 @@ private:
         }
     }
     void _mma(const Operation &op) {
-        if (auto descriptor = detail::native_mma_plan(op, _options)) {
+        if (auto descriptor = detail::native_mma_plan(op, _options); !_team && descriptor) {
             auto result = op.result(0u);
             auto storage = _allocate(result->type());
             auto callee = _output.module->create_external_function(nullptr);
@@ -1253,6 +1505,20 @@ private:
                 static_cast<void>(contraction.add(axis.dimension, axis.extent));
                 static_cast<void>(domain.add(axis.dimension, axis.extent));
             }
+        }
+        if (_team) {
+            _output.rolled_mmas++;
+            _emit_tile(result, [&](x::Value *flat) {
+                auto coordinates = _coordinates(space, flat);
+                auto initial = _read(_get(op.operand(2u)), flat);
+                return _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
+                    auto full = coordinates;
+                    for (auto coordinate : _coordinates(contraction, k)) { full.emplace_back(coordinate); }
+                    auto a = _cast(result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
+                    auto b = _cast(result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
+                    return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, true);
+            });
+            return;
         }
         auto plan = detail::value_allocation_plan(result, _volume(space), _options).mma;
         if (plan.contraction_runtime_loop && _volume(space) != 0u) { _output.rolled_mmas++; }
@@ -1399,6 +1665,12 @@ private:
         switch (op.kind()) {
             case OperationKind::CONSTANT: {
                 auto result = op.result(0u);
+                if (_team && result->type().is_tile()) {
+                    auto data = _representation(result);
+                    data->splat = true;
+                    data->elements.emplace_back(_literal(op));
+                    break;
+                }
                 auto count = result->type().is_tile() ? _volume(*result->type().index_space()) : 1u;
                 auto plan = detail::value_allocation_plan(result, count, _options);
                 if (plan.representation == detail::ValueRepresentation::SPLAT) {
@@ -1419,7 +1691,7 @@ private:
                 auto result = op.result(0u);
                 auto domain = result->type().is_tile() ? *result->type().index_space() : IndexSpace{};
                 auto plan = detail::value_allocation_plan(result, _volume(domain), _options);
-                if (plan.representation == detail::ValueRepresentation::DEFERRED_EXPRESSION) {
+                if (!_team && plan.representation == detail::ValueRepresentation::DEFERRED_EXPRESSION) {
                     // Capture immutable physical operands now, not mutable
                     // TileIR-to-XIR bindings that another map/carry may replace.
                     // Single-use arithmetic is evaluated at its consumer.
@@ -1429,7 +1701,7 @@ private:
                     for (size_t j = 0u; j < op.operand_count(); j++) { data->inputs.emplace_back(_get(op.operand(j))); }
                     break;
                 }
-                if (auto fusion = plan.fusion) {
+                if (auto fusion = plan.fusion; !_team && fusion) {
                     _charge();
                     auto data = _representation(result);
                     data->expression = &op;
@@ -1465,7 +1737,7 @@ private:
             case OperationKind::TILE_MAP: {
                 auto body = op.region(0u)->block(0u);
                 auto plan = detail::value_allocation_plan(op.result(0u), _volume(*op.domain()), _options);
-                if (plan.representation == detail::ValueRepresentation::DEFERRED_MAP) {
+                if (!_team && plan.representation == detail::ValueRepresentation::DEFERRED_MAP) {
                     auto data = _representation(op.result(0u));
                     data->expression = &op;
                     for (auto child : body->operations()) {
@@ -1499,6 +1771,21 @@ private:
                 auto tile = op.operand(0u);
                 auto &space = *tile->type().index_space();
                 auto data = _get(tile);
+                if (_team) {
+                    // The phase plan admits bounded direct coordinates only.
+                    // Do not reintroduce an output-lane branch around a
+                    // collective read; local loads have their own mask.
+                    auto flat = _index(0u);
+                    Elements coordinates;
+                    coordinates.reserve(space.rank());
+                    for (size_t i = 0u; i < space.rank(); i++) {
+                        auto coordinate = _scalar(op.operand(i + 1u));
+                        coordinates.emplace_back(coordinate);
+                        flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), coordinate);
+                    }
+                    _define(op.result(0u), Elements{_read(data, flat, _team->extract_projection(&op), &coordinates)});
+                    break;
+                }
                 auto count = _volume(space);
                 auto type = _type(op.result(0u)->type());
                 x::Value *value = _output.module->create_constant_zero(type);
@@ -1565,6 +1852,10 @@ public:
             _output.error = luisa::format("XIR realization exceeds its snapshot storage budget: requires {} bytes per worker, budget {} bytes",
                                           analysis.resources.snapshot_bytes_per_worker, _options.max_local_bytes);
             return std::move(_output);
+        }
+        if (_options.local_lanes > 1u && !detail::packet_local_program(_input, _options.local_lanes)) {
+            _team = detail::ProgramTeamPlan::create(_input, _options.local_lanes);
+            LUISA_ASSERT(_team, "Successful resource analysis must supply an executable phase plan");
         }
         _output.module = luisa::make_unique<x::Module>();
         _output.required_packet_width = _options.local_lanes > 1u ? _options.local_lanes : 0u;

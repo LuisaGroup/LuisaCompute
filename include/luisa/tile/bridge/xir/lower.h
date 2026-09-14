@@ -52,9 +52,10 @@ struct LowerOptions {
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
     // One keeps complete independent programs per physical lane. A power-of-
-    // two packet width distributes a common local axis across the whole packet.
+    // two packet width cooperates within a program: either one common local
+    // axis or an admitted phase schedule with explicit cross-owner broadcasts.
     // The caller must compile with this exact packet width; lower() validates
-    // the admitted pointwise/closed-unordered-reduction program contract.
+    // the selected execution, projection and closed-reduction contracts.
     uint32_t local_lanes{1u};
     // Fuse a load with its first pointwise unordered reduction, retaining a
     // snapshot for later consumers. Never moves reads across writes/stages.

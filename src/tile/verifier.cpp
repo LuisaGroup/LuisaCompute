@@ -526,7 +526,7 @@ private:
             !_is_floating(result.scalar_type())) {
             _error(operation, "transcendental elementwise operation requires a floating-point element type");
         }
-        if (op == ElementwiseOp::MOD && !_is_integer(result.scalar_type())) {
+        if (op == ElementwiseOp::MOD && !_is_integer(_element_scalar_type(result))) {
             _error(operation, "elementwise modulo requires an integer element type");
         }
         if (result.scalar_type() == ScalarType::BOOL) {

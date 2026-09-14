@@ -260,10 +260,11 @@ struct PlanningResult {
 // versus packet-local distribution, and optionally power-of-two CPU task grains
 // (plus the legacy grain and the whole launch), in the
 // declared finite candidate space; exceeding the search budget is an error.
-// Local distribution requires a common axis with owner-preserving extracts
-// and closed unordered reductions. Other programs retain complete-program
-// lanes, not because parallel needs an extra conflict proof, but because their
-// redistribution/carry realizations are not implemented here yet.
+// Local candidates include the common-axis realization and a phase-aware
+// eager-snapshot realization with compatible carries, owner-local reads and
+// converged uniform broadcasts. Unsupported transitions retain complete-program
+// lanes: this is an emitter capability boundary, not an extra conflict proof
+// required by parallel. The relative cost prior is not a calibrated latency.
 [[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan(
     const Function &function, ExecutionTarget target, const PlannerOptions &options = {}) noexcept;
 

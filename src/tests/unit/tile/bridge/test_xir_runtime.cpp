@@ -3,6 +3,7 @@
 #include "tile_xir_test_utils.h"
 #include "tile_reduction_policy_test_utils.h"
 #include "tile_packet_reduction_test_utils.h"
+#include "tile_xir_attention_test_utils.h"
 #include "tile_llm_test_utils.h"
 #include <bit>
 #include <cstdlib>
@@ -1562,6 +1563,21 @@ int main(int argc, char *argv[]) {
     };
     "tile_xir_runtime_packet_local_fill_is_a_valid_contribution"_test = [&] {
         test::tile_xir::packet_local_reductions(device, 17, 7, 4u, true);
+    };
+    "tile_xir_runtime_program_team_projection_reads"_test = [&] {
+        test::tile_xir::program_team_projection_reads(device);
+    };
+    "tile_xir_runtime_program_team_attention_key33_value3"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_llm::attention(1, 2, 1, 3, 35, 7, 3, 2, 33), 2);
+    };
+    "tile_xir_runtime_sibling_parallel_outer_views_capture"_test = [] {
+        test::tile_xir::sibling_parallel_outer_views_capture();
+    };
+    "tile_xir_runtime_program_team_attention_key65_value7"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_llm::attention(1, 2, 1, 3, 67, 33, 7, 2, 65), 2);
+    };
+    "tile_xir_runtime_program_team_attention_alias_snapshots_and_carries"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_xir::attention_snapshot_fixture(), 1, true);
     };
     "tile_xir_runtime_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };
     "tile_xir_runtime_bounded_transpose_preserves_alias_snapshot"_test = [&] {
