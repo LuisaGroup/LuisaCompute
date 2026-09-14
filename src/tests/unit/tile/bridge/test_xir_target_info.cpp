@@ -21,7 +21,9 @@
 #include <luisa/xir/verifier.h>
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <limits>
+#include <type_traits>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -30,6 +32,18 @@ using namespace boost::ut::literals;
 
 namespace {
 namespace bx = tile::bridge::xir;
+
+template<typename Target>
+concept PlannerTarget = requires(const tile::Function &function, const Target &target, const bx::PlannerOptions &options) {
+    { bx::plan(function, target, options) } noexcept -> std::same_as<bx::PlanningResult>;
+    { bx::plan(function, target) } noexcept -> std::same_as<bx::PlanningResult>;
+};
+
+using PlannerEntry = bx::PlanningResult (*)(const tile::Function &, const bx::ExecutionTargetInfo &, const bx::PlannerOptions &) noexcept;
+static_assert(std::is_same_v<decltype(&bx::plan), PlannerEntry>);
+static_assert(PlannerTarget<bx::ExecutionTargetInfo>);
+static_assert(PlannerTarget<bx::ThreadPoolExecutionTargetInfo>);
+static_assert(!PlannerTarget<bx::ExecutionTarget>);
 
 [[nodiscard]] tile::Kernel row_fixture(uint32_t width, bool reduction = true, uint32_t rows = 17u) {
     using namespace tile;
@@ -617,25 +631,26 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    "tile_xir_thread_pool_target_info_preserves_legacy_overload"_test = [] {
+    "tile_xir_thread_pool_target_info_explicit_and_polymorphic"_test = [] {
         auto kernel = row_fixture(65u, true, 257u);
-        auto default_target = bx::plan(kernel.function(), {});
+        auto default_target = bx::plan(kernel.function(), bx::ThreadPoolExecutionTargetInfo{bx::ExecutionTarget{}});
         expect(default_target.ok()) << default_target.error;
         bx::ExecutionTarget target{8u, 8u, 32u};
         bx::ThreadPoolExecutionTargetInfo info{target};
+        const bx::ExecutionTargetInfo &abstract_info = info;
         expect(info.supports_task_grain());
         for (auto options : {bx::PlannerOptions{},
                              bx::PlannerOptions{.block_size = 64u, .local_lanes = 0u},
                              bx::PlannerOptions{.block_size = 32u, .local_lanes = 0u, .search_task_grain = true},
                              bx::PlannerOptions{.block_size = 32u, .local_lanes = 8u, .blocks_per_task = 3u}}) {
-            auto legacy = bx::plan(kernel.function(), target, options);
+            auto polymorphic = bx::plan(kernel.function(), abstract_info, options);
             auto explicit_info = bx::plan(kernel.function(), info, options);
-            expect(legacy.ok() && explicit_info.ok()) << legacy.error << explicit_info.error;
-            if (!legacy || !explicit_info) { continue; }
-            expect_same_plan(legacy.selected, explicit_info.selected);
-            expect(eq(legacy.candidates.size(), explicit_info.candidates.size()));
-            for (size_t i = 0u; i < legacy.candidates.size() && i < explicit_info.candidates.size(); i++) {
-                expect_same_plan(legacy.candidates[i], explicit_info.candidates[i]);
+            expect(polymorphic.ok() && explicit_info.ok()) << polymorphic.error << explicit_info.error;
+            if (!polymorphic || !explicit_info) { continue; }
+            expect_same_plan(polymorphic.selected, explicit_info.selected);
+            expect(eq(polymorphic.candidates.size(), explicit_info.candidates.size()));
+            for (size_t i = 0u; i < polymorphic.candidates.size() && i < explicit_info.candidates.size(); i++) {
+                expect_same_plan(polymorphic.candidates[i], explicit_info.candidates[i]);
             }
         }
         auto work = info.schedule({.block_size = 32u, .dispatch_size = 257u},
@@ -872,11 +887,11 @@ int main(int argc, char *argv[]) {
             for (auto size : {std::array<uint32_t, 3>{2u, 5u, 3u}, {2u, 35u, 17u}, {1u, 7u, 65u}}) {
                 auto kernel = fixture(size[0], size[1], size[2], variant);
                 auto baseline = check_resources(kernel);
-                auto baseline_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
+                auto baseline_plan = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 64u});
                 if (!baseline || !baseline_plan) { continue; }
                 for (auto width : {1u, 2u, 4u}) {
                     auto candidate = check_resources(kernel, {.mma_output_block = width});
-                    auto plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u, .mma_output_block = width});
+                    auto plan = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 64u, .mma_output_block = width});
                     expect(plan.ok()) << plan.error;
                     if (!candidate || !plan) { continue; }
                     expect(eq(plan.selected.mma_output_block, width));
@@ -906,7 +921,7 @@ int main(int argc, char *argv[]) {
         for (auto variant : {0u, 2u, 3u, 4u}) {
             for (auto terms : {0u, 1u, 8u, 9u, 16u, 64u, 65u}) {
                 auto kernel = fixture(1u, 5u, terms, variant);
-                auto reference_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
+                auto reference_plan = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 64u});
                 expect(reference_plan.ok()) << reference_plan.error;
                 for (auto width : {1u, 2u, 4u}) {
                     auto baseline = check_resources(kernel, {.mma_output_block = width});
@@ -914,7 +929,7 @@ int main(int argc, char *argv[]) {
                     for (auto cap : {0u, 1u, 8u, 64u, 128u}) {
                         auto candidate = check_resources(kernel, {.mma_output_block = width, .max_unrolled_mma_terms = cap});
                         auto options = bx::PlannerOptions{.block_size = 64u, .mma_output_block = width, .max_unrolled_mma_terms = cap};
-                        auto planned = bx::plan(kernel.function(), {8u, 1u}, options);
+                        auto planned = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, options);
                         expect(planned.ok()) << planned.error;
                         if (!candidate || !planned) { continue; }
                         auto rolled = terms > 64u || (cap != 0u && terms > cap);
@@ -1087,7 +1102,7 @@ int main(int argc, char *argv[]) {
         for (auto width : {0u, 3u, 8u}) {
             expect(!bx::analyze_resources(kernel.function(), {.mma_output_block = width}));
             expect(!bx::lower(kernel.function(), {.mma_output_block = width}));
-            expect(!bx::plan(kernel.function(), {8u, 1u}, {.mma_output_block = width}));
+            expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.mma_output_block = width}));
         }
         auto bf16 = tile_kernel("unsupported_mma_accumulator", [](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
                         auto m = axis("m", 1), n = axis("n", 2), k = axis("k", 3);
@@ -1103,7 +1118,7 @@ int main(int argc, char *argv[]) {
             auto rejected = bx::lower(bf16.function(), {.mma_output_block = width});
             expect(!rejected && rejected.error.find("BF16 MMA accumulation") != string::npos);
             expect(!bx::analyze_resources(bf16.function(), {.mma_output_block = width}));
-            expect(!bx::plan(bf16.function(), {8u, 1u}, {.mma_output_block = width}));
+            expect(!bx::plan(bf16.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.mma_output_block = width}));
         }
     };
 
@@ -1136,7 +1151,7 @@ int main(int argc, char *argv[]) {
                                 for (auto cap : {0u, 8u}) {
                                     RecordingCostPolicy policy;
                                     auto options = bx::PlannerOptions{.block_size = 32u, .mma_output_block = width, .max_unrolled_mma_terms = cap, .cost_policy = &policy};
-                                    auto planned = bx::plan(kernel.function(), {8u, 1u}, options);
+                                    auto planned = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, options);
                                     expect(planned.ok()) << planned.error;
                                     if (!planned || policy.observed_work.empty()) { continue; }
                                     const auto &work = policy.observed_work.front();
@@ -1178,8 +1193,8 @@ int main(int argc, char *argv[]) {
         auto large = fixture(9u, 65u, false, false, 1u);
         for (auto cap : {0u, 8u}) {
             RecordingCostPolicy r1, r4;
-            auto baseline = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_mma_terms = cap, .cost_policy = &r1});
-            auto candidate = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = 4u, .max_unrolled_mma_terms = cap, .cost_policy = &r4});
+            auto baseline = bx::plan(large.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .max_unrolled_mma_terms = cap, .cost_policy = &r1});
+            auto candidate = bx::plan(large.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .mma_output_block = 4u, .max_unrolled_mma_terms = cap, .cost_policy = &r4});
             expect(baseline.ok() && candidate.ok());
             if (r1.observed_work.empty() || r4.observed_work.empty()) { continue; }
             auto a = r1.observed_work.front(), b = r4.observed_work.front();
@@ -1191,7 +1206,7 @@ int main(int argc, char *argv[]) {
         // A requested width is not an admitted width: the expansion budget
         // can keep the reference contraction, and costs must do the same.
         RecordingCostPolicy budget_policy;
-        auto budget = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
+        auto budget = bx::plan(large.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
         expect(budget.ok());
         if (!budget_policy.observed_work.empty()) {
             const auto &mma = budget_policy.observed_work.front().mma_per_packet;
@@ -1213,7 +1228,7 @@ int main(int argc, char *argv[]) {
         for (auto width : {1u, 4u}) {
             for (auto cap : {0u, 8u}) {
                 RecordingCostPolicy policy;
-                auto planned = bx::plan(constants.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = width, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
+                auto planned = bx::plan(constants.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .mma_output_block = width, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
                 auto lowered = check_resources(constants, {.mma_output_block = width, .max_unrolled_mma_terms = cap});
                 expect(planned.ok());
                 if (!lowered || policy.observed_work.empty()) { continue; }
@@ -1292,7 +1307,7 @@ int main(int argc, char *argv[]) {
                         for (auto enabled : {false, true}) {
                             auto context = format("B={} M={} N={} transpose={} swap={} cap={} 2d={}", batches, rows, columns, transpose, swap, cap, enabled);
                             RecordingCostPolicy policy;
-                            auto planned = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = 4u, .enable_mma_2d_blocking = enabled, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
+                            auto planned = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .mma_output_block = 4u, .enable_mma_2d_blocking = enabled, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
                             auto lowered = check_resources(kernel, {.mma_output_block = 4u, .enable_mma_2d_blocking = enabled, .max_unrolled_mma_terms = cap});
                             expect(planned.ok()) << context << planned.error;
                             expect(static_cast<bool>(baseline) && static_cast<bool>(lowered)) << context;
@@ -1362,7 +1377,7 @@ int main(int argc, char *argv[]) {
             expect_same_resources(candidate.resources, baseline.resources);
         }
         RecordingCostPolicy budget_policy;
-        auto budget = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
+        auto budget = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
         auto fallback = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u});
         auto bounded = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u});
         expect(budget.ok()) << budget.error;
@@ -1451,8 +1466,8 @@ int main(int argc, char *argv[]) {
             auto bounded = check_resources(kernel);
             auto expanded = check_resources(kernel, {.max_unrolled_region_work = 0u});
             if (!bounded || !expanded) { continue; }
-            auto planned = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
-            auto unbounded_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u, .max_unrolled_region_work = 0u});
+            auto planned = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 64u});
+            auto unbounded_plan = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 64u, .max_unrolled_region_work = 0u});
             expect(planned.ok()) << planned.error;
             expect(unbounded_plan.ok()) << unbounded_plan.error;
             if (planned) { expect_same_resources(planned.selected.resources, bounded.resources); }

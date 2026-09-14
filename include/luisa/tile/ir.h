@@ -33,9 +33,6 @@ enum class ScalarType : uint8_t {
     INT64,
     UINT64,
     FLOAT8_E4M3FN,
-    // Compatibility spelling: this has always mapped to DLPack e4m3fn.
-    // It does NOT denote IEEE-style E4M3 or the FNUZ variant.
-    FLOAT8_E4M3 = FLOAT8_E4M3FN,
     FLOAT8_E5M2,
     BFLOAT16,
     FLOAT16,

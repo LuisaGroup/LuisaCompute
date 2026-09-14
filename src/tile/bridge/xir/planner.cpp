@@ -805,11 +805,7 @@ ExecutionCost AnalyticExecutionCostPolicy::evaluate(
     return cost;
 }
 
-PlanningResult plan(const Function &function, ExecutionTarget target, const PlannerOptions &options) noexcept {
-    return solve(function, ThreadPoolExecutionTargetInfo{target}, options);
-}
-
-PlanningResult plan_with_target_info(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) noexcept {
+PlanningResult plan(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) noexcept {
     return solve(function, info, options);
 }
 

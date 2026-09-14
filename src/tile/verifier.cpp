@@ -421,7 +421,7 @@ private:
     }
 
     [[nodiscard]] static bool _is_floating(ScalarType type) noexcept {
-        return type == ScalarType::FLOAT8_E4M3 || type == ScalarType::FLOAT8_E5M2 ||
+        return type == ScalarType::FLOAT8_E4M3FN || type == ScalarType::FLOAT8_E5M2 ||
                type == ScalarType::BFLOAT16 || type == ScalarType::FLOAT16 ||
                type == ScalarType::FLOAT32 || type == ScalarType::FLOAT64;
     }

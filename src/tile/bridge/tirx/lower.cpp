@@ -387,7 +387,7 @@ private:
             case ScalarType::UINT32: return tvm::PrimType::UInt(32);
             case ScalarType::INT64: return tvm::PrimType::Int(64);
             case ScalarType::UINT64: return tvm::PrimType::UInt(64);
-            case ScalarType::FLOAT8_E4M3:
+            case ScalarType::FLOAT8_E4M3FN:
                 return tvm::PrimType{DLDataTypeCode::kDLFloat8_e4m3fn, 8};
             case ScalarType::FLOAT8_E5M2:
                 return tvm::PrimType{DLDataTypeCode::kDLFloat8_e5m2, 8};

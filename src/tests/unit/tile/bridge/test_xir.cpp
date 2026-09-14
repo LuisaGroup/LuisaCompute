@@ -107,7 +107,7 @@ void check_root_traversal(std::array<uint64_t, Rank> extents, span<const vector<
         auto flat = root_sequence(extents, order, vector<uint32_t>(Rank, 1u));
         for (auto &tiles : factors) {
             auto lowered = tile::bridge::xir::lower(kernel.function(), {.root_axis_order = order, .root_axis_tiles = tiles});
-            auto planned = tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .root_axis_order = order, .root_axis_tiles = tiles});
+            auto planned = tile::bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .root_axis_order = order, .root_axis_tiles = tiles});
             expect(lowered.ok() && planned.ok()) << lowered.error << planned.error;
             if (!lowered || !planned) { continue; }
             expect(xir::xir_verify_module(lowered.module.get(), {.require_reachable_blocks = true}).succeeded());
@@ -163,15 +163,15 @@ int main(int argc, char *argv[]) {
         auto kernel = root_fixture<2u>({4u, 6u});
         for (auto tiles : vector<vector<uint32_t>>{{2u}, {2u, 3u, 1u}, {0u, 3u}, {3u, 3u}, {8u, 3u}, {2u, UINT32_MAX}}) {
             expect(!tile::bridge::xir::lower(kernel.function(), {.root_axis_tiles = tiles}));
-            expect(!tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.root_axis_tiles = tiles}));
+            expect(!tile::bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.root_axis_tiles = tiles}));
         }
         for (auto order : vector<vector<uint32_t>>{{0u}, {0u, 0u}, {0u, 2u}}) {
             expect(!tile::bridge::xir::lower(kernel.function(), {.root_axis_order = order, .root_axis_tiles = {2u, 3u}}));
-            expect(!tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.root_axis_order = order, .root_axis_tiles = {2u, 3u}}));
+            expect(!tile::bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.root_axis_order = order, .root_axis_tiles = {2u, 3u}}));
         }
         auto overflow = root_fixture<2u>({65536u, 65536u});
         expect(!tile::bridge::xir::lower(overflow.function(), {.root_axis_tiles = {256u, 256u}}));
-        expect(!tile::bridge::xir::plan(overflow.function(), {8u, 1u}, {.root_axis_tiles = {256u, 256u}}));
+        expect(!tile::bridge::xir::plan(overflow.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.root_axis_tiles = {256u, 256u}}));
     };
     "tile_xir_root_traversal_cost_uses_physical_fast_digit"_test = [] {
         using namespace tile;
@@ -185,7 +185,7 @@ int main(int argc, char *argv[]) {
                           }
                       }).capture(tensor_shape(24, 32), tensor_shape(24, 32));
         auto score = [&](vector<uint32_t> tiles) {
-            return bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .root_axis_order = {0u, 1u}, .root_axis_tiles = std::move(tiles)});
+            return bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .root_axis_order = {0u, 1u}, .root_axis_tiles = std::move(tiles)});
         };
         auto flat = score({}), identity = score({1u, 8u}), coherent = score({8u, 1u}), crossing = score({2u, 1u});
         expect(flat.ok() && identity.ok() && coherent.ok() && crossing.ok());
@@ -216,7 +216,7 @@ int main(int argc, char *argv[]) {
                 auto baseline = bridge::xir::lower(kernel.function());
                 auto analysis = bridge::xir::analyze_resources(kernel.function(), {.enable_map_fusion = true});
                 auto candidate = bridge::xir::lower(kernel.function(), {.enable_map_fusion = true});
-                auto planning = bridge::xir::plan(kernel.function(), {8u, 1u}, {.enable_map_fusion = true});
+                auto planning = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.enable_map_fusion = true});
                 expect(baseline.ok()) << baseline.error;
                 if (depth_limit <= 64u) {
                     expect(analysis.ok()) << analysis.error;
@@ -268,8 +268,8 @@ int main(int argc, char *argv[]) {
                 return count;
             };
             expect(eq(allocations(off) - allocations(on), static_cast<size_t>(on.deferred_maps)));
-            auto a = bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u});
-            auto b = bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .enable_map_fusion = true});
+            auto a = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u});
+            auto b = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 1u}}, {.block_size = 32u, .enable_map_fusion = true});
             expect(a.ok() && b.ok());
             if (a && b) {
                 expect(variant == 0u ? b.selected.cost.memory_work < a.selected.cost.memory_work :
@@ -319,8 +319,8 @@ int main(int argc, char *argv[]) {
                 };
                 expect(eq(allocations(off) - allocations(on), static_cast<size_t>(on.elided_expression_snapshots)));
                 // One CPU worker makes the prior's packet multiplier explicit.
-                auto a = bridge::xir::plan(kernel.function(), {lanes, 1u}, {.block_size = 32u, .local_lanes = lanes});
-                auto b = bridge::xir::plan(kernel.function(), {lanes, 1u}, {.block_size = 32u, .local_lanes = lanes, .enable_expression_reduction_fusion = true});
+                auto a = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 1u}}, {.block_size = 32u, .local_lanes = lanes});
+                auto b = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 1u}}, {.block_size = 32u, .local_lanes = lanes, .enable_expression_reduction_fusion = true});
                 expect(a.ok() && b.ok());
                 if (a && b) {
                     auto packets = ceil_div(17u * lanes, lanes);
@@ -439,7 +439,7 @@ int main(int argc, char *argv[]) {
                 for (auto workers : {1u, 3u, 8u}) {
                     for (auto grain : {0u, 1u, 2u, 3u, 16u, UINT32_MAX}) {
                         auto options = bx::PlannerOptions{.block_size = 32u, .blocks_per_task = grain, .cost_policy = &policy};
-                        auto result = bx::plan(kernel.function(), {width, workers}, options);
+                        auto result = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{width, workers}}, options);
                         expect(result.ok()) << result.error;
                         if (result) { expect(eq(result.selected.blocks_per_task, grain)); }
                     }
@@ -455,7 +455,7 @@ int main(int argc, char *argv[]) {
         });
         auto kernel = definition.capture(tensor_shape(257));
         auto options = bx::PlannerOptions{.block_size = 32u, .search_task_grain = true};
-        auto result = bx::plan(kernel.function(), {8u, 8u}, options);
+        auto result = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options);
         expect(result.ok() && result.candidates.size() == 5u);
         if (result) {
             vector<uint32_t> grains;
@@ -468,7 +468,7 @@ int main(int argc, char *argv[]) {
         }
         options.cost.worker_activation = 1e12;
         options.cost.task_dispatch = 17.0;
-        result = bx::plan(kernel.function(), {8u, 8u}, options);
+        result = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options);
         expect(result.ok());
         if (result) {
             expect(eq(result.selected.blocks_per_task, 9u));
@@ -476,10 +476,10 @@ int main(int argc, char *argv[]) {
             expect(eq(result.selected.cost.task_dispatch_work, 17.0));
         }
         options.max_candidates = 4u;
-        expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+        expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options));
         options.blocks_per_task = 3u;
-        expect(bx::plan(kernel.function(), {8u, 8u}, options).candidates.size() == 1u);
-        expect(!bx::plan(kernel.function(), {8u, 8u, 0u}, options));
+        expect(bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options).candidates.size() == 1u);
+        expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u, 0u}}, options));
         struct OverridePolicy final : bx::AnalyticExecutionCostPolicy {
             double coefficient{2.0};
             double objective{5.0};
@@ -496,19 +496,19 @@ int main(int argc, char *argv[]) {
             }
         } policy;
         options.cost_policy = &policy;
-        result = bx::plan(kernel.function(), {8u, 8u}, options);
+        result = bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options);
         expect(result.ok() && result.selected.cost.score == 5.0 && policy.evaluations == 1u);
         for (auto invalid : {-1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
             policy.objective = invalid;
-            expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+            expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options));
             policy.objective = 5.0;
             policy.coefficient = invalid;
-            expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+            expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options));
             policy.coefficient = 2.0;
         }
         auto evaluations = policy.evaluations;
         options.block_size = 33u;
-        expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+        expect(!bx::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options));
         expect(eq(policy.evaluations, evaluations));
     };
     "tile_xir_load_reduction_fusion_contract_and_cost"_test = [] {
@@ -565,8 +565,8 @@ int main(int argc, char *argv[]) {
                     return count;
                 };
                 expect(eq(count_allocations(off) - count_allocations(on), static_cast<size_t>(on.elided_load_snapshots)));
-                auto a = bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = false});
-                auto b = bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = true});
+                auto a = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = false});
+                auto b = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = true});
                 if (lanes != 1u && lanes != 8u) { continue; }
                 expect(a.ok() && b.ok());
                 if (a && b) {
@@ -598,20 +598,20 @@ int main(int argc, char *argv[]) {
                 expect(xir::xir_verify_module(lowered.module.get(), {.require_reachable_blocks = true}).succeeded());
                 options.max_local_bytes--;
                 expect(!bridge::xir::lower(kernel.function(), options));
-                auto automatic = bridge::xir::plan(kernel.function(), {lanes, 8u}, {.local_lanes = 0u});
+                auto automatic = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 8u}}, {.local_lanes = 0u});
                 expect(automatic.ok() && automatic.candidates.size() == 12u);
-                auto stable = bridge::xir::plan(kernel.function(), {lanes, 8u});
+                auto stable = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 8u}});
                 expect(stable.ok() && stable.selected.local_lanes == 1u);
                 for (auto local : {1u, lanes}) {
-                    auto plan = bridge::xir::plan(kernel.function(), {lanes, 8u}, {.block_size = 32u, .max_candidates = 1u, .local_lanes = local});
+                    auto plan = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 8u}}, {.block_size = 32u, .max_candidates = 1u, .local_lanes = local});
                     expect(plan.ok()) << plan.error;
                     if (plan) {
                         expect(eq(plan.selected.local_lanes, local));
                         expect(eq(plan.selected.dispatch_size, 17u * local));
                     }
                 }
-                expect(!bridge::xir::plan(kernel.function(), {lanes, 8u}, {.max_candidates = 11u, .local_lanes = 0u}));
-                expect(!bridge::xir::plan(kernel.function(), {lanes, 8u}, {.local_lanes = 3u}));
+                expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 8u}}, {.max_candidates = 11u, .local_lanes = 0u}));
+                expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{lanes, 8u}}, {.local_lanes = 3u}));
             }
         }
     };
@@ -653,7 +653,7 @@ int main(int argc, char *argv[]) {
             if (!kernel.valid()) { continue; }
             expect(bridge::xir::lower(kernel.function()).ok()) << "variant=" << variant;
             auto lowered = bridge::xir::lower(kernel.function(), {.local_lanes = 8u});
-            auto planned = bridge::xir::plan(kernel.function(), {8u, 8u}, {.local_lanes = 8u});
+            auto planned = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.local_lanes = 8u});
             if (variant == 6u) {
                 // ProgramTeamPlan now retains both rows while distributing n.
                 // The scalar sum reads row zero; it is not a reduction of the
@@ -681,7 +681,7 @@ int main(int argc, char *argv[]) {
                 expect(!lowered.error.empty()) << "variant=" << variant << " must retain a lowering diagnostic";
                 expect(!planned.error.empty()) << "variant=" << variant << " must retain a planner diagnostic";
             }
-            auto fallback = bridge::xir::plan(kernel.function(), {8u, 8u});
+            auto fallback = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}});
             expect(fallback.ok() && fallback.candidates.size() == 6u);
             if (fallback) { expect(eq(fallback.selected.local_lanes, 1u)); }
         }
@@ -718,7 +718,7 @@ int main(int argc, char *argv[]) {
             expect(!limited && limited.module == nullptr);
             expect(limited.error.find("snapshot storage budget") != string::npos);
             expect(bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4), .max_unrolled_tile_elements = 0u}).ok());
-            auto plan = bridge::xir::plan(kernel.function(), {8u, 8u}, {.max_unrolled_tile_elements = 0u});
+            auto plan = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.max_unrolled_tile_elements = 0u});
             expect(plan.ok()) << plan.error;
             if (plan) {
                 auto work = plan.selected.cost.arithmetic_work + plan.selected.cost.memory_work;
@@ -761,7 +761,7 @@ int main(int argc, char *argv[]) {
             auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1), .enable_load_reduction_fusion = false});
             expect(!limited && limited.error.find("snapshot storage budget") != string::npos);
             expect(!bridge::xir::lower(kernel.function(), {.max_expanded_values = 256u, .max_unrolled_tile_elements = 0u}));
-            auto plan = bridge::xir::plan(kernel.function(), {8u, 8u});
+            auto plan = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}});
             expect(plan.ok()) << plan.error;
         }
     };
@@ -835,21 +835,21 @@ int main(int argc, char *argv[]) {
                 }
             });
             auto kernel = definition.capture(transpose ? tensor_shape(32, 16) : tensor_shape(16, 32));
-            auto result = bridge::xir::plan(kernel.function(), {8u, 8u});
+            auto result = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}});
             expect(result.ok()) << result.error;
             if (!result) { continue; }
             expect(eq(result.candidates.size(), size_t{12}));
             expect(result.selected.root_axis_order == (transpose ? vector<uint32_t>{0u, 1u} : vector<uint32_t>{1u, 0u}));
             for (auto &candidate : result.candidates) { expect(result.selected.cost.score <= candidate.cost.score); }
-            auto fixed = bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 64u, .root_axis_order = {0u, 1u}});
+            auto fixed = bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.block_size = 64u, .root_axis_order = {0u, 1u}});
             expect(fixed.ok() && fixed.candidates.size() == 1u);
-            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, {.root_axis_order = {0u, 0u}}));
-            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, {.max_candidates = 11u}));
-            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 33u}));
-            expect(!bridge::xir::plan(kernel.function(), {3u, 8u}));
+            expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.root_axis_order = {0u, 0u}}));
+            expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.max_candidates = 11u}));
+            expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, {.block_size = 33u}));
+            expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{3u, 8u}}));
             auto options = bridge::xir::PlannerOptions{};
             options.cost.arithmetic = -1.0;
-            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, options));
+            expect(!bridge::xir::plan(kernel.function(), tile::bridge::xir::ThreadPoolExecutionTargetInfo{tile::bridge::xir::ExecutionTarget{8u, 8u}}, options));
             expect(bridge::xir::lower(kernel.function(), {.root_axis_order = result.selected.root_axis_order}).ok());
             expect(!bridge::xir::lower(kernel.function(), {.root_axis_order = {0u, 0u}}));
         }

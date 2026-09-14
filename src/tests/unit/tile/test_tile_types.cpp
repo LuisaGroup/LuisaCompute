@@ -155,7 +155,6 @@ int main(int argc, char *argv[]) {
         static_assert(t::scalar_type_v<half> == t::ScalarType::FLOAT16);
         static_assert(t::scalar_type_v<t::bf16> == t::ScalarType::BFLOAT16);
         static_assert(t::scalar_type_v<t::float8_e4m3fn> == t::ScalarType::FLOAT8_E4M3FN);
-        static_assert(t::ScalarType::FLOAT8_E4M3 == t::ScalarType::FLOAT8_E4M3FN);
         static_assert(t::floating_scalar_cpp_type<half> && t::floating_scalar_cpp_type<t::bf16>);
         expect(eq(Type::of<t::bf16>()->size(), sizeof(t::bf16)));
         expect(eq(Type::of<t::float8_e4m3fn>()->size(), sizeof(t::float8_e4m3fn)));

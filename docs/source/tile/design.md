@@ -82,9 +82,14 @@ Important properties of this surface:
   SIMD, or vector.
 - The outer spatial nest supplies an anchor context; the innermost enclosing
   `parallel` supplies the default frontier. Data dependencies, explicit child
-  coordinates, and the assigned value constrain the final anchor. Distributed
-  child updates require an exact-cover proof; the current capture rejects
-  outer-value mutation in `parallel` until that analysis is implemented.
+  coordinates, and the assigned value constrain the final anchor. Inner nests
+  may read and update ancestor values and resources. A collective update is
+  one logical operation, not a whole-value write duplicated for each physical
+  participant. Independent logical instances obey `parallel`'s non-interference
+  contract; users do not need to supply an exact-cover proof. The compiler must
+  preserve update regions, snapshots and completion when choosing a mapping.
+  Current capture still rejects ancestor assignments in `parallel`; that is an
+  implementation gap, not a language restriction.
   `serial`, `pipeline`, and `reduce` already infer Scalar and Tile carried state.
 - `outer.index(...)` resolves against that Nest's own ancestor path, never
   against an active descendant. Nested positional shapes may reuse dimension
@@ -134,6 +139,18 @@ The opt-in `luisa/tile/runtime.h` adapter can compile a captured kernel through
 `tile::compile(device, kernel)` and dispatch it on an ordinary Runtime Stream.
 Automatic argument-shape capture at invocation, arbitrary strided views, and
 scalar signature parameters remain separate implementation work.
+
+### API evolution
+
+Tile has no backward-compatibility requirement. When a new API replaces an old
+one, migrate its implementation, tests, examples, benchmarks and documentation
+together, and remove the old entry points. Do not retain compatibility aliases,
+forwarding wrappers or version-dependent legacy behavior. Keep syntax because
+it expresses the intended model, not because existing callers depend on it.
+
+Immutable benchmark snapshots remain historical evidence, not supported API
+surfaces. Supporting the same current syntax across C++ language versions is
+also distinct from retaining an obsolete Tile API.
 
 ## Non-negotiable separations
 

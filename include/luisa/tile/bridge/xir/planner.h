@@ -1,7 +1,6 @@
 #pragma once
 
 #include <luisa/tile/bridge/xir/lower.h>
-#include <type_traits>
 
 namespace luisa::compute::tile::bridge::xir {
 
@@ -255,7 +254,6 @@ struct PlanningResult {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
-// Compatibility entry point using ThreadPoolExecutionTargetInfo.
 // Exact minimum over legal axis permutations, block widths and whole-program
 // versus packet-local distribution, and optionally power-of-two CPU task grains
 // (plus the legacy grain and the whole launch), in the
@@ -265,21 +263,10 @@ struct PlanningResult {
 // converged uniform broadcasts. Unsupported transitions retain complete-program
 // lanes: this is an emitter capability boundary, not an extra conflict proof
 // required by parallel. The relative cost prior is not a calibrated latency.
-[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan(
-    const Function &function, ExecutionTarget target, const PlannerOptions &options = {}) noexcept;
-
 // Backend entry point. Candidate block widths, additional legality, scheduling
 // and the default cost policy come from info. options.cost_policy, when set,
 // replaces only the objective, not the backend's capabilities or schedule.
-[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan_with_target_info(
+[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan(
     const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options = {}) noexcept;
-
-// Deduction keeps the existing plan(function, {}) spelling unambiguous: an
-// empty initializer cannot deduce Info and still selects ExecutionTarget.
-template<typename Info>
-    requires std::is_base_of_v<ExecutionTargetInfo, Info>
-[[nodiscard]] PlanningResult plan(const Function &function, const Info &info, const PlannerOptions &options = {}) noexcept {
-    return plan_with_target_info(function, info, options);
-}
 
 }// namespace luisa::compute::tile::bridge::xir

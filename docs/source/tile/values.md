@@ -25,9 +25,9 @@ buffers and shader invocation.
 | `int8_t`, `uint8_t` | 1 byte | Signed / unsigned integers; not implicitly scaled quantities |
 
 The exact FP8 variant matters. E4M3FN, IEEE-style E4M3, and FNUZ are not
-interchangeable. `ScalarType::FLOAT8_E4M3FN` is the canonical TileIR name;
-the old `FLOAT8_E4M3` spelling remains an equal-valued compatibility alias
-because this bridge has always mapped it to DLPack `e4m3fn`.
+interchangeable. `ScalarType::FLOAT8_E4M3FN` is the TileIR name for the
+finite-only format mapped to DLPack `e4m3fn`; there is no ambiguous
+`FLOAT8_E4M3` compatibility alias.
 
 Storage, operation and accumulation precision are independent:
 

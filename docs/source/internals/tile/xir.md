@@ -987,8 +987,10 @@ actual accesses. Joint search is therefore opt-in, not a promised speedup.
 | `schedule(candidate, work)` | Target scheduling quantities from extracted work and packet/block counts |
 | `cost_policy()` | Backend's default objective; an explicit user cost policy may replace it |
 
-`plan(function, info, options)` is the backend entry point. The legacy overload
-taking `ExecutionTarget` wraps `ThreadPoolExecutionTargetInfo` for compatibility.
+`plan(function, info, options)` is the sole planner entry point and takes an
+`ExecutionTargetInfo`. CPU callers explicitly construct
+`ThreadPoolExecutionTargetInfo`; there is no raw `ExecutionTarget` overload
+or compatibility forwarding wrapper.
 CPU home-chunk calculations are now confined to that concrete implementation.
 Metal4 retains packet/block counts without inventing CPU worker counts or
 work-stealing behavior, and rejects CPU task-grain options.
