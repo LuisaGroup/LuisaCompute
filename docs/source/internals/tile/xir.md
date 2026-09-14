@@ -548,10 +548,10 @@ varying start / cross-block pointer use / divergent loop exit
   → no new contiguous-access permission → existing gather/scatter fallback
 ```
 
-`LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS=1` enables this experimental
-XIR-to-Schedule fact propagation; the corresponding `DISABLE` flag wins.
-It is default-off and independent of predicated memory effects. The existing
-integer access analysis supplies the fact; the memory realization consumes
+The SIMD compiler enables this XIR-to-Schedule fact propagation by default;
+`LUISA_SIMD_DISABLE_COHORT_PRIVATE_ACCESS=1` retains the comparison path.
+It is independent of predicated memory effects. The existing integer access
+analysis supplies the fact; the memory realization consumes
 it only for a direct single-index GEP into a closed private scalar array.
 No operator-name recognition or reduction reassociation is involved.
 
@@ -570,6 +570,52 @@ starts and cross-block counterexamples. The transformation changes an
 access realization, not the execution mapping, memory ownership or
 floating-point contract. Realization-sensitive cost calibration remains
 separate from this legality improvement.
+
+### Uniform-source packet broadcasts
+
+`WARP_READ_LANE` can use a single indexed extraction and broadcast when its
+source index is equal among the participants at that instruction. The
+XIR-to-Schedule analysis records the fact on the source-index operand; it does
+not change the value's global `ValueClass`. The emitter reads the index from
+an active lane and preserves source range, source participation, destination
+participation and empty-mask behavior. Set
+`LUISA_SIMD_DISABLE_UNIFORM_READ_LANE=1` for the independent comparison path.
+
+For integer loop recurrences, equality within the current iteration does not
+require a known trip count or a particular spelling of the exit predicate.
+The analysis considers each header PHI with a uniform start and a fixed
+nonzero additive step, a unique preheader/latch, a dominating update, and a
+single header-owned exit. Signed negative steps are valid. This local fact
+does not extend to the loop's exit: lanes may have completed different numbers
+of iterations. Exact bounds/trip-count analysis remains separate and unchanged.
+
+The `cohort-recurrences` source freeze passed all 13 `unit_simd` executables,
+the 31-case SIMD Tile runtime suite and both focused host plan suites. Those
+tests cover fixed/varying bounds, varying starts, multiple recurrences,
+reverse steps, masks and optimized/disabled numerical comparisons. A subsequent
+counterexample nevertheless exposed a broader existing error: a collective
+defined inside a loop can retain different values in lanes that exit in
+different epochs. Treating that escaped value as cohort-uniform is incorrect,
+even with the new read-lane optimization disabled.
+
+The subsequent `collective-epoch-storage` fix marks cohort-derived values that
+escape a containing natural loop as varying, including exit-PHI edge uses and
+inner-loop values consumed in an outer loop. Dependency propagation retains
+that distinction for derived expressions and subsequent recurrences. A
+collective still computes once for its current participants, but an escaping
+result is formed as a typed lane vector so masked storage preserves each
+lane's exit snapshot. Nonescaping cohort values retain their scalar form.
+This is an internal representation requirement, not a restriction on DSL
+ancestor access or `parallel`.
+
+After a complete build, this fix passed all 13 SIMD test executables, the
+31-case SIMD Tile runtime suite and both focused host plan suites. Added
+regressions cover scalar exit values, nested loops, uint4 ballot/read-first
+payloads, W2/4/8/16, active counts from zero to W, and both read-lane switch
+settings. These finite tests do not establish general correctness or Metal
+validation. Performance must be remeasured for this source revision; earlier
+timings are not silently attributed to the fix. Measurements and retained failures are recorded separately
+in the [attention mapping review](../../../../src/tile/ATTENTION_MAPPING_REVIEW.md).
 
 ### Packet-private storage budgets
 
@@ -653,6 +699,63 @@ lanes, exactly `W` for packet-local programs. The SIMD adapter checks this
 contract before compilation. Dispatch has `P*W` physical workers, so a logical
 program is never launched as a partial packet; the final Runtime block may
 still contain fewer complete packets.
+
+### Phase-local program teams
+
+The experimental `ProgramTeamPlan` candidate extends the common-axis path to
+programs whose phases use different axes. It is selected only when the old
+packet-local candidate cannot represent the program. `local_lanes=1` keeps the
+complete-program-per-lane path; `local_lanes=W` requests one target packet per
+program, and `local_lanes=0` admits both candidates to the finite search.
+This implementation is undergoing device validation; its existence does not
+establish a performance improvement or calibrated automatic selection.
+
+```text
+                         one logical program / one packet
+                                      |
+     QK phase: keys  ->  row-reduction phase: keys  ->  PV phase: value channels
+           |                       |                           |
+     Q / K snapshots         row state, probability       V / output snapshots
+           +-----------------------+---------------------------+
+                 per-use owner-local read or uniform broadcast
+```
+
+The plan stores a schedule per operation and a placement per Tile SSA
+definition. A placement is replicated or cyclic along one of that value's
+dimensions; its local shape rounds up **that axis**, not the flattened volume.
+For example, `[M=4,N=33]` distributed over N on 32 lanes needs eight local
+slots per lane, not `ceil(132/32)=5`. Temporal carry components share a placement;
+this is independent of their serial/pipeline execution domain.
+
+Placement constraints come from operation access maps, not neural-network
+dimension names. In `QK`, a K operand stored as `[key,channel]` can be distributed
+over `key` even though it is not the last storage dimension. Different phases
+may reuse the same packet with different output axes. Each complete operand
+projection must be owner-preserving or team-uniform; a uniform owner index
+alone is insufficient when other source coordinates vary between lanes.
+
+All nonconstant Tiles in this candidate use eager, indexed snapshots. Local
+accesses and output stores are predicated for ragged tails, while required
+broadcasts remain converged: a lane without a valid output may still own a
+needed input. Reduction partials carry `(payload,present)`, exclude padding,
+and incorporate the user initializer exactly once. Temporal Tile updates use
+current/next storage and stage all next values before replacing any current
+value, preserving simultaneous assignments and definition-time snapshots.
+
+The shared resource analysis counts the emitted per-axis snapshots and both
+carry buffers. Work extraction accounts for rolled traversals, local accesses,
+uniform broadcasts, validity-aware reductions and serial contraction work;
+backend policies retain control of ranking. These remain relative work
+estimates, not register occupancy, measured cycles or a latency prediction.
+
+Current candidate boundaries include arbitrary redistribution, nested/sibling
+`parallel` hardware mapping, general partial-update joins, manual Memory,
+packed matrix atoms and software pipelining. Some speculative integer
+operations also require a more precisely predicated emitter. Unsupported
+programs are not made illegal in the DSL: another candidate may realize them,
+or an explicit forced mapping reports an unsupported realization. In
+particular, the missing ancestor-update protocol is an
+[implementation gap, not lexical isolation](calculus.md#ancestor-access-is-not-forbidden-by-lexical-nesting).
 
 ### Private array layout is independent of execution distribution
 

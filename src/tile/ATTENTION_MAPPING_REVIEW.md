@@ -664,3 +664,83 @@ v1准备脚本曾把`otool -L`输出中的dylib自身ID误认作依赖，离线�
 full build-full-7通过。全部13项`unit_simd`中12项通过，唯一失败是新增codegen回归的pre-JIT IR标记断言（`warp.source.uniform`）；旧codegen回归及低层collective数值测试通过。该新增回归在失败点之后尚未完成其全部host oracle，**不能称候选数值验证通过，也不能开始性能结论**。先保留失败、取得width/variant/开关和实际IR，区分分析／发射缺口与测试标记预期问题，再重新完整构建和回归；不删除检查放行。
 
 build-full-8增加有界失败打印、完整构建通过后，实际IR定位为W2、varying-bound样例、优化开启：反向`!(iv < bound)`退出条件使通用trip-count分析返回invalid，进而丢掉了loop内uniform-start/constant-stride的相等事实。固定bound样例两开关均已通过此前的数值检查。还发现“先挑第一个递推PHI”的bounds策略可能选到累加器；修正应独立提取各PHI的当前cohort递推事实，保留原精确bounds/trip-count分析及exit状态语义，不删除反向条件测试。此处记录的是已查明的分析缺口，修正验证待后续freeze。
+
+Metal v3/v4、full7/full8 的源码、失败与诊断已另存为
+[提交诊断增量归档](../../scripts/benchmark/tile_torch/results/m1-max-20260914-submission-diagnostics/notes.md)。
+归档完整性通过不改变其中的 Error 状态。
+
+### 21.11 当前迭代相等事实的修复与 full9 准入
+
+`cohort-recurrences` freeze（SHA256 `f3fb051955587364735de94feb6354093aedabff16baa2b4dd7470c4bb979456`）独立扫描自然循环头部的各个 PHI：uniform start、同类型非零常量加法步长、唯一 preheader/latch、更新支配 latch、唯一且位于 header 的 exit。这个事实只在所属循环内部的当前 cohort 消费，不更改全局 ValueClass、精确 bounds/trip count 或退出后状态。负步长同样保持相等；首个 PHI 是 accumulator 和反向退出条件都不再导致漏掉后续 IV。
+
+完整 build-full-9 后，无旧 ENABLE 环境的验证结果为：
+
+| 验证 | 实际结果 | 边界 |
+|---|---|---|
+| `unit_simd` | 13/13 executables 通过 | 包含保留原断言及独立数值 oracle 的新 read-lane 回归，不是整仓测试 |
+| `test_tile_xir_runtime simd` | 31项、5,207,697个断言通过 | 包含 program-team attention、快照与同时 carry |
+| focused host plan | 2/2 executables；34项、364,142个断言通过 | target info 与 program team 两套，不包含其他 legacy host suite |
+| 三个修改 TU syntax/tidy | 全部0 errors；warning分别6/0/20 | warning数量与上一轮相同，不称零警告 |
+
+full7/full8 的失败不被覆盖。以上通过属于新 freeze，且不自动转移给未冻结的 Metal submission trace。新增正负例覆盖多 IV、signed decrement、varying start/stride、零步长、非唯一入边／latch及非 header exit；仍需补充多层循环 epoch 组合与浮点 payload bit-pattern 的专门回归。
+
+纯入口消融已按这四组 build/test 收据明确准入，而非自动寻找最近成功版本：11个case，local1/local8、W8、block32、单CPU worker；新增129×1024/4096的RMSNorm/softmax及Q17 attention。三臂是默认、仅关闭 uniform read-lane、仅关闭 cohort-private。计划66次capture、44次配对replay、528个visit；任一失败停止并保留剩余NotRun。当前仅记录准入，尚不据此给出性能结论；这也不是完整2×2交互分析或新的Torch比较。
+
+### 21.12 full9 纯入口消融：attention 获益，宽行瓶颈仍在
+
+上述计划随后完整执行：66/66 capture、66/66 prepare、44/44 replay 全部通过，528个visit／2,640个sample，无重试或尺寸缩减。每次replay复用实际ORC对象和相同C++入口计时器，3轮ABBA、每visit5个sample、40ms warmup／20ms target；完整FP64输出、输入不变及buffer/workspace guards通过，同例同local的三臂输出逐bit一致。计时包含入口、launch reset、block遍历和编译生成的内部工作；排除Runtime、Python、JIT、调用方分配和校验。
+
+表中数值均为同一local、同一批次的 **关闭／默认** 配对中位数，大于1表示启用该项更快；两种开关构成独立对照，不能相乘为总收益。
+
+| 样例 | local1 地址分析 | local1 广播 | local8 地址分析 | local8 广播 |
+|---|---:|---:|---:|---:|
+| RMSNorm 129×65 | 1.000 | 1.007 | 1.450 | 1.017 |
+| Masked softmax 129×65 | 0.997 | 0.997 | 1.403 | 1.010 |
+| RMSNorm 129×512 | 1.001 | 1.000 | 0.998 | 1.004 |
+| Masked softmax 129×512 | 0.997 | 1.004 | 0.999 | 0.992 |
+| Attention BK33，形状同21.7 | 1.601 | 1.002 | 1.142 | 1.220 |
+| Attention BK65，形状同21.7 | 1.683 | 1.000 | 1.167 | 1.273 |
+| RMSNorm 129×1024 | 1.000 | 1.007 | 0.995 | 1.001 |
+| Masked softmax 129×1024 | 0.999 | 0.998 | 0.996 | 1.003 |
+| RMSNorm 129×4096 | 0.998 | 1.000 | 1.000 | 1.002 |
+| Masked softmax 129×4096 | 0.999 | 1.000 | 1.000 | 1.000 |
+| Attention BK65，Q17，其余同21.7 | 1.836 | 1.000 | 1.152 | 1.262 |
+
+这里确认的是两类通用realization开销，不是按attention名称分支：完整program-per-lane路径也能因相同迭代的private slot变成连续向量访存而受益；program-team路径还受益于一致source-index的单次提取／广播。相反，512–4096宽行的两项消融基本持平，不宜继续依靠调整这两项系数来解释宽行差距；需要继续检查向量方向、bool mask的byte ABI、snapshot物化与昂贵数学实现。
+
+较小绝对时间也不能冒充planner自动选优：本轮local仍由实验参数固定，未校准的solver没有因此得到验证。三组attention的默认local1纯入口约15.7／83.2／256μs，local8约45.9／169／771μs；这些是不同配对实验中的描述性中位数，不是额外执行过的local1/local8配对结论。本轮没有重新运行Torch/MPS/BLAS，不用前轮计时作分母宣称追平目标。
+
+原始证据位于`/tmp/luisa-metal-program-team.TGZv8f/cpu-ablation-full7.ojSyZd/`；目录名保留实验起始批次，实际生产版本由`gates-full9.json`和`admission.json`固定，绝不是full7数据。独立审查另发现跨循环epoch的collective值可能被错误延续为一致值，正在增加反例；当前11个case全部数值通过不等于一般SIMD语义已完整验证。
+
+### 21.13 跨 epoch 反例已实测失败，不能只缩窄新广播准入
+
+`collective-epoch-counterexample` freeze（SHA256 `f37f46ba0a668e9966d74168f037b9e4e18f1b17be597521aad080c5e0b3b55f`）只增加两个反例测试，生产代码与full9相同。完整build-full-10通过；两个测试executable均明确失败并正常终止，没有超时。Schedule对退出值和下一循环IV误附加了source-index一致事实；native oracle则直接验证第一循环的退出值，再独立验证以其为初值的第二循环。
+
+第一循环header每轮计算`population = warp_active_sum(1)`，lane `i`在第`i`轮退出。active=2时，退出快照应为`[2,1]`；W2/4/8/16的直接输出中lane1实际都为2，第二循环lane0的结果为121而非111。`LUISA_SIMD_DISABLE_UNIFORM_READ_LANE=1`与默认路径都失败，且都为dispatcher CFG。这证明问题不只来自新广播快路：既有cohort spill/reload在汇合后的使用点错误地提取first-active值，丢失不同退出epoch的lane状态。原有codegen案例继续执行通过，不能覆盖这项新失败。
+
+修复必须把“定义当次cohort一致”和“所有后续使用可用单一标量表示”分开。当前候选是在分析中把跨自然循环边界逃逸的cohort定义保留为varying，并沿数据／控制依赖传播；collective仍做当次标量计算，但为varying保存形式生成lane-vector，由已有masked spill保留各lane快照。不逃逸的同epoch快路保留。仅把recurrence的start条件收紧、只关广播开关，或串行执行这些lane，都不能修复已观察到的错误。此处记录的是已确认的失败和待验证修复，不声明新候选已经通过。
+
+full9 的完整计时、输入输出、ORC 产物及离线复算已保存到
+[cohort/broadcast 归档](../../scripts/benchmark/tile_torch/results/m1-max-20260914-cohort-broadcast/notes.md)；
+full10 的实际失败另存为其中的
+[后续反例诊断](../../scripts/benchmark/tile_torch/results/m1-max-20260914-cohort-broadcast/diagnostic_after_performance/notes.md)。
+后者没有覆盖或重写 full9 的历史收据。主归档离线复核了 3,878 个逻辑文件、全部 528 次输出和 2,640 个样本；未保存的 guard bytes 只能通过当时 runner 的断言收据核对，不声称离线重新执行过 guards。
+
+### 21.14 full11：保留不同退出轮次的 lane 快照
+
+`collective-epoch-storage` freeze（SHA256 `29ef908f51beadddedaac6cc85735f2c260cf86978c075bd0fb875707230099c`）实现了上述修复。分析重用 lowering 已完成的自然循环信息，检查定义与使用所在的全部包含循环；直接退出使用、exit PHI、内层结果在外层循环中的使用都保留 varying 存储。派生值的数据／控制依赖继续传播；未逃逸的当次 cohort 值和真正 warp-uniform 的值不被一概向量化。独立分析入口若遇到不完整／不支持的 CFG，则保守处理，而不将“分析不可用”当作“没有跨轮次使用”。
+
+collective 的当次计算仍可是标量或逻辑向量；发射器按声明的存储类别形成 lane-vector，交由现有 masked spill 保存。该处理同时覆盖标量 reduction/vote、uint4 ballot 和 read-first payload，不是 attention 或某个 shape 的特判，也不改变用户层的祖先读写语义。
+
+| 门禁 | full11 实际结果 |
+|---|---|
+| 完整构建 | `build-full-11` passed |
+| SIMD suite | 13/13 executables，49.67s；新增原反例及嵌套 uint4 回归通过 |
+| Tile SIMD runtime | 31 tests／5,207,697 asserts，52.94s |
+| focused host plan | 2 executables／34 tests／364,142 asserts，0.67s |
+| 六个修改 TU syntax/tidy | 全部0 errors；警告3/6/0/0/0/20，已核对来自旧代码 |
+| 项目 no-throw 扫描 | 2,595 个项目 C/C++ 文件通过；排除200个第三方文件 |
+
+新增 native 回归使用独立 SIMT-round oracle，覆盖 W2/4/8/16、active=0…W、广播开关两种设置及前后 canary。嵌套测试检查退出后的四分量 ballot/read-first，而不是只看标量求和。上述结果证明保留的反例及这些回归已修复，不等于所有浮点 bit-pattern、任意 CFG 或 Metal 路径都已验证。
+
+下一步重新测量 full11 默认路径与保留 full9 默认入口，并单独通过同时支持两套 ABI 的相同计时器重测 Tile/Inductor。full9 消融收益不能直接移植为 full11 性能结论，旧 Torch 时间也不作为新分母。
