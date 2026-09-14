@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "started": 1789367222.336405,
+  "finished": 1789367223.882779,
+  "archive_members": 1860,
+  "manifest_sha256": "aa0b2a05e3dd495d879fd30d51f95b33affd0c2f23d7411afa9f2e2798c31c29",
+  "summary_sha256": "87e7d29db665ed86c0d1d04d9bc9065d70c66529cec7935bec83536602fb6de9",
+  "verification_source_sha256": "77f97d60f3db1391dd28694ae4b6bf65de613a583fbe6bc1d933e19ef7ffa62d",
+  "visits": 216,
+  "samples": 1224,
+  "archived_full6_source_files": 17,
+  "no_native_execution": true
+}

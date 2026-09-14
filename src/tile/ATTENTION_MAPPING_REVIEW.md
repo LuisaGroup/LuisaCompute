@@ -557,3 +557,110 @@ uniform contraction iteration k
 实测与验证见[短域协作规约检查点](../../scripts/benchmark/tile_torch/results/m1-max-20260914-short-packet-reduction/notes.md)：新host两套通过，原host18通过/2个基线同现的预算abort；隔离测试中的双LLVM依赖后SIMD26套通过，Metal六套逐例通过。完整Metal CTest的240秒超时及三次汇总解析失败仍保留，不合并为全绿。
 
 固定block256、同一新版二进制的48个visit显示，宽度7的RMSNorm/softmax在插桩GPU吞吐口径上使用local32分别为local1的2.041/2.406倍，宽度65则为0.343/0.197倍。后者是原本支持的对照映射，不是本次代码相对旧版的收益；host wall及无计数器CB的波动也独立列出。这提示后续需要搜索logical team大小/packet内program打包与逐值分布，不能将“可协作”当作“协作更快”，也不能把目标函数只写成总工作量除以lane数。更小team仍须实现明确的物理shuffle索引与参与契约，尚未开放。
+
+### 21.6 跨 phase 候选的设备验证与 SIMD 编译膨胀（2026-09-14）
+
+第21.4节的最小候选已进入实现与设备验证：[`ProgramTeamPlan`](bridge/xir/program_plan.h) 分别记录 phase schedule、SSA placement、完整投影类别与 carry 布局；emitter 使用定义时 snapshot、converged broadcast 和带有效位的 reduction tree。尚不支持任意 redistribution、tensor atom、nested parallel 输出汇合，也没有完成自动成本校准。后两项属于编译器能力缺口，不是 DSL 禁止内层读写外层资源；见[祖先更新实施草案](ANCESTOR_UPDATE_IMPLEMENTATION.md)。
+
+冻结 `owner-slot`（receipt SHA256 `7db764d1868edda352bbd324ac44b14261de98f66feeff0a26a2f6da1111b95b`）的完整 build-full-4 已通过。Metal4 十个隔离注册全部执行成功，共238,426个断言，包括 BK33/Dv3、BK65/Dv7 的完整 attention、输入覆盖后的旧快照与同时 carry，以及宽规约和 RoPE。SIMD 新增固定零列/当前列投影测试通过21个断言；**完整 SIMD attention 尚未通过，不能据此报告跨后端完成或新增性能收益。**
+
+SIMD 的阻碍首先出现在 JIT，而不是 GPU/runtime dispatch。旧 `simd-all` 在600秒超时；同一新二进制的精确 attention33 默认路径和开启实验性 predicated-memory 路径，经采样定位后分别在约161秒和150秒人工终止，均未完成数值测试，不能计为通过或 kernel 时间：
+
+| 同一 attention33，owner-slot freeze | Schedule blocks / instructions | pre-JIT LLVM blocks / instructions | direct CFG |
+|---|---:|---:|---|
+| 默认 | 315 / 920 | 1,834 / 32,840 | false |
+| `LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS=1` | 315 / 920 | 932 / 23,377 | false |
+
+两次采样均进入 LLVM MachineScheduler/RegPressureTracker。证据支持“全局 dispatcher lowering 已在 O2 前放大 IR”，但尚不证明最终耗时全部来自 unroll、寄存器溢出或某一个 pass。仅保留 owner-local slot 没有解决这一瓶颈。后续正在验证合并同次访存的 participant/bounds predicate，以及将安全整数地址计算移出 masked load；新增 direct-CFG 拒绝位置、post-opt IR/PHI规模、O2耗时与 ORC lookup 耗时诊断，不更改优化级别或放宽超时。
+
+这要求 cost extraction 把完整控制流 realization 纳入选择：直接结构化 CFG 与全局 dispatcher、masked-memory admission、局部/广播读取和跨块状态量，不能只用 Tile 算术工作量除以lane数估价。上述为待校准特征，不是已拟合的硬件周期模型。当前原始 receipts、stdout/stderr、采样与冻结源码存于 `/tmp/luisa-metal-program-team.TGZv8f/`；后续新 freeze 的结果必须独立列出，不能沿用这里的通过数。
+
+### 21.7 通用控制流修复与纯入口反例（2026-09-14）
+
+后续 `composed-predicates` freeze 合并同一次访存的 participant/bounds predicate，把无副作用的整数 slot 计算移到 masked load 外，仍保留真实访存的 mask。开启受限 memory predication 后，attention33 达到 direct CFG；优化前 LLVM 为327块/7,742指令，O2后为119块/2,934指令，O2约42ms、首次ORC lookup约751ms，完整数值测试通过。前节的1,834块/32,840指令也是**优化前**计数；不能拿它与119块直接计算同阶段缩减比。编译诊断不是 kernel 计时。
+
+`default-predication` freeze（receipt SHA256 `715aeaa2c422c98a098db988ef8ccdc4cb8190fbd7ad050eedae386ee32fc163`）随后默认启用既有的 bounded memory-diamond lowering 和 counted-loop header use-site uniformity，保留 `LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS=1` 对照。没有扩大32条指令上限，也没有放行原子、volatile、shared-memory、collective、opaque effects或整数除法等不安全投机。更新测试显式清除旧 ENABLE，避免误把实验环境当作默认覆盖。
+
+完整 build-full-6、无ENABLE环境的SIMD Tile31项/5,207,697个断言、全部13项`unit_simd`、两套host planner测试和三个修改单元的syntax/tidy检查通过。此时更广泛的SIMD集成矩阵尚未重新运行，不能称整个后端完全验证。full5的Metal首例在约198秒人工终止：采样曾等待in-flight submission配额，最后观察CPU已升高但没有第二份栈。它没有通过，也不是已证实的GPU hang；full4的十项通过不能转移给full5/6。
+
+同一full6二进制，固定W8、block32、一个CPU worker，比较local1/local8。每个条目是实际ORC对象，不重编译LLVM；共同C++计时器排除Runtime、Python、JIT、调用方分配和校验，包含native entry、launch reset、block遍历以及入口内部工作。每例3轮ABBA、每visit5个sample、40ms warmup、20ms target；完整FP64输出、输入不变、buffer/workspace guards、launch记录均通过。
+
+| 样例 | local1纯入口 μs | local8纯入口 μs | local8/local1配对中位数 |
+|---|---:|---:|---:|
+| RMSNorm 129×65 | 6.502 | 16.990 | 2.613 |
+| Masked softmax 129×65 | 27.179 | 57.551 | 2.118 |
+| RMSNorm 129×512 | 46.560 | 53.603 | 1.151 |
+| Masked softmax 129×512 | 215.213 | 202.387 | 0.941 |
+| Attention B1/Hq2/Hkv1/Q3/K35/D7/Dv3，BQ2/BK33 | 24.843 | 58.644 | 2.358 |
+| Attention B1/Hq2/Hkv1/Q3/K67/D33/Dv7，BQ2/BK65 | 137.791 | 228.369 | 1.657 |
+
+这是**同版本不同mapping**对照，不是新版相对旧版的加速，也不是Torch/MPS比较。Runtime capture也保存throughput/latency，但每arm仅单次capture，未作ABBA，不能当作同等强度的端到端结论。六个样例仍不足以覆盖常见LLM规模；性能目标尚未完成。
+
+这组反例直接约束下一步：
+
+- 当前 `PlannerOptions.local_lanes=1` 默认锁定完整program；不是solver比较后选出的胜者。0才枚举local1/packet-width。暂不把默认改为0，因为现有uncalibrated分数给上述协作候选更低估价，却有五例实测更慢。
+- `ProgramTeamWork`计入部分loop/index/predicate事件，旧`measure`却未一致覆盖；private访问又统一按gather收费，没有反映uniform-slot vector、varying-slot gather或single-owner broadcast。首要任务是共享、未加权的realization特征，不是用六个样例拟合大量系数。
+- 新attention local8记录33个interleaved private arrays，但连续private访问计数仍为0。Schedule里的精确slot保留varying backing state，默认关闭的cohort-private use-site分析是下一项独立A/B候选；不能因数学上索引相等就全局scalarize跨epoch状态。
+- 后续成本形式应分别建模纯入口与Runtime：`T_entry = theta_block * blocks + sum(dynamic_packet_count * theta · realized_features)`；再将task dispatch/worker activation加入Runtime模型。特征至少区分issued ops与有效bytes、连续/gather/broadcast、普通ALU与昂贵数学、shuffle、tail predicate及可观测workspace。资源峰值与硬件周期不可由静态allocation/site计数冒充。
+
+原始12个capture、12个prepared entry与72个纯入口visit保留在同一raw目录的`cpu-*-6`路径；后续cohort-private、Torch或较大尺寸必须作为新实验，不能覆盖此表。
+
+### 21.8 组内地址分析的独立收益与 Inductor 纯入口差距
+
+以下均复用 full6 冻结源和实际 ORC 对象，不使用随后工作树里的默认开关或广播优化。两组实验的计时器、顺序和样本配置不同，分别报告，不拼接绝对时间计算混合加速比。
+
+**组内地址分析 A/B。** 固定 local8，仅改变 `LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS=1`。31项 SIMD Tile 回归、5,207,697个断言在开启后通过；六例各3轮ABBA，共72个visit，每visit5个sample，warmup40ms/target20ms，计时边界同21.7。全部完整输出、输入不变、guards通过，且同例两臂输出逐bit一致。
+
+| 样例（形状同21.7） | 关闭 μs | 开启 μs | 开启/关闭配对中位数 |
+|---|---:|---:|---:|
+| RMSNorm 129×65 | 17.032 | 11.931 | 0.700 |
+| Masked softmax 129×65 | 57.476 | 41.147 | 0.716 |
+| RMSNorm 129×512 | 54.103 | 53.585 | 0.989 |
+| Masked softmax 129×512 | 203.566 | 203.964 | 1.001 |
+| Attention BK33 | 58.428 | 54.773 | 0.937 |
+| Attention BK65 | 228.834 | 211.724 | 0.925 |
+
+宽度65的收益可重复；512的两例接近持平，不宣称普遍显著提升。该优化消费现有访问点的整数相等事实，保持varying backing state、地址快照和同一Schedule block边界；不是按算子或shape分支。它消除了部分实现开销，但没有解决协作候选在多例中仍比完整program慢的问题。默认启用及新增uniform-source广播快路还需新的full build与无ENABLE回归，不能沿用本表证明新工作树通过。
+
+**Torch Inductor 同计时器三臂比较。** 使用当前Torch2.14.0导出的真实C++入口，保持原有`native_rows`准入与计时器；每例遍历三臂全部六种排列，共18个visit，每visit7个sample，warmup100ms/target30ms。一个CPU线程，包含native入口内部的运算和分配、Tile launch reset/block遍历，排除Runtime、Python、JIT、调用方分配和校验。完整FP64 oracle、guard和输入不变检查通过。这里的local8仍是地址分析**未开启**的full6基线；不是上一张表的新配置。
+
+| 样例 | Tile local1 μs | Tile local8 μs | Inductor μs | 较快Tile/Inductor配对中位数 |
+|---|---:|---:|---:|---:|
+| RMSNorm 129×65 | 6.548 | 17.075 | 5.429 | 1.208 |
+| Masked softmax 129×65 | 27.268 | 57.498 | 16.053 | 1.697 |
+| RMSNorm 129×512 | 47.237 | 54.152 | 34.182 | 1.380 |
+| Masked softmax 129×512 | 217.655 | 202.976 | 114.154 | 1.780 |
+
+四例最佳Tile仍全部落后，不满足性能目标。导出源码显示Inductor按行串行、沿列使用4-wide向量，在row reduction后生成输出；softmax入口中确有一个512元素临时数组分配，该分配包含在计时内。不能把它的优势全部归于免Runtime，也不能拿单线程入口结果冒充多线程吞吐或MPS/GPU结果。
+
+后续通用优化方向有具体实现依据：
+
+1. 当前`read_lane`即使所有参与者请求同一source，也逐lane构造动态extract。应在使用点保留source-index相等事实，将一次合法读取广播，同时保留source range、参与mask、空mask及loop-exit语义；不能全局scalarize跨epoch变量。
+2. Softmax的mask Tile仍存为byte ABI的bool私有数组，现有交错布局仅接收4/8-byte scalar。该bool路径仍有`masked.gather.v8i8`；下一候选需明确i8存储与i1计算转换，不能直接按紧凑`<W x i1>`布局访问，也不能破坏inactive bytes。
+3. Inductor和Tile的向量方向、snapshot数量、mask物化、广播方式都不同。planner应按实际实现抽取这些特征并比较候选，而不是仅比较每lane逻辑元素数或直接调低协作路径系数。以上代码观察不是动态hotspot归因，仍需独立A/B及更大尺寸验证。
+
+### 21.9 Metal4 copy-only 提交停滞对照
+
+在full6源与当前二进制依赖闭包固定后，额外编译一个不含Tile或SIMT kernel的独立Runtime程序：8个153×uint32 buffer，8次独立upload随后8次独立download，保持默认cap4，无中间synchronize；期望完整检查2,448个输入/输出字。**实际失败，不能计入数值通过。**
+
+前四次upload提交返回，第五次停在`MetalStream::submit`的in-flight配额等待。8秒与20秒的独立sample均显示CPU0%、主线程condition-variable等待，其他线程在work queue休眠；30秒预算到达后终止，receipt确认子进程已退出（exit -15）。这证明该停滞不需要经过Tile lowering，但尚未定位完成反馈为何没有释放配额，也不证明GPU执行本身出错。没有通过增加配额、自动重试或绕过callback伪造恢复。
+
+v1准备脚本曾把`otool -L`输出中的dylib自身ID误认作依赖，离线失败已保留；v2精确排除`LC_ID_DYLIB`对应的首项后准备通过，其他未解析的真实依赖仍拒绝。v2固定30个非系统Mach-O及14个系统install name；系统共享缓存未逐byte取哈希，full6原始build未记录二进制哈希，所以这只是诊断开始时的闭包固定，不是追溯性的build产物认证。失败程序、两次sample、完整命令与终态均留档。
+
+上述 full1–6、三组 CPU 实验和 v2 失败的持久归档见
+[program-team 原始证据](../../scripts/benchmark/tile_torch/results/m1-max-20260914-program-team/notes.md)。
+共216个visit、1,224个原始sample；归档校验和与统计复算通过。该归档不含下面的新实验。
+
+**v3：独立 GPU 完成点（同一 full6 生产源码）。** 在第四次 upload 返回后，直接向原生 Metal4 queue 发出 shared-event=1，不另加 Luisa command buffer、不改 cap 或 feedback handler。8秒和20秒读到 event=1，16次 copy 提交均返回，但最终 `synchronize()` 没返回，30秒后终止（exit -15，子进程确认退出）。两次 sample 主线程均在 `MetalCommandEncoder::submit_and_wait` 等待 completion flag，CPU约98%，没有进入数值检查。
+
+这份新证据不能解释为“所有 GPU copy 已完成”：event=1只覆盖它之前的四次 upload。由于同步的 barrier-only 提交已越过cap4并进入等待，前面至少13次提交的feedback已经释放配额，故“所有callback都不递送”也不成立。当前问题缩小为尾部提交／完成通知进度；还不能断言某个driver内部缺陷、空提交不回调，或GPU hang。v3仍标记Error，不能计入2,448项数值通过。原始新证据位于`/tmp/luisa-metal-program-team.TGZv8f/metal4-copy-only-control-v3/`。
+
+**v4：尾部 signal 没有解除等待。** 使用build-full-8的匹配冻结源／产物（只增加SIMD测试失败诊断，Metal生产源未改），在8秒sample确认主线程已到`submit_and_wait`后，于12秒从保留原生queue的observer发出一次event=2。signal调用返回，但20秒仍只读到event=1，同步仍未返回；30秒后终止（exit -15，子进程已退出），2,448项检查未执行。没有追加pulse或调整cap。该结果不支持“只缺一个尾部flush就能解决”，也不能把最后一次同步CB之前的GPU工作算作全部完成。下一步需要定位最后推进到的提交及同步CB内容，而不是直接跳过feedback或提前回收资源。
+
+### 21.10 uniform-source 广播候选的验证边界
+
+`uniform-read-lane` freeze（SHA256 `d0f9c51c82ee03349ffb7d8bd9e7a351916ac490b0bae4c7acfe46fc019f5c16`）包含两个独立候选：默认启用已测过的cohort-private访问分析；对当前参与cohort中相等的`read_lane`源下标，生成一次合法提取后广播。后者保留独立`LUISA_SIMD_DISABLE_UNIFORM_READ_LANE`开关、source范围检查、source/destination参与mask与空mask语义，不改变跨epoch的varying状态。
+
+full build-full-7通过。全部13项`unit_simd`中12项通过，唯一失败是新增codegen回归的pre-JIT IR标记断言（`warp.source.uniform`）；旧codegen回归及低层collective数值测试通过。该新增回归在失败点之后尚未完成其全部host oracle，**不能称候选数值验证通过，也不能开始性能结论**。先保留失败、取得width/variant/开关和实际IR，区分分析／发射缺口与测试标记预期问题，再重新完整构建和回归；不删除检查放行。
+
+build-full-8增加有界失败打印、完整构建通过后，实际IR定位为W2、varying-bound样例、优化开启：反向`!(iv < bound)`退出条件使通用trip-count分析返回invalid，进而丢掉了loop内uniform-start/constant-stride的相等事实。固定bound样例两开关均已通过此前的数值检查。还发现“先挑第一个递推PHI”的bounds策略可能选到累加器；修正应独立提取各PHI的当前cohort递推事实，保留原精确bounds/trip-count分析及exit状态语义，不删除反向条件测试。此处记录的是已查明的分析缺口，修正验证待后续freeze。
