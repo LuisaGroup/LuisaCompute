@@ -1641,7 +1641,9 @@ void LCCmdBuffer::CompressBC(
         result.offset_bytes(),
         result.size_bytes()};
 
-    constexpr uint MAX_BATCH = 1024 * 1024;
+    constexpr uint MAX_BLOCK_BATCH = 1024u * 32u;
+    // Keep command lists bounded for large textures.
+    constexpr uint MAX_BATCH = MAX_BLOCK_BATCH;
     auto batch_num = static_cast<int>((num_total_blocks + MAX_BATCH - 1) / MAX_BATCH);
     uint start_block_id = 0;
     for (int batch = 0; batch < batch_num; batch++) {
@@ -1664,7 +1666,12 @@ void LCCmdBuffer::CompressBC(
             tracker->Record(
                 EnhancedBarrierTracker::TexView(rt, level),
                 EnhancedBarrierTracker::Usage::ComputeRead);
-            auto run_compute_shader = [&](ComputeShader const *cs, uint dispatch_count, BufferView const &in_buffer, BufferView const &outBuffer) {
+            // Builtin BC shaders are serialized with a 64-thread block size, while
+            // their dispatch argument below is expressed in thread groups (one
+            // group handles one or four BC blocks depending on the shader).  The
+            // generic DX command builder expects logical thread count and divides
+            // by cs->block_size(), so convert explicitly here.
+            auto run_compute_shader = [&](ComputeShader const *cs, uint group_count, BufferView const &in_buffer, BufferView const &outBuffer) {
                 auto cbuffer = alloc->get_temp_upload_buffer(sizeof(BCCBuffer), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
                 static_cast<UploadBuffer const *>(cbuffer.buffer)->CopyData(cbuffer.offset, {reinterpret_cast<uint8_t const *>(&cb_data), sizeof(BCCBuffer)});
                 tracker->Record(
@@ -1681,10 +1688,9 @@ void LCCmdBuffer::CompressBC(
                 prop[3] = outBuffer;
                 cmd_builder.dispatch_compute(
                     cs,
-                    uint3(dispatch_count, 1, 1),
+                    uint3(group_count * cs->block_size().x, 1, 1),
                     {prop, 4});
             };
-            constexpr uint MAX_BLOCK_BATCH = 1024u * 32u;
             if (is_hdr)//bc6
             {
                 BufferView err1_buffer{&back_buffer};
@@ -1780,9 +1786,7 @@ void LCCmdBuffer::CompressBC(
         if (batch == batch_num - 1) {
             vstd::vector<vstd::function<void()>> callbacks;
             callbacks.emplace_back([back_buffer = std::move(back_buffer)] {});
-            queue.execute(
-                std::move(alloc),
-                std::move(callbacks), {}, false);
+            queue.execute(std::move(alloc), std::move(callbacks), {}, false);
         } else {
             queue.execute(std::move(alloc), {}, {}, false);
         }
