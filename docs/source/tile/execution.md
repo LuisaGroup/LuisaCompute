@@ -451,9 +451,14 @@ coordinates, effects, and destination. A value that depends on
 `subnest.index()` requires at least the subnest anchor; `per(subnest,
 expression)` is the explicit form when no such dependence makes that intent
 evident. Assigning an ancestor-owned value keeps the ancestor anchor and
-creates a collective region update. At region close, layout analysis must prove
-that child fragments form an exact, non-conflicting result, or an explicit
-reduction/atomic combiner must resolve overlap. This is what makes direct
+creates a collective region update. This is one logical update distributed
+through the child frontier, not a whole-value write independently replicated
+for every participant. Where distinct logical instances contribute partial
+updates, `parallel` supplies their noninterference contract; the compiler does
+not require the user to prove it again. The compiler must still preserve the
+logical update when constructing its physical fragment mapping. Explicit
+cross-instance overlap needs an appropriate reduction or atomic contract.
+This is what makes direct
 `acc = mma(a, b, acc)` concise without making ownership depend on C++ spelling
 accidents.
 
@@ -569,9 +574,17 @@ for (auto &leaf : subnest.parallel(exec::infer)) {
 ~~~
 
 This is a controlled descent into a sub-hierarchy, not the declaration of a new
-memory scope. Ancestor-owned memories remain accessible. Updating an ancestor
-value is allowed only through the checked collective-assembly rule above; no
-operation silently escapes to an ancestor or invents a merge.
+memory scope. Ancestor-owned Tiles and memories remain readable and writable;
+declaration scope is not a read-only boundary. Collective updates and
+independent partial updates require the compiler to preserve the appropriate
+result and completion semantics, not the user to adopt a special ancestor-write
+API. An inconclusive conflict analysis does not itself invalidate a program
+that uses the `parallel` contract.
+
+These are model semantics. Current capture still rejects changed ancestor
+values at a child `parallel` exit, and current TileIR/lowerers lack the general
+result protocol. This is an implementation gap, not a language restriction;
+see [the implementation boundary](../internals/tile/calculus.md#ancestor-access-is-not-forbidden-by-lexical-nesting).
 
 ## Execution transform calculus
 

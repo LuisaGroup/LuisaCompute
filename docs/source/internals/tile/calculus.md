@@ -403,6 +403,14 @@ reads or writes. A target mapping must make the required access implementable,
 possibly with communication or another materialization. An implementation's
 missing capture/lowering support is not a new language restriction.
 
+Do not equate execution participants with logical operation instances. Under
+the [anchor/frontier model](../../tile/execution.md#logical-anchor-and-execution-frontier),
+an ancestor-anchored `acc = mma(a, b, acc)` may be one logical update executed
+collectively through a deeper frontier. It is not a set of competing whole-Tile
+writes, and it must not require a new partial-update API. A distinct case is
+independent logical instances contributing different regions to an ancestor
+Tile; their partial results need assembly at completion.
+
 For a parallel partial update of an outer Tile, the semantic model is a join
 of patches, not a sequential loop recurrence. With entry value `T0`, instance
 `i` produces a write footprint `R_i` and values `V_i`:
@@ -432,6 +440,9 @@ TensorView `.store()` effects already work, whereas an outer explicit Memory's
 state update can hit that guard. Tile extraction is currently read-only: a
 partial-update/parallel-join representation is still required. Deleting the
 guard alone would not implement assembly or repair the verifier/lowerers.
+The missing protocol must cover direct collective assignment as well as
+explicit partial updates; implementing only the latter would not fulfill the
+model's ancestor-access semantics.
 
 ### Preserve cross-phase observations
 

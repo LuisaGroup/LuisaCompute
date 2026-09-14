@@ -165,8 +165,8 @@ parallel instance (logical owner)
         (tokens are inferred; no user-written result()/state plumbing)
 
 Later A.store(...) changes A's state, not the already loaded snapshot.
-Child parallel instances can read visible ancestor resources. Whole-object
-ancestor writes from child parallel instances are not independent and fail.
+Child parallel scopes can read and write visible ancestor resources.
+Distinct logical instances must respect the parallel noninterference contract.
 ~~~
 
 Memory states use the existing structured-operation operands, block arguments,
@@ -176,6 +176,12 @@ loop carries, definite initialization, and lexical dominance. Reusing an old
 state after a store or swapping same-typed states between resources is invalid.
 Fine-grained subviews and disjoint parallel writes need range-aware MemorySSA;
 they are not implemented by pretending each whole-Memory write is independent.
+Current capture rejects an ancestor Memory state change inside child
+`parallel`, including legal cases that need such a join. This is an
+implementation gap, not a lexical read-only rule. Multiple independent
+instances writing the same whole Memory would conflict, but that example does
+not justify rejecting every ancestor write or a single collective operation.
+Memory writes remain explicit `.store()` effects.
 
 Native TIRx export retains hard resource constraints on allocations. CPU worker
 memory currently uses local storage; Metal group memory uses shared storage and

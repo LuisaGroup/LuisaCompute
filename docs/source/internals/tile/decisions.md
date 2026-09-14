@@ -153,6 +153,12 @@ The following preserves the revision-17 design rationale and bootstrap order. It
 
 ## Final decisions
 
+- Tile APIs have no backward-compatibility requirement during this redesign.
+  Once a replacement API is selected, migrate implementations, tests,
+  examples, benchmarks, and documentation together and remove the old API.
+  Do not retain compatibility aliases, forwarding wrappers, duplicate entry
+  points, or legacy behavior switches solely to preserve old source spelling.
+  API choices follow the execution/resource model, not migration avoidance.
 - The language is execution-structure first: an open logical `ExecNest` and
   anchored regions are the semantic skeleton, not a loop nest invented by a
   late schedule or backend.
