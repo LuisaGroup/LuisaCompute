@@ -1,0 +1,486 @@
+{
+  "status": "passed",
+  "scope": "six frozen CPU cases, two handwritten probes; no Torch/GPU",
+  "captures": [
+    {
+      "case": "decode-mha-d64",
+      "max_abs_error": 1.833378765058076e-08,
+      "actual_object_sha256": "c225064bfb9aafe716da43e17abc9f61b6d0184c3bdaeb0a32922080d35d678b",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=16, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 13344194.000 (arithmetic 628034.000, memory 12716032.000, dispatch 128.000, imbalance 0.000), root order [0,2,1]; local_lanes=1; static_snapshot_bytes_per_worker=8320; static_snapshot_allocations=4; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=false; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=0; rolled_mmas=0; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=4; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=2050; contiguous_private_writes=34; private_workspace_bytes=66560; full_packet_specializations=0; full_packet_cloned_instructions=0; fast_math=false; ordered_reduction=false"
+    },
+    {
+      "case": "decode-gqa-d80",
+      "max_abs_error": 1.9929339581175806e-08,
+      "actual_object_sha256": "bdb8d96be3afb6eecda8262ae21222ab6e0f0745c64f0108d140db8ac24c41dc",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=53, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 21078188.000 (arithmetic 860204.000, memory 20217856.000, dispatch 128.000, imbalance 0.000), root order [0,2,1]; local_lanes=1; static_snapshot_bytes_per_worker=12864; static_snapshot_allocations=8; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=false; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=8; rolled_mmas=2; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=8; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=34; contiguous_private_writes=42; private_workspace_bytes=102912; full_packet_specializations=1; full_packet_cloned_instructions=2787; fast_math=false; ordered_reduction=false"
+    },
+    {
+      "case": "decode-long-kv",
+      "max_abs_error": 1.7918961369352033e-08,
+      "actual_object_sha256": "9d35461394f3ddb87eae53bdbfa0362dea5e47afdda293d237f0569502cd420b",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=53, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 241773656.000 (arithmetic 9565144.000, memory 232208384.000, dispatch 128.000, imbalance 0.000), root order [0,2,1]; local_lanes=1; static_snapshot_bytes_per_worker=18560; static_snapshot_allocations=8; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=false; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=8; rolled_mmas=2; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=8; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=34; contiguous_private_writes=42; private_workspace_bytes=148480; full_packet_specializations=1; full_packet_cloned_instructions=2787; fast_math=false; ordered_reduction=false"
+    },
+    {
+      "case": "prefill-q4",
+      "max_abs_error": 1.388857772330332e-07,
+      "actual_object_sha256": "51648ccb93158b09c133d43ac2de94b9f7340164bf65830793bc9aa9775e6001",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=59, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 2607276.000 (arithmetic 221740.000, memory 2385408.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; local_lanes=1; static_snapshot_bytes_per_worker=6688; static_snapshot_allocations=10; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=true; two_dimensional_mmas=2; requested_max_unrolled_mma_terms=0; rolled_mmas=0; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=10; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=724; contiguous_private_writes=146; private_workspace_bytes=0; full_packet_specializations=0; full_packet_cloned_instructions=0; fast_math=false; ordered_reduction=false"
+    },
+    {
+      "case": "prefill-q8",
+      "max_abs_error": 1.4185479705469684e-07,
+      "actual_object_sha256": "81409ad9d4d4cfdca4998ca62f3ddd93e0b51f772d3771b7b1ca45922608fb1b",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=98, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 11064332.000 (arithmetic 947084.000, memory 10117120.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; local_lanes=1; static_snapshot_bytes_per_worker=12720; static_snapshot_allocations=16; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=true; two_dimensional_mmas=2; requested_max_unrolled_mma_terms=0; rolled_mmas=0; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=14; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=225; contiguous_private_writes=64; private_workspace_bytes=101760; full_packet_specializations=0; full_packet_cloned_instructions=0; fast_math=false; ordered_reduction=false"
+    },
+    {
+      "case": "batch-gqa-q4",
+      "max_abs_error": 2.0095906161460785e-07,
+      "actual_object_sha256": "b1e60b37e54027a67b3a2dcebca84629a8a27c30f0cc65123b96389ea56df50a",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=114, direct CFG=false, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 6857900.000 (arithmetic 284716.000, memory 6573056.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; local_lanes=1; static_snapshot_bytes_per_worker=9120; static_snapshot_allocations=10; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=2; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=true; two_dimensional_mmas=2; requested_max_unrolled_mma_terms=8; rolled_mmas=2; mma_unroll_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=10; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=0; contiguous_private_writes=136; private_workspace_bytes=72960; full_packet_specializations=0; full_packet_cloned_instructions=0; fast_math=false; ordered_reduction=false"
+    }
+  ],
+  "comparisons": [
+    {
+      "case": "decode-mha-d64",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 1037.17578125,
+      "probe_us": 195.92903515625,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.18886952003734883,
+          0.18879760325595418,
+          0.1882592992733649,
+          0.18897205241048728,
+          0.18886827276961213,
+          0.19303269411897675
+        ],
+        "median": 0.18886889640348048,
+        "minimum": 0.1882592992733649,
+        "maximum": 0.19303269411897675
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.833378765058076e-08
+    },
+    {
+      "case": "decode-mha-d64",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 1044.8685,
+      "probe_us": 180.03661718749998,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.1677441281764613,
+          0.17515773765895995,
+          0.1724308505145025,
+          0.16854425053039518,
+          0.17251791362871563,
+          0.17262059346635927
+        ],
+        "median": 0.17247438207160906,
+        "minimum": 0.1677441281764613,
+        "maximum": 0.17515773765895995
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.833378765058076e-08
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 1932.4061875,
+      "probe_us": 290.954421875,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.1503851362076021,
+          0.15059356216689135,
+          0.15041125475843095,
+          0.15045747081325248,
+          0.15064169436421024,
+          0.15064970579250483
+        ],
+        "median": 0.1505255164900719,
+        "minimum": 0.1503851362076021,
+        "maximum": 0.15064970579250483
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.9929339581175806e-08
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 1932.0625,
+      "probe_us": 221.29638671875,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.11438482531952736,
+          0.114644294813761,
+          0.11439738010693111,
+          0.11510348298839651,
+          0.11433932628787205,
+          0.11427558090791516
+        ],
+        "median": 0.11439110271322923,
+        "minimum": 0.11427558090791516,
+        "maximum": 0.11510348298839651
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.9929339581175806e-08
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 15249.1875,
+      "probe_us": 3610.1875,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.23682544041578202,
+          0.2366495504430001,
+          0.23620149999999998,
+          0.23635208311126055,
+          0.24270378517974928,
+          0.24357815958813087
+        ],
+        "median": 0.23673749542939104,
+        "minimum": 0.23620149999999998,
+        "maximum": 0.24357815958813087
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.7918961369352033e-08
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 15261.542,
+      "probe_us": 2556.7734375,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.17653380478772532,
+          0.16728848124218307,
+          0.1677754301169261,
+          0.17459928009898967,
+          0.16721399967292966,
+          0.16563441030017279
+        ],
+        "median": 0.1675319556795546,
+        "minimum": 0.16563441030017279,
+        "maximum": 0.17653380478772532
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.7918961369352033e-08
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 123.85546875,
+      "probe_us": 45.4974775390625,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.3670748984894852,
+          0.36783676495717027,
+          0.36755171065196296,
+          0.3673376342531314,
+          0.3626807636012581,
+          0.36728852563115255
+        ],
+        "median": 0.36731307994214196,
+        "minimum": 0.3626807636012581,
+        "maximum": 0.36783676495717027
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.388857772330332e-07
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 123.85481640625,
+      "probe_us": 29.5516767578125,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.2383304604836163,
+          0.2411949338338512,
+          0.23820520845609178,
+          0.238494149300817,
+          0.23718846452951808,
+          0.2386922290616283
+        ],
+        "median": 0.23841230489221665,
+        "minimum": 0.23718846452951808,
+        "maximum": 0.2411949338338512
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.388857772330332e-07
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 460.94303125,
+      "probe_us": 213.198078125,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.4631059376842901,
+          0.44972468821352324,
+          0.4631108434450321,
+          0.4620795572773661,
+          0.462922383504773,
+          0.45790164512042686
+        ],
+        "median": 0.4625009703910695,
+        "minimum": 0.44972468821352324,
+        "maximum": 0.4631108434450321
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.4185479705469684e-07
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 460.48959375000004,
+      "probe_us": 104.63500781249999,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.22601953745460196,
+          0.23089041075246466,
+          0.2263114246445176,
+          0.22859703455444075,
+          0.2262593590754245,
+          0.22564496197519265
+        ],
+        "median": 0.22628539185997104,
+        "minimum": 0.22564496197519265,
+        "maximum": 0.23089041075246466
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.602131468837406e-07
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "online_neon",
+      "status": "passed",
+      "tile_us": 3194.609375,
+      "probe_us": 111.5506171875,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.035276332598764705,
+          0.0349163865750403,
+          0.0352986077478879,
+          0.03460272568285874,
+          0.03492348978287284,
+          0.03488641086446313
+        ],
+        "median": 0.03491993817895657,
+        "minimum": 0.03460272568285874,
+        "maximum": 0.0352986077478879
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 2.0095906161460785e-07
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "dense_accelerate",
+      "status": "passed",
+      "tile_us": 3197.0,
+      "probe_us": 60.531330078125,
+      "ratio": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.01858394269303229,
+          0.01908162613512035,
+          0.018943434056233284,
+          0.018910260976520737,
+          0.01893064536931694,
+          0.019031816936415053
+        ],
+        "median": 0.018937039712775112,
+        "minimum": 0.01858394269303229,
+        "maximum": 0.01908162613512035
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 2.0095906161460785e-07
+    }
+  ],
+  "limitations": [
+    "Handwritten reference is not Tile lowering or a proven legal strict-MMA transform.",
+    "Full finite-input checks cover the archived payloads, not all finite FP32 inputs or extreme sentinel/overflow behavior.",
+    "Common native-entry wall timer excludes Python/JIT/caller allocation but includes BLAS internals and launch traversal.",
+    "BLAS TLS acknowledgement is not independent profiling of every library thread.",
+    "Historical producer/tools are fingerprint receipts, not archived binaries, loader closure or reproducible-build proof.",
+    "Paired min/max is observed spread, not a confidence interval; background host work is not controlled.",
+    "Build logs lack a machine-readable exit receipt; final full-build success is a frozen supervisor declaration in validation/notes.md, not independently inferred from progress text."
+  ],
+  "gates": {
+    "pure_tests": 29,
+    "native_validation_checks": 24,
+    "ctests": 4,
+    "source_members": 523,
+    "ctest_seconds": 125.29
+  },
+  "raw_capture_statuses": [
+    {
+      "case": "decode-mha-d64",
+      "status": "prepared",
+      "two_dimensional_mmas": 0,
+      "probe_sha256": "d66e30d2b9697f50f91c82aa4579566ab2156de7a150dc1247d86d3e368597e3"
+    },
+    {
+      "case": "decode-gqa-d80",
+      "status": "prepared",
+      "two_dimensional_mmas": 0,
+      "probe_sha256": "ff0d4c2f7a3257fc7ac4d1e1890fbba5e921dc3e78a1541029d7de33d1d8a21b"
+    },
+    {
+      "case": "decode-long-kv",
+      "status": "prepared",
+      "two_dimensional_mmas": 0,
+      "probe_sha256": "a7ac1b19da6dc63a5929cb5e6c90d9e6cdc8cf6434f7098a17ad53132b6cfd36"
+    },
+    {
+      "case": "prefill-q4",
+      "status": "prepared",
+      "two_dimensional_mmas": 2,
+      "probe_sha256": "af228398d1b660559af4b0c4a97d3e956e6a31c17e2e54fa1c426b7cba4c95e0"
+    },
+    {
+      "case": "prefill-q8",
+      "status": "prepared",
+      "two_dimensional_mmas": 2,
+      "probe_sha256": "7e93ba3889ca8021247b52f502fdca1f1da57cc752a8ebd911435cb917bb0f5b"
+    },
+    {
+      "case": "batch-gqa-q4",
+      "status": "prepared",
+      "two_dimensional_mmas": 2,
+      "probe_sha256": "cf3ad0410d021a1067450449e04682c0a0cf47989544ae913f2272776232b31f"
+    }
+  ],
+  "raw_replay_statuses": [
+    {
+      "case": "decode-mha-d64",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "340b80ef1418d962bd796ac03a115538f4e224e38b6f033bcf6c82239b50af47"
+    },
+    {
+      "case": "decode-mha-d64",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "c51013dbeaff430ae8faa7c82bbef29e9dedbba4f56374b0c8c40b5a4aa69436"
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "78b24b5a11a4cc2c98ac70276c1e8a607ca31b8099875aa4ec8d07dc8b7289e8"
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "bcfeebc13c705c100be906074b8df46231b4182c62010ad309f3fc37542bd316"
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "329e238456bd4848a0aa8d6c1f06951a4678d55f1d2632213285ba0193cad248"
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "f78705a700fede351968d0ef994b4edf98282bfa8268eb32bc6b957430a71d30"
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "6e0998cf373537e309680c8cac7f9021213b33dfbf41b02a929a6af10e79f2c7"
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "4a88634c09fe294f83aaf0ab2fc78685c2c6eebd9fb8113090838a9cbdd97662"
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "527e5118560b6cbc61bd1a90af80f0865d0c2d0a08bbc29acace16f9774512ca"
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "b11dde320596a42fbc1b5415d7109d06670ff247afe9280a70dc86995f97c4d1"
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "online_neon",
+      "status": "ok",
+      "results_sha256": "1898a8ab56a59af869792876eaff045557336e73c1e731ef863685623524d8b7"
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "dense_accelerate",
+      "status": "ok",
+      "results_sha256": "8f2c0233666609b128185a826b16a6a800efd3bd2dde87096824121756dfbe7c"
+    }
+  ],
+  "chronology": {
+    "plan": 1789299523.622106,
+    "source": 1789299524.298112,
+    "capture_start": 1789299532.5256739,
+    "capture_finish": 1789299567.2453701,
+    "replay_start": 1789299571.229718,
+    "replay_finish": 1789299613.843488
+  },
+  "commands_checked": 141,
+  "visits": 144,
+  "samples": 1008,
+  "source_archive_sha256": "e4032e31fd334fe8b328e7418be10ac718d2911fbc9ddcfafb05136c5d2d76e7",
+  "plan_sha256": "9a081b6b7071a7b757cdd2d6393883256a951dd51fba10563c032d85b593c85d",
+  "audit_sha256": "13197c16b1b79edde0474ad7dfc012e0f5868b82ef5607121996aede5772f003"
+}

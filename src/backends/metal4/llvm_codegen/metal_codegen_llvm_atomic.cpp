@@ -26,6 +26,16 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_atomic(
                      address_space == air_address_space_threadgroup,
                  "Metal AIR atomics require device or threadgroup memory.");
     auto is_threadgroup = address_space == air_address_space_threadgroup;
+    if (is_threadgroup) {
+        // Keep each lane's address after divergent loop exits. Apple's AIR
+        // compiler can otherwise update a uniform bucket despite correct
+        // per-lane values in ordinary stores. Match the MSL atomic helper's
+        // private volatile pointer materialization, without changing barriers.
+        auto alignment = _module.getDataLayout().getPointerABIAlignment(address_space);
+        auto slot = _temporary(function, element_pointer->getType(), alignment.value());
+        builder.CreateAlignedStore(element_pointer, slot, alignment, true);
+        element_pointer = builder.CreateAlignedLoad(element_pointer->getType(), slot, alignment, true);
+    }
     auto scope = builder.getInt32(is_threadgroup ? 1u : 2u);
     auto prefix = std::string{"air.atomic."};
     prefix.append(is_threadgroup ? "local." : "global.");

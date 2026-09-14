@@ -58,6 +58,7 @@ using CoroBooleanSemanticValues = luisa::unordered_map<
 class CoroBooleanPredicateLiveness {
 private:
     luisa::vector<luisa::vector<Value *>> _live_in;
+    luisa::unordered_map<Instruction *, luisa::vector<Value *>> _dead_after;
 
 public:
     CoroBooleanPredicateLiveness(
@@ -70,6 +71,11 @@ public:
 
     [[nodiscard]] luisa::span<Value *const>
     live_in(size_t block_id) const noexcept;
+
+    // Apply only after the instruction's semantic transfer. A terminator's
+    // condition must remain available until its successor states are refined.
+    [[nodiscard]] luisa::span<Value *const>
+    dead_after(Instruction *instruction) const noexcept;
 };
 
 }// namespace detail

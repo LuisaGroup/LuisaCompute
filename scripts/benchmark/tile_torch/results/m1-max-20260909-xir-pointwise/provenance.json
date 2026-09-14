@@ -1,0 +1,1971 @@
+{
+  "frozen_unix": 1788924172.302855,
+  "parent_commit": "8bc700780285c52a9e33ae2f9da5ac90b9de5701",
+  "fetched_next": "4b0c02384a9c63366cc2386757fb6092f2421b92",
+  "next_merged": false,
+  "raw": "/private/tmp/luisa-pointwise.0imY7I",
+  "source_sha256": {
+    "include/luisa/tile/bridge/xir/lower.h": "ecab98d09ccb4d646a91a83186d91285c571723ce6ed9acc7d14fc78424598ae",
+    "include/luisa/tile/bridge/xir/planner.h": "21f9d1da9cb2f3e87e3aa9257d462e39825dd95444cb049b0c64eac90c63e1d8",
+    "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "3f93e1d5a5377dbc061cce995834175a5d9611faeb7eb495a17417b493338ab5",
+    "src/backends/simd/llvm/llvm_schedule_codegen.h": "f6d2edd8c2c98241f70de6ca78dff382201cd7a84411a2edcee638b53590adcb",
+    "src/backends/simd/llvm/llvm_schedule_emitter.cpp": "c2a3f5758180f38b38aaaf212f5804ff07ec0ffa6afa42fb0d13813d3c8f722b",
+    "src/backends/simd/runtime/simd_shader.cpp": "1aa119f1e55be6b85baed7c7e2fc159111a5798d29a9681f9891b5d9cec18f4c",
+    "src/backends/simd/runtime/simd_tile.cpp": "342c2317a8202ab740667392312612dd517c0cbf92735bf8af4d4cb8e3cecc35",
+    "src/backends/simd/simd_compiler.h": "ea072ab10ea31c35854de9722bfa1c00d0420c61483e18c491901fdb1c02c23d",
+    "src/tests/benchmark/benchmark_tile_xir.cpp": "029b25079c3908e9fba337c047276ef7948523d64e114bda810f642e2bfb4a2e",
+    "src/tests/unit/tile/bridge/test_xir.cpp": "35934a8772a04f30c01c6761fc813dfd7b5a9635ea8d1b9f070bb30da61f6ee9",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "68d6167c07a8ab66290ed1745d31bb901a1cac1334ab0cf6842a51e6a9b9417d",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "e0b4cbc5cbc768fa915d2c2d34c3ee310a60ec85bfd4f8d5219c56ec8c727436",
+    "src/tile/bridge/xir/lower.cpp": "c7a9257f576c85c11c571a3bfa87b68466bc0531b1e1ea940904c53860dd9e53",
+    "src/tile/bridge/xir/planner.cpp": "0ef6edc747da2677a8c47a751c07d178c0477d8e62707b690a348fafe93805bf",
+    "src/tile/bridge/xir/representation.h": "887294b25a683ebc3f8a7dee099a4fb8d243a408bfb86febe9e805ca30ff4cb0",
+    "src/backends/simd/runtime/simd_shader.h": "8590e9529a448b727a6b00239f41893ffe958eb7d074deb08775f7e82c9edca7",
+    "src/backends/simd/llvm/llvm_schedule_emitter.h": "e0e65d9fd483f1c8c90097213c62bfcc1c8a64dad306b1d2deb23639eb2c2bbc",
+    "src/backends/simd/llvm/llvm_schedule_emitter_predication.cpp": "3cff6fdc7caba64d68684f2c99b4b64b5f4db439dc5584e15207da21c13f4a7a",
+    "src/backends/simd/llvm/llvm_schedule_emitter_direct.cpp": "f709efa45b799f7e03f74c5012419ae4afbed40a21fbd0fb7e17ce23f16a19a0",
+    "src/backends/simd/llvm/llvm_schedule_emitter_control.cpp": "b7f468dd81c43979fad6d4556de755cddf48ab8ca821b2afdca292d1781fc434",
+    "src/backends/simd/llvm/llvm_schedule_emitter_terminators.cpp": "3cb1375a3b5dc48642f3428f6818aea4a744306f6fb18e56d3276e286a84f4d5",
+    "src/tests/common/tile_llm_benchmark.h": "726c1f044d35d5d0e8fe212056a8ee7340f8f8399a3ee2cf11441115b2ec8ab8",
+    "src/backends/simd/schedule/xir_to_schedule.h": "c8901680f5a47545067da6880a67a143861da4bcd996cd7f1b4a737f673a8a12",
+    "src/backends/simd/schedule/xir_to_schedule.cpp": "2407ba489ba3908e0ee077fe9e401da66e7e7673e541edf8401d306c148c8304",
+    "src/backends/simd/schedule/schedule_ir.h": "6398c1722eabb6230dae4703c9614f8bd5608299c54614f38d43e88bcf5af5f0",
+    "src/backends/simd/schedule/schedule_ir.cpp": "b4e3b1cabd2e60b115fb290f2d088eab0dd79171c09d941601bfe42132a60be0",
+    "src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": "3f563a5dcf6c6c4481ab65d511889b46a42eb1f7e35c433d99e80486d2798a91",
+    "src/backends/simd/simd_compiler.cpp": "b4d0dc104e96b4abffd538a25fea40b2df0318315d9e0c41050ea9d95c60c0b8",
+    "src/tests/unit/simd/test_xir_to_schedule.cpp": "a4634cb3b0c510933c7fee5be5a9eba9aec2ad3aa54c977d58bf7802ccfc91cb",
+    "src/tests/unit/simd/test_schedule_ir.cpp": "0440d6ab612be9a126959b3e9e0334a19688ed28d83aa49fc67c8551fe3af784",
+    "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "be346b28d7907b9b17ba8c749dd44e6df4ab8c9288b95d4d3b7ac49e4faeef77",
+    "src/tile/bridge/xir/pointwise.h": "e8b963597c89e9638aa4c1eed397c01b64e14c4b574a63b7fae0cb281a16e407"
+  },
+  "binary_closure_sha256": {
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir": "5ba13e78db0ac8eba1f309c639ea62473de27554a94bd5cb6eb8ba100f368d9d",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so": "f3c8ce6b7ee7a7cb1431b6ca277e2e7e874afb3f6513a68563abdcc8c73370a4",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-xir.dylib": "9275b9a692044c9e752faef8ca99e3c9ca55ab225c665f327ff84dfe14183dc2",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+    "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+  },
+  "previous_native_checkpoint": "../m1-max-20260909-native-rows/provenance.json",
+  "previous_native_checkpoint_sha256": "dd27e7456c7e38f03a3b3342cba798da42f0eef6e526e9ad9d60d6719959fcb4",
+  "scope": "Guarded same-domain pointwise realization, default off; no new cost calibration or selected default.",
+  "source_caveat": "Isolated archive with recorded predecessor overlays; not a clean checkout.",
+  "artifacts": {
+    "native/rmsnorm-17x65/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/off/object/tile_xir_w8_97954_1788923210563579_0.o",
+      "source_sha256": "f31a76e8b371e0a050eff334000ffad44d6ac5dab5ed9000e7848c51715a310a",
+      "archived_sha256": "d3c255e047078ed2678cd225ef7e2501ddffb83ece533862f9914464b2c60a9f",
+      "source_bytes": 7360,
+      "archived_bytes": 4961
+    },
+    "native/rmsnorm-17x65/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/off/kernel.ll",
+      "source_sha256": "bca2c0e6d37e512be18637c6fb5ec726edb864463edb8b33330282ba9a43c53a",
+      "archived_sha256": "469cce9bd585b9b8df9fac16fe6c02806744405cf45dcedcf46e7d868ea0100e",
+      "source_bytes": 131759,
+      "archived_bytes": 20885
+    },
+    "native/rmsnorm-17x65/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/off/entry.dylib",
+      "source_sha256": "6486ddcc2f0b4a8b99b6f7b09f5ea6852253e2961cb08d5ae8c195243224d82c",
+      "archived_sha256": "16913f16e2847b959584c1efbc2b8aee90486e9e67e4e6ee54a0021c47472025",
+      "source_bytes": 16824,
+      "archived_bytes": 5145
+    },
+    "native/rmsnorm-17x65/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/off/assembly.stdout.log",
+      "source_sha256": "797b0adfa19610ed49f1e3174042f6fb678d36a957bb59dee20ce81806f4f8a2",
+      "archived_sha256": "6e956ea828a2aafa308b8635f9a16ba8a04611cb8b2ecbd7e9bb898e2d2dcd70",
+      "source_bytes": 56567,
+      "archived_bytes": 11404
+    },
+    "native/rmsnorm-17x65/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/off/measurement.json",
+      "source_sha256": "bf852af2e3cfe6a4727b6d385af3e5a2aba286f52bbe53d1a7e066200fe4ccce",
+      "archived_sha256": "bf852af2e3cfe6a4727b6d385af3e5a2aba286f52bbe53d1a7e066200fe4ccce",
+      "source_bytes": 2318,
+      "archived_bytes": 2318
+    },
+    "native/rmsnorm-17x65/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/on/object/tile_xir_w8_98253_1788923258073565_0.o",
+      "source_sha256": "f31a76e8b371e0a050eff334000ffad44d6ac5dab5ed9000e7848c51715a310a",
+      "archived_sha256": "d3c255e047078ed2678cd225ef7e2501ddffb83ece533862f9914464b2c60a9f",
+      "source_bytes": 7360,
+      "archived_bytes": 4961
+    },
+    "native/rmsnorm-17x65/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/on/kernel.ll",
+      "source_sha256": "fb65935d9a2b62dce68aff351a61a747b69d253d2249799736dc39f40dffaca9",
+      "archived_sha256": "8f8a1cb5ba2ad31a20c4d30b2161a62f3c80bdcf4bfc93e67ea79cfa92613dc2",
+      "source_bytes": 131983,
+      "archived_bytes": 20905
+    },
+    "native/rmsnorm-17x65/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/on/entry.dylib",
+      "source_sha256": "f1e073df160a398b508b9037d37f3e0a1da4672173e2744754aebceeb5753f4a",
+      "archived_sha256": "547fb5c218d3acc9609e41a00e6442d2cc3a434b7c328d0b7abf1c568c7139f4",
+      "source_bytes": 16824,
+      "archived_bytes": 5146
+    },
+    "native/rmsnorm-17x65/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/on/assembly.stdout.log",
+      "source_sha256": "196a6b70822c0d5cd0f27ea10898e59143d3b8f11a3baf002267be4a20c01656",
+      "archived_sha256": "a9ea423dba7c3af4506419f5d043c4b354d8926c0fe5e690ca59c4dde39d0929",
+      "source_bytes": 56566,
+      "archived_bytes": 11403
+    },
+    "native/rmsnorm-17x65/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-17x65/on/measurement.json",
+      "source_sha256": "ea2ef371d17c5bbd73b4baf2d20e77aba88453723bd7809f27027cf6859d1d66",
+      "archived_sha256": "ea2ef371d17c5bbd73b4baf2d20e77aba88453723bd7809f27027cf6859d1d66",
+      "source_bytes": 2344,
+      "archived_bytes": 2344
+    },
+    "native/rmsnorm-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/off/object/tile_xir_w8_98266_1788923258587266_0.o",
+      "source_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "archived_sha256": "0d36518bbb2a1ad4411756c1f7c3289743fa529b51632eac1569c21fd3c13691",
+      "source_bytes": 4896,
+      "archived_bytes": 2464
+    },
+    "native/rmsnorm-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/off/kernel.ll",
+      "source_sha256": "0a4d26fcabef435deb6d020f58252b40ff66c779fe49387a156aaa8552daacce",
+      "archived_sha256": "da22fb53bc14b3d80c66f75034a8461e98e28f9b1c933e11e444456204258b79",
+      "source_bytes": 107513,
+      "archived_bytes": 17274
+    },
+    "native/rmsnorm-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/off/entry.dylib",
+      "source_sha256": "0e0f7934687f11689713b9f0d075ed0c830964468e57a49d7e8b23ac4e89a2c9",
+      "archived_sha256": "9ce7d972b8f8d5cd9b87be5735c9921673927c977934ed7054cae87a48723ee5",
+      "source_bytes": 33400,
+      "archived_bytes": 3080
+    },
+    "native/rmsnorm-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/off/assembly.stdout.log",
+      "source_sha256": "af68f2973dcbbf1de31461b64d21d3df6ee3cc1763b34553d105dcec16c2f5df",
+      "archived_sha256": "0b23d190c53262bab139a0ec4d13128fd3407141bca0eeed1bbb82d6d91b4408",
+      "source_bytes": 38258,
+      "archived_bytes": 7316
+    },
+    "native/rmsnorm-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/off/measurement.json",
+      "source_sha256": "71399016a288c3b770f6ef661571b8688d9bddd63bff7fe0cee4f4e3250662f2",
+      "archived_sha256": "71399016a288c3b770f6ef661571b8688d9bddd63bff7fe0cee4f4e3250662f2",
+      "source_bytes": 2362,
+      "archived_bytes": 2362
+    },
+    "native/rmsnorm-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/on/object/tile_xir_w8_98277_1788923262161371_0.o",
+      "source_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "archived_sha256": "0d36518bbb2a1ad4411756c1f7c3289743fa529b51632eac1569c21fd3c13691",
+      "source_bytes": 4896,
+      "archived_bytes": 2464
+    },
+    "native/rmsnorm-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/on/kernel.ll",
+      "source_sha256": "cbce916711ec12c7f36ee74c3cf642b04d025061ddad8c2ed45067c8f0ba8863",
+      "archived_sha256": "f5c56a6885a000723fd96542e69eda2820bc4db793a3b6e48d336e0bff3b28c0",
+      "source_bytes": 107737,
+      "archived_bytes": 17294
+    },
+    "native/rmsnorm-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/on/entry.dylib",
+      "source_sha256": "92bb6258d2aeb77b54b8cc79d0785d153569fa1b5f7354b22e0a687043fa2c7b",
+      "archived_sha256": "7dcc7e669727360fdedee830ea9263d2ff5b7d78ac9ff1bc8aed39a043880ec1",
+      "source_bytes": 33400,
+      "archived_bytes": 3079
+    },
+    "native/rmsnorm-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/on/assembly.stdout.log",
+      "source_sha256": "fb5732ffbba23bd68832a715f59260a015180f57e9d9ce5410eaa83e2504001c",
+      "archived_sha256": "82f212d09d9e694825c49d431145136ef6224c427410918523b324b529819d43",
+      "source_bytes": 38257,
+      "archived_bytes": 7315
+    },
+    "native/rmsnorm-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-129x768/on/measurement.json",
+      "source_sha256": "1d675a5b881c1593f1068193cc822a64a7b8b774ac90c98dff752e074c86569e",
+      "archived_sha256": "1d675a5b881c1593f1068193cc822a64a7b8b774ac90c98dff752e074c86569e",
+      "source_bytes": 2358,
+      "archived_bytes": 2358
+    },
+    "native/rmsnorm-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/off/object/tile_xir_w8_98283_1788923263216896_0.o",
+      "source_sha256": "91d800029b5c050dd0d348b82e22d9d715517e7cc97fddedf7c29850868f6bdf",
+      "archived_sha256": "6ee93e7b514d3508926e5d7aafd774229dab239dc7c8716fbb9c7e3e6b280d80",
+      "source_bytes": 7712,
+      "archived_bytes": 4202
+    },
+    "native/rmsnorm-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/off/kernel.ll",
+      "source_sha256": "6ec38b4796642d3669c93262fc61845e24058fe956c0782bbbe7f216fc0c4dff",
+      "archived_sha256": "bb813e44a62ab355089b8a641db4dc0c4ad8849daedc9fb1c578f3f7c9bba157",
+      "source_bytes": 131825,
+      "archived_bytes": 20906
+    },
+    "native/rmsnorm-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/off/entry.dylib",
+      "source_sha256": "df44b044cccf5e803be7d059fdf2d14a374816080a7d4729a628fbd9098bd8bd",
+      "archived_sha256": "6e3657894f0e70b734f9dd1298bac164c22b29d3164d6a521d399de9d76bf7c1",
+      "source_bytes": 33400,
+      "archived_bytes": 4572
+    },
+    "native/rmsnorm-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/off/assembly.stdout.log",
+      "source_sha256": "21044f51ef52175ce6f8c7ba4242f436d1eac7d63fba99f7514a53f4fe94470f",
+      "archived_sha256": "022957f7400b9a0297fbb8d23ceefd9a248e3d2ccf8671d657968cbf21443d3c",
+      "source_bytes": 58311,
+      "archived_bytes": 11209
+    },
+    "native/rmsnorm-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/off/measurement.json",
+      "source_sha256": "56d114a6674f7e486e749fd4e68c7e3d4517e2e304752ac1b8b46782bff2eb82",
+      "archived_sha256": "56d114a6674f7e486e749fd4e68c7e3d4517e2e304752ac1b8b46782bff2eb82",
+      "source_bytes": 2356,
+      "archived_bytes": 2356
+    },
+    "native/rmsnorm-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/on/object/tile_xir_w8_98295_1788923264389490_0.o",
+      "source_sha256": "91d800029b5c050dd0d348b82e22d9d715517e7cc97fddedf7c29850868f6bdf",
+      "archived_sha256": "6ee93e7b514d3508926e5d7aafd774229dab239dc7c8716fbb9c7e3e6b280d80",
+      "source_bytes": 7712,
+      "archived_bytes": 4202
+    },
+    "native/rmsnorm-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/on/kernel.ll",
+      "source_sha256": "22108a1fdbd46fe8303db9bc94f9d5d7b9c2572d045c7f50c9fee615ef442971",
+      "archived_sha256": "5ece494493806b07508be287ef245a9f0e1d39c5b81d474ec5f6901dab7f8a2a",
+      "source_bytes": 132049,
+      "archived_bytes": 20931
+    },
+    "native/rmsnorm-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/on/entry.dylib",
+      "source_sha256": "baeab2a717765e21ef607fda3d722ca545cab67893f4e77459c8a4cb3d39ce24",
+      "archived_sha256": "1c27929a31408d025f7179c9c4288c81f1eb785c4e6377bf2d4bf4430d7b14ba",
+      "source_bytes": 33400,
+      "archived_bytes": 4570
+    },
+    "native/rmsnorm-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/on/assembly.stdout.log",
+      "source_sha256": "588e0f1097c3a136d0b10b0ed468ef9d8a81d25be832e0b30971d71d9fbf0bbc",
+      "archived_sha256": "b0ef79d6be4ab1c8f7e7b3ed0f0bd23ad66baee5695072e7b4e15a4fee1c4292",
+      "source_bytes": 58310,
+      "archived_bytes": 11208
+    },
+    "native/rmsnorm-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-257x1538/on/measurement.json",
+      "source_sha256": "9ef054bdbf81451ad8283b444446a5cfb54aec93e39c27bbf8fe7bd1e1c475cb",
+      "archived_sha256": "9ef054bdbf81451ad8283b444446a5cfb54aec93e39c27bbf8fe7bd1e1c475cb",
+      "source_bytes": 2367,
+      "archived_bytes": 2367
+    },
+    "native/rmsnorm-1024x4097/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/off/object/tile_xir_w8_98318_1788923265518798_0.o",
+      "source_sha256": "746c3903b572c09e342e845d9215aec05017d542202cec044561f0a4afe0d1ca",
+      "archived_sha256": "aeec4e2a94703786d8201f372b6149b0aa86a0fcdb36e2f8590e26cb85b3c32b",
+      "source_bytes": 7480,
+      "archived_bytes": 4093
+    },
+    "native/rmsnorm-1024x4097/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/off/kernel.ll",
+      "source_sha256": "7b4cfbb643b480fb51859774cba0342fa743e96d3106620c0bf89dadd6940f90",
+      "archived_sha256": "20c790f3daf118b8151791a06bc3c9fb39bb16b3224e65ca55f22e17ea75d426",
+      "source_bytes": 131839,
+      "archived_bytes": 20907
+    },
+    "native/rmsnorm-1024x4097/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/off/entry.dylib",
+      "source_sha256": "a0d45ea0be1deee4ad697bb6c9e7b4dd508003d3f6b2311a6b8629068c09e619",
+      "archived_sha256": "dc8ec061d5372e984debbf575f256c219694683de41a849a1669b186d0c99e02",
+      "source_bytes": 33400,
+      "archived_bytes": 4482
+    },
+    "native/rmsnorm-1024x4097/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/off/assembly.stdout.log",
+      "source_sha256": "cfa44a1dd9eedec092530f6cb15100244fa3990ac9f25335d532d1419386dac5",
+      "archived_sha256": "ab9579f0ae4d2f2ca597eb905bc73c2553aa2b6823dd36b20808db8886c0ca70",
+      "source_bytes": 56766,
+      "archived_bytes": 10800
+    },
+    "native/rmsnorm-1024x4097/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/off/measurement.json",
+      "source_sha256": "c83a68412cd4ac5444643501767d697c4d12ae53872f6c1eecd2987a5fe66fac",
+      "archived_sha256": "c83a68412cd4ac5444643501767d697c4d12ae53872f6c1eecd2987a5fe66fac",
+      "source_bytes": 2366,
+      "archived_bytes": 2366
+    },
+    "native/rmsnorm-1024x4097/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/on/object/tile_xir_w8_98325_1788923266796644_0.o",
+      "source_sha256": "746c3903b572c09e342e845d9215aec05017d542202cec044561f0a4afe0d1ca",
+      "archived_sha256": "aeec4e2a94703786d8201f372b6149b0aa86a0fcdb36e2f8590e26cb85b3c32b",
+      "source_bytes": 7480,
+      "archived_bytes": 4093
+    },
+    "native/rmsnorm-1024x4097/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/on/kernel.ll",
+      "source_sha256": "b671c9c5b86c621f8a471f0be56f5ea0a5a2da0a6c9a5633adee1d04f054d9ae",
+      "archived_sha256": "9129d81ba5bc8b9f1020c6b1b32935eb29cb842cc8633ef9f95feb760cfb5199",
+      "source_bytes": 132063,
+      "archived_bytes": 20930
+    },
+    "native/rmsnorm-1024x4097/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/on/entry.dylib",
+      "source_sha256": "03b18ea869bf42173d81ada224881ff3859028f5bef6cf330eefc254cc77f42a",
+      "archived_sha256": "96d977140cc46a4e2f0d7904979ee2262698a81041494567029b4764bd55d9a1",
+      "source_bytes": 33400,
+      "archived_bytes": 4480
+    },
+    "native/rmsnorm-1024x4097/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/on/assembly.stdout.log",
+      "source_sha256": "9f46f5ba96b604b951ea9b1d6643ee1869314cbfcf47307a3795a0c841250a73",
+      "archived_sha256": "31758fc038b23ce6fc529c7c0c5101f64de54cf2b9270e59774a5a858d82099f",
+      "source_bytes": 56765,
+      "archived_bytes": 10799
+    },
+    "native/rmsnorm-1024x4097/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rmsnorm-1024x4097/on/measurement.json",
+      "source_sha256": "1045ee32a054f188d1c56531485c2d558e9b0accf702ee1c3d8978728178edc3",
+      "archived_sha256": "1045ee32a054f188d1c56531485c2d558e9b0accf702ee1c3d8978728178edc3",
+      "source_bytes": 2356,
+      "archived_bytes": 2356
+    },
+    "native/layernorm-17x65/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/off/object/tile_xir_w8_98330_1788923268380022_0.o",
+      "source_sha256": "674f87857a5e0051f30adc3cedb46900cc3aa9252fce3f1bfc0742603b93b515",
+      "archived_sha256": "b0f9c7f9781e2aba8ccbfe54cfd66dd68f68e76c688252b3f0ed253427d0056c",
+      "source_bytes": 11656,
+      "archived_bytes": 6866
+    },
+    "native/layernorm-17x65/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/off/kernel.ll",
+      "source_sha256": "d690c9d637430941a26bf502290afa1fa336067fb4d781b6ae1bb0a9db081d2a",
+      "archived_sha256": "270ff648e4c38a7cb681b6ffd25ae146f470ddf856599e6972be7a95433e3538",
+      "source_bytes": 238125,
+      "archived_bytes": 35809
+    },
+    "native/layernorm-17x65/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/off/entry.dylib",
+      "source_sha256": "26c15f0de74a0159a03f609802c6d887f2eec07d42ef3ca5ba34f21fd8e31cfd",
+      "archived_sha256": "1ab6aa1ef9a1f5536b577425489387687d5553f7c1adb76a79b6d13ed7ff1efb",
+      "source_bytes": 16824,
+      "archived_bytes": 6948
+    },
+    "native/layernorm-17x65/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/off/assembly.stdout.log",
+      "source_sha256": "c18d176e5a9d1306e17907bcc6c28dbceaf35d633e2a35e14876aee2db923f23",
+      "archived_sha256": "d6168e80d13d4ea201d9c9f146965690ca64f51b73898c769989ec7bb54a5c68",
+      "source_bytes": 94148,
+      "archived_bytes": 17181
+    },
+    "native/layernorm-17x65/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/off/measurement.json",
+      "source_sha256": "6849da247026ff2a55ba6b4cb5897d764932eb8557c78c2a13a3dfcd1add9212",
+      "archived_sha256": "6849da247026ff2a55ba6b4cb5897d764932eb8557c78c2a13a3dfcd1add9212",
+      "source_bytes": 2361,
+      "archived_bytes": 2361
+    },
+    "native/layernorm-17x65/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/on/object/tile_xir_w8_98349_1788923269117618_0.o",
+      "source_sha256": "2ef640b5943fe987fcf9ac41caf1380aa9ff3de536a3db6bf758cd31840811c1",
+      "archived_sha256": "68860320e4bd018669d2522704f23a64018ccdbea4660d4e22b8037f8c1c75b8",
+      "source_bytes": 9448,
+      "archived_bytes": 6430
+    },
+    "native/layernorm-17x65/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/on/kernel.ll",
+      "source_sha256": "6b5ee351e56da054fe2be15f1cee0aa3e806961ae1994c13d2b4cb27d58a7244",
+      "archived_sha256": "0ac4b66fad64e285d20e8ca2f8e0a5cf9f8e91ab152651de8081d1d09b44e4e4",
+      "source_bytes": 261149,
+      "archived_bytes": 38915
+    },
+    "native/layernorm-17x65/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/on/entry.dylib",
+      "source_sha256": "c2714a9565a706fe42f81358ea81dae756dec63125731fe119664d479a1c990d",
+      "archived_sha256": "12fac5b459a2ba10a82c017b190faf6def400ae2657eb2db5dcece5fc14c6d57",
+      "source_bytes": 16856,
+      "archived_bytes": 6532
+    },
+    "native/layernorm-17x65/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/on/assembly.stdout.log",
+      "source_sha256": "c2bcc0296c7e2ff887558c0d154fc063ce034f67a3679dfcd7dc4ed27a2564ad",
+      "archived_sha256": "641cfda01348bb25293622a209d11090d9cd168bbf1bb6bebfe5a2fcaee5623e",
+      "source_bytes": 78303,
+      "archived_bytes": 15002
+    },
+    "native/layernorm-17x65/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-17x65/on/measurement.json",
+      "source_sha256": "2d24db9be90dc52c5592ba7ae4bf684d33a734cc123945189b2db101bb3fd0d1",
+      "archived_sha256": "2d24db9be90dc52c5592ba7ae4bf684d33a734cc123945189b2db101bb3fd0d1",
+      "source_bytes": 2352,
+      "archived_bytes": 2352
+    },
+    "native/layernorm-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/off/object/tile_xir_w8_98357_1788923271271726_0.o",
+      "source_sha256": "e85b90e37cb54557b74e53a680a5a4c127fd13a012e2c14d50ca123b8aa6ecb8",
+      "archived_sha256": "4aba5a99633f377c68dda8c6ca6a9f955c97abf7ae5daea834668f27e658c16b",
+      "source_bytes": 5560,
+      "archived_bytes": 3648
+    },
+    "native/layernorm-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/off/kernel.ll",
+      "source_sha256": "2c384d787ae29d2db52dfd768ae8b0333fe237ae68bb3b33f7768791822c229a",
+      "archived_sha256": "11bf1b296077d32efa8645490fa87e2df2d4ee03d05788db94ee21b506d049f9",
+      "source_bytes": 193507,
+      "archived_bytes": 29374
+    },
+    "native/layernorm-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/off/entry.dylib",
+      "source_sha256": "887efb48e3f116b2645b8fa0a1069ccada4b4e0e4c05d152ab5203034b46750d",
+      "archived_sha256": "91e01f590492616837e48e9f7397dc8a836e11cc5e26e53875a7abd08767c56f",
+      "source_bytes": 33448,
+      "archived_bytes": 4193
+    },
+    "native/layernorm-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/off/assembly.stdout.log",
+      "source_sha256": "e10dd3b7ecfa75c327834857828052180a610556d038ff921ea4f94b2fd4fc99",
+      "archived_sha256": "3b7f8b006682c3f1b1d0562c21776693ffe2501d66a910cd53fc31dfac54f048",
+      "source_bytes": 43755,
+      "archived_bytes": 8611
+    },
+    "native/layernorm-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/off/measurement.json",
+      "source_sha256": "e1e7385e7e17838051aa03803b88a19fcad40b35ee0eaf3e616d8f0b02cf6651",
+      "archived_sha256": "e1e7385e7e17838051aa03803b88a19fcad40b35ee0eaf3e616d8f0b02cf6651",
+      "source_bytes": 2365,
+      "archived_bytes": 2365
+    },
+    "native/layernorm-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/on/object/tile_xir_w8_98366_1788923273172843_0.o",
+      "source_sha256": "3676a8e14b225eae489470bf1a41463880aded6312c811d4d1d04b594873e4f1",
+      "archived_sha256": "9ff8f2b44e7f11945de76de6a805042b365adca542efa92f74cea6ddc6e54830",
+      "source_bytes": 6152,
+      "archived_bytes": 3963
+    },
+    "native/layernorm-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/on/kernel.ll",
+      "source_sha256": "01f67c4dbdec708f8abafe6dbe40745975db6deaa9431c141768bcd32eaaaa03",
+      "archived_sha256": "09f0d1300f95733061e8c1eeb5ccd7f0fed2f8d6e6149ec5f187ba520dd87e8e",
+      "source_bytes": 206715,
+      "archived_bytes": 31130
+    },
+    "native/layernorm-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/on/entry.dylib",
+      "source_sha256": "59bcf0c80e9a066e7032274d8f33e9eb105d0eb1dbcee96858fe84d95f85cc6b",
+      "archived_sha256": "f6d7f15db1a7658ee965a1a300570660f25a96f210d79b85973bc580db90605b",
+      "source_bytes": 33448,
+      "archived_bytes": 4511
+    },
+    "native/layernorm-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/on/assembly.stdout.log",
+      "source_sha256": "051aa92126dbe0c62760889793d3e7ea1877dcfbc1e2f50957c43c4cc9dff125",
+      "archived_sha256": "09f04c031f96e03cf379aee80d99b352fd0f662504bf9d81c7374aea0b974b8f",
+      "source_bytes": 50545,
+      "archived_bytes": 9617
+    },
+    "native/layernorm-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-129x768/on/measurement.json",
+      "source_sha256": "3e2a7d089bb87cd74259f6e73bb3457d2352683206ebac24cc37cbada14c6677",
+      "archived_sha256": "3e2a7d089bb87cd74259f6e73bb3457d2352683206ebac24cc37cbada14c6677",
+      "source_bytes": 2345,
+      "archived_bytes": 2345
+    },
+    "native/layernorm-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/off/object/tile_xir_w8_98376_1788923275893072_0.o",
+      "source_sha256": "1af999a7f597a6a3517c0c6d07f1bf7536ba21d241b35417ac26bdea40ace6d5",
+      "archived_sha256": "8807dfc7cc1eab2d9ddb04f9f2b3472f41ae06b8173891c60d31971ae0aa1fd5",
+      "source_bytes": 8672,
+      "archived_bytes": 5745
+    },
+    "native/layernorm-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/off/kernel.ll",
+      "source_sha256": "2c7cf1ac1453af53a959404ab9d6e8c7072b3fea659a3ffece9bf6d81c760848",
+      "archived_sha256": "61f8a1a153f0b3485fe6c764844aa9c41e5cf71a12b48dee2d7cf5cf3bca6633",
+      "source_bytes": 238229,
+      "archived_bytes": 35832
+    },
+    "native/layernorm-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/off/entry.dylib",
+      "source_sha256": "8ee5468491f9f6f6ee280265f325fcb6b47e591416afb2391e4b869ca89a9355",
+      "archived_sha256": "03caf5363b27b00ab86541c7a4c4235efb527d570d19f9b8275214f2778b95a4",
+      "source_bytes": 33448,
+      "archived_bytes": 6045
+    },
+    "native/layernorm-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/off/assembly.stdout.log",
+      "source_sha256": "ee1ac9610b8cba91fff754f2537cb563f47373c1d18d6c0296e234b524d53c4c",
+      "archived_sha256": "583e050659f0b3533b94e4ee7f04e374f1c9cb2275846a1ad5daa304f38f64d1",
+      "source_bytes": 68302,
+      "archived_bytes": 13096
+    },
+    "native/layernorm-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/off/measurement.json",
+      "source_sha256": "8c849dbfcb4e54b8c793c0a7b77e26504cce679aca78ef81072ffff6559ef9d1",
+      "archived_sha256": "8c849dbfcb4e54b8c793c0a7b77e26504cce679aca78ef81072ffff6559ef9d1",
+      "source_bytes": 2353,
+      "archived_bytes": 2353
+    },
+    "native/layernorm-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/on/object/tile_xir_w8_98398_1788923278666317_0.o",
+      "source_sha256": "fcc844e8ece2fa7ef02124c00ff135eccabcc21b963a54a496c85df7d2e2ecd1",
+      "archived_sha256": "4ce3849a777f0c3d6cd0dda445936ac0de3b66fa54a923e2af575363c9548861",
+      "source_bytes": 9600,
+      "archived_bytes": 6512
+    },
+    "native/layernorm-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/on/kernel.ll",
+      "source_sha256": "7e8dd6a03c3a01a5d3ae10282cb50aac2893503fa9a5e89dc36a4d552331abbf",
+      "archived_sha256": "1bc0f51b095644c91191169668f224961f506f99012d03a5ed9cc61fdd6cdc05",
+      "source_bytes": 261289,
+      "archived_bytes": 38931
+    },
+    "native/layernorm-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/on/entry.dylib",
+      "source_sha256": "d6df942456cacfbeee00134491e272df89c9d1420290bf9b67c84c932291e116",
+      "archived_sha256": "06ebaba549dd7708388923d64103f9dbbc9140517fd7604974a00579c346376c",
+      "source_bytes": 33448,
+      "archived_bytes": 6843
+    },
+    "native/layernorm-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/on/assembly.stdout.log",
+      "source_sha256": "7a54e0245de848cfa36f977b1a4130af664b4014db5e2079adbcb270d53e73b2",
+      "archived_sha256": "17a79224fb1fde0e9c263a070b1d697e59a0c71f6aaddc076f46885fc197fd96",
+      "source_bytes": 78948,
+      "archived_bytes": 15126
+    },
+    "native/layernorm-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-257x1538/on/measurement.json",
+      "source_sha256": "56937af59731e72e5dfd3d9c134fd0fb6bd78b893125dd51342a9e8bb549a437",
+      "archived_sha256": "56937af59731e72e5dfd3d9c134fd0fb6bd78b893125dd51342a9e8bb549a437",
+      "source_bytes": 2344,
+      "archived_bytes": 2344
+    },
+    "native/layernorm-1024x4097/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/off/object/tile_xir_w8_98403_1788923280292201_0.o",
+      "source_sha256": "3b7c92a7cd75c382111341d0b4e773c4b473c3aba5f0c5875c6062f1e05ee787",
+      "archived_sha256": "3e4acf24b519c6933378d1b11b38de81316ac84d5b89e44f5b2d0ae4e1f40f8d",
+      "source_bytes": 8544,
+      "archived_bytes": 5581
+    },
+    "native/layernorm-1024x4097/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/off/kernel.ll",
+      "source_sha256": "188886712be75682eef54f4306314a6a21fe685380846463e2ad210ee0972c57",
+      "archived_sha256": "30856353db284368d1340048d0382db378c08dc00cdba54d3e4b1e9e9589aec8",
+      "source_bytes": 239449,
+      "archived_bytes": 35992
+    },
+    "native/layernorm-1024x4097/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/off/entry.dylib",
+      "source_sha256": "4da5812e45360cebbdf16e214f86498bb49f70eb256ca8b7ceea4d3098b225f4",
+      "archived_sha256": "f2a6859c8c01b3a1c9bd3e07be300b180e3013e38e9110356dceb2eb89d9824f",
+      "source_bytes": 16856,
+      "archived_bytes": 5659
+    },
+    "native/layernorm-1024x4097/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/off/assembly.stdout.log",
+      "source_sha256": "52536a9760a7ef7fa0c64946352ebb0ffb549ab6029c749a82864ef9b377d11d",
+      "archived_sha256": "bf07f4017663c5311408ccabe31cdc7ea7856455288df4ac903e7f9a6e3295bb",
+      "source_bytes": 67813,
+      "archived_bytes": 12933
+    },
+    "native/layernorm-1024x4097/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/off/measurement.json",
+      "source_sha256": "b8d0d2628def7b6c70ec629e2cc27fa79ad07881dd04530658bec93d95431eb2",
+      "archived_sha256": "b8d0d2628def7b6c70ec629e2cc27fa79ad07881dd04530658bec93d95431eb2",
+      "source_bytes": 2366,
+      "archived_bytes": 2366
+    },
+    "native/layernorm-1024x4097/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/on/object/tile_xir_w8_98410_1788923282438321_0.o",
+      "source_sha256": "25a1047eaf45a2159e51595640a0917fef7acd492ec3d457838dae60fe5f5cef",
+      "archived_sha256": "1697af6bb50521b278d3c96687c151870fb2f075cf1eb1dde769cca24348ac5a",
+      "source_bytes": 9472,
+      "archived_bytes": 6281
+    },
+    "native/layernorm-1024x4097/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/on/kernel.ll",
+      "source_sha256": "f65ef13b885d5348a1615e2d2395a2a427b64f043b2eafd0b6dbc11e60c13b06",
+      "archived_sha256": "3ede85b7c1171df98554f5738e9ff02b95be0ca725ed1565e3641fabddcf252c",
+      "source_bytes": 262519,
+      "archived_bytes": 39102
+    },
+    "native/layernorm-1024x4097/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/on/entry.dylib",
+      "source_sha256": "bc6568e778b01295a42b1f70380ca9ecb159e2b46b9da9ce185797f48e73d035",
+      "archived_sha256": "26933c7a392bda861010c948738f6f1dfd975a96345dbfeb8b2bff8b8ac81de8",
+      "source_bytes": 16856,
+      "archived_bytes": 6383
+    },
+    "native/layernorm-1024x4097/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/on/assembly.stdout.log",
+      "source_sha256": "7de40fbf286ac79e2c486ec38cf1659c7d7ece05a62d5812ab0c7be27a02d2c0",
+      "archived_sha256": "9e2a735f99c5496d0532ce484d7266c7987d3430c3fcb12dcf632d4d21c26d8c",
+      "source_bytes": 78740,
+      "archived_bytes": 14877
+    },
+    "native/layernorm-1024x4097/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/layernorm-1024x4097/on/measurement.json",
+      "source_sha256": "ee81d3e0565f6b082e1667c167aa432835df5bc9322f6a631edd3f2e85a29b2b",
+      "archived_sha256": "ee81d3e0565f6b082e1667c167aa432835df5bc9322f6a631edd3f2e85a29b2b",
+      "source_bytes": 2387,
+      "archived_bytes": 2387
+    },
+    "native/masked_softmax-17x65/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/off/object/tile_xir_w8_98418_1788923283554669_0.o",
+      "source_sha256": "a4d749aa74748aaf3a1262450511cadde3e5965c7e99547d7c4ddc36427c9b10",
+      "archived_sha256": "dd129bfa99ca8b33eeafad0f5a687222deaae299ad0e0ddd340d37d208d818b7",
+      "source_bytes": 14056,
+      "archived_bytes": 9417
+    },
+    "native/masked_softmax-17x65/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/off/kernel.ll",
+      "source_sha256": "f021d790a8e871cb3b4ec77e56eba0db317e89434a10cde0c107e38a4afa711a",
+      "archived_sha256": "ae91fe28156d76c53ee617127678c13a25a9abb2c3f98ce10ff843cc9f0e4fb4",
+      "source_bytes": 254360,
+      "archived_bytes": 37868
+    },
+    "native/masked_softmax-17x65/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/off/entry.dylib",
+      "source_sha256": "fd2239337856cfcc94ff89b26f1f544fd1932ae4daee3eb3278cfb402e51d531",
+      "archived_sha256": "fb3e3ad12665d81ec75bb17ec4ad3af3f600b040923c31912e39ce6afd4ba272",
+      "source_bytes": 16856,
+      "archived_bytes": 9062
+    },
+    "native/masked_softmax-17x65/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/off/assembly.stdout.log",
+      "source_sha256": "280acb25b4f3dc9cab29960a49266bef07b89b72a105a37ebc959273fcecd324",
+      "archived_sha256": "9575fc80951d7f4432ba54e0d187dc463c1ca3cf64bf2b6426e01b42756b20d7",
+      "source_bytes": 107882,
+      "archived_bytes": 20762
+    },
+    "native/masked_softmax-17x65/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/off/measurement.json",
+      "source_sha256": "307ba729ed0485d141131b35bf6d77eab02e8160322c2cee73dadc22bf8084c5",
+      "archived_sha256": "307ba729ed0485d141131b35bf6d77eab02e8160322c2cee73dadc22bf8084c5",
+      "source_bytes": 2353,
+      "archived_bytes": 2353
+    },
+    "native/masked_softmax-17x65/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/on/object/tile_xir_w8_98430_1788923288386068_0.o",
+      "source_sha256": "a4d749aa74748aaf3a1262450511cadde3e5965c7e99547d7c4ddc36427c9b10",
+      "archived_sha256": "dd129bfa99ca8b33eeafad0f5a687222deaae299ad0e0ddd340d37d208d818b7",
+      "source_bytes": 14056,
+      "archived_bytes": 9417
+    },
+    "native/masked_softmax-17x65/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/on/kernel.ll",
+      "source_sha256": "bf230f943d168cd1dd66595a67ff1f5a5c5ebcb143f93e06df85a9707f314ccf",
+      "archived_sha256": "bad13e355f5d1a62c6f5073354ef7b0e505605e519417f5ee44ee3d650fee8b1",
+      "source_bytes": 254584,
+      "archived_bytes": 37927
+    },
+    "native/masked_softmax-17x65/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/on/entry.dylib",
+      "source_sha256": "0d8e4cede5c3718c457bc0a365b07a8fdc576ed21a5086dc6a6389a45afe6144",
+      "archived_sha256": "c39a9bbbcc4c8b80be5d4dd149166173f4fd5d1355723bdd820d584c13f8990b",
+      "source_bytes": 16856,
+      "archived_bytes": 9061
+    },
+    "native/masked_softmax-17x65/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/on/assembly.stdout.log",
+      "source_sha256": "89e34d888728a9af22c93bf75405f26fbc50ea07659ed53037026bcd00f3bcc8",
+      "archived_sha256": "2f1041ea19e30cffd2e747b451c9a548044eb113955eede18e3ca9b00367cd3f",
+      "source_bytes": 107881,
+      "archived_bytes": 20761
+    },
+    "native/masked_softmax-17x65/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-17x65/on/measurement.json",
+      "source_sha256": "f135289dad12c03291d3dd527260a0b50873ba836d209d5395bca17eb77e305e",
+      "archived_sha256": "f135289dad12c03291d3dd527260a0b50873ba836d209d5395bca17eb77e305e",
+      "source_bytes": 2351,
+      "archived_bytes": 2351
+    },
+    "native/masked_softmax-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/off/object/tile_xir_w8_98454_1788923291790833_0.o",
+      "source_sha256": "290110701ec67584067e82b0ad65cdb20d9259fa2be18759db57b09b91be5766",
+      "archived_sha256": "16c858165ce9c895efdd0739cc72307b1968f619aa11e3a6e030b415336864d4",
+      "source_bytes": 9256,
+      "archived_bytes": 5928
+    },
+    "native/masked_softmax-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/off/kernel.ll",
+      "source_sha256": "594e71ff70876a69c878acccb6293643617ba018ecc06a24157ecbc914f9c78b",
+      "archived_sha256": "8c6dd5fa5bff1f75cf8f6527deb91a344e1c21ee0b3624952ad151c9b3078e6c",
+      "source_bytes": 205708,
+      "archived_bytes": 31176
+    },
+    "native/masked_softmax-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/off/entry.dylib",
+      "source_sha256": "b16e2721b3d692b1961a25abaedbd89b27b10bc21f47aaa11f5484d5b5624b24",
+      "archived_sha256": "5486a6c2e03fc61341a14bb3240d6843ebd103101c142fc02681e369596273b0",
+      "source_bytes": 33448,
+      "archived_bytes": 6154
+    },
+    "native/masked_softmax-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/off/assembly.stdout.log",
+      "source_sha256": "c3ab20808b36865b028515e3a0a1fdbde8db95cd75033a9cbde675ef0aa5ae13",
+      "archived_sha256": "67a14b8a0bc0383b74144dd37e613c6b11704e49f606c00b3435b30e50e8bb22",
+      "source_bytes": 69225,
+      "archived_bytes": 13389
+    },
+    "native/masked_softmax-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/off/measurement.json",
+      "source_sha256": "8168d31848cbf915eca095bd897f348c899977dde67f25b4067f5e4081a0f741",
+      "archived_sha256": "8168d31848cbf915eca095bd897f348c899977dde67f25b4067f5e4081a0f741",
+      "source_bytes": 2353,
+      "archived_bytes": 2353
+    },
+    "native/masked_softmax-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/on/object/tile_xir_w8_98505_1788923298711092_0.o",
+      "source_sha256": "290110701ec67584067e82b0ad65cdb20d9259fa2be18759db57b09b91be5766",
+      "archived_sha256": "16c858165ce9c895efdd0739cc72307b1968f619aa11e3a6e030b415336864d4",
+      "source_bytes": 9256,
+      "archived_bytes": 5928
+    },
+    "native/masked_softmax-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/on/kernel.ll",
+      "source_sha256": "9e794b135e55a1b91c51f8639e0d951158d1ae50650cbff1ccbd164f69396d4a",
+      "archived_sha256": "9c5089a62cca490dd5e6d4806822bdca9cc7a4058a3c3674d9aa85524af68a89",
+      "source_bytes": 205932,
+      "archived_bytes": 31165
+    },
+    "native/masked_softmax-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/on/entry.dylib",
+      "source_sha256": "83205130d29a99b9db7a6ade5adae9308a69b532b26f3c8f7245b78f3c934077",
+      "archived_sha256": "c251d5ff24ef7cb87e50dc9177901ce50e87716afb72781149a701f52bd91a2a",
+      "source_bytes": 33448,
+      "archived_bytes": 6152
+    },
+    "native/masked_softmax-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/on/assembly.stdout.log",
+      "source_sha256": "c0291e567305be52fb48be423231a7917e22b1387f49f040f7ec0311dbbcb4fd",
+      "archived_sha256": "aa28222ca9db49eae61907424d596175833c9dc5796b77715cd6da292fb05c99",
+      "source_bytes": 69224,
+      "archived_bytes": 13388
+    },
+    "native/masked_softmax-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-129x768/on/measurement.json",
+      "source_sha256": "6862eb996c8d6de987aeffbe7b28bbe6ff9e9f4235447d0f59b41bacb678a367",
+      "archived_sha256": "6862eb996c8d6de987aeffbe7b28bbe6ff9e9f4235447d0f59b41bacb678a367",
+      "source_bytes": 2341,
+      "archived_bytes": 2341
+    },
+    "native/masked_softmax-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/off/object/tile_xir_w8_98528_1788923302525247_0.o",
+      "source_sha256": "e58162c14f3ac13cddefd301bc7a6900c2ae7f9fd3460de7b49a13d80aa94ae8",
+      "archived_sha256": "100e851c3f04ffb77b35374542d9d7822816896412e759a91ba8e850291283ff",
+      "source_bytes": 14320,
+      "archived_bytes": 9460
+    },
+    "native/masked_softmax-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/off/kernel.ll",
+      "source_sha256": "3eedd3feb352d922f8ec73a5311e662e96713adc6c9442ffaef348b4f5071b0b",
+      "archived_sha256": "26d3286d5d8f6f95d45db3fe5453134fe4eab9a249b6248f2b43eb78001f8f2f",
+      "source_bytes": 254494,
+      "archived_bytes": 37919
+    },
+    "native/masked_softmax-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/off/entry.dylib",
+      "source_sha256": "540347ce22a4fe0690e9d78d2876bc965f14e8cfb471ae72c80c3bcfee3f7ff0",
+      "archived_sha256": "ed4f6b9f79b4eb391adf887178a72bf7d9e6c3f09fd237c63144d140c52bc5bb",
+      "source_bytes": 33448,
+      "archived_bytes": 9380
+    },
+    "native/masked_softmax-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/off/assembly.stdout.log",
+      "source_sha256": "23d1220ebb3d8f202932e1d3b21a1f5866ca0cc8fc14ca8cf3a4bbd600a777e1",
+      "archived_sha256": "0854d49efe34fdb698adbc47f90a60d0adb55ea93281c9795662bec70b138070",
+      "source_bytes": 109290,
+      "archived_bytes": 20893
+    },
+    "native/masked_softmax-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/off/measurement.json",
+      "source_sha256": "1fa3f845a5ac1dcfac49215bd92a99806f4217e0ad8d2059125eb94fdffdac0e",
+      "archived_sha256": "1fa3f845a5ac1dcfac49215bd92a99806f4217e0ad8d2059125eb94fdffdac0e",
+      "source_bytes": 2360,
+      "archived_bytes": 2360
+    },
+    "native/masked_softmax-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/on/object/tile_xir_w8_98534_1788923305736360_0.o",
+      "source_sha256": "e58162c14f3ac13cddefd301bc7a6900c2ae7f9fd3460de7b49a13d80aa94ae8",
+      "archived_sha256": "100e851c3f04ffb77b35374542d9d7822816896412e759a91ba8e850291283ff",
+      "source_bytes": 14320,
+      "archived_bytes": 9460
+    },
+    "native/masked_softmax-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/on/kernel.ll",
+      "source_sha256": "566dea11ad43b67172e9856ba53bb800b561236ed3db5019d4ae0e5394b5d207",
+      "archived_sha256": "6d42705e0d7b5a4615a24f73883e61a60cfe46a37aa8d8a2e3b9cf0a52f3eb07",
+      "source_bytes": 254718,
+      "archived_bytes": 37978
+    },
+    "native/masked_softmax-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/on/entry.dylib",
+      "source_sha256": "2bb88a1531bb5573db7746a5f4d854ee2459955eecf2712aa5008babf4606566",
+      "archived_sha256": "061f47165735c70008e37cedc214e6c0f45d161bc1b27ec7fac8d1fae3d60557",
+      "source_bytes": 33448,
+      "archived_bytes": 9379
+    },
+    "native/masked_softmax-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/on/assembly.stdout.log",
+      "source_sha256": "890c6118c5ff771740d40d444c5385fc5b7b631763989bd9086de14bab23e18f",
+      "archived_sha256": "bb7c9f8185ada4a3c979ef298572894c0bf627ebf53a1c1ba329c8e82d27d767",
+      "source_bytes": 109289,
+      "archived_bytes": 20892
+    },
+    "native/masked_softmax-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-257x1538/on/measurement.json",
+      "source_sha256": "39670eac2a7b4f33f9b6a9b50284fe4df8a26381aae8ed09b0cb131b6c37893d",
+      "archived_sha256": "39670eac2a7b4f33f9b6a9b50284fe4df8a26381aae8ed09b0cb131b6c37893d",
+      "source_bytes": 2366,
+      "archived_bytes": 2366
+    },
+    "native/masked_softmax-1024x4097/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/off/object/tile_xir_w8_98542_1788923307376315_0.o",
+      "source_sha256": "58eda35300baacd44289babc827f92dcac8a2a3adcb6bb79ada70443dc7e0f74",
+      "archived_sha256": "3eecfd9da6cc85d6e11120dabe9983d3e8ea49b7202cb7319944c863d5d774db",
+      "source_bytes": 14080,
+      "archived_bytes": 9440
+    },
+    "native/masked_softmax-1024x4097/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/off/kernel.ll",
+      "source_sha256": "1588d4d19bb6126841e7f08eefad6185ec80a4bd184e6b05add4d48c02282801",
+      "archived_sha256": "b42d6c6a431642262441904a8e1099157b0ca1cb40c2bdf5229fb64892aec146",
+      "source_bytes": 256066,
+      "archived_bytes": 38192
+    },
+    "native/masked_softmax-1024x4097/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/off/entry.dylib",
+      "source_sha256": "d331da3c4d38f7c734827b26581f35975ef625758e59b8a747f29c94f4637dce",
+      "archived_sha256": "d916556333fec8fd29948fad3cc415268c66a3a678d0187e6500dd3205abf1e8",
+      "source_bytes": 16856,
+      "archived_bytes": 9126
+    },
+    "native/masked_softmax-1024x4097/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/off/assembly.stdout.log",
+      "source_sha256": "c6c81e9a0bd5b0f413728397a18916c83ad9d981a561da60e19e1606b7fe4b0d",
+      "archived_sha256": "2c177f3b08215dc7c4bb12c91d6177a95fae0905a7724c1b6b4f9df61c2eba0e",
+      "source_bytes": 109787,
+      "archived_bytes": 20963
+    },
+    "native/masked_softmax-1024x4097/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/off/measurement.json",
+      "source_sha256": "0e32b08b8fa380eb24c9e73e366f6de94c78669ba420c03ae1a1bc104e19aee9",
+      "archived_sha256": "0e32b08b8fa380eb24c9e73e366f6de94c78669ba420c03ae1a1bc104e19aee9",
+      "source_bytes": 2403,
+      "archived_bytes": 2403
+    },
+    "native/masked_softmax-1024x4097/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/on/object/tile_xir_w8_98568_1788923315573119_0.o",
+      "source_sha256": "58eda35300baacd44289babc827f92dcac8a2a3adcb6bb79ada70443dc7e0f74",
+      "archived_sha256": "3eecfd9da6cc85d6e11120dabe9983d3e8ea49b7202cb7319944c863d5d774db",
+      "source_bytes": 14080,
+      "archived_bytes": 9440
+    },
+    "native/masked_softmax-1024x4097/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/on/kernel.ll",
+      "source_sha256": "0158019dc976e61c622de47aa81cc05c76cba993460003c0454c8111f0d04094",
+      "archived_sha256": "b8dbab7453b198d3dfee7d45d8f3bfd959296a46909c9c2aff2cb4822e56809c",
+      "source_bytes": 256290,
+      "archived_bytes": 38266
+    },
+    "native/masked_softmax-1024x4097/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/on/entry.dylib",
+      "source_sha256": "952d1ccbdcec675372d4272bdc35633f3a848f3e36d7bdee18d9cd00df409c70",
+      "archived_sha256": "95a404de70afe603201ceeff1cc2b561527bab12e5f2a89ba8f84146b9e068f5",
+      "source_bytes": 16856,
+      "archived_bytes": 9123
+    },
+    "native/masked_softmax-1024x4097/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/on/assembly.stdout.log",
+      "source_sha256": "48d84060cfb1934871295cb81e104774a1750d2e6ce8d244e32aeb65254ddc18",
+      "archived_sha256": "1025de29288f81004047ef2be92706116bdab5eb0dd258e6cba568caf8084f5e",
+      "source_bytes": 109786,
+      "archived_bytes": 20963
+    },
+    "native/masked_softmax-1024x4097/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/masked_softmax-1024x4097/on/measurement.json",
+      "source_sha256": "0011d2dece82e9cba2d6a4af84f07496b203f92b7b3851377fee6c23780ed0cd",
+      "archived_sha256": "0011d2dece82e9cba2d6a4af84f07496b203f92b7b3851377fee6c23780ed0cd",
+      "source_bytes": 2396,
+      "archived_bytes": 2396
+    },
+    "native/swiglu-17x65/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/off/object/tile_xir_w8_98575_1788923317531289_0.o",
+      "source_sha256": "361e1e9e9c9884121f6442de49228f8bbdff109f6be4fe0a83d51ce1add35117",
+      "archived_sha256": "aaae157bc4c4648390a15b6110fbf3102ac5e0b7af9972a2cde8e9ad478adedb",
+      "source_bytes": 5888,
+      "archived_bytes": 3984
+    },
+    "native/swiglu-17x65/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/off/kernel.ll",
+      "source_sha256": "956ca9cd9d2efada2609ef05fcc7697e08b29dddf09190739c85f838340e8def",
+      "archived_sha256": "347aecc9ca92e574f3dbbc20ca6c0096848dff35ff68fcb0c618b69f090bfef7",
+      "source_bytes": 69303,
+      "archived_bytes": 7160
+    },
+    "native/swiglu-17x65/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/off/entry.dylib",
+      "source_sha256": "5ae58a0aec1ca0dfa68bb264ae1a24bc92bceeb9f09eae1a180fc51c16299e95",
+      "archived_sha256": "ca67d7011b312e080ed6b6a22630e53dc42c43e5d9ab16747b58d62476db34aa",
+      "source_bytes": 16856,
+      "archived_bytes": 4171
+    },
+    "native/swiglu-17x65/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/off/assembly.stdout.log",
+      "source_sha256": "92fe96087369abce0afed134feb5e1122c6918be96827253e0b25dea1b2858a2",
+      "archived_sha256": "9a062492e3036f346a0d8ea3e2834a2af5880e3a73af81a3d97e86d0ac64db03",
+      "source_bytes": 45542,
+      "archived_bytes": 8928
+    },
+    "native/swiglu-17x65/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/off/measurement.json",
+      "source_sha256": "5e0118b5c3df2e1151cfe72587047bdd5f3b490525c22935057b2d58916a488a",
+      "archived_sha256": "5e0118b5c3df2e1151cfe72587047bdd5f3b490525c22935057b2d58916a488a",
+      "source_bytes": 2342,
+      "archived_bytes": 2342
+    },
+    "native/swiglu-17x65/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/on/object/tile_xir_w8_98598_1788923322144429_0.o",
+      "source_sha256": "b7921b38349db4dd4b983919641e5afe40962828e6c0376fba8643e79a0dea06",
+      "archived_sha256": "9126facc318440ae81a032f11e343a73c80436ae3ab84f1ac5f67540b8bd457c",
+      "source_bytes": 8952,
+      "archived_bytes": 5852
+    },
+    "native/swiglu-17x65/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/on/kernel.ll",
+      "source_sha256": "d661c454bf1b43c7416984d0400aa92ef0e0d23eb9fac54e8edf7b16d414e8d5",
+      "archived_sha256": "2bd1901e1a643a4a959b477bf52592d2dd364f633166f6bc25654b3473dca726",
+      "source_bytes": 84611,
+      "archived_bytes": 13189
+    },
+    "native/swiglu-17x65/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/on/entry.dylib",
+      "source_sha256": "18417d670e1c4f4b0944aa056c83b5beddc61dc969a28be0a54968eebdd0156a",
+      "archived_sha256": "cd418f85e348e463b731c10426348911589dff7697b8b40537d3c09670895161",
+      "source_bytes": 16856,
+      "archived_bytes": 6029
+    },
+    "native/swiglu-17x65/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/on/assembly.stdout.log",
+      "source_sha256": "faf2707afa30fe8d419e95b6977ff938d8c124f067b92f91ac14dd8107584b6c",
+      "archived_sha256": "934257ac81dac81d6551fd2eb8e9b31d0c97e12693bd25d0dcd3367f2823f375",
+      "source_bytes": 78028,
+      "archived_bytes": 14013
+    },
+    "native/swiglu-17x65/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-17x65/on/measurement.json",
+      "source_sha256": "49553762d20a298d6a1b954ce84b0904f24aa237777d05546d1075086be8dd79",
+      "archived_sha256": "49553762d20a298d6a1b954ce84b0904f24aa237777d05546d1075086be8dd79",
+      "source_bytes": 2345,
+      "archived_bytes": 2345
+    },
+    "native/swiglu-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/off/object/tile_xir_w8_98636_1788923325381440_0.o",
+      "source_sha256": "12c4c9b4b90be18c0883f5cf0ccd51e1faadac184c9cef95b9ecec7603164e6c",
+      "archived_sha256": "e8481d95c3be6728ee5ffddbb7a0196f01f8b4a3c252d2a5f8183c830af1baa3",
+      "source_bytes": 4992,
+      "archived_bytes": 2183
+    },
+    "native/swiglu-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/off/kernel.ll",
+      "source_sha256": "354d3668477d1c8d9312fe71c081adf22290d728b8bd883a60d22e69acd4434d",
+      "archived_sha256": "18775aca91b904f68e9a30dae7d800cad3d87a9b06a12de380963b38663f2582",
+      "source_bytes": 49176,
+      "archived_bytes": 5424
+    },
+    "native/swiglu-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/off/entry.dylib",
+      "source_sha256": "53eca6d2f1d23d9192cd9dca7d4336e23b22ad090357698a1dc484e779cd43b0",
+      "archived_sha256": "a7da988ec8903b3a311db22d29b7506c4a6b61293f2fdf9f8778006f263c41af",
+      "source_bytes": 33400,
+      "archived_bytes": 2785
+    },
+    "native/swiglu-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/off/assembly.stdout.log",
+      "source_sha256": "5fca0700c5e8977deb7c8d87cdf53d0a20ed115ebda8c7f8646f09d605d02428",
+      "archived_sha256": "81866af827a6709220fd133e67849de4f123438b8509aea511ae3655c8318793",
+      "source_bytes": 39410,
+      "archived_bytes": 7158
+    },
+    "native/swiglu-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/off/measurement.json",
+      "source_sha256": "fbaa879deb42d9db01ddaaf8d86ddd60100f8dfd4c3140d223726f54902e3b72",
+      "archived_sha256": "fbaa879deb42d9db01ddaaf8d86ddd60100f8dfd4c3140d223726f54902e3b72",
+      "source_bytes": 2370,
+      "archived_bytes": 2370
+    },
+    "native/swiglu-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/on/object/tile_xir_w8_98668_1788923332851486_0.o",
+      "source_sha256": "5142651bda1a939b726035bb6b5d0c472d2f9658060a82eadd3a77fa45e4e151",
+      "archived_sha256": "d7f7988fd3aca956b508780577dafb47975131dede343eb3fca785ecd1dfdf47",
+      "source_bytes": 4904,
+      "archived_bytes": 2713
+    },
+    "native/swiglu-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/on/kernel.ll",
+      "source_sha256": "c7505c86778f94ff40135130164a5cdb88489fcb400c520d64b33495d884f179",
+      "archived_sha256": "4152019af515e35eecf2da5fec6ca569d381798f8befd8093f88f38818c11508",
+      "source_bytes": 58208,
+      "archived_bytes": 6179
+    },
+    "native/swiglu-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/on/entry.dylib",
+      "source_sha256": "76cafa56ee94ee2f251e896b918c43c0c204f300986bd439492eaac27c2879df",
+      "archived_sha256": "0f5d0a4246ada59bc955fb7f9ccee604c995a4d73470725eda21a5e4f0235915",
+      "source_bytes": 33448,
+      "archived_bytes": 3334
+    },
+    "native/swiglu-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/on/assembly.stdout.log",
+      "source_sha256": "eada5abef7ce3fcc2d7731a6d6f562d8faa35edc3a45066dda1766bb4ca57b9f",
+      "archived_sha256": "03f55e0b3cb88a108c144ddffb781356dd17c3cb9d08e06c38afa781cef3ffb8",
+      "source_bytes": 43008,
+      "archived_bytes": 7468
+    },
+    "native/swiglu-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-129x768/on/measurement.json",
+      "source_sha256": "d28fca8b83bc8af6221cadfaba36142bad1ae3da9b4adb008290237ca64206a9",
+      "archived_sha256": "d28fca8b83bc8af6221cadfaba36142bad1ae3da9b4adb008290237ca64206a9",
+      "source_bytes": 2341,
+      "archived_bytes": 2341
+    },
+    "native/swiglu-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/off/object/tile_xir_w8_98674_1788923333979469_0.o",
+      "source_sha256": "ce4cdc9832e87bc9ffb89a6e4ed011b66a09ac8c9227b460ac24804ab0db7bc8",
+      "archived_sha256": "cb770526a80874d4f0ffb2dba0bea7e7726c97f7260c73b79b1eb4bbca7411a1",
+      "source_bytes": 5976,
+      "archived_bytes": 4026
+    },
+    "native/swiglu-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/off/kernel.ll",
+      "source_sha256": "96d1be1330267873789dac534cef1877c2be7fd14ef519ed60732e0ded307e40",
+      "archived_sha256": "710f9a27f6b613d15be8f715aab9455b84fb3ad5d852d12d0257f2170f48ea2d",
+      "source_bytes": 69363,
+      "archived_bytes": 7170
+    },
+    "native/swiglu-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/off/entry.dylib",
+      "source_sha256": "514281fa02164d23835bd4863d07efdfcb975d5bfa28cb75b281bfd388eab27d",
+      "archived_sha256": "5a444fa2dbfe111691c0c71de6b2fbaba550698f9abf1436936ddf05c7daf748",
+      "source_bytes": 33448,
+      "archived_bytes": 4431
+    },
+    "native/swiglu-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/off/assembly.stdout.log",
+      "source_sha256": "24142861966e97c67341a5facf27461ab809f16a7392617ba637532e6a6473ff",
+      "archived_sha256": "622dee70f5ce348c10157c625fbbdf4c2574ef6d109f5cde27a76668becf12ab",
+      "source_bytes": 45695,
+      "archived_bytes": 8962
+    },
+    "native/swiglu-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/off/measurement.json",
+      "source_sha256": "b3d5a9d9c729e8256292ddcd98610bbe71cf59bdea15bec0349d2b06e22321d5",
+      "archived_sha256": "b3d5a9d9c729e8256292ddcd98610bbe71cf59bdea15bec0349d2b06e22321d5",
+      "source_bytes": 2357,
+      "archived_bytes": 2357
+    },
+    "native/swiglu-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/on/object/tile_xir_w8_98679_1788923335599150_0.o",
+      "source_sha256": "93997277c16f0bebad23b34c227bb087112b569eb347c0e7946c724707647ca9",
+      "archived_sha256": "472a8db33b8278eb150fce48ce090b66587d2d79ccf67c696c1eb00c3431f347",
+      "source_bytes": 9072,
+      "archived_bytes": 5933
+    },
+    "native/swiglu-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/on/kernel.ll",
+      "source_sha256": "13383968aeeffc96657c4bc0a6c688dda36197648e7337eed771cbf9ef0da854",
+      "archived_sha256": "0ad0352f0c5bc24c7242d963fe1d679763aa679d274c8e85dd02b8f06ed64709",
+      "source_bytes": 84711,
+      "archived_bytes": 13204
+    },
+    "native/swiglu-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/on/entry.dylib",
+      "source_sha256": "5411979d53ee1ded20ace550d4360a76043cd6f8550d85e2f17611898913bd28",
+      "archived_sha256": "b73851f8cab6d8dcaa615a7cf52dac0cc3dae4b97da0cf4ffc9ee06e6565d07f",
+      "source_bytes": 33448,
+      "archived_bytes": 6324
+    },
+    "native/swiglu-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/on/assembly.stdout.log",
+      "source_sha256": "2791367d0e5abad0920ec480913bee52a11ce91a2ac101678f1b95c965d5a4c4",
+      "archived_sha256": "e892759dda8b4fb2f86443a4ca5b740f14c68bc0878b80eab02a3ab6ef20162c",
+      "source_bytes": 78301,
+      "archived_bytes": 14242
+    },
+    "native/swiglu-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-257x1538/on/measurement.json",
+      "source_sha256": "c0c344b1e9c3b3f8e8ea6f083a1838d3a69a233ac9d69ef825386c0a3875540c",
+      "archived_sha256": "c0c344b1e9c3b3f8e8ea6f083a1838d3a69a233ac9d69ef825386c0a3875540c",
+      "source_bytes": 2358,
+      "archived_bytes": 2358
+    },
+    "native/swiglu-1024x4097/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/off/object/tile_xir_w8_98686_1788923337028310_0.o",
+      "source_sha256": "ac8b37c34fd20fe32dc7d9c79460628e7a2ecc48b63ace390c99bcaa6579c671",
+      "archived_sha256": "51bdbfd1c3dc67456db8ecbd526b24a18d4ea8182af25dfda276ddf5c2bb581a",
+      "source_bytes": 5896,
+      "archived_bytes": 3962
+    },
+    "native/swiglu-1024x4097/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/off/kernel.ll",
+      "source_sha256": "140d1f78a108514d9be9cbac8af323f21539ac923b0ddaaf412460789e6625c2",
+      "archived_sha256": "7bceaf0630c5a7283d5d7656c696b2ae346941153015ad57065bfd83313855f8",
+      "source_bytes": 69375,
+      "archived_bytes": 7171
+    },
+    "native/swiglu-1024x4097/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/off/entry.dylib",
+      "source_sha256": "9d4c4309dc74886dde188f27f1234bd3823c3d758ff7677118f70d8e3d431084",
+      "archived_sha256": "5c6476f2b34990983d7cadf53e23134a5fc939c70a1d2691d5403855eb46faa8",
+      "source_bytes": 33448,
+      "archived_bytes": 4387
+    },
+    "native/swiglu-1024x4097/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/off/assembly.stdout.log",
+      "source_sha256": "51083be44901650855c5434eeabf92443adf4d5ae1c06acf83c003959361da9e",
+      "archived_sha256": "bf270ef018611f83055aaf5f559930ecf005f0e170ed37b3e5a8d98b999f646b",
+      "source_bytes": 45329,
+      "archived_bytes": 8888
+    },
+    "native/swiglu-1024x4097/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/off/measurement.json",
+      "source_sha256": "e22b839f4545e64d6cf29f78abc65b0125175bf99a191a6044efe44cf030fa17",
+      "archived_sha256": "e22b839f4545e64d6cf29f78abc65b0125175bf99a191a6044efe44cf030fa17",
+      "source_bytes": 2363,
+      "archived_bytes": 2363
+    },
+    "native/swiglu-1024x4097/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/on/object/tile_xir_w8_98710_1788923343845376_0.o",
+      "source_sha256": "61df065a5ec4233099a42cf0ec8a28113d6f6597248d3312bae34aa00484889f",
+      "archived_sha256": "3242709874b7ea9493c174e473d8ee39c56cdcf872b48c688264b5c6bcaf17a5",
+      "source_bytes": 8912,
+      "archived_bytes": 5796
+    },
+    "native/swiglu-1024x4097/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/on/kernel.ll",
+      "source_sha256": "a64dab522efc5c2c5bbd0adabb1523c1acaa82760c55b93eee5248bc8dfb3f69",
+      "archived_sha256": "1950cc41cf854988f90b03d5bd88995690473abc78abc4b54af6a8fc7311878c",
+      "source_bytes": 84731,
+      "archived_bytes": 13206
+    },
+    "native/swiglu-1024x4097/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/on/entry.dylib",
+      "source_sha256": "d4635ff7553946ba61e91e6bde1ab3974aed4275a0fe2f961f4b59fac06cf7a1",
+      "archived_sha256": "f315b39b47e6408d7e4a3ddbde1ff625fef7a9dff339d0ecaf5cf434e082e5fb",
+      "source_bytes": 33448,
+      "archived_bytes": 6225
+    },
+    "native/swiglu-1024x4097/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/on/assembly.stdout.log",
+      "source_sha256": "be72651de46f6b047f8a74a52af4b3e21d728a43dccd2415a91843b5a447c5f6",
+      "archived_sha256": "a1d6cd4b0e6888d0c25a358f0d9ef4442e866ab556ea8f2fd2bbc269aafd276b",
+      "source_bytes": 77466,
+      "archived_bytes": 14013
+    },
+    "native/swiglu-1024x4097/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/swiglu-1024x4097/on/measurement.json",
+      "source_sha256": "afc4156ba495bed1b851015cf968d72b05a896d1c8d2008c3510574eeee2ea82",
+      "archived_sha256": "afc4156ba495bed1b851015cf968d72b05a896d1c8d2008c3510574eeee2ea82",
+      "source_bytes": 2371,
+      "archived_bytes": 2371
+    },
+    "native/gelu_residual-17x65/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/off/object/tile_xir_w8_98720_1788923349413237_0.o",
+      "source_sha256": "189918bd3f8c9ccda795159ad8f2f9c41ebd79db150ed97d9320f5975f0ee1ea",
+      "archived_sha256": "b361e66ba8fa5ba1ae964307c2481df14a05a7f41e36502dd7d0c2e210cdee11",
+      "source_bytes": 7808,
+      "archived_bytes": 5285
+    },
+    "native/gelu_residual-17x65/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/off/kernel.ll",
+      "source_sha256": "96c0be43592abd7f78cdb51f6cddcb2a06a4aa2c5cb567ca397a8b88087da8f0",
+      "archived_sha256": "76ad32eb1b71b7a52d89a73caa9e6d82cfb6c30544d86acd50112b19b1ed2096",
+      "source_bytes": 76993,
+      "archived_bytes": 11793
+    },
+    "native/gelu_residual-17x65/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/off/entry.dylib",
+      "source_sha256": "62955f3682959a288d4364d74f829465b17741c93898db269cd5a2c858510887",
+      "archived_sha256": "9b71a71d6234e709c246b09ba013ffff630c7d69f07b2cb66111c3bbe7828a0a",
+      "source_bytes": 16856,
+      "archived_bytes": 5466
+    },
+    "native/gelu_residual-17x65/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/off/assembly.stdout.log",
+      "source_sha256": "540cbc74f340b5ba4325e84ef2cb62e73d6087cd5639814d42c1f1fd7a18a6d3",
+      "archived_sha256": "ecac772118eefdb81a88cf6c1a49758d30747a7c5de9109c1636628cf7ab99cc",
+      "source_bytes": 63901,
+      "archived_bytes": 11941
+    },
+    "native/gelu_residual-17x65/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/off/measurement.json",
+      "source_sha256": "59104d798fcb55398a2bc66b8a63430969db3abe27159f664a572833332eb066",
+      "archived_sha256": "59104d798fcb55398a2bc66b8a63430969db3abe27159f664a572833332eb066",
+      "source_bytes": 2349,
+      "archived_bytes": 2349
+    },
+    "native/gelu_residual-17x65/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/on/object/tile_xir_w8_98737_1788923352037804_0.o",
+      "source_sha256": "0ae9f151a72ce265f34b98ee703001decb8883c1d8455e7a60ad533d6a212738",
+      "archived_sha256": "8cebed759e5a1cb3788ef961c69aeedfa7e668718879cdc5c306bbf33f670ee9",
+      "source_bytes": 12728,
+      "archived_bytes": 8029
+    },
+    "native/gelu_residual-17x65/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/on/kernel.ll",
+      "source_sha256": "4da164d8b49c19c8c5f23ecd45e01ce6236809f67af4dc3b020ed9cff6e78e79",
+      "archived_sha256": "8594268c0a81bcc7cb826e0a3e2e96e9d0fe6b4f698966acb9d57e48ad4cf833",
+      "source_bytes": 96361,
+      "archived_bytes": 14724
+    },
+    "native/gelu_residual-17x65/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/on/entry.dylib",
+      "source_sha256": "749630959da932138e5c0273133d53ec5abb2a5ba854ec6881a37b0f05127759",
+      "archived_sha256": "ca391fe61dc2e298945e642ccd1a3691d91ef22b0d87bc22d1461d348f0eabd5",
+      "source_bytes": 16856,
+      "archived_bytes": 8195
+    },
+    "native/gelu_residual-17x65/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/on/assembly.stdout.log",
+      "source_sha256": "77eb2e30b9f529f22d99842a1bac3e284d8ca3dd11ba38b103a2b74d2a4c5955",
+      "archived_sha256": "a39473037f9b65715369a5af73e491c670600d107465dd718166834ffb6c21bd",
+      "source_bytes": 113438,
+      "archived_bytes": 19631
+    },
+    "native/gelu_residual-17x65/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-17x65/on/measurement.json",
+      "source_sha256": "4561a581a36e90490b1bca978331fde6fa0f835d5293e72c16d43f29e292124b",
+      "archived_sha256": "4561a581a36e90490b1bca978331fde6fa0f835d5293e72c16d43f29e292124b",
+      "source_bytes": 2347,
+      "archived_bytes": 2347
+    },
+    "native/gelu_residual-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/off/object/tile_xir_w8_98749_1788923355451917_0.o",
+      "source_sha256": "9a86720af3cf65ce7fae6a8132b75fe55cafe14f61772521a0e914213cd3fe96",
+      "archived_sha256": "997ba9d9474e078d6a2d8f0d0c53c642d18a463f64bc6bab541ce975d7112c40",
+      "source_bytes": 7616,
+      "archived_bytes": 3485
+    },
+    "native/gelu_residual-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/off/kernel.ll",
+      "source_sha256": "edb136a19c1eb021a7a010f2937cda57af701a7f43d2301d2e8255cdaf7f085e",
+      "archived_sha256": "1c1e227773bff7c0021eeea99a392fc8bb1bc7f827d2beba40dd197a5ae81f36",
+      "source_bytes": 54950,
+      "archived_bytes": 6082
+    },
+    "native/gelu_residual-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/off/entry.dylib",
+      "source_sha256": "9debb21f5b04df38a1fd25f5962de1522e70b939a325ab7145d991aab8aeb48a",
+      "archived_sha256": "12eaf256c92b2c311321bdde609b05a190676c557b052c5e1753993a5133ab2d",
+      "source_bytes": 33400,
+      "archived_bytes": 4108
+    },
+    "native/gelu_residual-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/off/assembly.stdout.log",
+      "source_sha256": "6c0e42c5dc1839aa8dbb828ce00d9d1feb45c96c1dbc35d6c6e3960957f9d71f",
+      "archived_sha256": "cbfd794ef7fb55cd2e98a13b7b03834d8e3bf95d066b65c0e0e4ce4f49993ecd",
+      "source_bytes": 64547,
+      "archived_bytes": 11272
+    },
+    "native/gelu_residual-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/off/measurement.json",
+      "source_sha256": "e1b1a9b2f43aba77c01330543ce0ce1647504bb7b36265d807eb9ad577df445b",
+      "archived_sha256": "e1b1a9b2f43aba77c01330543ce0ce1647504bb7b36265d807eb9ad577df445b",
+      "source_bytes": 2363,
+      "archived_bytes": 2363
+    },
+    "native/gelu_residual-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/on/object/tile_xir_w8_98755_1788923358965750_0.o",
+      "source_sha256": "70abda1a402937ca5ad5577a447ae13a688e97249f9d93ce5a84c8bba412ef1a",
+      "archived_sha256": "bfa1433fcef06b81cca61f275c732415b8e634c79a84a800c79c7e7b171aa499",
+      "source_bytes": 6952,
+      "archived_bytes": 3570
+    },
+    "native/gelu_residual-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/on/kernel.ll",
+      "source_sha256": "4b6c176b01cd425b93166a98ededb90e0d8d148d1b1b7ae3714574b0234709fd",
+      "archived_sha256": "e1c61e73d2e5e70068a4e185c5e7dd1b71927bb5253fcfbf6e0b264f775d9cbb",
+      "source_bytes": 66000,
+      "archived_bytes": 7001
+    },
+    "native/gelu_residual-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/on/entry.dylib",
+      "source_sha256": "0128d837590712617ac248d412aebf0be61b0766eceea0dfd249344e963d0489",
+      "archived_sha256": "3350d72c7f57c1325c897b6bc785757e4faa3f0bf5374f10817b1bc3091fad3e",
+      "source_bytes": 33448,
+      "archived_bytes": 4196
+    },
+    "native/gelu_residual-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/on/assembly.stdout.log",
+      "source_sha256": "feea6a0eec348be0ed4293d95f059167cf31b5177ed778dcbd5b6ed2ab38f166",
+      "archived_sha256": "5a1fe3baab22b1c55eeba561f1f0aa2754a6e814287dfe2ce79b29cb6bd89d8b",
+      "source_bytes": 61925,
+      "archived_bytes": 10543
+    },
+    "native/gelu_residual-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-129x768/on/measurement.json",
+      "source_sha256": "5ec84accb7b5c1d4e1e0593842fee1c5e5a056cd5d592f0362c673c2776d819e",
+      "archived_sha256": "5ec84accb7b5c1d4e1e0593842fee1c5e5a056cd5d592f0362c673c2776d819e",
+      "source_bytes": 2351,
+      "archived_bytes": 2351
+    },
+    "native/gelu_residual-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/off/object/tile_xir_w8_98795_1788923373141014_0.o",
+      "source_sha256": "c425a5f0d8a2f1e40acc3e7a4421ed09bdaf7019957098451a7bc4c0a4b2e4ff",
+      "archived_sha256": "13ecfd4c58b09525f0c30b411482db655ab222957ae960534a327f6ff2353afc",
+      "source_bytes": 7896,
+      "archived_bytes": 5364
+    },
+    "native/gelu_residual-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/off/kernel.ll",
+      "source_sha256": "14b890405fa70da4b0c55feeb72949b6b9b1ce9d7f224dfc187feaaad5a8d80f",
+      "archived_sha256": "390feb49f9b2f06b1b55264a15e5bbf40788af69e37a71e56367a4a27476abec",
+      "source_bytes": 77053,
+      "archived_bytes": 11809
+    },
+    "native/gelu_residual-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/off/entry.dylib",
+      "source_sha256": "c071d9c9c0ce3529adb8e1a3ea6fbfcaf164ea12dada53694a8f82d9c72f9a49",
+      "archived_sha256": "5fc6ff62fdc6756cc9cc2cc08c28a7f60ef90aafddcb3a22dd2bd0070210869a",
+      "source_bytes": 33448,
+      "archived_bytes": 5780
+    },
+    "native/gelu_residual-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/off/assembly.stdout.log",
+      "source_sha256": "7a69a24ec2d9ee0c7bf82b143f207efcaf6c051e65218c51fd859a5d139c81ff",
+      "archived_sha256": "f051dd7f30e285c2af32b1a7d8eb8acd99c2fd78490b4d09c9c56e04c01a2cf3",
+      "source_bytes": 63956,
+      "archived_bytes": 12055
+    },
+    "native/gelu_residual-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/off/measurement.json",
+      "source_sha256": "0360ffde35c3715694ae4ae2e9cd7ebe75690b0d17d8a5280e1045f919ad6d49",
+      "archived_sha256": "0360ffde35c3715694ae4ae2e9cd7ebe75690b0d17d8a5280e1045f919ad6d49",
+      "source_bytes": 2365,
+      "archived_bytes": 2365
+    },
+    "native/gelu_residual-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/on/object/tile_xir_w8_98802_1788923375247975_0.o",
+      "source_sha256": "c475f4f9e36525857ad3bc9f1d7fc64f2a69d9d63d8fb4a68e75b224d841e62d",
+      "archived_sha256": "1d7e170055260a6dbef22fa7275a71531d72e7a30a0e038fe14387f33d00f0ba",
+      "source_bytes": 12864,
+      "archived_bytes": 8019
+    },
+    "native/gelu_residual-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/on/kernel.ll",
+      "source_sha256": "24a3f7ba5d0f70ba7b4054380e1b46abe3dd8498b8847f936e306e02714f57c0",
+      "archived_sha256": "7803bf666cab8442df767f7e0c5b17393615ea7388a66e0cc8acfff40cc3c7b5",
+      "source_bytes": 96461,
+      "archived_bytes": 14741
+    },
+    "native/gelu_residual-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/on/entry.dylib",
+      "source_sha256": "dabf977b7fe9bfec7a6f8121dc59786a78c93504a9b73d71dc5d3010ed8f5408",
+      "archived_sha256": "bf28c696bbd9a641eb18ae8c7a2807b114d625423ec0bc1d601737ecf8c9bf9b",
+      "source_bytes": 33448,
+      "archived_bytes": 8448
+    },
+    "native/gelu_residual-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/on/assembly.stdout.log",
+      "source_sha256": "f05a2482b46bfecb46b2bacdd12a8bd0a7b9d69df3eec38deb4fd2f1b54fefb8",
+      "archived_sha256": "c9d25a199d9d50040a77c07229bd2de7703bc15994b8c953189bcbc40b1ed4c1",
+      "source_bytes": 113975,
+      "archived_bytes": 19929
+    },
+    "native/gelu_residual-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-257x1538/on/measurement.json",
+      "source_sha256": "5b8ef2a292acd1494795fd7eceef96af1bc381a5f690d94f2e3da6ffc156e5ef",
+      "archived_sha256": "5b8ef2a292acd1494795fd7eceef96af1bc381a5f690d94f2e3da6ffc156e5ef",
+      "source_bytes": 2351,
+      "archived_bytes": 2351
+    },
+    "native/gelu_residual-1024x4097/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/off/object/tile_xir_w8_98827_1788923382189718_0.o",
+      "source_sha256": "382adefe28ef394435094162fccdc627a6cda4ef3a465542382458773c06b1d9",
+      "archived_sha256": "8b0236a1d99460bfcb17e1593e671d1a70c239c886c3ffaed3ef564bb0c4aa88",
+      "source_bytes": 7816,
+      "archived_bytes": 5295
+    },
+    "native/gelu_residual-1024x4097/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/off/kernel.ll",
+      "source_sha256": "0087d8c6ef7903803668ef56343a0796edb1ef8528cd48462d3f34ef19dcb6b7",
+      "archived_sha256": "5ec4bfc77f987a22b1c7a7a6e41b98505e2a9f763918a4ab5dad4a44588b9078",
+      "source_bytes": 77065,
+      "archived_bytes": 11807
+    },
+    "native/gelu_residual-1024x4097/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/off/entry.dylib",
+      "source_sha256": "8d19f9d8d57decf59531a1d716165fce1c728352000ce8a2c460ccd48068e02b",
+      "archived_sha256": "e327149f62d7db515cd90dd1952a907bb30cd9c5aac50f3d6689dbdf71d41a98",
+      "source_bytes": 33448,
+      "archived_bytes": 5732
+    },
+    "native/gelu_residual-1024x4097/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/off/assembly.stdout.log",
+      "source_sha256": "8b8ffaf59e9b1cbe3d20a9d75a7743b78b16468ed1087fdd14ec4b10bbb3d6bd",
+      "archived_sha256": "60aa5c126814157e21cf9d8db053c2bb6c57e8455f3cc69b5c8be2a967d9785c",
+      "source_bytes": 63667,
+      "archived_bytes": 11942
+    },
+    "native/gelu_residual-1024x4097/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/off/measurement.json",
+      "source_sha256": "29e062ed3f6dab6c0e391be37938fe10de85c0eb742dd3e238bf4996817386ca",
+      "archived_sha256": "29e062ed3f6dab6c0e391be37938fe10de85c0eb742dd3e238bf4996817386ca",
+      "source_bytes": 2383,
+      "archived_bytes": 2383
+    },
+    "native/gelu_residual-1024x4097/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/on/object/tile_xir_w8_99914_1788923391784370_0.o",
+      "source_sha256": "e85fec0934394164e63fd6fcd5b15452379ee390ae2b769955021b5aff7ac483",
+      "archived_sha256": "ca91a6f41e49a324a89be57b1a6a7af7ce695bfdcd7e9dffbce65e6cbb8e9b8d",
+      "source_bytes": 12656,
+      "archived_bytes": 7929
+    },
+    "native/gelu_residual-1024x4097/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/on/kernel.ll",
+      "source_sha256": "4553b6b13b2aece1141c340383379ea397b7f85606f75c076bad1a6e4207102b",
+      "archived_sha256": "bd93ff013a6907d9fee7b8e3dcce8d27d23361c7a5af72f548cc6e98f4267518",
+      "source_bytes": 96481,
+      "archived_bytes": 14740
+    },
+    "native/gelu_residual-1024x4097/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/on/entry.dylib",
+      "source_sha256": "301a7cc83675adc1ca2e0986b57d88cdd6a984ec3bb60239062d7baeacf909b7",
+      "archived_sha256": "8d4eea8f8633836e508598f3880340ab384c58cfcd0643cf03c3fb8e34150639",
+      "source_bytes": 33448,
+      "archived_bytes": 8389
+    },
+    "native/gelu_residual-1024x4097/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/on/assembly.stdout.log",
+      "source_sha256": "d3c01c6f50f074e0817124cc256a5d7f6fbcc2c25f1a0e01889c1274797b3dad",
+      "archived_sha256": "0ae98160f0884c290dafe2804fdcdb2e40310aae34285f91222e1c287fc4c193",
+      "source_bytes": 112538,
+      "archived_bytes": 19659
+    },
+    "native/gelu_residual-1024x4097/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/gelu_residual-1024x4097/on/measurement.json",
+      "source_sha256": "0eb70980d13c5c8d7e71661e682287e933e656bd24ccc1c9d276fe71659ee0d8",
+      "archived_sha256": "0eb70980d13c5c8d7e71661e682287e933e656bd24ccc1c9d276fe71659ee0d8",
+      "source_bytes": 2394,
+      "archived_bytes": 2394
+    },
+    "native/rope-17x66/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/off/object/tile_xir_w8_99934_1788923396641866_0.o",
+      "source_sha256": "df5351128970816c9559c98534dc18878e3479a94ce3a9701727503dfe5a6836",
+      "archived_sha256": "6bfaaac940032a2db467baa768b6b2211c2d9e4522cacfbea3380e737da27ff9",
+      "source_bytes": 12480,
+      "archived_bytes": 7369
+    },
+    "native/rope-17x66/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/off/kernel.ll",
+      "source_sha256": "10a6f993dfe42db672679a5c6a29b06d0153c48008eb0a3761585dc064b9e9c0",
+      "archived_sha256": "d0f341a2835ed14500116cc916ac431b97e78852f801bf65bc7d3e74205179c2",
+      "source_bytes": 207502,
+      "archived_bytes": 26957
+    },
+    "native/rope-17x66/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/off/entry.dylib",
+      "source_sha256": "44bd7e8db9dfa9c2591bee68d149a0f21fdedc788b1a474c4ee3a7f015d9944b",
+      "archived_sha256": "33d1be4d69f44df1938c2f016a70cda83a036a783485f30ff357b7e7662c09df",
+      "source_bytes": 16824,
+      "archived_bytes": 7288
+    },
+    "native/rope-17x66/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/off/assembly.stdout.log",
+      "source_sha256": "3c3b9b75110d009db465899e33d470f0ba79641894a1f0930526c5898dd254ca",
+      "archived_sha256": "7c5058552a8d404e736a40da7f4189b6de40882670819b67da8d389fb4b108cd",
+      "source_bytes": 100903,
+      "archived_bytes": 18524
+    },
+    "native/rope-17x66/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/off/measurement.json",
+      "source_sha256": "e7c61a9e179d00a3a144ef846ecfe94c47ebf14cf69d3b914f15b72f278e667f",
+      "archived_sha256": "e7c61a9e179d00a3a144ef846ecfe94c47ebf14cf69d3b914f15b72f278e667f",
+      "source_bytes": 2350,
+      "archived_bytes": 2350
+    },
+    "native/rope-17x66/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/on/object/tile_xir_w8_99949_1788923397415730_0.o",
+      "source_sha256": "ac396fb37795fc37931a938f2d3366beb9c00583b71ada9bf528fe243f1922fc",
+      "archived_sha256": "2d7197b3560c9dfaf58a5aebe9749bee0a003eda1ee4d5cfd7f38d138d2a8bdf",
+      "source_bytes": 16968,
+      "archived_bytes": 8126
+    },
+    "native/rope-17x66/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/on/kernel.ll",
+      "source_sha256": "6ab4d6e57b1d73cd191b3171dd3b9b6046969211db8be0919559f3e484fcd9c9",
+      "archived_sha256": "76d4a640e66be3d5d46f49d8062f8192527f8690d50457d98f5b95822b789df7",
+      "source_bytes": 243948,
+      "archived_bytes": 31728
+    },
+    "native/rope-17x66/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/on/entry.dylib",
+      "source_sha256": "9fd37d6907e28dce244b46be615d77934345cb4314dbfbc428632ac0e4d1ec52",
+      "archived_sha256": "4cf3e7004b4ff08341f031854841d901f7a853433ddde868d45ca40c768427f9",
+      "source_bytes": 16856,
+      "archived_bytes": 8023
+    },
+    "native/rope-17x66/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/on/assembly.stdout.log",
+      "source_sha256": "8a5fe4c1884ebbb3e570b5c82508c7a288f654f6451a51dd63c03d5a558c3f7c",
+      "archived_sha256": "2b9b49110d902ab67e2bb88e3a63b799182cd667bf0c4077f6026c7523b301dd",
+      "source_bytes": 172344,
+      "archived_bytes": 27716
+    },
+    "native/rope-17x66/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-17x66/on/measurement.json",
+      "source_sha256": "7cf80fba3cb33161699dfe8e97eb9641e3c39af632f3d09d2ea775b7b3f757c2",
+      "archived_sha256": "7cf80fba3cb33161699dfe8e97eb9641e3c39af632f3d09d2ea775b7b3f757c2",
+      "source_bytes": 2343,
+      "archived_bytes": 2343
+    },
+    "native/rope-129x768/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/off/object/tile_xir_w8_99956_1788923398010862_0.o",
+      "source_sha256": "32a2353099bcf6c5820b787efc47b5fc18a5e4c4723e02824f55dd8fb0346090",
+      "archived_sha256": "a7bd0ad02d0a8cc44b439262f02bc4146da8b2b7f747a16630d25fd4ede2cf72",
+      "source_bytes": 4080,
+      "archived_bytes": 2019
+    },
+    "native/rope-129x768/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/off/kernel.ll",
+      "source_sha256": "bf14accdcb17b16d6ebe3c83346274fa5cd5851c35df0a8bd3eb837395301b42",
+      "archived_sha256": "65d48fdef38265e789525b9d8ec354b78c32b1bcdd2e4d8f007cfe80887e4d24",
+      "source_bytes": 83105,
+      "archived_bytes": 11557
+    },
+    "native/rope-129x768/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/off/entry.dylib",
+      "source_sha256": "7e9d967f3dfcd5f29fc14d6807fe794563ed8b0f10c8ea537d813ace9d4cf08a",
+      "archived_sha256": "60ea95df854ca6c8f61ea16b17836dc5fb9fc9bdf17e423ef17499d4f5fd6c52",
+      "source_bytes": 33400,
+      "archived_bytes": 2637
+    },
+    "native/rope-129x768/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/off/assembly.stdout.log",
+      "source_sha256": "6bcac1ca14cf37705f998f35dd03fb5546706a5ecad59b71e2cf90284a3dbac7",
+      "archived_sha256": "19c12a49ca268cae0cc37d865d423e877464862df9ae0d5f69dbea3ca0f3182b",
+      "source_bytes": 30638,
+      "archived_bytes": 5863
+    },
+    "native/rope-129x768/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/off/measurement.json",
+      "source_sha256": "64de2e219d4b451dc70632b13929860164b31cfd875fa6835265681bc1bdacb4",
+      "archived_sha256": "64de2e219d4b451dc70632b13929860164b31cfd875fa6835265681bc1bdacb4",
+      "source_bytes": 2355,
+      "archived_bytes": 2355
+    },
+    "native/rope-129x768/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/on/object/tile_xir_w8_99961_1788923398790235_0.o",
+      "source_sha256": "32a7f2593d52c217c5b5523ff9a5a2c5adcfa7a797a59ecb463e2f91fcef7712",
+      "archived_sha256": "21719c3a054a356fe7df9d3e6c63be33e8f9ed2a0fff2ee3977154a62b22a663",
+      "source_bytes": 4872,
+      "archived_bytes": 2967
+    },
+    "native/rope-129x768/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/on/kernel.ll",
+      "source_sha256": "95e8c7644b5308709a4b41a53b58d9c92e26b8f0060608ea1439cfd0cd7cb037",
+      "archived_sha256": "349c86e90f4275ebfdb40788ad91b6343348ed800851c8e2bf47b67e982da4ef",
+      "source_bytes": 95041,
+      "archived_bytes": 13393
+    },
+    "native/rope-129x768/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/on/entry.dylib",
+      "source_sha256": "925f573581e1d0080e03c68b6cd58ef07bc6194833bb161cbe2a6fe63fe36c0a",
+      "archived_sha256": "1f31839b84033c487b165566ddbb06fe30531cbd7b44375752c88be591b377a6",
+      "source_bytes": 33448,
+      "archived_bytes": 3547
+    },
+    "native/rope-129x768/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/on/assembly.stdout.log",
+      "source_sha256": "ef6d153cf311c321f6327d8990c47fcb99a0814d8c9bcd386348ed12b27fa7f3",
+      "archived_sha256": "2663ec3f9549923321d23ec092d8813438dd046f682c5d49f877540d59472980",
+      "source_bytes": 43373,
+      "archived_bytes": 7967
+    },
+    "native/rope-129x768/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-129x768/on/measurement.json",
+      "source_sha256": "ee5999900f4be38853bd8fa44dde4633e8419b9ce3777c21829d15b8403cd09e",
+      "archived_sha256": "ee5999900f4be38853bd8fa44dde4633e8419b9ce3777c21829d15b8403cd09e",
+      "source_bytes": 2369,
+      "archived_bytes": 2369
+    },
+    "native/rope-257x1538/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/off/object/tile_xir_w8_99980_1788923404485401_0.o",
+      "source_sha256": "27b964e73d406faf6117c46bed2ff39984f44e9e5cf04644c8a1fd6ae7244c52",
+      "archived_sha256": "b9b412518218c1a4b0b1dee4923079d7dc4783095851516d78b4b75f0b1e613d",
+      "source_bytes": 7736,
+      "archived_bytes": 4213
+    },
+    "native/rope-257x1538/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/off/kernel.ll",
+      "source_sha256": "f405fd894bd40e2de00f4e710111ed3e86278c7d5fb6cee60febe0dac0a5e142",
+      "archived_sha256": "9c984ebf4b74135b3d624cb6d6e737d8c882124ea8b9cee001a7a916163af484",
+      "source_bytes": 128700,
+      "archived_bytes": 18170
+    },
+    "native/rope-257x1538/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/off/entry.dylib",
+      "source_sha256": "818cb32621c78b4aaeb669523e5e61d898314a96aba599248974d7c607f43f73",
+      "archived_sha256": "e0af9959a1ff582be8798596e91b77fdeacc2b628a8c243c0b17f6d03f84a76e",
+      "source_bytes": 33400,
+      "archived_bytes": 4603
+    },
+    "native/rope-257x1538/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/off/assembly.stdout.log",
+      "source_sha256": "8f58b684bd84de72d7e6f3219b436820474b0479da1560759a8319e0d84638cf",
+      "archived_sha256": "095258a5e9e225b7776f78902b5b51ccde4bf97eda09e2abdafed81cb6d98c42",
+      "source_bytes": 60124,
+      "archived_bytes": 11560
+    },
+    "native/rope-257x1538/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/off/measurement.json",
+      "source_sha256": "9f3300b5bfdfdb95d9c0f18e973095d9e7b143368a911c96a39a75811a8cff86",
+      "archived_sha256": "9f3300b5bfdfdb95d9c0f18e973095d9e7b143368a911c96a39a75811a8cff86",
+      "source_bytes": 2355,
+      "archived_bytes": 2355
+    },
+    "native/rope-257x1538/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/on/object/tile_xir_w8_99989_1788923405593456_0.o",
+      "source_sha256": "86ae5a8afe7157977b15bc80eed91fffb049c9672a98e0b9a3eeb496bfdf16f7",
+      "archived_sha256": "5abd2360d1186a93b6e9051be2b3d5d09c3a8186b6cee31e1813077a3db839c1",
+      "source_bytes": 9272,
+      "archived_bytes": 5821
+    },
+    "native/rope-257x1538/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/on/kernel.ll",
+      "source_sha256": "c3b624e6820247ea33cba57ed8f337a002ac6fbf539aed1b5682f129ebcb6475",
+      "archived_sha256": "e318d03c6f301675c92148586754aca11f6b29ddb319d8cf8437cc7ba47b1402",
+      "source_bytes": 149370,
+      "archived_bytes": 21158
+    },
+    "native/rope-257x1538/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/on/entry.dylib",
+      "source_sha256": "9f3bdc431638c19d02babe11ea19511d9dd29b8300fc5ef0d231ea03cbb2de22",
+      "archived_sha256": "0265ab0e3168d5dedf683f0bf99364a710325c1497397bded688dd0d803501c6",
+      "source_bytes": 33448,
+      "archived_bytes": 6251
+    },
+    "native/rope-257x1538/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/on/assembly.stdout.log",
+      "source_sha256": "b28ba66a01d37fbcce3ffdc289ecea7ad2a43bb7102d0f9516ced6741bf9559c",
+      "archived_sha256": "d2507b38e08b4bac58573246cac22658ebf67cb20009a5109c0c48d24ade03d6",
+      "source_bytes": 87153,
+      "archived_bytes": 15656
+    },
+    "native/rope-257x1538/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-257x1538/on/measurement.json",
+      "source_sha256": "be312f46874d2bdf1836989881a5df886cb3f80b5efaa15382f8651adb8f9b2e",
+      "archived_sha256": "be312f46874d2bdf1836989881a5df886cb3f80b5efaa15382f8651adb8f9b2e",
+      "source_bytes": 2363,
+      "archived_bytes": 2363
+    },
+    "native/rope-1024x4098/off/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/off/object/tile_xir_w8_99995_1788923406109513_0.o",
+      "source_sha256": "493f9dacc8586978d32e8e1eff600547d2c502310b5e6e85b60f405fb4c27ffc",
+      "archived_sha256": "ebe062868d993d0fd535d9350e604e0483a6dae8596813d81c54e6fe685c066f",
+      "source_bytes": 7784,
+      "archived_bytes": 4183
+    },
+    "native/rope-1024x4098/off/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/off/kernel.ll",
+      "source_sha256": "316cab7c71dcc126aed3b14b04969c2da68df28c168d449c68c9e4387a2c0bab",
+      "archived_sha256": "b5ced0b73659c999247101edddccf691a0932af49d7d11666aba019e5f4fa9ad",
+      "source_bytes": 128740,
+      "archived_bytes": 18172
+    },
+    "native/rope-1024x4098/off/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/off/entry.dylib",
+      "source_sha256": "56ab047446af352168908421472ecd4a997ee60e207031e9d15e6e4d463bf6b7",
+      "archived_sha256": "25fe4f2fde0bd1b02447b5e754655f4ebe961704a16a620cb19fd347945feacd",
+      "source_bytes": 33400,
+      "archived_bytes": 4565
+    },
+    "native/rope-1024x4098/off/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/off/assembly.stdout.log",
+      "source_sha256": "b137cfc2d5700697de09fad8bb39147d370a2a2c29f104f90f1cc07b676ebf96",
+      "archived_sha256": "427fde938fb585dd74d1ace9bd11592d93953d8fb1d589cc3a955dffff085775",
+      "source_bytes": 61025,
+      "archived_bytes": 11638
+    },
+    "native/rope-1024x4098/off/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/off/measurement.json",
+      "source_sha256": "8d25244f243db4f6d2959b17529e07d35f03e46e8ec535c39439a9724bcf11f9",
+      "archived_sha256": "8d25244f243db4f6d2959b17529e07d35f03e46e8ec535c39439a9724bcf11f9",
+      "source_bytes": 2364,
+      "archived_bytes": 2364
+    },
+    "native/rope-1024x4098/on/kernel.o.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/on/object/tile_xir_w8_115_1788923407299411_0.o",
+      "source_sha256": "c9a878e1aa3d16e7869619e75e19e4c22b0394b88c2244068f4bdfe0a4a7ee0c",
+      "archived_sha256": "2bb59e13d9f5f34069fb597bbc850adec505fddaf9d025c74f1ac3d891d6caf6",
+      "source_bytes": 9272,
+      "archived_bytes": 5810
+    },
+    "native/rope-1024x4098/on/kernel.ll.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/on/kernel.ll",
+      "source_sha256": "d5a1552414306a13a82c2af26fabaff77671bb0bd56a6255b9ccb0393f975721",
+      "archived_sha256": "0daa055f685fa578ea97c30f7de22348296c04e1f04ef6fa1ddef8a9e97a1481",
+      "source_bytes": 149434,
+      "archived_bytes": 21165
+    },
+    "native/rope-1024x4098/on/entry.dylib.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/on/entry.dylib",
+      "source_sha256": "b5c650f010ab84b45d61996b41c31e282be43987e05379b95a7d2d4944114022",
+      "archived_sha256": "c6be18375eeee69dc152832c190e0fed70e27179ba8fd84877bf8be68fe73c8e",
+      "source_bytes": 33448,
+      "archived_bytes": 6237
+    },
+    "native/rope-1024x4098/on/assembly.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/on/assembly.stdout.log",
+      "source_sha256": "6e08d6d4ac1578b1089ff9e6aa70aa321d8e6c9f48a04c6283fc047e49f8aa06",
+      "archived_sha256": "8f4a55c614c937a970607207b6c6c1b6d08ada1cfd990cf953758f9b5a8468fe",
+      "source_bytes": 87295,
+      "archived_bytes": 15727
+    },
+    "native/rope-1024x4098/on/measurement.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/rope-1024x4098/on/measurement.json",
+      "source_sha256": "52c74617a6dca07fb016a36456ceda3b5c2cdd63787f18f7c59cfb8d1b465aa4",
+      "archived_sha256": "52c74617a6dca07fb016a36456ceda3b5c2cdd63787f18f7c59cfb8d1b465aa4",
+      "source_bytes": 2353,
+      "archived_bytes": 2353
+    },
+    "audit.json": {
+      "origin": "independent artifact re-read and mutation checks",
+      "source_sha256": "86230ebf4575df95df398839136b54a7036071bd0b438c5a793b57d3a6881180",
+      "archived_sha256": "86230ebf4575df95df398839136b54a7036071bd0b438c5a793b57d3a6881180",
+      "source_bytes": 459,
+      "archived_bytes": 459
+    },
+    "capture.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/manifest.json",
+      "source_sha256": "ee2bb81d78da6f2c500589f92d3bb8bd0ab229714268cdded161344cdbf555b1",
+      "archived_sha256": "f585ad38a57349c8795c73913e86add776edc33f2b56e2dc8ba38bd7cfb29efb",
+      "source_bytes": 243634,
+      "archived_bytes": 24885
+    },
+    "native-smoke.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify/results.json",
+      "source_sha256": "9c826e187e53d217515590a271fe245787a732f7e1f8b79699a6c41e35e20ea8",
+      "archived_sha256": "d972a0776da3b7ecf81ec5a8fedaf9eed8c51c4fdd4319c368c26d313ada1188",
+      "source_bytes": 60294,
+      "archived_bytes": 5019
+    },
+    "baseline.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/baseline.json",
+      "source_sha256": "0e747c82945461679fdf4eab75eee2350dda126a8bb32aea0d6006c65b5a983c",
+      "archived_sha256": "85e81359ef868a7207905c54e5c8a2512fbf6eaf60e6f9c24e10a234d2c50bb8",
+      "source_bytes": 6385,
+      "archived_bytes": 2684
+    },
+    "pilot-capture.py": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final/pilot.py",
+      "source_sha256": "ce80dae33e9719f9b9373190700acc11c9df3da79277738e2aaf8cf798896bcb",
+      "archived_sha256": "ce80dae33e9719f9b9373190700acc11c9df3da79277738e2aaf8cf798896bcb",
+      "source_bytes": 15350,
+      "archived_bytes": 15350
+    },
+    "pilot-verify.py": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify/pilot.py",
+      "source_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "archived_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "source_bytes": 15995,
+      "archived_bytes": 15995
+    },
+    "qa-docs.cjs": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/qa-docs.cjs",
+      "source_sha256": "0917ee76cef775ae18476798ab75e69c2566b477af584fa8eae0e5fd929db6a5",
+      "archived_sha256": "0917ee76cef775ae18476798ab75e69c2566b477af584fa8eae0e5fd929db6a5",
+      "source_bytes": 2493,
+      "archived_bytes": 2493
+    },
+    "runner-sources/compare_llm.py": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify/runner-sources/compare_llm.py",
+      "source_sha256": "f46167880df84b65558c3eebd7bf231941adad08803e81e2be89a23993619beb",
+      "archived_sha256": "f46167880df84b65558c3eebd7bf231941adad08803e81e2be89a23993619beb",
+      "source_bytes": 24189,
+      "archived_bytes": 24189
+    },
+    "runner-sources/native_rows.py": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify/runner-sources/native_rows.py",
+      "source_sha256": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+      "archived_sha256": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+      "source_bytes": 32101,
+      "archived_bytes": 32101
+    },
+    "runner-sources/native_rows_replay.cpp": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify/runner-sources/native_rows_replay.cpp",
+      "source_sha256": "45a80a4dabac7ba79b611d9360d21cf77956527c94d9ca507424284d17ea0792",
+      "archived_sha256": "45a80a4dabac7ba79b611d9360d21cf77956527c94d9ca507424284d17ea0792",
+      "source_bytes": 6228,
+      "archived_bytes": 6228
+    },
+    "logs/build-v1.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/build-v1.log",
+      "source_sha256": "3385c0c6f1b3f2fe710931daf4f4ae64a0fb835308b3a109b7d550d9e5947519",
+      "archived_sha256": "ed4f7f8ff8e39e6bbf24c36640a05bb564575d7a2c5ab2e741dae3cee646cbe2",
+      "source_bytes": 1963,
+      "archived_bytes": 502
+    },
+    "logs/build-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/build-v2.log",
+      "source_sha256": "04bbcf9d62ce58be0c7174711dc8fafb5cfe562671ba5948001f55f169f0a74f",
+      "archived_sha256": "334daaa1769ba6c570bdcce8bb5b9b44f7b82401c700be44185da4bf9af094ea",
+      "source_bytes": 1480,
+      "archived_bytes": 437
+    },
+    "logs/build-v3.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/build-v3.log",
+      "source_sha256": "32de3b255dccb301490736f9f8100e03dc2df48cd06151d1aeaf9eeb40ca4646",
+      "archived_sha256": "16d10a6f83042dfa82d76f0ef8239ced8dfe13105809d7c4e5a837e620856012",
+      "source_bytes": 911,
+      "archived_bytes": 303
+    },
+    "logs/ctest-v1.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/ctest-v1.log",
+      "source_sha256": "c7f9f6b6fdfb354b6a250c1dfb52b86d53ecb29f7daee354690e5da275b28021",
+      "archived_sha256": "745695899962ac3bd89503a765858a9b5bfe6f19e953d0718eaed486c4184aea",
+      "source_bytes": 654,
+      "archived_bytes": 269
+    },
+    "logs/ctest-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/ctest-v2.log",
+      "source_sha256": "ec9df798255bb6958d90bf4d6cfca01d1198f8a96abb150575b0e394b828cf2b",
+      "archived_sha256": "c6c9c20b1c72d47770d7904dc8f8d71306c2cb02ba3b31c5b61cb183a8a9e22e",
+      "source_bytes": 759,
+      "archived_bytes": 297
+    },
+    "logs/ctest-llm-fused-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/ctest-llm-fused-v2.log",
+      "source_sha256": "551605bb50a52c93104c61989222a233b60e11daf7663b40743b168d26530cc1",
+      "archived_sha256": "32beeefc0cf3e17c719b246eaa8a0ac85c3bb77fe5ff8e1f47ad1b4779883b73",
+      "source_bytes": 399,
+      "archived_bytes": 225
+    },
+    "logs/runtime-w2-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/runtime-w2-v2.log",
+      "source_sha256": "bddf84c539650c78b900f63ef6e79084848803cbc9045bcd453e8b49be0eb255",
+      "archived_sha256": "aba7b7cfd8b42acdbc9829a788d0e7352a08f8368f50856bfc3c00fbffc648b7",
+      "source_bytes": 1521,
+      "archived_bytes": 558
+    },
+    "logs/runtime-w16-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/runtime-w16-v2.log",
+      "source_sha256": "59976261fe9222aae853882f13043a7ff701e02038f9f468b867dc4e6e1b9760",
+      "archived_sha256": "95bd3dc91273c3a4e9c64a649b7655980ee16ca6be24aa055b65a1c2c687e59d",
+      "source_bytes": 1511,
+      "archived_bytes": 553
+    },
+    "logs/runtime-perf-options-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/runtime-perf-options-v2.log",
+      "source_sha256": "4cddccf478849c219ede8f72eebbde8cb2ad8eb50caf1ef19d55637d8e88d65d",
+      "archived_sha256": "cb529f8457d1f5ecd5d213ba7d5f25b48fbc877cd33b9be73ceca01a1ca4b312",
+      "source_bytes": 1521,
+      "archived_bytes": 554
+    },
+    "logs/bounds-v3.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/bounds-v3.log",
+      "source_sha256": "20b2b13a19f294229e53662b924bc4fd47f0b413813c75ffdaccac50cc3cd666",
+      "archived_sha256": "3ae783701065d2fc71c12c4f2b90e66d7019d31b9f9bdc8889d241a67cbf4fc3",
+      "source_bytes": 1493,
+      "archived_bytes": 537
+    },
+    "logs/clangd-lower-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/clangd-lower-final.log",
+      "source_sha256": "8e176784458e8e56e4d41fce69c1d6226d42c698b083f1014c9b7eeec97cc06c",
+      "archived_sha256": "e4546309c457faf78ea817d65921164814f5eb3bb5a318ea105c03899efa7fb0",
+      "source_bytes": 914,
+      "archived_bytes": 443
+    },
+    "logs/capture-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/capture-final.log",
+      "source_sha256": "8953a042c48264e74d82c4b7cd09cad7492bf6a59fa17a3f616fc4ddbde8c559",
+      "archived_sha256": "4c0551fba24d114e950b26707200977905fdd15f707a31df3608e6cb9bd9a802",
+      "source_bytes": 1418,
+      "archived_bytes": 211
+    },
+    "logs/native-verify.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/native-verify.log",
+      "source_sha256": "1442b21457856f76109874a66bd09703059785089d02e56feb215fc16e5e894d",
+      "archived_sha256": "bff8fdf440fbfd4d51ad4a85406aba4f31bebee4a4a17442a7e61d69e59c8d32",
+      "source_bytes": 2822,
+      "archived_bytes": 717
+    },
+    "logs/doxygen.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/doxygen.log",
+      "source_sha256": "90e9e278d95da0d8f8f7676e1451aa2be45b5ed49a79d2eb62e16268513b1e10",
+      "archived_sha256": "fbcd53fd355c485310d9126df7e93ac70dc9588a8fc5b4b69bf7dacc628b52b2",
+      "source_bytes": 3778443,
+      "archived_bytes": 258057
+    },
+    "logs/sphinx-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/sphinx-final.log",
+      "source_sha256": "4ead24f18b3399a545ad325a70021131c4154444d68b8d8039d5295aeba67c1f",
+      "archived_sha256": "66196d2fd1b5e1c9e89b584d7afdc36f999b1afc281b62dc0294703c0723906c",
+      "source_bytes": 23778,
+      "archived_bytes": 3572
+    },
+    "logs/docs-check-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/docs-check-final.log",
+      "source_sha256": "b26329b06c26409a455458d794304ac0f31957403965ec163abcdbd40c8b2aa2",
+      "archived_sha256": "7350a432e41035e8ad2330655afb60b99e6f43d36df659ed568ea52d44cfa8b7",
+      "source_bytes": 116,
+      "archived_bytes": 121
+    },
+    "logs/docs-qa-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/docs-qa-final.log",
+      "source_sha256": "91e747d031834fd94a0345557b9e3cb47ea1b6e0614e9e4a4b13a1dcabc7b37e",
+      "archived_sha256": "ebb9391b09605a79db92ce046cb77f1aff596b68cdfd45b7c8b1f58b8f0b1c05",
+      "source_bytes": 106,
+      "archived_bytes": 112
+    },
+    "logs/pilot-capture-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/pilot-capture-v2.log",
+      "source_sha256": "9d302e9453ba799976303cb524c252ae47dbe20db6525ef22c79e5b545253606",
+      "archived_sha256": "d695341d6f44e8daef00c388e4b8a297df9373cd9ec7a846a4d85e54e4d2001e",
+      "source_bytes": 81,
+      "archived_bytes": 100
+    },
+    "logs/pilot-capture-v3.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/pilot-capture-v3.log",
+      "source_sha256": "cd1fc936048fe9a42205c2c7e334bcf1ab9e6a3322bb65f32a4def88138120b4",
+      "archived_sha256": "3a9a265ed7301ec73e93d044eaaac69b6c8bd976a5ab3cdc25f09b7350fd915d",
+      "source_bytes": 466,
+      "archived_bytes": 127
+    },
+    "logs/classic-probe.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/classic-probe.log",
+      "source_sha256": "199a267bc10337bb11109dabd00a5a42bf965dbd5a1d724851f57e4c2df68cb6",
+      "archived_sha256": "bcb9b32f5a0e30857688358fb9aad96c7c09060ce1918dee5d9dce7a7468c370",
+      "source_bytes": 2279,
+      "archived_bytes": 641
+    },
+    "logs/docs-qa.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/docs-qa.log",
+      "source_sha256": "9dd6d7e8607d6ec2f9d71f67444d26f8dd3cb4235abea6cf7a3607091e4326e3",
+      "archived_sha256": "5c490fba6d2013e9939cf59191ca8a2405fff3e168661efc73b7c33ddfa85356",
+      "source_bytes": 418,
+      "archived_bytes": 230
+    },
+    "docs-qa.json": {
+      "origin": "/private/tmp/luisa-pointwise.0imY7I/docs-qa-final/receipt.json",
+      "source_sha256": "63d896cab2e7c093e90b06d223b84e38641eeda661664dd37241630d1ccd77af",
+      "archived_sha256": "63d896cab2e7c093e90b06d223b84e38641eeda661664dd37241630d1ccd77af",
+      "source_bytes": 1633,
+      "archived_bytes": 1633
+    }
+  },
+  "timing": "Correctness smoke only. No speedup, parity, model-fit or E2E claim; formal paired native replay remains pending.",
+  "failures": "Transient missing uv executable; interrupted busy-host capture; link timeout; system Node missing uvwasi. Retained logs; none contributes comparative timing.",
+  "payload_retention": "Input/output payloads remain in raw; Git keeps hashes, source, actual code and validation. Inductor/helper artifacts are reused by hash from the previous native checkpoint."
+}

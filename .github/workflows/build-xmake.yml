@@ -22,6 +22,9 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
           sudo apt-get -y install build-essential wget uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
+          # llvm.sh adds a versioned snapshot source. The packages are installed now,
+          # so remove it before later actions run apt-get update again.
+          sudo sed -i '/apt\.llvm\.org/d' /etc/apt/sources.list.d/*.list
       - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1
       - name: "Setup CUDA"

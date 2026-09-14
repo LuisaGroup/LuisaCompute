@@ -1,0 +1,24 @@
+
+Running "tile_planner_exact_thread_search_and_atom_coverage"... SKIPPED
+
+Running "tile_planner_constraints_and_reference"... SKIPPED
+
+Running "tile_planner_multiple_contracts_and_model_separation"... SKIPPED
+
+Running "tile_planner_pareto_capacity_beats_local_greedy_choice"... SKIPPED
+
+Running "tile_planner_direct_output_proof_and_storage_accounting"... SKIPPED
+
+Running "tile_planner_mpp_cost_basis_and_shape_ranking"... SKIPPED
+
+Running "tile_planner_mpp_subgroup_critical_path_and_machine_waves"... SKIPPED
+
+Running "tile_planner_realization_fragment_state_budget"... SKIPPED
+
+Running "tile_planner_backend_cost_policy"... SKIPPED
+
+Running "tile_planner_reduction_access_service_policy"... SKIPPED
+
+Running "tile_planner_reduction_machine_cost"... SKIPPED
+Suite 'global': all tests passed (0 asserts in 11 tests)
+11 tests skipped

@@ -242,6 +242,9 @@ public:
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
+    /// Inferred from this definition and its statically bound callees.
+    [[nodiscard]] bool may_suspend() const noexcept;
+
     [[nodiscard]] auto body() noexcept { return &_body; }
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }
@@ -484,6 +487,7 @@ public:
     [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
     /// Add case statement
     [[nodiscard]] SwitchCaseStmt *case_(const Expression *expr) noexcept;
+    [[nodiscard]] SwitchCaseStmt *case_(luisa::span<const Expression *const> expressions) noexcept;
     /// Add default statement
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement

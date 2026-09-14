@@ -1,0 +1,126 @@
+{
+  "passed": true,
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "source/performance/tile/migration.html",
+      "id": "full-baseline-current-matrix",
+      "width": 1280,
+      "pageWidth": 1280,
+      "tables": [
+        {
+          "columns": 5,
+          "rows": 39,
+          "scrollWidth": 958,
+          "clientWidth": 696
+        }
+      ],
+      "required": [
+        "Error",
+        "Current XIR/SIMD",
+        "4096"
+      ],
+      "screenshot": "full-baseline-current-matrix-1280.png"
+    },
+    {
+      "file": "source/tile/values.html",
+      "id": "scan-preserves-prefixes-not-a-new-execution-hierarchy",
+      "width": 1280,
+      "pageWidth": 1280,
+      "tables": [
+        {
+          "columns": 3,
+          "rows": 5,
+          "scrollWidth": 1511,
+          "clientWidth": 696
+        }
+      ],
+      "required": [
+        "no new core primitive required",
+        "ordered tree",
+        "commutativity is not required"
+      ],
+      "screenshot": "scan-preserves-prefixes-not-a-new-execution-hierarchy-1280.png"
+    },
+    {
+      "file": "source/tile/values.html",
+      "id": "logical-exchange-versus-physical-shuffle",
+      "width": 1280,
+      "pageWidth": 1280,
+      "tables": [
+        {
+          "columns": 3,
+          "rows": 6,
+          "scrollWidth": 757,
+          "clientWidth": 696
+        }
+      ],
+      "required": [
+        "cross-worker communication",
+        "reindex",
+        "gather"
+      ],
+      "screenshot": "logical-exchange-versus-physical-shuffle-1280.png"
+    },
+    {
+      "file": "source/performance/tile/migration.html",
+      "id": "full-baseline-current-matrix",
+      "width": 390,
+      "pageWidth": 390,
+      "tables": [
+        {
+          "columns": 5,
+          "rows": 39,
+          "scrollWidth": 958,
+          "clientWidth": 338
+        }
+      ],
+      "required": [
+        "Error",
+        "Current XIR/SIMD",
+        "4096"
+      ],
+      "screenshot": "full-baseline-current-matrix-390.png"
+    },
+    {
+      "file": "source/tile/values.html",
+      "id": "scan-preserves-prefixes-not-a-new-execution-hierarchy",
+      "width": 390,
+      "pageWidth": 390,
+      "tables": [
+        {
+          "columns": 3,
+          "rows": 5,
+          "scrollWidth": 1511,
+          "clientWidth": 338
+        }
+      ],
+      "required": [
+        "no new core primitive required",
+        "ordered tree",
+        "commutativity is not required"
+      ],
+      "screenshot": "scan-preserves-prefixes-not-a-new-execution-hierarchy-390.png"
+    },
+    {
+      "file": "source/tile/values.html",
+      "id": "logical-exchange-versus-physical-shuffle",
+      "width": 390,
+      "pageWidth": 390,
+      "tables": [
+        {
+          "columns": 3,
+          "rows": 6,
+          "scrollWidth": 757,
+          "clientWidth": 338
+        }
+      ],
+      "required": [
+        "cross-worker communication",
+        "reindex",
+        "gather"
+      ],
+      "screenshot": "logical-exchange-versus-physical-shuffle-390.png"
+    }
+  ]
+}

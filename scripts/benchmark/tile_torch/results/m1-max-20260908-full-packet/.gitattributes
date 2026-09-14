@@ -1,0 +1,4 @@
+*.log -whitespace
+# Preserve the tested evidence scripts byte-for-byte, including their final blank line.
+replay_native.py whitespace=-blank-at-eof
+qa_docs.cjs whitespace=-blank-at-eof

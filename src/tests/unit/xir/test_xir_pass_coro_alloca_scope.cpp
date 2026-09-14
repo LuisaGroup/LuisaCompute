@@ -2056,7 +2056,7 @@ void register_coro_alloca_scope_tests() {
         builder.set_insertion_point(entry);
         auto *scratch = builder.alloca_local(array_type);
         auto *seed = module.create_undefined(array_type);
-        auto *definition = builder.store(scratch, seed);
+        builder.store(scratch, seed);
         auto *unrelated = builder.clock();
         builder.br(phase);
         builder.set_insertion_point(phase);
@@ -2068,14 +2068,21 @@ void register_coro_alloca_scope_tests() {
         expect(info.delayed_first_definition_count == 1u);
         expect(info.cross_block_first_definition_delay_count == 1u);
         expect(info.contracted_alloca_count == 1u);
+        expect(info.removed_undefined_lifetime_seed_count == 1u);
         expect(scratch->parent_block() == phase);
-        expect(definition->parent_block() == phase);
-        expect(definition->value() == seed);
         expect(unrelated->parent_block() == entry);
         expect(instruction_index(phase, scratch) <
-               instruction_index(phase, definition));
-        expect(instruction_index(phase, definition) <
                instruction_index(phase, observation));
+        auto remaining_seed_count = 0u;
+        kernel->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                if (instruction->isa<StoreInst>() &&
+                    static_cast<const StoreInst *>(instruction)->value() ==
+                        seed) {
+                    remaining_seed_count++;
+                }
+            });
+        expect(remaining_seed_count == 0u);
         expect(xir_verify_module(&module).succeeded());
     };
 

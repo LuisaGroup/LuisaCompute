@@ -1,5 +1,6 @@
 #include "helpers.h"
 #include "coro_frame_abi.h"
+#include "coro_packed_word.h"
 
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
@@ -481,33 +482,14 @@ collect_partial_packed_word_input_fields(
     // dormant values, while a compacting scheduler still has to preserve
     // their bits during the whole-word store.
     luisa::vector<luisa::vector<size_t>> fields(cfg.scopes.size());
-    luisa::vector<uint32_t> stored_masks(cfg.frame_slots.size(), 0u);
-    luisa::vector<uint32_t> live_masks(cfg.frame_slots.size(), 0u);
     for (auto &transition : cfg.transition_edges) {
         if (transition.from_scope >= fields.size()) { continue; }
-        std::fill(stored_masks.begin(), stored_masks.end(), 0u);
-        std::fill(live_masks.begin(), live_masks.end(), 0u);
-        for (auto index : transition.store_frame_value_indices) {
-            if (index >= cfg.frame_values.size()) { continue; }
-            auto &value = cfg.frame_values[index];
-            if (value.bit_offset && value.slot < stored_masks.size()) {
-                stored_masks[value.slot] |=
-                    uint32_t{1u} << *value.bit_offset;
-            }
-        }
-        for (auto index : transition.live_frame_value_indices) {
-            if (index >= cfg.frame_values.size()) { continue; }
-            auto &value = cfg.frame_values[index];
-            if (value.bit_offset && value.slot < live_masks.size()) {
-                live_masks[value.slot] |=
-                    uint32_t{1u} << *value.bit_offset;
-            }
-        }
+        auto masks = coro_packed_word_masks(
+            cfg, transition.store_frame_value_indices,
+            transition.live_frame_value_indices);
         auto &scope_fields = fields[transition.from_scope];
-        for (size_t slot = 0u; slot < stored_masks.size(); ++slot) {
-            auto stored = stored_masks[slot];
-            auto pass_through = live_masks[slot] & ~stored;
-            if (stored != 0u && pass_through != 0u) {
+        for (size_t slot = 0u; slot < masks.size(); ++slot) {
+            if (masks[slot].stored != 0u && masks[slot].preserved != 0u) {
                 auto field = FRAME_RESERVED_FIELD_COUNT + slot;
                 if (std::find(scope_fields.begin(), scope_fields.end(), field) ==
                     scope_fields.end()) {

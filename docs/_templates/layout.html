@@ -1,0 +1,19 @@
+{% extends "!layout.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% if moved_fragment_urls %}
+  <script>
+    // Only moved sections redirect; the overview remains a normal reader page.
+    const movedFragments = {{ moved_fragment_urls|tojson }};
+    const redirectMovedFragment = () => {
+      const anchor = window.location.hash.slice(1);
+      if (Object.prototype.hasOwnProperty.call(movedFragments, anchor)) {
+        window.location.replace(movedFragments[anchor] + window.location.search + "#" + anchor);
+      }
+    };
+    redirectMovedFragment();
+    window.addEventListener("hashchange", redirectMovedFragment);
+  </script>
+  {% endif %}
+{% endblock %}

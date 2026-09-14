@@ -1,0 +1,62 @@
+Test project /tmp/luisa-next-integration.roZbN8/build
+      Start  29: test_stl_containers
+ 1/20 Test  #29: test_stl_containers ..............***Exception: SegFault  1.44 sec
+
+      Start  30: test_map_at_reject_mutable
+ 2/20 Test  #30: test_map_at_reject_mutable .......   Passed    0.11 sec
+      Start  31: test_map_at_reject_const
+ 3/20 Test  #31: test_map_at_reject_const .........   Passed    0.11 sec
+      Start  72: test_tile_ir
+ 4/20 Test  #72: test_tile_ir .....................   Passed    0.59 sec
+      Start  82: test_tile_xir_target_info
+ 5/20 Test  #82: test_tile_xir_target_info ........   Passed    0.81 sec
+      Start  83: test_metal4_timing
+ 6/20 Test  #83: test_metal4_timing ...............   Passed   83.68 sec
+      Start  84: test_tile_xir_metal
+ 7/20 Test  #84: test_tile_xir_metal ..............   Passed  147.03 sec
+      Start  85: test_tile_xir_runtime
+ 8/20 Test  #85: test_tile_xir_runtime ............   Passed   54.03 sec
+      Start  86: test_tile_xir_llm
+ 9/20 Test  #86: test_tile_xir_llm ................   Passed   18.78 sec
+      Start  87: test_tile_xir_llm_reject_heads
+10/20 Test  #87: test_tile_xir_llm_reject_heads ...   Passed    0.10 sec
+      Start  88: test_tile_xir_llm_reject_block
+11/20 Test  #88: test_tile_xir_llm_reject_block ...   Passed    0.11 sec
+      Start  96: test_tile_tirx
+12/20 Test  #96: test_tile_tirx ...................   Passed    1.52 sec
+      Start  97: test_tile_tirx_values
+13/20 Test  #97: test_tile_tirx_values ............   Passed    2.14 sec
+      Start  98: test_tile_tirx_execution
+14/20 Test  #98: test_tile_tirx_execution .........   Passed    7.06 sec
+      Start  99: test_tile_tirx_cooperative
+15/20 Test  #99: test_tile_tirx_cooperative .......   Passed    7.87 sec
+      Start 100: test_tile_tirx_memory
+16/20 Test #100: test_tile_tirx_memory ............   Passed    5.68 sec
+      Start 101: test_tile_tirx_pipeline
+17/20 Test #101: test_tile_tirx_pipeline ..........   Passed    3.92 sec
+      Start 102: test_tile_tirx_matrix
+18/20 Test #102: test_tile_tirx_matrix ............   Passed   42.23 sec
+      Start 103: test_tile_tirx_planner
+19/20 Test #103: test_tile_tirx_planner ...........   Passed    0.53 sec
+      Start 108: test_tile_tirx_targets
+20/20 Test #108: test_tile_tirx_targets ...........   Passed    1.50 sec
+
+95% tests passed, 1 tests failed out of 20
+
+Label Time Summary:
+integration             = 303.52 sec*proc (4 tests)
+integration_metal4      = 230.71 sec*proc (2 tests)
+integration_simd        =  72.81 sec*proc (2 tests)
+integration_tile_xir    = 303.52 sec*proc (4 tests)
+unit                    =  75.73 sec*proc (16 tests)
+unit_core               =   1.66 sec*proc (3 tests)
+unit_tile               =  74.07 sec*proc (13 tests)
+unit_tile_targets       =   1.50 sec*proc (1 test)
+unit_tile_tirx          =  72.46 sec*proc (9 tests)
+unit_tile_xir           =   1.02 sec*proc (3 tests)
+
+Total Test time (real) = 379.26 sec
+
+The following tests FAILED:
+	 29 - test_stl_containers (SEGFAULT)                    unit unit_core
+Errors while running CTest

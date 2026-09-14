@@ -4,11 +4,14 @@
 #include <vector>
 
 #include <llvm/ADT/APInt.h>
+#include <llvm/Analysis/VectorUtils.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
+
+#include "../../common/env_flag.h"
 
 namespace luisa::compute::simd {
 
@@ -463,6 +466,23 @@ LLVMReadLaneResult LLVMWarpCollectives::read_lane(
     }
     auto *result_type = values->getType();
     auto *invalid_type = participants->getType();
+    if (auto *source = ::llvm::getSplatValue(source_lanes);
+        source != nullptr && !luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_UNIFORM_READ_LANE")) {
+        // An explicit LLVM splat is a broadcast, not an arbitrary shuffle.
+        // Source-index equality in only the active cohort is normalized to
+        // this form by the emitter using the current participant mask.
+        auto *zero_source = ::llvm::ConstantInt::get(source_type, 0u);
+        source = builder.CreateSelect(builder.CreateOrReduce(participants), source, zero_source);
+        auto *in_range = builder.CreateICmpULT(source, ::llvm::ConstantInt::get(source_type, _width));
+        auto *safe_source = builder.CreateSelect(in_range, source, zero_source);
+        auto *source_active = builder.CreateExtractElement(participants, safe_source);
+        auto *valid_source = builder.CreateAnd(in_range, source_active);
+        auto *read = builder.CreateExtractElement(values, safe_source, "warp.broadcast.read");
+        auto *zero = ::llvm::Constant::getNullValue(::llvm::cast<::llvm::VectorType>(result_type)->getElementType());
+        auto *broadcast = builder.CreateVectorSplat(_width, builder.CreateSelect(valid_source, read, zero));
+        return {.values = builder.CreateSelect(participants, broadcast, ::llvm::Constant::getNullValue(result_type)),
+                .invalid_lanes = builder.CreateAnd(participants, builder.CreateVectorSplat(_width, builder.CreateNot(valid_source)))};
+    }
     ::llvm::Value *result = ::llvm::PoisonValue::get(result_type);
     ::llvm::Value *invalid = ::llvm::PoisonValue::get(invalid_type);
     for (auto lane = uint32_t{0u}; lane < _width; lane++) {

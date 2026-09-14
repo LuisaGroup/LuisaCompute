@@ -1,0 +1,73 @@
+{
+  "full_isolated_build_passed": true,
+  "selected_ctest_passed": 38,
+  "runtime_widths": [
+    {
+      "packet_width": 1,
+      "command": [
+        "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_packet_local_reductions_and_snapshot"
+      ],
+      "passed": true,
+      "assertions": 220,
+      "selected_tests": 1,
+      "other_tests_intentionally_skipped": 9
+    },
+    {
+      "packet_width": 2,
+      "command": [
+        "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_packet_local_reductions_and_snapshot"
+      ],
+      "passed": true,
+      "assertions": 220,
+      "selected_tests": 1,
+      "other_tests_intentionally_skipped": 9
+    },
+    {
+      "packet_width": 4,
+      "command": [
+        "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_packet_local_reductions_and_snapshot"
+      ],
+      "passed": true,
+      "assertions": 220,
+      "selected_tests": 1,
+      "other_tests_intentionally_skipped": 9
+    },
+    {
+      "packet_width": 8,
+      "command": [
+        "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_packet_local_reductions_and_snapshot"
+      ],
+      "passed": true,
+      "assertions": 220,
+      "selected_tests": 1,
+      "other_tests_intentionally_skipped": 9
+    },
+    {
+      "packet_width": 16,
+      "command": [
+        "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_packet_local_reductions_and_snapshot"
+      ],
+      "passed": true,
+      "assertions": 220,
+      "selected_tests": 1,
+      "other_tests_intentionally_skipped": 9
+    }
+  ],
+  "doxygen": "XML regenerated; existing configuration/source warnings remain",
+  "sphinx": "fresh -W --keep-going HTML build passed",
+  "local_html_pages": 50,
+  "checked_links_and_assets": 4177,
+  "checked_compatibility_anchors": 199,
+  "rendered_sections": 6,
+  "empty_wildcard_probe_not_counted": true
+}

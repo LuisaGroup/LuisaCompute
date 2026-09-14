@@ -1,0 +1,531 @@
+{
+  "metric": "runtime_e2e_synchronized_host_wall_us",
+  "mode": "capture",
+  "private_array_interleaving": true,
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "binary_closure_sha256": {
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir": "d258ef129b7456648af12264b5345e333dc4dac32b7728f5191d9e80edbd6954",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so": "6df1d164b144dac5d66d971bee3295f27a65f0802dab0c50456f82cb452698ac",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-xir.dylib": "70b34114cd1a12ca3441c70079738f59c1b14d1d96168bc8f777370b3037126a",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+    "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+  },
+  "source_runner_sha256": "3b09f8cc0eb017e39c6d0086ca90ebe22c54f4ed1e5e78d0aa3e6f453c06826f",
+  "results": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "order": [
+        [
+          1,
+          true
+        ],
+        [
+          8,
+          true
+        ]
+      ],
+      "local_lanes": 1,
+      "private_array_interleaving": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "5",
+        "15",
+        "50",
+        "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l1/output.f32"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1",
+        "LUISA_TILE_BENCH_DUMP_SOURCE": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l1/kernel.ll",
+        "LUISA_SIMD_DUMP_ASSEMBLY_DIR": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l1/object"
+      },
+      "returncode": 0,
+      "valid": true,
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "correctness": {
+        "elements": 16384,
+        "max_abs_error": 2.9779395460671765e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.193125,
+        "runtime_init_ms": 11.814667,
+        "compile_ms": 212.240166,
+        "allocation_upload_ms": 0.021834,
+        "cold_call_ms": 0.045458,
+        "warmup_ms": 50.048792,
+        "repetitions": 539,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 64 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 297112.000 (arithmetic 32792.000, memory 264192.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.97793955939e-07
+        },
+        "throughput_us": [
+          28.1025046382,
+          28.0024730983,
+          28.3554415584,
+          27.8112244898,
+          28.09067718
+        ],
+        "latency_us": [
+          28.958,
+          27.792,
+          27.792,
+          27.833,
+          27.75
+        ]
+      },
+      "median_us": 28.09067718
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "order": [
+        [
+          1,
+          true
+        ],
+        [
+          8,
+          true
+        ]
+      ],
+      "local_lanes": 8,
+      "private_array_interleaving": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "5",
+        "15",
+        "50",
+        "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l8/output.f32"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "8",
+        "LUISA_TILE_BENCH_DUMP_SOURCE": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l8/kernel.ll",
+        "LUISA_SIMD_DUMP_ASSEMBLY_DIR": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-64x256-r0-l8/object"
+      },
+      "returncode": 0,
+      "valid": true,
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "correctness": {
+        "elements": 16384,
+        "max_abs_error": 2.5742720199950497e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.195917,
+        "runtime_init_ms": 10.791917,
+        "compile_ms": 65.0205,
+        "allocation_upload_ms": 0.014333,
+        "cold_call_ms": 0.044125,
+        "warmup_ms": 50.031458,
+        "repetitions": 504,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 512 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=true, contiguous reads=2, broadcasts=0; exact search 6 candidates, uncalibrated cost 242496.000 (arithmetic 33472.000, memory 208896.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.5742720311e-07
+        },
+        "throughput_us": [
+          30.7008928571,
+          30.3850873016,
+          30.1515376984,
+          30.9878472222,
+          29.9182361111
+        ],
+        "latency_us": [
+          30.125,
+          29.875,
+          29.875,
+          29.833,
+          29.834
+        ]
+      },
+      "median_us": 30.3850873016
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "order": [
+        [
+          1,
+          true
+        ],
+        [
+          8,
+          true
+        ]
+      ],
+      "local_lanes": 1,
+      "private_array_interleaving": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "5",
+        "15",
+        "50",
+        "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l1/output.f32"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "1",
+        "LUISA_TILE_BENCH_DUMP_SOURCE": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l1/kernel.ll",
+        "LUISA_SIMD_DUMP_ASSEMBLY_DIR": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l1/object"
+      },
+      "returncode": 0,
+      "valid": true,
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 8.240898459188628e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 32.108,
+        "runtime_init_ms": 11.414834,
+        "compile_ms": 111.136167,
+        "allocation_upload_ms": 4.661667,
+        "cold_call_ms": 7.806459,
+        "warmup_ms": 59.357708,
+        "repetitions": 2,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 76022272.000 (arithmetic 8388992.000, memory 67633152.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; private_workspace_bytes=262144; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 8.2408983948e-07
+        },
+        "throughput_us": [
+          7594.6045,
+          7442.6045,
+          7370.4585,
+          7543.271,
+          7390.646
+        ],
+        "latency_us": [
+          7420.25,
+          7436.833,
+          7404.958,
+          7594.959,
+          8075.75
+        ]
+      },
+      "median_us": 7442.6045
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "order": [
+        [
+          1,
+          true
+        ],
+        [
+          8,
+          true
+        ]
+      ],
+      "local_lanes": 8,
+      "private_array_interleaving": true,
+      "command": [
+        "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "5",
+        "15",
+        "50",
+        "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l8/output.f32"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "8",
+        "LUISA_TILE_BENCH_DUMP_SOURCE": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l8/kernel.ll",
+        "LUISA_SIMD_DUMP_ASSEMBLY_DIR": "/tmp/luisa-xir-local.2mV7mS/capture-final/rmsnorm-1024x4096-r0-l8/object"
+      },
+      "returncode": 0,
+      "valid": true,
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 3.159862516088907e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 33.697125,
+        "runtime_init_ms": 11.237958,
+        "compile_ms": 65.252917,
+        "allocation_upload_ms": 5.024709,
+        "cold_call_ms": 8.261166,
+        "warmup_ms": 59.645292,
+        "repetitions": 2,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=true, contiguous reads=2, broadcasts=0; exact search 6 candidates, uncalibrated cost 61878272.000 (arithmetic 8399872.000, memory 53477376.000, dispatch 1024.000, imbalance 0.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.15986256494e-07
+        },
+        "throughput_us": [
+          7440.542,
+          7445.854,
+          7437.5625,
+          7441,
+          7929.896
+        ],
+        "latency_us": [
+          7976.167,
+          7425.375,
+          7459.916,
+          7592.375,
+          7432.208
+        ]
+      },
+      "median_us": 7441
+    }
+  ],
+  "closure_unchanged": true
+}

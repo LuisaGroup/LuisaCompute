@@ -166,6 +166,14 @@ static_assert(!current_device_sdk_compatible(
 }
 
 void optimize_llvm_module(llvm::Module &module) noexcept {
+    // LLVM creates globals for transformations such as switch-to-lookup using
+    // the module's default global address space. AIR's ordinary address space
+    // is thread-local, so such definitions cannot be linked there. Tell the
+    // optimizer to create its immutable tables in AIR constant storage (2).
+    // Existing globals have explicit address spaces and are not changed. Keep
+    // the public/native-include data layout unchanged outside optimization.
+    auto original_data_layout = module.getDataLayoutStr();
+    module.setDataLayout(original_data_layout + "-G2");
     llvm::LoopAnalysisManager loop_analysis;
     llvm::FunctionAnalysisManager function_analysis;
     llvm::CGSCCAnalysisManager cgscc_analysis;
@@ -186,6 +194,7 @@ void optimize_llvm_module(llvm::Module &module) noexcept {
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
         llvm::OptimizationLevel::O2);
     pipeline.run(module, module_analysis);
+    module.setDataLayout(original_data_layout);
 }
 
 void verify_llvm_module(const llvm::Module &module, luisa::string_view phase) noexcept {

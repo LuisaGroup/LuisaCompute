@@ -51,6 +51,7 @@
 #include "../common/shader_print_formatter.h"
 
 #include "fallback_device.h"
+#include "fallback_coro_arena.h"
 #include "fallback_codegen.h"
 #include "fallback_texture.h"
 #include "fallback_accel.h"
@@ -284,23 +285,18 @@ struct FallbackShaderCacheMetadata {
 [[nodiscard]] static float luisa_fallback_atan2_f32(float a, float b) noexcept { return std::atan2(a, b); }
 [[nodiscard]] static double luisa_fallback_atan2_f64(double a, double b) noexcept { return std::atan2(a, b); }
 
-[[nodiscard]] static size_t &luisa_coro_buffer_counter() noexcept {
-    thread_local size_t counter = 0u;
-    return counter;
+
+[[nodiscard]] static FallbackCoroutineArena &luisa_coro_arena() noexcept {
+    static thread_local FallbackCoroutineArena arena;
+    return arena;
 }
 
-static constexpr size_t luisa_coro_allocation_alignment = 2u * sizeof(intptr_t);
-
-static void luisa_coro_reset_counter() noexcept {
-    luisa_coro_buffer_counter() = 0u;
-}
+static void luisa_coro_reset_counter() noexcept { luisa_coro_arena().reset(); }
 
 [[nodiscard]] static void *luisa_coro_alloc(size_t size) noexcept {
-    alignas(luisa_coro_allocation_alignment) thread_local std::byte buffer[luisa::compute::fallback::max_thread_frame_size];
-    size = luisa::align(size, luisa_coro_allocation_alignment);
-    auto n = (luisa_coro_buffer_counter() += size);
-    LUISA_ASSERT(n <= sizeof(buffer), "Coroutine buffer overflow.");
-    return buffer + n - size;
+    // No allocations are freed here: codegen marks this helper NoFree.
+    // Cached overflow blocks remain pointer-stable until the worker exits.
+    return luisa_coro_arena().allocate(size);
 }
 
 static void luisa_coro_free(void *ptr) noexcept { /* do nothing */ }

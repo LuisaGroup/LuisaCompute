@@ -65,6 +65,10 @@ void MetalCommandEncoder::_prepare_command_buffer() noexcept {
         _command_buffer->beginCommandBuffer(
             _command_allocator,
             _stream->command_buffer_options());
+        if (auto session = _stream->timing_session()) {
+            _timing.ordinal = session->begin_command_buffer();
+            _timing.session = std::move(session);
+        }
     }
 }
 
@@ -91,6 +95,9 @@ MTL4::ComputeCommandEncoder *MetalCommandEncoder::compute_encoder() noexcept {
 MTL4::RenderCommandEncoder *MetalCommandEncoder::render_encoder(
     MTL4::RenderPassDescriptor *descriptor) noexcept {
     _prepare_command_buffer();
+    // Presentation can create a render encoder without visiting a Runtime
+    // command. Its GPU interval is not an empty synchronization submission.
+    if (_timing.session) { _timing.contains_non_dispatch_work = true; }
     auto encoder = _command_buffer->renderCommandEncoder(descriptor);
     LUISA_ASSERT(encoder != nullptr,
                  "Failed to create Metal4 render command encoder.");
@@ -140,6 +147,33 @@ void MetalCommandEncoder::use_resource(
     if (allocation != nullptr) { _allocations.emplace(allocation); }
 }
 
+void MetalCommandEncoder::note_timing_non_dispatch_work() noexcept {
+    if (_stream->timing_enabled()) {
+        _prepare_command_buffer();
+        if (_timing.session) { _timing.contains_non_dispatch_work = true; }
+    }
+}
+
+void MetalCommandEncoder::note_timing_indirect_dispatch() noexcept {
+    // An indirect range may be the first command: argument uploads only stage
+    // host memory, so no command buffer (and hence no timing session) exists yet.
+    note_timing_non_dispatch_work();
+    if (_timing.session) {
+        _timing.session->unsupported_indirect_dispatch();
+    }
+}
+
+uint32_t MetalCommandEncoder::begin_dispatch_timing(MTL4::ComputeCommandEncoder *encoder,
+                                                    uint64_t shader_checksum, uint3 dispatch_size, uint3 block_size) noexcept {
+    if (!_timing.session) { return UINT32_MAX; }
+    _timing.dispatch_count++;
+    return _timing.session->begin_dispatch(encoder, _timing.ordinal, shader_checksum, dispatch_size, block_size);
+}
+
+void MetalCommandEncoder::end_dispatch_timing(MTL4::ComputeCommandEncoder *encoder, uint32_t ordinal) noexcept {
+    if (_timing.session) { _timing.session->end_dispatch(encoder, ordinal); }
+}
+
 MetalStream::SubmissionHandle MetalCommandEncoder::submit(
     CommandList::CallbackContainer &&user_callbacks) noexcept {
     if (!user_callbacks.empty()) {
@@ -183,7 +217,7 @@ MetalStream::SubmissionHandle MetalCommandEncoder::submit(
         _allocations.clear();
         return _stream->submit(
             command_buffer, command_allocator,
-            std::move(callbacks));
+            std::move(callbacks), std::exchange(_timing, {}));
     }
     auto submission = luisa::make_shared<MetalStream::Submission>();
     submission->completed.store(true, std::memory_order_relaxed);

@@ -1,0 +1,2107 @@
+{
+  "started_unix": 1788930353.333119,
+  "manifest": "/private/tmp/luisa-expression-fusion.qXgTbC/capture/manifest.json",
+  "manifest_sha256": "035f3ce35aba60473db7434ac9091647f6d5adfa73a1945d80d69f9c2e329c62",
+  "pilot_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+  "native_rows_sha256": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+  "metric": "native_entry_correctness_smoke",
+  "cpu_threads": 1,
+  "samples": 1,
+  "warmup_ms": 0,
+  "target_ms": 1,
+  "boundary": "Common C++ timer: actual entries, block traversal/reset and native internal allocation/libc included; Runtime/Python/JIT/caller allocations excluded.",
+  "cases": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 0.25586962890625,
+          "samples_us": [
+            0.25586962890625
+          ],
+          "repetitions": 4096,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.3720950825811826e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "a80ff93851728156c3400e5d5608ba22ff0fb7fbe592f0ad2083eaa9cfff20b2",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 0.2567646484375,
+          "samples_us": [
+            0.2567646484375
+          ],
+          "repetitions": 4096,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.3720950825811826e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "a80ff93851728156c3400e5d5608ba22ff0fb7fbe592f0ad2083eaa9cfff20b2",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 0.7573447265625,
+          "samples_us": [
+            0.7573447265625
+          ],
+          "repetitions": 2048,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.851864606689958e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "5ef1072867e41acfc2ead796272172a73dc687e151990b386420b90758f7fb5f",
+          "inputs_unchanged": true,
+          "guard_elements": 640,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "a80ff93851728156c3400e5d5608ba22ff0fb7fbe592f0ad2083eaa9cfff20b2",
+        "on": "a80ff93851728156c3400e5d5608ba22ff0fb7fbe592f0ad2083eaa9cfff20b2",
+        "inductor": "5ef1072867e41acfc2ead796272172a73dc687e151990b386420b90758f7fb5f"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 25.87890625,
+          "samples_us": [
+            25.87890625
+          ],
+          "repetitions": 64,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.632167821481346e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "bab7f31f81d0bcf6478e9798bab83aa38f9de9a4a85bd3d3640d86d917ea99e9",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 25.822265625,
+          "samples_us": [
+            25.822265625
+          ],
+          "repetitions": 64,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.632167821481346e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "bab7f31f81d0bcf6478e9798bab83aa38f9de9a4a85bd3d3640d86d917ea99e9",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 63.1666875,
+          "samples_us": [
+            63.1666875
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 4.066459495799535e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b72b235ea668d4dc6880e4d240b84a1b4039c155aaccebd423554a05f40ba2fb",
+          "inputs_unchanged": true,
+          "guard_elements": 640,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "bab7f31f81d0bcf6478e9798bab83aa38f9de9a4a85bd3d3640d86d917ea99e9",
+        "on": "bab7f31f81d0bcf6478e9798bab83aa38f9de9a4a85bd3d3640d86d917ea99e9",
+        "inductor": "b72b235ea668d4dc6880e4d240b84a1b4039c155aaccebd423554a05f40ba2fb"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 116.528625,
+          "samples_us": [
+            116.528625
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 3.3424404710657996e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "64a469cc9a77aad08df365f241308245c7cf434c167dc83de0a5e9c694086ebe",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 115.0234375,
+          "samples_us": [
+            115.0234375
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 3.3424404710657996e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "64a469cc9a77aad08df365f241308245c7cf434c167dc83de0a5e9c694086ebe",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 250.01025,
+          "samples_us": [
+            250.01025
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 4.395120491995641e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "de6aafb15e32cfa0c2e60852a3edc61feb9a798e810f1b463cee1652f2b36d82",
+          "inputs_unchanged": true,
+          "guard_elements": 640,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "64a469cc9a77aad08df365f241308245c7cf434c167dc83de0a5e9c694086ebe",
+        "on": "64a469cc9a77aad08df365f241308245c7cf434c167dc83de0a5e9c694086ebe",
+        "inductor": "de6aafb15e32cfa0c2e60852a3edc61feb9a798e810f1b463cee1652f2b36d82"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1219.041,
+          "samples_us": [
+            1219.041
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 3.2819568041020375e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "f27c1ccc3ed6b80c61ac5c489bd336d896db06721bed2323cc90f2f9c3d60c55",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1195.084,
+          "samples_us": [
+            1195.084
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 3.2819568041020375e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "f27c1ccc3ed6b80c61ac5c489bd336d896db06721bed2323cc90f2f9c3d60c55",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 2671.584,
+          "samples_us": [
+            2671.584
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 7.027867956477252e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "af07107c8bfb7095be299591ca1ad6763b8a21a77f6cd031c456f2315444b549",
+          "inputs_unchanged": true,
+          "guard_elements": 640,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "f27c1ccc3ed6b80c61ac5c489bd336d896db06721bed2323cc90f2f9c3d60c55",
+        "on": "f27c1ccc3ed6b80c61ac5c489bd336d896db06721bed2323cc90f2f9c3d60c55",
+        "inductor": "af07107c8bfb7095be299591ca1ad6763b8a21a77f6cd031c456f2315444b549"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 0.44232177734375,
+          "samples_us": [
+            0.44232177734375
+          ],
+          "repetitions": 4096,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.5756824362233033e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "07bb4afbc19fa388d46338e0f5524c1e458730f2f0a43caa094d48344f1c3ae5",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 0.4393310546875,
+          "samples_us": [
+            0.4393310546875
+          ],
+          "repetitions": 4096,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.5756824362233033e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "07bb4afbc19fa388d46338e0f5524c1e458730f2f0a43caa094d48344f1c3ae5",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 0.59678125,
+          "samples_us": [
+            0.59678125
+          ],
+          "repetitions": 2048,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.8727466094835563e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b6474f9810934918a6a3e16b32614e969c78258c563527699289e8a711a2aae0",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "07bb4afbc19fa388d46338e0f5524c1e458730f2f0a43caa094d48344f1c3ae5",
+        "on": "07bb4afbc19fa388d46338e0f5524c1e458730f2f0a43caa094d48344f1c3ae5",
+        "inductor": "b6474f9810934918a6a3e16b32614e969c78258c563527699289e8a711a2aae0"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 43.90884375,
+          "samples_us": [
+            43.90884375
+          ],
+          "repetitions": 32,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 3.9680348340453975e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d5661d83e0241284596a0fca329415ea3f0ffe71565e4579e9498d92e441d910",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 40.56640625,
+          "samples_us": [
+            40.56640625
+          ],
+          "repetitions": 32,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 3.9680348340453975e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d5661d83e0241284596a0fca329415ea3f0ffe71565e4579e9498d92e441d910",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 71.5859375,
+          "samples_us": [
+            71.5859375
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 4.907619057803458e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "604147f78b7d2778e2b0612500ade546670549501c3fc415c570ede36f59fc4e",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "d5661d83e0241284596a0fca329415ea3f0ffe71565e4579e9498d92e441d910",
+        "on": "d5661d83e0241284596a0fca329415ea3f0ffe71565e4579e9498d92e441d910",
+        "inductor": "604147f78b7d2778e2b0612500ade546670549501c3fc415c570ede36f59fc4e"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 183.0,
+          "samples_us": [
+            183.0
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 4.291160045077902e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "7e7b17e2fcdd22dcab798f3359cacbfa4130d35d43ba784b596c7692a72bdc33",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 165.526125,
+          "samples_us": [
+            165.526125
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 4.291160045077902e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "7e7b17e2fcdd22dcab798f3359cacbfa4130d35d43ba784b596c7692a72bdc33",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 512.05225,
+          "samples_us": [
+            512.05225
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 7.205651679775826e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "51f9ac8d10f91743d24e49f00fb57ccd5e8126c2b5438d0924f2961397e4eb4e",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "7e7b17e2fcdd22dcab798f3359cacbfa4130d35d43ba784b596c7692a72bdc33",
+        "on": "7e7b17e2fcdd22dcab798f3359cacbfa4130d35d43ba784b596c7692a72bdc33",
+        "inductor": "51f9ac8d10f91743d24e49f00fb57ccd5e8126c2b5438d0924f2961397e4eb4e"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1918.458,
+          "samples_us": [
+            1918.458
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 4.6299314782061174e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4542cbce330914000d6810cbabaaeda2c0657518b8537de0a6772ed8182bae94",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1781.083,
+          "samples_us": [
+            1781.083
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 4.6299314782061174e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4542cbce330914000d6810cbabaaeda2c0657518b8537de0a6772ed8182bae94",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 5240.709,
+          "samples_us": [
+            5240.709
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 1.0828684917640885e-06,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "8b3c40e23d0646d8977b273e31c79bf79101b0c28b886c523886644dd3199022",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "4542cbce330914000d6810cbabaaeda2c0657518b8537de0a6772ed8182bae94",
+        "on": "4542cbce330914000d6810cbabaaeda2c0657518b8537de0a6772ed8182bae94",
+        "inductor": "8b3c40e23d0646d8977b273e31c79bf79101b0c28b886c523886644dd3199022"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 3.662271484375,
+          "samples_us": [
+            3.662271484375
+          ],
+          "repetitions": 512,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.984370495173749e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "640e56a239732dae62197a467a44c38e4f74b5168aea3521c593a9d2f9723ecd",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 3.339599609375,
+          "samples_us": [
+            3.339599609375
+          ],
+          "repetitions": 512,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.984370495173749e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "640e56a239732dae62197a467a44c38e4f74b5168aea3521c593a9d2f9723ecd",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 2.2408046875,
+          "samples_us": [
+            2.2408046875
+          ],
+          "repetitions": 512,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.984370495173749e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "217277ae26527ee43176ca5ab6d2f6e39ae0bcb549ccdc69337dfe2355a03e3e",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "640e56a239732dae62197a467a44c38e4f74b5168aea3521c593a9d2f9723ecd",
+        "on": "640e56a239732dae62197a467a44c38e4f74b5168aea3521c593a9d2f9723ecd",
+        "inductor": "217277ae26527ee43176ca5ab6d2f6e39ae0bcb549ccdc69337dfe2355a03e3e"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 241.0885,
+          "samples_us": [
+            241.0885
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.7739393226866582e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "e72adb2033bda07b99074a708b89b02639a5738beb4ac660694651127f41c979",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 240.427125,
+          "samples_us": [
+            240.427125
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.7739393226866582e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "e72adb2033bda07b99074a708b89b02639a5738beb4ac660694651127f41c979",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 177.302,
+          "samples_us": [
+            177.302
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.7739393226866582e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "61f198798fd649058a5415d5fde192e555615f8f0c5914725c7e47ce89e7a698",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "e72adb2033bda07b99074a708b89b02639a5738beb4ac660694651127f41c979",
+        "on": "e72adb2033bda07b99074a708b89b02639a5738beb4ac660694651127f41c979",
+        "inductor": "61f198798fd649058a5415d5fde192e555615f8f0c5914725c7e47ce89e7a698"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1127.708,
+          "samples_us": [
+            1127.708
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.386560055134268e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "f1e30aaf65b4812ac71baa930b77e09afaf145e590dc292387474c1ac37895aa",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1083.291,
+          "samples_us": [
+            1083.291
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.386560055134268e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "f1e30aaf65b4812ac71baa930b77e09afaf145e590dc292387474c1ac37895aa",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 708.896,
+          "samples_us": [
+            708.896
+          ],
+          "repetitions": 2,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.386560055134268e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "11386bf4743656caa14959fa41fe87f58523828e5ddc892c88f3bcddd69b292e",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "f1e30aaf65b4812ac71baa930b77e09afaf145e590dc292387474c1ac37895aa",
+        "on": "f1e30aaf65b4812ac71baa930b77e09afaf145e590dc292387474c1ac37895aa",
+        "inductor": "11386bf4743656caa14959fa41fe87f58523828e5ddc892c88f3bcddd69b292e"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 11979.917,
+          "samples_us": [
+            11979.917
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.648944508187867e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "1683426853dc7ccf5f1def999e69e715c7e4dbaf173aaee2eeb3e2ade1fe4255",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 11814.0,
+          "samples_us": [
+            11814.0
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.648944508187867e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "1683426853dc7ccf5f1def999e69e715c7e4dbaf173aaee2eeb3e2ade1fe4255",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 7679.5,
+          "samples_us": [
+            7679.5
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.4830495048977497e-08,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d5b2d57690ef046b08dffa813694c307d329f9ed868a4a7dbf6dd11f14d87ded",
+          "inputs_unchanged": true,
+          "guard_elements": 768,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "1683426853dc7ccf5f1def999e69e715c7e4dbaf173aaee2eeb3e2ade1fe4255",
+        "on": "1683426853dc7ccf5f1def999e69e715c7e4dbaf173aaee2eeb3e2ade1fe4255",
+        "inductor": "d5b2d57690ef046b08dffa813694c307d329f9ed868a4a7dbf6dd11f14d87ded"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1.68965625,
+          "samples_us": [
+            1.68965625
+          ],
+          "repetitions": 1024,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 1.7778814753732775e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1.6958408203125,
+          "samples_us": [
+            1.6958408203125
+          ],
+          "repetitions": 1024,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 1.7778814753732775e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 1.3550615234375,
+          "samples_us": [
+            1.3550615234375
+          ],
+          "repetitions": 1024,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 1.7778814753732775e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "aef02c59cd58f00584deff164395da1ee2bba88656f7896cd92746ed46c3109b",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+        "on": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+        "inductor": "aef02c59cd58f00584deff164395da1ee2bba88656f7896cd92746ed46c3109b"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 140.65625,
+          "samples_us": [
+            140.65625
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "35f4b5a3044e375d1f7998d1020c60de3b056ad7a32342f3196c675a0d493f5e",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 141.140625,
+          "samples_us": [
+            141.140625
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "35f4b5a3044e375d1f7998d1020c60de3b056ad7a32342f3196c675a0d493f5e",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 120.8359375,
+          "samples_us": [
+            120.8359375
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "aa7287beada230098c46e63d91d83f21e65eef5ca43303a63a96bf735db47ebc",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "35f4b5a3044e375d1f7998d1020c60de3b056ad7a32342f3196c675a0d493f5e",
+        "on": "35f4b5a3044e375d1f7998d1020c60de3b056ad7a32342f3196c675a0d493f5e",
+        "inductor": "aa7287beada230098c46e63d91d83f21e65eef5ca43303a63a96bf735db47ebc"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 581.25,
+          "samples_us": [
+            581.25
+          ],
+          "repetitions": 2,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d98a4e76306c55d6705750dcacaf7d2b9723c99cb6b537a30788db53a6e89f44",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 572.5625,
+          "samples_us": [
+            572.5625
+          ],
+          "repetitions": 2,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d98a4e76306c55d6705750dcacaf7d2b9723c99cb6b537a30788db53a6e89f44",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 483.927,
+          "samples_us": [
+            483.927
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "62e883a9428f055667220666838afed915a55472563e618011760b29ced3fe79",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "d98a4e76306c55d6705750dcacaf7d2b9723c99cb6b537a30788db53a6e89f44",
+        "on": "d98a4e76306c55d6705750dcacaf7d2b9723c99cb6b537a30788db53a6e89f44",
+        "inductor": "62e883a9428f055667220666838afed915a55472563e618011760b29ced3fe79"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 6009.125,
+          "samples_us": [
+            6009.125
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.267375835973695e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "2193ffe0121f0f5ab37e29be4143556001fda4e60ece0204337cdcde326b0fb4",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 6021.084,
+          "samples_us": [
+            6021.084
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.267375835973695e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "2193ffe0121f0f5ab37e29be4143556001fda4e60ece0204337cdcde326b0fb4",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 5156.791,
+          "samples_us": [
+            5156.791
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.267375835973695e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "841d792acd3279016e30f171d3dac39b3c1d5e1562de5edfc2a85bf4dcfebf4e",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "2193ffe0121f0f5ab37e29be4143556001fda4e60ece0204337cdcde326b0fb4",
+        "on": "2193ffe0121f0f5ab37e29be4143556001fda4e60ece0204337cdcde326b0fb4",
+        "inductor": "841d792acd3279016e30f171d3dac39b3c1d5e1562de5edfc2a85bf4dcfebf4e"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 3.16398046875,
+          "samples_us": [
+            3.16398046875
+          ],
+          "repetitions": 512,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.847937956573787e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "949c6bc7e8ce4da55f8464eca4580ba864d19dbe93310b4d5b20a7b7c6667ed6",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 3.14851953125,
+          "samples_us": [
+            3.14851953125
+          ],
+          "repetitions": 512,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.847937956573787e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "949c6bc7e8ce4da55f8464eca4580ba864d19dbe93310b4d5b20a7b7c6667ed6",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 4.89046484375,
+          "samples_us": [
+            4.89046484375
+          ],
+          "repetitions": 256,
+          "correctness": {
+            "elements": 1105,
+            "max_abs_error": 2.2304376212645138e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "db60a1b2e5f8ccd5d54fe032a682ef9c2d7fe2f0875ab602e739d95fce85a4ff",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "949c6bc7e8ce4da55f8464eca4580ba864d19dbe93310b4d5b20a7b7c6667ed6",
+        "on": "949c6bc7e8ce4da55f8464eca4580ba864d19dbe93310b4d5b20a7b7c6667ed6",
+        "inductor": "db60a1b2e5f8ccd5d54fe032a682ef9c2d7fe2f0875ab602e739d95fce85a4ff"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 255.77075,
+          "samples_us": [
+            255.77075
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 3.3307994140585606e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9afee6f944d804886d3eb44fb20564c3f33765aae4a92b88f8f7788fed4a09fa",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 256.09375,
+          "samples_us": [
+            256.09375
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 3.3307994140585606e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9afee6f944d804886d3eb44fb20564c3f33765aae4a92b88f8f7788fed4a09fa",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 437.75,
+          "samples_us": [
+            437.75
+          ],
+          "repetitions": 4,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.594270291922385e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "16eb8ded7b8fa65978407d2256ed101e2342855f48e19006ed5070e4f4af7c2f",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "9afee6f944d804886d3eb44fb20564c3f33765aae4a92b88f8f7788fed4a09fa",
+        "on": "9afee6f944d804886d3eb44fb20564c3f33765aae4a92b88f8f7788fed4a09fa",
+        "inductor": "16eb8ded7b8fa65978407d2256ed101e2342855f48e19006ed5070e4f4af7c2f"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1039.666,
+          "samples_us": [
+            1039.666
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 3.3307994140585606e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "0ffb6ad08795a5c6c132ac692ac3f1fed8db038a1b96a3598e9e2aedc781ff5e",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1045.208,
+          "samples_us": [
+            1045.208
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 3.3307994140585606e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "0ffb6ad08795a5c6c132ac692ac3f1fed8db038a1b96a3598e9e2aedc781ff5e",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 1747.291,
+          "samples_us": [
+            1747.291
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.60716346733858e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4bca520d33fbdff2eec4b8955897b5d79693bb7509acb62dcaca5555524fd4f2",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "0ffb6ad08795a5c6c132ac692ac3f1fed8db038a1b96a3598e9e2aedc781ff5e",
+        "on": "0ffb6ad08795a5c6c132ac692ac3f1fed8db038a1b96a3598e9e2aedc781ff5e",
+        "inductor": "4bca520d33fbdff2eec4b8955897b5d79693bb7509acb62dcaca5555524fd4f2"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 10780.375,
+          "samples_us": [
+            10780.375
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 3.390792695512346e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "83e6aa0128111f00d94a841d7529d0cce0755c839b2fc72924eec7eb41f2aae2",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 10756.167,
+          "samples_us": [
+            10756.167
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 3.390792695512346e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "83e6aa0128111f00d94a841d7529d0cce0755c839b2fc72924eec7eb41f2aae2",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 18563.583,
+          "samples_us": [
+            18563.583
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4195328,
+            "max_abs_error": 2.644159513565114e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "458c1282ab2927c0ccaa6b562a8e0afa1930df9bfa6435e722179b4f2b6e8a24",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "83e6aa0128111f00d94a841d7529d0cce0755c839b2fc72924eec7eb41f2aae2",
+        "on": "83e6aa0128111f00d94a841d7529d0cce0755c839b2fc72924eec7eb41f2aae2",
+        "inductor": "458c1282ab2927c0ccaa6b562a8e0afa1930df9bfa6435e722179b4f2b6e8a24"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 0.150884033203125,
+          "samples_us": [
+            0.150884033203125
+          ],
+          "repetitions": 8192,
+          "correctness": {
+            "elements": 1122,
+            "max_abs_error": 1.7592435597180156e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 0.149821044921875,
+          "samples_us": [
+            0.149821044921875
+          ],
+          "repetitions": 8192,
+          "correctness": {
+            "elements": 1122,
+            "max_abs_error": 1.7592435597180156e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 0.1178436279296875,
+          "samples_us": [
+            0.1178436279296875
+          ],
+          "repetitions": 16384,
+          "correctness": {
+            "elements": 1122,
+            "max_abs_error": 1.7592435597180156e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d",
+        "on": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d",
+        "inductor": "d867a3e8feef24341141ae9a3756d50ccb0b47d88286322c56854ec573fe7b8d"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        129,
+        768
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 28.876296875,
+          "samples_us": [
+            28.876296875
+          ],
+          "repetitions": 64,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.337733633339667e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 29.219390625,
+          "samples_us": [
+            29.219390625
+          ],
+          "repetitions": 64,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.337733633339667e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 15.1028671875,
+          "samples_us": [
+            15.1028671875
+          ],
+          "repetitions": 128,
+          "correctness": {
+            "elements": 99072,
+            "max_abs_error": 2.337733633339667e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96",
+        "on": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96",
+        "inductor": "c70ca7a88197511e745388e649541fad229add6e037c45f6e3c2967c4106fc96"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 127.34375,
+          "samples_us": [
+            127.34375
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.199755897436262e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 127.458375,
+          "samples_us": [
+            127.458375
+          ],
+          "repetitions": 8,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.199755897436262e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 72.44275,
+          "samples_us": [
+            72.44275
+          ],
+          "repetitions": 16,
+          "correctness": {
+            "elements": 395266,
+            "max_abs_error": 2.199755897436262e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1",
+        "on": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1",
+        "inductor": "b9f50add09950368afbdf6a2fa45bdb6409112ddcce1a18cd77c5bbd7b315ba1"
+      },
+      "off_on_bitwise_equal": true
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        1024,
+        4098
+      ],
+      "results": [
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "off",
+          "median_us": 1369.917,
+          "samples_us": [
+            1369.917
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4196352,
+            "max_abs_error": 2.3765414880472235e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "on",
+          "median_us": 1212.25,
+          "samples_us": [
+            1212.25
+          ],
+          "repetitions": 1,
+          "correctness": {
+            "elements": 4196352,
+            "max_abs_error": 2.3765414880472235e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        },
+        {
+          "round": 0,
+          "order": [
+            "off",
+            "on",
+            "inductor"
+          ],
+          "variant": "inductor",
+          "median_us": 918.229,
+          "samples_us": [
+            918.229
+          ],
+          "repetitions": 2,
+          "correctness": {
+            "elements": 4196352,
+            "max_abs_error": 2.3765414880472235e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586",
+          "inputs_unchanged": true,
+          "guard_elements": 512,
+          "workspace_guards_passed": true
+        }
+      ],
+      "output_sha256": {
+        "off": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586",
+        "on": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586",
+        "inductor": "4028ec7a7bbe0075d667948366a3b1a279047a3e0f29616516bc04ae66fc6586"
+      },
+      "off_on_bitwise_equal": true
+    }
+  ],
+  "timing_not_comparative": true,
+  "timing_exclusion_reason": "Concurrent unrelated builds and high system load; do not infer performance from this smoke.",
+  "finished_unix": 1788930374.330553,
+  "runner_unchanged": true
+}

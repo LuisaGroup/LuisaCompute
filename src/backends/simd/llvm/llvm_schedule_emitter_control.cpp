@@ -24,6 +24,13 @@ void ScheduleEmitter::_emit_instruction(
         case schedule::Opcode::store:
             _local_store(instruction);
             break;
+        case schedule::Opcode::call:
+            if (instruction.contiguous_copy) {
+                _contiguous_copy(instruction);
+            } else {
+                _strided_mma(instruction);
+            }
+            break;
         case schedule::Opcode::gep:
             value = _local_gep(instruction);
             break;
@@ -115,13 +122,13 @@ void ScheduleEmitter::_emit_instruction(
 }
 
 void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
-                              ::llvm::Value *mask) {
+                              ::llvm::Value *mask, ::llvm::Value *value) {
     auto *destination = _source.value(assignment.destination);
     auto *source = _source.value(assignment.source);
     if (destination == nullptr || source == nullptr) { return; }
     // The coalescer proves that the logical source and destination have
     // noninterfering per-lane live ranges. Their masked state move is then an
-    // identity; cross-copy source interference keeps sequential emission safe.
+    // identity. Other sources were snapshotted before any destination write.
     if (destination->origin == schedule::ValueOrigin::state_slot &&
         source->origin == schedule::ValueOrigin::state_slot &&
         assignment.destination.value < _state_slots.size() &&
@@ -131,7 +138,6 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
             _state_slots[assignment.source.value]) {
         return;
     }
-    auto *value = _load_value(assignment.source);
     if (value == nullptr) { return; }
     auto *slot = _state_slots[assignment.destination.value];
     if (_is_local_lvalue(assignment.destination)) {
@@ -158,8 +164,17 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
 void ScheduleEmitter::_apply_assignments(
     const std::vector<schedule::EdgeAssignment> &assignments,
     ::llvm::Value *mask) {
+    // PHI edge copies are simultaneous. Interference between distinct slots
+    // does not protect a source that is itself another copy's destination
+    // (a <- b, b <- a). Load every old value before updating any state slot.
+    std::vector<::llvm::Value *> sources;
+    sources.reserve(assignments.size());
     for (auto assignment : assignments) {
-        _assign(assignment, mask);
+        sources.emplace_back(_load_value(assignment.source));
+        if (_failed()) { return; }
+    }
+    for (auto i = size_t{0u}; i < assignments.size(); i++) {
+        _assign(assignments[i], mask, sources[i]);
         if (_failed()) { return; }
     }
 }
@@ -656,8 +671,8 @@ void ScheduleEmitter::_find_instruction_spills() {
         for (auto &&block : _source.blocks()) {
             if (auto diamond =
                     _find_predicated_memory_diamond(block)) {
-                emission_blocks[diamond->true_block->id.value] = block.id;
-                emission_blocks[diamond->false_block->id.value] = block.id;
+                if (diamond->true_block) { emission_blocks[diamond->true_block->id.value] = block.id; }
+                if (diamond->false_block) { emission_blocks[diamond->false_block->id.value] = block.id; }
             }
         }
     }
@@ -873,7 +888,47 @@ void ScheduleEmitter::_allocate_state() {
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
+    _find_interleaved_private_arrays();
     _shared_memory_size = 0u;
+    // A private Tile is replicated per packet lane. Bound this physical
+    // allocation before choosing stack versus Runtime-owned workspace, not
+    // merely the size of one logical worker's array. No lifetime coalescing
+    // is assumed: every allocation receives a distinct aligned interval.
+    auto private_bytes = size_t{0u};
+    if (_private_stack_budget_bytes != 0u) {
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode != schedule::Opcode::alloca ||
+                    !instruction.result || _is_shared_lvalue(*instruction.result)) { continue; }
+                auto *value = _source.value(*instruction.result);
+                if (value == nullptr || value->type == nullptr) {
+                    _fail("private workspace allocation has an invalid type");
+                    return;
+                }
+                auto size = _abi_size(value->type);
+                auto alignment = _abi_alignment(value->type);
+                if (alignment > 64u || size > simd_max_private_workspace_bytes / _width) {
+                    _fail("SIMD private workspace exceeds the runtime capacity/alignment limit");
+                    return;
+                }
+                auto offset = _align_up(private_bytes, alignment);
+                auto bytes = size * _width;
+                if (offset > simd_max_private_workspace_bytes || bytes > simd_max_private_workspace_bytes - offset) {
+                    _fail("SIMD private workspace exceeds the runtime capacity limit");
+                    return;
+                }
+                private_bytes = offset + bytes;
+            }
+        }
+        if (private_bytes > _private_stack_budget_bytes) {
+            if (_cooperative_block || _is_handler_entry() || !_ray_query_pipeline_handlers.empty()) {
+                _fail("private workspace reuse requires independent non-cooperative packets without nested handlers");
+                return;
+            }
+            _result.private_workspace_size = private_bytes;
+        }
+    }
+    auto private_offset = size_t{0u};
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode != schedule::Opcode::alloca ||
@@ -925,14 +980,21 @@ void ScheduleEmitter::_allocate_state() {
             } else {
                 auto byte_count = static_cast<uint64_t>(_width) *
                                   value_size;
-                auto *storage_type = ::llvm::ArrayType::get(
-                    _builder.getInt8Ty(), byte_count);
-                auto *storage = _builder.CreateAlloca(
-                    storage_type, nullptr, value->name + ".local");
-                storage->setAlignment(
-                    ::llvm::Align{value_alignment});
+                ::llvm::Value *storage = nullptr;
+                if (_result.private_workspace_size != 0u) {
+                    private_offset = _align_up(private_offset, value_alignment);
+                    auto *address = _byte_pointer(_launch_config, offsetof(SIMDPacketLaunchConfig, private_workspace));
+                    auto *workspace = _builder.CreateLoad(::llvm::PointerType::getUnqual(_module.getContext()), address, "private.workspace");
+                    storage = _builder.CreateInBoundsPtrAdd(workspace, _builder.getInt64(private_offset), value->name + ".private");
+                    private_offset += byte_count;
+                } else {
+                    auto *storage_type = ::llvm::ArrayType::get(_builder.getInt8Ty(), byte_count);
+                    auto *local = _builder.CreateAlloca(storage_type, nullptr, value->name + ".local");
+                    local->setAlignment(::llvm::Align{value_alignment});
+                    storage = local;
+                }
                 auto *offsets = _lane_offsets(
-                    _lane_ids(), value_size);
+                    _lane_ids(), _interleaved_local_values[instruction.result->value] ? value->type->element()->size() : value_size);
                 _local_allocations[instruction.result->value] =
                     _local_handle(
                         _builder.CreateVectorSplat(_width, storage),

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 600" role="img" aria-labelledby="title desc">
+  <title id="title">One execution context, independent resources</title>
+  <desc id="desc">A logical execution context has a participant and time mapping, and separate resource choices. A and B may both use shared memory with different layouts while an accumulator uses registers. For each access, context, resource identity, layout and value version combine into a checked physical access. These are schematic choices, not an implemented universal plan.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#526174"/>
+    </marker>
+    <style>
+      text {font-family: system-ui, -apple-system, sans-serif; fill: #172b43; font-size: 21px; text-anchor: middle;}
+      .heading {font-weight: 600;}
+      .detail {font-size: 19px;}
+      .edge {fill: none; stroke: #526174; stroke-width: 2; marker-end: url(#arrow);}
+    </style>
+  </defs>
+  <rect width="560" height="600" rx="12" fill="#f8fafc"/>
+  <text x="280" y="34" class="heading">One execution, independent resources</text>
+  <rect x="20" y="58" width="520" height="76" rx="8" fill="#eaf2fd" stroke="#90b5e4"/>
+  <text x="280" y="88" class="heading">Logical execution context</text>
+  <text x="280" y="117" class="detail">ancestor coordinates + local operation</text>
+  <path d="M145 134 V174" class="edge"/>
+  <path d="M415 134 V174" class="edge"/>
+  <rect x="20" y="176" width="250" height="204" rx="8" fill="#eaf2fd" stroke="#90b5e4"/>
+  <text x="145" y="208" class="heading">Execution choices</text>
+  <text x="145" y="248">program → group</text>
+  <text x="145" y="278">children → workers</text>
+  <text x="145" y="321" class="detail">issue / completion</text>
+  <text x="145" y="352" class="detail">required order retained</text>
+  <rect x="290" y="176" width="250" height="204" rx="8" fill="#eaf7ef" stroke="#8bc5a3"/>
+  <text x="415" y="208" class="heading">Resource choices</text>
+  <text x="415" y="248">A → shared</text>
+  <text x="415" y="278">B → shared</text>
+  <text x="415" y="309">acc → registers</text>
+  <text x="415" y="352" class="detail">each has its own layout</text>
+  <path d="M145 380 V410 H230 V438" class="edge"/>
+  <path d="M415 380 V410 H330 V438" class="edge"/>
+  <rect x="20" y="440" width="520" height="62" rx="8" fill="#fff5e8" stroke="#dbb37c"/>
+  <text x="280" y="478">local access + reaching value version</text>
+  <path d="M280 502 V528" class="edge"/>
+  <rect x="20" y="530" width="520" height="54" rx="8" fill="#ffffff" stroke="#526174"/>
+  <text x="280" y="564" class="heading">Physical access: (instance, address)</text>
+</svg>

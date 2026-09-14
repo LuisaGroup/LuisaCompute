@@ -6,9 +6,14 @@
 #include <limits>
 #include <unordered_set>
 
+#include <luisa/core/logging.h>
+
+#include "../../common/env_flag.h"
+
 namespace luisa::compute::simd::detail {
 
 bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
+    auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     std::vector<bool> covered_convergences(
         _source.convergence_points().size(), false);
     for (auto &&block : _source.blocks()) {
@@ -19,7 +24,8 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
                                   T, schedule::SplitTerminator>) {
                     auto *condition = _source.value(control.condition);
                     if (condition != nullptr &&
-                        schedule::is_uniform(condition->value_class)) {
+                        (schedule::is_uniform(condition->value_class) || control.cohort_uniform_condition)) {
+                        if (control.convergence) { covered_convergences[control.convergence->value] = true; }
                         return true;
                     }
                     auto diamond =
@@ -28,29 +34,58 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
                         covered_convergences[control.convergence->value] =
                             true;
                     }
+                    if (!diamond && report) {
+                        LUISA_INFO(
+                            "SIMD direct CFG rejection '{}': block={}, terminator=split, "
+                            "condition={}, condition_class={}, cohort_uniform={}, "
+                            "convergence={}, memory_diamond=false",
+                            _source.name(), block.id.value, control.condition.value,
+                            condition == nullptr ? "missing" : schedule::to_string(condition->value_class),
+                            control.cohort_uniform_condition, control.convergence.has_value());
+                    }
                     return diamond.has_value();
                 } else if constexpr (std::is_same_v<
                                          T,
                                          schedule::SwitchTerminator>) {
                     auto *selector = _source.value(control.selector);
-                    return selector != nullptr &&
-                           schedule::is_uniform(
-                               selector->value_class);
+                    auto supported = selector != nullptr &&
+                                     schedule::is_uniform(selector->value_class);
+                    if (!supported && report) {
+                        LUISA_INFO(
+                            "SIMD direct CFG rejection '{}': block={}, terminator=switch, "
+                            "selector={}, selector_class={}",
+                            _source.name(), block.id.value, control.selector.value,
+                            selector == nullptr ? "missing" : schedule::to_string(selector->value_class));
+                    }
+                    return supported;
                 } else {
-                    return std::is_same_v<
-                               T, schedule::BranchTerminator> ||
-                           std::is_same_v<
-                               T, schedule::ReturnTerminator> ||
-                           std::is_same_v<
-                               T, schedule::UnreachableTerminator>;
+                    constexpr auto supported = std::is_same_v<T, schedule::BranchTerminator> ||
+                                               std::is_same_v<T, schedule::ReturnTerminator> ||
+                                               std::is_same_v<T, schedule::UnreachableTerminator>;
+                    if (!supported && report) {
+                        constexpr auto kind = std::is_same_v<T, schedule::JoinTerminator>         ? "join" :
+                                              std::is_same_v<T, schedule::LoopBackTerminator>     ? "loop_back" :
+                                              std::is_same_v<T, schedule::BlockBarrierTerminator> ? "block_barrier" :
+                                                                                                    "missing";
+                        LUISA_INFO("SIMD direct CFG rejection '{}': block={}, terminator={}",
+                                   _source.name(), block.id.value, kind);
+                    }
+                    return supported;
                 }
             },
             block.terminator);
         if (!supported) { return false; }
     }
-    return std::all_of(
-        covered_convergences.begin(), covered_convergences.end(),
-        [](bool covered) noexcept { return covered; });
+    auto uncovered = std::find(covered_convergences.begin(), covered_convergences.end(), false);
+    if (uncovered != covered_convergences.end()) {
+        if (report) {
+            auto index = static_cast<size_t>(uncovered - covered_convergences.begin());
+            LUISA_INFO("SIMD direct CFG rejection '{}': block={}, uncovered_convergence={}",
+                       _source.name(), _source.convergence_points()[index].target.value, index);
+        }
+        return false;
+    }
+    return true;
 }
 
 [[nodiscard]] std::optional<std::vector<schedule::BlockId>>
@@ -724,8 +759,8 @@ void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
         _source.blocks().size(), false);
     for (auto &&block : _source.blocks()) {
         if (auto diamond = _find_predicated_memory_diamond(block)) {
-            inlined_blocks[diamond->true_block->id.value] = true;
-            inlined_blocks[diamond->false_block->id.value] = true;
+            if (diamond->true_block) { inlined_blocks[diamond->true_block->id.value] = true; }
+            if (diamond->false_block) { inlined_blocks[diamond->false_block->id.value] = true; }
         }
     }
     std::vector<::llvm::BasicBlock *> blocks(

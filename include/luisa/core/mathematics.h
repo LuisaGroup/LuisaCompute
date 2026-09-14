@@ -10,6 +10,25 @@
 
 namespace luisa {
 
+/// Integral division rounded toward positive infinity, without the overflow
+/// of (value + divisor - 1) / divisor. Uses the usual integer promotions.
+/// As with operator/, divisor must be nonzero and the quotient representable.
+template<typename T, typename U>
+    requires(std::is_integral_v<T> && std::is_integral_v<U> &&
+             !std::is_same_v<T, bool> && !std::is_same_v<U, bool>)
+[[nodiscard]] constexpr auto ceil_div(T value, U divisor) noexcept {
+    using R = decltype(value / divisor);
+    auto n = static_cast<R>(value);
+    auto d = static_cast<R>(divisor);
+    auto quotient = n / d;
+    auto remainder = n % d;
+    if constexpr (std::is_signed_v<R>) {
+        return quotient + static_cast<R>(remainder != 0 && ((remainder > 0) == (d > 0)));
+    } else {
+        return quotient + static_cast<R>(remainder != 0);
+    }
+}
+
 /**
  * @brief Find next 2^n of v
  *
@@ -790,4 +809,3 @@ template<size_t N>
 }
 
 }// namespace luisa
-

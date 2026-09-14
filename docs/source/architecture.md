@@ -1,11 +1,12 @@
 # Project Architecture
 
-Coroutine suspension points may carry versioned, typed extensions for
-scheduling, graph stages, and debugging. Their ownership, IR lifetime, fallback
-policy, and cache rules are specified in
-[Coroutine suspend extensions](coro_suspend_extensions.md).
-
 This document describes the internal architecture of LuisaCompute, including the compilation pipeline, runtime system, and backend implementations.
+
+The [implementation index](internals/index.md) links subsystem references,
+including the [Tile compiler](internals/tile/index.md) and
+[coroutine suspend extensions](coro_suspend_extensions.md). The following
+overview introduces the established SIMT/AST path; Tile adds a separate
+execution-first frontend while reusing the Runtime and backend boundaries.
 
 ## Overview
 
@@ -26,6 +27,16 @@ LuisaCompute is structured in three main layers:
 │ (CUDA, DirectX, Metal, Vulkan, HIP, fallback execution)     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Tile within the compiler architecture
+
+The Tile frontend captures typed, mutable TileIR rather than constructing a
+SIMT AST. Its backend factory selects a C++ TIRx bridge, native Metal MPP
+lowering, or the XIR bridge for the SIMD CPU backend. Resulting kernels use
+ordinary Runtime shader handles and Stream launches. Execution mapping and
+memory planning are target realizations, not changes to the public Runtime
+resource model. See [Tile compiler and Runtime](internals/tile/index.md) for
+the route diagram, implementation boundaries and planning references.
 
 ## Frontend: The Embedded DSL
 
@@ -416,7 +427,6 @@ LuisaCompute uses modern CMake (3.23+) with the following configuration options:
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | Enable HIP backend (WIP) |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | Enable C++ DSL |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | Enable GUI support |
-| `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | Enable tensor extension |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON | Build test suite |
 
 #### Build Commands

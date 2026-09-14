@@ -525,7 +525,7 @@ void ScheduleEmitter::_emit_direct_terminator(
     auto scalar = [&](::llvm::Value *value) -> ::llvm::Value * {
         if (value == nullptr) { return nullptr; }
         return value->getType()->isVectorTy() ?
-                   _builder.CreateExtractElement(value, uint64_t{0u}) :
+                   _builder.CreateExtractElement(value, _seed_lane) :
                    value;
     };
     auto emit_edge = [&](const schedule::ControlEdge &edge) {

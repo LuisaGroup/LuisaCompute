@@ -157,8 +157,7 @@ private:
             // Remaining misses re-enter the same suspend point next round.
             if (slot == physical_page_count) { break; }
             if (_slot_pages[slot] >= 0) {
-                _host_page_table[
-                    static_cast<uint>(_slot_pages[slot])] = 0u;
+                _host_page_table[static_cast<uint>(_slot_pages[slot])] = 0u;
             }
             _slot_pages[slot] = static_cast<int>(page);
             _host_page_table[page] = slot + 1u;
@@ -170,11 +169,9 @@ private:
                         page_x * _options.page_size + x;
                     auto source_y =
                         page_y * _options.page_size + y;
-                    _host_cache[
-                        slot * _page_texel_count +
-                        x + y * _options.page_size] =
-                        _virtual_texture[
-                            source_x + source_y * _options.dimension];
+                    _host_cache[slot * _page_texel_count +
+                                x + y * _options.page_size] =
+                        _virtual_texture[source_x + source_y * _options.dimension];
                 }
             }
             _page_load_count++;
@@ -313,17 +310,14 @@ int main(int argc, char *argv[]) {
             luisa::span{test_page_table_poison});
     }
 
-    Coroutine<void(Image<float>, Buffer<uint>, Buffer<float4>)> coroutine =
-        [options, page_texel_count](
-            ImageFloat output_image, BufferUInt table,
-            BufferVar<float4> cache) noexcept {
-            auto coord = dispatch_id().xy();
+    // One outlined definition, two call sites, one shared suspension stage.
+    Callable<float4(uint2, Buffer<uint>, Buffer<float4>)> sample_texture =
+        [options, page_texel_count](UInt2 coord, BufferUInt table,
+                                    BufferVar<float4> cache) noexcept {
+            luisa::compute::detail::FunctionBuilder::current()->mark_noinline();
             auto page_coord = coord / options.page_size;
             auto local_coord = coord % options.page_size;
             Var page = page_coord.x + page_coord.y * page_grid_size;
-
-            // The scheduler repeatedly routes this exact static stage until
-            // the handler makes the requested page resident.
             $while (table.read(page) == 0u) {
                 $suspend(
                     "texture_miss",
@@ -331,27 +325,37 @@ int main(int argc, char *argv[]) {
                         .fallback(CoroSuspendFallback::reject)
                         .read("page", page));
             };
-
             auto physical_page = table.read(page) - 1u;
-            auto local_index =
-                local_coord.x + local_coord.y * options.page_size;
-            auto texel = cache.read(
-                physical_page * page_texel_count + local_index);
-            output_image.write(coord, texel);
+            auto local_index = local_coord.x + local_coord.y * options.page_size;
+            return cache.read(physical_page * page_texel_count + local_index);
         };
+    Coroutine<void(Image<float>, Buffer<uint>, Buffer<float4>)> coroutine =
+        [&](ImageFloat output_image, BufferUInt table, BufferVar<float4> cache) noexcept {
+            auto coord = dispatch_id().xy();
+            auto first = sample_texture(coord, table, cache);
+            auto second_coord = (coord + make_uint2(options.page_size, options.page_size)) % options.dimension;
+            auto second = sample_texture(second_coord, table, cache);
+            output_image.write(coord, first * .25f + second * .75f);
+        };
+    LUISA_ASSERT(coroutine.graph().node_count() == 2u,
+                 "Multiple texture call sites must share one resume node.");
+
+    LUISA_ASSERT(coroutine.graph().call_graph().edges.size() == 2u,
+                 "Outlined sampler must retain both call/return relations.");
 
     WavefrontCoroScheduler<
-        Image<float>, Buffer<uint>, Buffer<float4>> scheduler{
-        device, coroutine,
-        WavefrontCoroSchedulerConfig{
-            .thread_count = pixel_count,
-            .global_memory_soa = true,
-            .gather_by_sorting = true,
-            .frame_buffer_compaction = false,
-            .report_stats = true,
-            .execution_block_size = 256u,
-            .largest_continuation_first = true,
-            .incremental_continuation_counts = true}};
+        Image<float>, Buffer<uint>, Buffer<float4>>
+        scheduler{
+            device, coroutine,
+            WavefrontCoroSchedulerConfig{
+                .thread_count = pixel_count,
+                .global_memory_soa = true,
+                .gather_by_sorting = true,
+                .frame_buffer_compaction = false,
+                .report_stats = true,
+                .execution_block_size = 256u,
+                .largest_continuation_first = true,
+                .incremental_continuation_counts = true}};
     auto texture_cache = luisa::make_shared<OnDemandTextureCache>(
         options, make_virtual_texture(options.dimension),
         page_table.view(), physical_cache.view());
@@ -365,17 +369,8 @@ int main(int argc, char *argv[]) {
     stream << scheduler(output, page_table, physical_cache)
                   .dispatch(options.dimension, options.dimension);
 
-    LUISA_ASSERT(
-        texture_cache->round_count() ==
-            virtual_page_count / physical_page_count,
-        "Expected {} cache-fault rounds, got {}.",
-        virtual_page_count / physical_page_count,
-        texture_cache->round_count());
-    LUISA_ASSERT(
-        texture_cache->page_load_count() == virtual_page_count,
-        "Expected every virtual page to be loaded once, got {} loads for "
-        "{} pages.",
-        texture_cache->page_load_count(), virtual_page_count);
+    LUISA_ASSERT(texture_cache->page_load_count() >= virtual_page_count,
+                 "Every virtual page must be requested by the outlined sampler.");
 
     luisa::vector<float> host_output(
         static_cast<size_t>(pixel_count) * 4u);
@@ -383,7 +378,11 @@ int main(int argc, char *argv[]) {
     float max_error = 0.0f;
     auto reference = texture_cache->virtual_texture();
     for (auto i = 0u; i < pixel_count; ++i) {
-        auto expected = reference[i];
+        auto x = i % options.dimension;
+        auto y = i / options.dimension;
+        auto second_x = (x + options.page_size) % options.dimension;
+        auto second_y = (y + options.page_size) % options.dimension;
+        auto expected = reference[i] * .25f + reference[second_x + second_y * options.dimension] * .75f;
         for (auto channel = 0u; channel < 4u; ++channel) {
             auto actual = host_output[i * 4u + channel];
             max_error = std::max(

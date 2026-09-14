@@ -3,69 +3,14 @@
 
 #include <luisa/core/logging.h>
 
+#include "cuda_ptx_version.h"
 #include "cuda_shader_printer.h"
 #include "cuda_shader.h"
 
 namespace luisa::compute::cuda {
 
-inline void patch_ptx_version(luisa::string &ptx) noexcept {
-
-    LUISA_WARNING_WITH_LOCATION(
-        "The PTX version is not supported by the installed CUDA driver. "
-        "Trying to patch the PTX to make it compatible with the driver. "
-        "This might cause unexpected behavior. "
-        "Please consider upgrading your CUDA driver. "
-        "After upgrading, please clear the cache and recompile."
-    );
-
-    // For users with newer CUDA and older driver,
-    // the generated PTX might be reported invalid.
-    // We have to patch the ".version 7.x" instruction.
-    using namespace std::string_view_literals;
-    static constexpr auto pattern = ".version"sv;
-    auto p = ptx.find(pattern);
-    if (p == luisa::string::npos) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to patch PTX version. "
-            "The PTX might be invalid.");
-        return;
-    }
-    auto remaining = luisa::string_view{ptx}.substr(p + pattern.size());
-    auto version_begin = 0ull;
-    while (remaining[version_begin] && isblank(remaining[version_begin])) { version_begin++; }
-    auto version_end = version_begin;
-    auto is_digit_or_dot = [](char c) noexcept { return isdigit(c) || c == '.'; };
-    while (remaining[version_end] && is_digit_or_dot(remaining[version_end])) { version_end++; }
-    auto version = remaining.substr(version_begin, version_end - version_begin);
-    if (version.empty()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to patch PTX version. "
-            "The PTX might be invalid.");
-        return;
-    }
-    // get the major version
-    auto sep = version.find('.');
-    if (sep == luisa::string_view::npos || version.size() < sep + 2) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to patch PTX version. "
-            "The PTX might be invalid.");
-        return;
-    }
-    auto patched_version = luisa::format("{}.0", version.substr(0, sep));
-    // now lets contrust the new ptx
-    std::memcpy(ptx.data() + (remaining.data() - ptx.data() + version_begin),
-                patched_version.data(), patched_version.size());
-    ptx.erase(remaining.data() - ptx.data() + version_begin + patched_version.size(),
-              version.size() - patched_version.size());
-}
-
-void CUDAShader::_patch_ptx_version(luisa::vector<std::byte> &ptx_) noexcept {
-    auto trailing_null = !ptx_.empty() && ptx_.back() == std::byte{0};
-    luisa::string ptx{reinterpret_cast<const char *>(ptx_.data()),
-                      trailing_null ? ptx_.size() - 1u : ptx_.size()};
-    patch_ptx_version(ptx);
-    ptx_.resize(ptx.size() + 1u);
-    std::memcpy(ptx_.data(), ptx.data(), ptx.size() + 1u);
+void CUDAShader::_patch_ptx_version(luisa::vector<std::byte> &ptx) noexcept {
+    patch_cuda_ptx_version_bytes(ptx);
 }
 
 CUDAShader::CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,

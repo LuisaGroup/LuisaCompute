@@ -1,0 +1,334 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Tile programming: design, implementation and evidence report",
+    "description": "Technical design, compiler routes, correctness coverage, MPP cost-model v2 evidence and remaining performance gaps as of September 5, 2026.",
+    "generatedAt": "2026-09-05T04:15:43+08:00",
+    "filters": [],
+    "cards": [
+      {
+        "id": "xir_rows",
+        "description": "Balanced automatic/fixed/Torch timing rows whose complete FP32 outputs passed the FP64 oracle.",
+        "dataset": "validation",
+        "sourceId": "xir_validation",
+        "metrics": [{"label": "Valid XIR pilot rows", "field": "valid_rows", "format": "number"}]
+      },
+      {
+        "id": "checked_elements",
+        "description": "Elements independently reloaded and rechecked after the benchmark completed.",
+        "dataset": "validation",
+        "sourceId": "xir_validation",
+        "metrics": [{"label": "Rechecked output elements", "field": "checked_elements", "format": "number"}]
+      },
+      {
+        "id": "regressions",
+        "description": "Complete test_tile_* CTest cohort; two known Metal memory-flag assertions remain.",
+        "dataset": "validation",
+        "sourceId": "regression_validation",
+        "metrics": [{"label": "Passing selected CTests", "field": "passing_tests", "format": "number"}]
+      },
+      {
+        "id": "llm_cases",
+        "description": "LLM kernel/shape captures checked through both XIR and TIRx against FP64 references.",
+        "dataset": "validation",
+        "sourceId": "regression_validation",
+        "metrics": [{"label": "Dual-bridge LLM cases", "field": "llm_cases", "format": "number"}]
+      },
+      {
+        "id": "metal_outputs",
+        "description": "Complete outputs checked against the FP64 oracle across seven Metal paths, eight shapes and fourteen rounds.",
+        "dataset": "validation",
+        "sourceId": "metal_validation",
+        "metrics": [{"label": "Valid Metal path outputs", "field": "metal_validated_outputs", "format": "number"}]
+      },
+      {
+        "id": "torch_shapes",
+        "description": "Shapes where the frozen TIRx MPP-view plan has a lower paired host-wall median than eager Torch MPS.",
+        "dataset": "validation",
+        "sourceId": "metal_validation",
+        "metrics": [{"label": "Shapes faster than Torch", "field": "torch_shapes_won", "format": "number"}]
+      },
+      {
+        "id": "mps_shapes",
+        "description": "Shapes where the frozen TIRx MPP-view plan has a lower paired host-wall median than direct MPSMatrixMultiplication.",
+        "dataset": "validation",
+        "sourceId": "metal_validation",
+        "metrics": [{"label": "Shapes faster than MPS", "field": "mps_shapes_won", "format": "number"}]
+      },
+      {
+        "id": "model_regret",
+        "description": "Mean top-choice regret inside the same 8-shape, 45-requested-candidate calibration cohort; lower is better and this is not held-out.",
+        "dataset": "cost_model_summary",
+        "sourceId": "mpp_cost_search",
+        "metrics": [
+          {"label": "Mean model regret v2", "field": "v2_mean_regret", "format": "percent"},
+          {"label": "v1 baseline", "field": "v1_mean_regret", "format": "percent"}
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "xir_gap",
+        "title": "Automatic XIR/SIMD time relative to Torch",
+        "subtitle": "Six balanced rounds per shape; paired median warm host-wall ratio, lower is better",
+        "type": "bar",
+        "dataset": "xir_ratios",
+        "sourceId": "xir_ratios",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {"field": "shape", "type": "nominal", "label": "M×N×K"},
+          "y": {"field": "planned_over_torch", "type": "quantitative", "label": "Planned / Torch (×)"},
+          "tooltip": [
+            {"field": "planned_us", "type": "quantitative", "label": "Planned µs"},
+            {"field": "torch_us", "type": "quantitative", "label": "Torch µs"}
+          ]
+        }
+      },
+      {
+        "id": "cost_regret",
+        "title": "MPP model regret by calibration-cohort shape",
+        "subtitle": "Measured(model pick) / measured(best finite candidate) − 1; short in-cohort search samples, lower is better",
+        "type": "bar",
+        "dataset": "cost_regret",
+        "sourceId": "mpp_cost_search",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {"field": "shape", "type": "nominal", "label": "M×N×K"},
+          "y": {"field": "regret_pct", "type": "quantitative", "label": "Top-choice regret (%)"},
+          "color": {"field": "model", "type": "nominal", "label": "Cost basis"},
+          "tooltip": [
+            {"field": "model_pick", "type": "nominal", "label": "Model pick"},
+            {"field": "measured_pick", "type": "nominal", "label": "Measured pick"}
+          ]
+        }
+      },
+      {
+        "id": "metal_times",
+        "title": "1024³ Metal path comparison",
+        "subtitle": "MPP cost-v2 frozen replay; fourteen-round medians in synchronized host-wall microseconds",
+        "type": "bar",
+        "dataset": "metal_1024",
+        "sourceId": "metal_report",
+        "valueFormat": "number",
+        "encodings": {
+          "x": {"field": "path", "type": "nominal", "label": "Path"},
+          "y": {"field": "time_us", "type": "quantitative", "label": "Warm host-wall µs"}
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "implementation",
+        "title": "Implementation boundary",
+        "subtitle": "Verified capabilities are separated from unimplemented scheduling claims",
+        "dataset": "implementation_state",
+        "sourceId": "design_docs",
+        "defaultSort": {"field": "area", "direction": "asc"},
+        "columns": [
+          {"field": "area", "label": "Area", "type": "text"},
+          {"field": "implemented", "label": "Implemented", "type": "text"},
+          {"field": "remaining", "label": "Remaining boundary", "type": "text"}
+        ]
+      },
+      {
+        "id": "llm_coverage",
+        "title": "LLM correctness coverage",
+        "subtitle": "Small multi-shape tests through XIR and TIRx, not production performance cases",
+        "dataset": "llm_coverage",
+        "sourceId": "llm_coverage",
+        "defaultSort": {"field": "family", "direction": "asc"},
+        "columns": [
+          {"field": "family", "label": "Family", "type": "text"},
+          {"field": "cases", "label": "Cases", "format": "number"},
+          {"field": "coverage", "label": "Shapes / edge cases", "type": "text"}
+        ]
+      },
+      {
+        "id": "cost_model",
+        "title": "MPP v1 versus v2 finite-set ranking",
+        "subtitle": "Same calibration cohort; exact choices and regret are diagnostic, not held-out",
+        "dataset": "cost_model_comparison",
+        "sourceId": "mpp_cost_search",
+        "defaultSort": {"field": "v2_regret_pct", "direction": "desc"},
+        "columns": [
+          {"field": "shape", "label": "M×N×K", "type": "text"},
+          {"field": "v1_choice", "label": "v1 model / measured", "type": "text"},
+          {"field": "v1_regret_pct", "label": "v1 regret (%)", "format": "number"},
+          {"field": "v2_choice", "label": "v2 model / measured", "type": "text"},
+          {"field": "v2_regret_pct", "label": "v2 regret (%)", "format": "number"}
+        ]
+      },
+      {
+        "id": "metal_shapes",
+        "title": "TIRx MPP-view GEMM replay",
+        "subtitle": "MPP-v2 frozen schedules; eight shapes and fourteen balanced rounds; host-wall medians and paired ratios",
+        "dataset": "metal_shapes",
+        "sourceId": "metal_shape_report",
+        "defaultSort": {"field": "view_over_mps", "direction": "desc"},
+        "columns": [
+          {"field": "shape", "label": "M×N×K", "type": "text"},
+          {"field": "schedule", "label": "Frozen block @ threads", "type": "text"},
+          {"field": "tirx_mpp_views_us", "label": "TIRx MPP views (µs)", "format": "number"},
+          {"field": "hand_mpp_us", "label": "Hand MPP (µs)", "format": "number"},
+          {"field": "mps_us", "label": "MPS (µs)", "format": "number"},
+          {"field": "torch_us", "label": "Torch (µs)", "format": "number"},
+          {"field": "view_over_mps", "label": "View / MPS (×)", "format": "number"},
+          {"field": "view_over_torch", "label": "View / Torch (×)", "format": "number"}
+        ]
+      }
+    ],
+    "sources": [
+      {"id": "xir_validation", "label": "Audited XIR validation summary", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/results.json"},
+      {"id": "xir_ratios", "label": "Audited XIR paired-ratio summary", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/results.json"},
+      {"id": "mpp_cost_search", "label": "MPP cost-model v1→v2 calibration-cohort study", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md"},
+      {"id": "metal_report", "label": "MPP cost-v2 1024³ Metal path comparison", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json"},
+      {"id": "metal_shape_report", "label": "MPP cost-v2 eight-shape Metal comparison", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json"},
+      {"id": "metal_validation", "label": "MPP cost-v2 Metal validation counts", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json"},
+      {"id": "regression_validation", "label": "Post-replay Tile regression counts", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md"},
+      {"id": "llm_coverage", "label": "Dual-bridge LLM coverage", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-validation/notes.md"},
+      {"id": "design_docs", "label": "Tile design and XIR planning documents", "path": "docs/source/tile_xir_design.md"}
+    ],
+    "blocks": [
+      {"id": "title", "type": "markdown", "body": "# Tile programming: design, implementation and evidence report"},
+      {"id": "summary", "type": "markdown", "body": "## The Metal FP32 GEMM cohort is closed; the overall performance goal is not\n\nThe execution-first C++ DSL, mutable TileIR, C++ TIRx bridge, limited native Metal MPP path, and direct XIR/SIMD CPU path are concrete. MPP contract v2 selects typed overwriting multiply only after a positive-zero, one-iteration proof. Cost-model v2 then ranks legal rectangles by subgroup critical-path work and whole-device waves. Its independently frozen eight-shape, fourteen-round replay validates all 784 path outputs and beats both eager Torch and direct MPS on 8/8 shapes. At 1024³, TIRx MPP views are 4.87% faster than Torch and 0.62% faster than MPS by paired ratio.\n\nThis is one M1 Max, FP32 GEMM and synchronized host-wall timing—not universal library parity. Model regret improved sharply only on its calibration cohort; held-out shapes/operators are absent. The XIR/SIMD CPU realization remains 38–55× slower than Torch in its scalar pilot, production-size LLM performance and low-precision operators are unmeasured, and two known Metal memory-flag test expectations remain. The broader performance goal stays open."},
+      {"id": "metrics_title", "type": "markdown", "body": "## Validation separates measured wins from open work\n\nAll 54 balanced XIR pilot outputs passed and were independently reloaded; the MPP-v2 Metal replay adds 784/784 FP64-oracle-valid path outputs. The complete test_tile_* CTest cohort passed 32/34 tests; the two failures are known Metal memory-flag expectations and are not hidden. The Python benchmark suite passed 61/61 separately. These counts scope the evidence—they do not claim the entire repository suite passed."},
+      {"id": "metrics", "type": "metric-strip", "cardIds": ["xir_rows", "checked_elements", "regressions", "llm_cases", "metal_outputs", "torch_shapes", "mps_shapes", "model_regret"]},
+      {"id": "xir_text", "type": "markdown", "sourceId": "xir_ratios", "body": "## Root mapping is not the missing 50× optimization\n\nThe automatic plan is 51.85×, 54.54× and 38.19× slower than Torch by paired median on 32³, 128³ and 127×193×61. Automatic versus fixed mapping is small and inconsistent. This points to the absent realization family—Tile/lane distribution, register blocking, cache-aware reuse and a vector/matrix microkernel—before more cost-weight tuning."},
+      {"id": "xir_chart", "type": "chart", "chartId": "xir_gap"},
+      {"id": "state_text", "type": "markdown", "body": "## The implementation boundary is explicit\n\nA representable layout is not automatically lowerable on every target. A low cost never grants legality. The current solver preserves every original worker's whole Tile program because splitting it requires dependence and alias proofs; otherwise valid in-place snapshot semantics can become cross-worker races."},
+      {"id": "state_table", "type": "table", "tableId": "implementation"},
+      {"id": "cost_text", "type": "markdown", "sourceId": "mpp_cost_search", "body": "## MPP v2 fixes a structural ranking error, not scheduling in general\n\nv1 added work from subgroups that actually execute concurrently and therefore systematically preferred narrow threadgroups. v2 divides realized issue and independent work by the participating subgroup count, then applies one outer wave factor from program × subgroup demand. On the same 8-shape × 45-requested-candidate calibration cohort, mean regret falls from 74.18% to 8.82%, median from 43.05% to 2.59%, maximum from 239.58% to 34.37%, and exact measured-winner picks rise from 1/8 to 4/8.\n\nThese three-sample, 10 ms measurements are deliberately labeled in-cohort. They show the concurrency correction is useful; they do not establish held-out generalization, calibrated time, queried occupancy or a hardware optimum. Hard legality remains independent of score, and correctness-checked Staged/JIT measurement remains authoritative."},
+      {"id": "cost_chart", "type": "chart", "chartId": "cost_regret"},
+      {"id": "cost_table", "type": "table", "tableId": "cost_model"},
+      {"id": "llm_text", "type": "markdown", "body": "## LLM correctness has moved beyond GEMM\n\nNormalization, activations, RoPE, masked softmax, and online causal prefill/decode/GQA run through two independent compiler routes and an FP64 oracle. Shapes include non-packet widths and attention tails. Hidden-size/context-scale performance, low-precision dtypes, paged KV cache, and XIR CNN/Top-K/sort validation remain open."},
+      {"id": "llm_table", "type": "table", "tableId": "llm_coverage"},
+      {"id": "metal_text", "type": "markdown", "sourceId": "metal_shape_report", "body": "## Frozen MPP-v2 schedules beat Torch and MPS on 8/8 tested GEMMs\n\nThe 14-round replay freezes the independently measured schedules and performs no search. At 1024³, TIRx MPP views measure 270.675 µs versus Torch at 284.654 µs, MPS at 272.572 µs and handwritten MPP at 266.105 µs. The paired view/Torch and view/MPS ratios are 0.9513× and 0.9938×; the view path is slower than MPS in only 1/14 rounds. Across all eight rows it beats both external baselines.\n\nThis closes the tested M1 Max FP32 GEMM cohort, not the whole Tile objective. The seven paths remain separate because native Tile→MPP, ordinary TIRx, handwritten MPP, MPS, Torch, staged TIRx→MPP and forwarded-view TIRx→MPP have different compiler/runtime ownership and cannot be blended into one “Metal” number."},
+      {"id": "metal_chart", "type": "chart", "chartId": "metal_times"},
+      {"id": "metal_table", "type": "table", "tableId": "metal_shapes"},
+      {"id": "method", "type": "markdown", "body": "## Scope and measurement definitions\n\nWarm timing is synchronized host-wall time per invocation, including each path's dispatch and synchronization but excluding JIT, allocation/upload and cold setup. The Metal replay covers seven paths, eight shapes, fourteen position-balanced rounds and seven samples per row; every complete output is checked against one FP64 oracle before timing is accepted. Ratios are medians of same-round ratios, not ratios of displayed medians or confidence intervals. Runs retain failures and fingerprint binaries and external compiler artifacts. The v2 model table instead uses three 10 ms search samples and is explicitly calibration-cohort evidence. The XIR pilot uses fixed 1×1×8 Tile specialization and therefore diagnoses that realization only."},
+      {"id": "limitations", "type": "markdown", "body": "## Limitations that change interpretation\n\nThe Metal win is FP32 GEMM on one Apple M1 Max; it does not establish low-precision, fused-epilogue or non-GEMM performance. TVM's Metal runtime uses fast math while native and handwritten MPP controls disable it. MPP-v2 coefficients and the 512-subgroup wave capacity are relative replaceable priors, not nanoseconds, hardware counters or queried occupancy; their regret result is in-cohort rather than held-out. A controlled generic-versus-native CPU target probe did not change the LLVM loop core or structural gap; a packed/cache-aware CPU realization and balanced Torch/BLAS replay after that realization remain absent. The LLM suite is correctness-scale. Two of 34 Tile CTests still fail known Metal memory-flag expectations."},
+      {"id": "next", "type": "markdown", "body": "## Next: generalize legal realizations, then broaden evidence\n\n1. Treat MPP v2 as a bootstrap: train on one set, evaluate held-out shape/operator regret and top-K coverage on another, and add cache/layout, edge, barrier and dispatch features without shape tables.\n2. Add dependence-safe CPU Tile distribution, register blocking, cache packing and a vector/matrix microkernel, then compare in one balanced session with Torch and BLAS/Accelerate.\n3. Benchmark realistic LLM hidden/context sizes, FP16/BF16, fused epilogues, normalization, softmax and attention through retained XIR/TIRx/library controls.\n4. Promote realized maps, atoms, resources and protocols into Machine TileIR only when multiple backends or passes need to inspect and transform them.\n5. Keep handwritten MPP, MPS, original TIRx, staged TIRx-MPP and native-MPP controls so each claimed speedup remains attributable. Exact enumeration is sufficient for today's bounded space; ILP, beam search or annealing should follow candidate-space growth, not precede it."},
+      {"id": "questions", "type": "markdown", "body": "## Questions the next evidence must answer\n\nDoes MPP v2 retain low regret on held-out shapes and non-GEMM operators? Which cache/layout and edge features explain its remaining 34.37% in-cohort miss? Which dependency-safe CPU distribution and packed microkernel close the large-GEMM library gap first? Do planner features transfer to reductions, softmax, attention and low precision? Which realized decisions must become Machine TileIR rather than backend-local records? Current evidence narrows these experiments; it does not answer them by assertion."}
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-09-05T04:15:43+08:00",
+    "status": "partial",
+    "datasets": {
+      "validation": [{"valid_rows": 54, "checked_elements": 754542, "passing_tests": 32, "llm_cases": 21, "metal_validated_outputs": 784, "torch_shapes_won": 8, "mps_shapes_won": 8}],
+      "xir_ratios": [
+        {"shape": "32³", "planned_over_torch": 51.851, "planned_us": 50.822, "torch_us": 0.978},
+        {"shape": "128³", "planned_over_torch": 54.543, "planned_us": 272.410, "torch_us": 4.979},
+        {"shape": "127×193×61", "planned_over_torch": 38.186, "planned_us": 255.711, "torch_us": 6.696}
+      ],
+      "metal_1024": [
+        {"path": "Hand MPP", "time_us": 266.105},
+        {"path": "TIRx views", "time_us": 270.675},
+        {"path": "MPS", "time_us": 272.572},
+        {"path": "Torch", "time_us": 284.654},
+        {"path": "Native Tile", "time_us": 287.137},
+        {"path": "TIRx SIMD", "time_us": 312.623},
+        {"path": "TIRx staged", "time_us": 320.933}
+      ],
+      "metal_shapes": [
+        {"shape": "32×32×32", "schedule": "32×32×32 @ 128t", "tirx_mpp_views_us": 2.982, "hand_mpp_us": 2.809, "mps_us": 10.081, "torch_us": 26.899, "view_over_mps": 0.2794, "view_over_torch": 0.1105},
+        {"shape": "128×128×128", "schedule": "32×32×128 @ 256t", "tirx_mpp_views_us": 5.335, "hand_mpp_us": 5.441, "mps_us": 16.904, "torch_us": 27.218, "view_over_mps": 0.3174, "view_over_torch": 0.1943},
+        {"shape": "512×512×512", "schedule": "32×64×32 @ 128t", "tirx_mpp_views_us": 42.413, "hand_mpp_us": 46.802, "mps_us": 52.428, "torch_us": 47.745, "view_over_mps": 0.8285, "view_over_torch": 0.8919},
+        {"shape": "1024×1024×1024", "schedule": "128×32×1024 @ 128t", "tirx_mpp_views_us": 270.675, "hand_mpp_us": 266.105, "mps_us": 272.572, "torch_us": 284.654, "view_over_mps": 0.9938, "view_over_torch": 0.9513},
+        {"shape": "256×1024×128", "schedule": "64×64×128 @ 256t", "tirx_mpp_views_us": 16.025, "hand_mpp_us": 17.286, "mps_us": 20.350, "torch_us": 28.668, "view_over_mps": 0.8189, "view_over_torch": 0.5554},
+        {"shape": "1024×128×256", "schedule": "32×32×32 @ 128t", "tirx_mpp_views_us": 16.500, "hand_mpp_us": 18.508, "mps_us": 26.270, "torch_us": 28.655, "view_over_mps": 0.5946, "view_over_torch": 0.5596},
+        {"shape": "127×193×61", "schedule": "32×32×32 @ 256t", "tirx_mpp_views_us": 8.861, "hand_mpp_us": 7.127, "mps_us": 16.915, "torch_us": 26.997, "view_over_mps": 0.5172, "view_over_torch": 0.3266},
+        {"shape": "513×257×129", "schedule": "32×32×32 @ 256t", "tirx_mpp_views_us": 20.607, "hand_mpp_us": 24.424, "mps_us": 35.043, "torch_us": 34.002, "view_over_mps": 0.5874, "view_over_torch": 0.6057}
+      ],
+      "cost_model_summary": [{"v1_mean_regret": 0.74181070, "v2_mean_regret": 0.08817609, "v1_median_regret": 0.43051255, "v2_median_regret": 0.02592450, "v1_max_regret": 2.39580653, "v2_max_regret": 0.34368571, "v1_exact_picks": 1, "v2_exact_picks": 4, "shapes": 8}],
+      "cost_regret": [
+        {"shape": "32³", "model": "v1", "regret_pct": 42.0544, "model_pick": "32×32×32 @ 64t", "measured_pick": "32×32×32 @ 256t"},
+        {"shape": "32³", "model": "v2", "regret_pct": 5.1849, "model_pick": "32×32×32 @ 256t", "measured_pick": "32×32×32 @ 128t"},
+        {"shape": "128³", "model": "v1", "regret_pct": 44.0481, "model_pick": "32×32×128 @ 64t", "measured_pick": "32×32×128 @ 256t"},
+        {"shape": "128³", "model": "v2", "regret_pct": 0.0000, "model_pick": "32×32×128 @ 256t", "measured_pick": "32×32×128 @ 256t"},
+        {"shape": "512³", "model": "v1", "regret_pct": 6.2800, "model_pick": "64×64×512 @ 128t", "measured_pick": "128×32×128 @ 256t"},
+        {"shape": "512³", "model": "v2", "regret_pct": 13.8131, "model_pick": "64×64×512 @ 256t", "measured_pick": "32×64×32 @ 128t"},
+        {"shape": "1024³", "model": "v1", "regret_pct": 0.0000, "model_pick": "128×32×1024 @ 128t", "measured_pick": "128×32×1024 @ 128t"},
+        {"shape": "1024³", "model": "v2", "regret_pct": 0.0000, "model_pick": "128×32×1024 @ 128t", "measured_pick": "128×32×1024 @ 128t"},
+        {"shape": "256×1024×128", "model": "v1", "regret_pct": 3.4512, "model_pick": "64×64×128 @ 128t", "measured_pick": "32×32×32 @ 64t"},
+        {"shape": "256×1024×128", "model": "v2", "regret_pct": 0.0000, "model_pick": "64×64×128 @ 256t", "measured_pick": "64×64×128 @ 256t"},
+        {"shape": "1024×128×256", "model": "v1", "regret_pct": 84.1042, "model_pick": "32×64×32 @ 64t", "measured_pick": "32×32×128 @ 64t"},
+        {"shape": "1024×128×256", "model": "v2", "regret_pct": 17.1743, "model_pick": "32×32×256 @ 128t", "measured_pick": "32×32×32 @ 128t"},
+        {"shape": "127×193×61", "model": "v1", "regret_pct": 173.9300, "model_pick": "32×32×32 @ 64t", "measured_pick": "32×32×32 @ 256t"},
+        {"shape": "127×193×61", "model": "v2", "regret_pct": 0.0000, "model_pick": "32×32×32 @ 256t", "measured_pick": "32×32×32 @ 256t"},
+        {"shape": "513×257×129", "model": "v1", "regret_pct": 239.5807, "model_pick": "32×64×32 @ 64t", "measured_pick": "32×32×32 @ 256t"},
+        {"shape": "513×257×129", "model": "v2", "regret_pct": 34.3686, "model_pick": "32×32×32 @ 128t", "measured_pick": "32×32×32 @ 256t"}
+      ],
+      "cost_model_comparison": [
+        {"shape": "32³", "v1_choice": "32×32×32 @ 64t / @ 256t", "v1_regret_pct": 42.0544, "v2_choice": "32×32×32 @ 256t / @ 128t", "v2_regret_pct": 5.1849},
+        {"shape": "128³", "v1_choice": "32×32×128 @ 64t / @ 256t", "v1_regret_pct": 44.0481, "v2_choice": "32×32×128 @ 256t / @ 256t", "v2_regret_pct": 0.0000},
+        {"shape": "512³", "v1_choice": "64×64×512 @ 128t / 128×32×128 @ 256t", "v1_regret_pct": 6.2800, "v2_choice": "64×64×512 @ 256t / 32×64×32 @ 128t", "v2_regret_pct": 13.8131},
+        {"shape": "1024³", "v1_choice": "128×32×1024 @ 128t / @ 128t", "v1_regret_pct": 0.0000, "v2_choice": "128×32×1024 @ 128t / @ 128t", "v2_regret_pct": 0.0000},
+        {"shape": "256×1024×128", "v1_choice": "64×64×128 @ 128t / 32×32×32 @ 64t", "v1_regret_pct": 3.4512, "v2_choice": "64×64×128 @ 256t / @ 256t", "v2_regret_pct": 0.0000},
+        {"shape": "1024×128×256", "v1_choice": "32×64×32 @ 64t / 32×32×128 @ 64t", "v1_regret_pct": 84.1042, "v2_choice": "32×32×256 @ 128t / 32×32×32 @ 128t", "v2_regret_pct": 17.1743},
+        {"shape": "127×193×61", "v1_choice": "32×32×32 @ 64t / @ 256t", "v1_regret_pct": 173.9300, "v2_choice": "32×32×32 @ 256t / @ 256t", "v2_regret_pct": 0.0000},
+        {"shape": "513×257×129", "v1_choice": "32×64×32 @ 64t / 32×32×32 @ 256t", "v1_regret_pct": 239.5807, "v2_choice": "32×32×32 @ 128t / @ 256t", "v2_regret_pct": 34.3686}
+      ],
+      "implementation_state": [
+        {"area": "CPU planning", "implemented": "Root permutations × worker-block widths; exact minimum in finite space", "remaining": "Tile distribution, register/cache plans, calibrated model"},
+        {"area": "Native Metal", "implemented": "Typed FP32 MPP subset on ordinary Runtime", "remaining": "General epilogues, K pipelines, dtypes and operators"},
+        {"area": "TIRx Metal MPP", "implemented": "Typed v2 modes, immutable-view proof, MPP-specific features and bounded exact solver", "remaining": "Held-out calibration, broader atoms/operators and low precision"},
+        {"area": "TileIR", "implemented": "Mutable typed SSA, regions, effects and layout records", "remaining": "Realized Machine TileIR and its transform/analysis suite"},
+        {"area": "XIR/SIMD", "implemented": "Direct owned XIR, PHIs/CFG, bounds proof, SIMD JIT", "remaining": "Packed matrix atom and general resource/layout realization"}
+      ],
+      "llm_coverage": [
+        {"family": "Attention", "cases": 3, "coverage": "Causal prefill, ragged GQA, decode Q=1; online recurrence"},
+        {"family": "Normalization", "cases": 6, "coverage": "RMSNorm + LayerNorm; widths 7, 32, 65"},
+        {"family": "Nonlinear/fused", "cases": 6, "coverage": "SwiGLU + GELU/residual; widths 7, 32, 65"},
+        {"family": "RoPE", "cases": 3, "coverage": "Split-half rotation; widths 6, 32, 66"},
+        {"family": "Masked softmax", "cases": 3, "coverage": "Row-dependent masks; widths 7, 32, 65"}
+      ]
+    },
+    "accessIssues": [
+      {"id": "production_llm_performance", "dataset": "llm_performance", "message": "Production-size LLM operator benchmarks through XIR/TIRx/Torch have not yet been collected."},
+      {"id": "cpu_target_balanced_ab", "dataset": "cpu_target_ab", "message": "A controlled generic-versus-native target probe found no LLVM-loop-core or performance gain; a balanced CPU TIRx/Torch/BLAS replay after a packed/cache-aware realization has not yet been run."},
+      {"id": "mpp_held_out_validation", "dataset": "mpp_held_out", "message": "MPP cost-model v2 has calibration-cohort regret only; held-out devices, shapes and operator families have not yet been measured."}
+    ]
+  },
+  "sources": [
+    {
+      "id": "xir_validation", "label": "Audited XIR validation summary", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/results.json",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T03:07:43+08:00", "description": "Bounded validation snapshot recomputed from all 54 saved benchmark outputs.", "sql": "SELECT 54::INTEGER AS valid_rows, 754542::BIGINT AS checked_elements"}
+    },
+    {
+      "id": "xir_ratios", "label": "Audited XIR paired-ratio summary", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/results.json",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T03:07:43+08:00", "description": "Bounded six-round paired medians from the saved XIR pilot.", "sql": "SELECT * FROM (VALUES ('32³',51.851,50.822,0.978),('128³',54.543,272.410,4.979),('127×193×61',38.186,255.711,6.696)) AS t(shape, planned_over_torch, planned_us, torch_us)"}
+    },
+    {
+      "id": "mpp_cost_search", "label": "MPP cost-model v1→v2 calibration-cohort study", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Eight-shape finite-candidate model choices and regrets recomputed from the retained v1 and v2 search reports; three 10 ms samples per candidate, explicitly in-cohort. The chart is a long-form unpivot of these rows.", "sql": "SELECT * FROM (VALUES ('32³','32×32×32 @ 64t','32×32×32 @ 256t',42.0544,'32×32×32 @ 256t','32×32×32 @ 128t',5.1849),('128³','32×32×128 @ 64t','32×32×128 @ 256t',44.0481,'32×32×128 @ 256t','32×32×128 @ 256t',0.0),('512³','64×64×512 @ 128t','128×32×128 @ 256t',6.2800,'64×64×512 @ 256t','32×64×32 @ 128t',13.8131),('1024³','128×32×1024 @ 128t','128×32×1024 @ 128t',0.0,'128×32×1024 @ 128t','128×32×1024 @ 128t',0.0),('256×1024×128','64×64×128 @ 128t','32×32×32 @ 64t',3.4512,'64×64×128 @ 256t','64×64×128 @ 256t',0.0),('1024×128×256','32×64×32 @ 64t','32×32×128 @ 64t',84.1042,'32×32×256 @ 128t','32×32×32 @ 128t',17.1743),('127×193×61','32×32×32 @ 64t','32×32×32 @ 256t',173.9300,'32×32×32 @ 256t','32×32×32 @ 256t',0.0),('513×257×129','32×64×32 @ 64t','32×32×32 @ 256t',239.5807,'32×32×32 @ 128t','32×32×32 @ 256t',34.3686)) AS t(shape,v1_model_pick,v1_measured_pick,v1_regret_pct,v2_model_pick,v2_measured_pick,v2_regret_pct)"}
+    },
+    {
+      "id": "metal_report", "label": "MPP cost-v2 1024³ Metal path comparison", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Bounded 1024³ medians from the fourteen-round frozen MPP-v2 seven-path replay; compact path labels match the chart.", "sql": "SELECT * FROM (VALUES ('Hand MPP',266.105),('TIRx views',270.675),('MPS',272.572),('Torch',284.654),('Native Tile',287.137),('TIRx SIMD',312.623),('TIRx staged',320.933)) AS t(path,time_us)"}
+    },
+    {
+      "id": "metal_shape_report", "label": "MPP cost-v2 eight-shape Metal comparison", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Eight-shape frozen schedules, medians and paired ratios recomputed from all fourteen balanced rounds.", "sql": "SELECT * FROM (VALUES ('32×32×32','32×32×32 @ 128t',2.982,2.809,10.081,26.899,0.2794,0.1105),('128×128×128','32×32×128 @ 256t',5.335,5.441,16.904,27.218,0.3174,0.1943),('512×512×512','32×64×32 @ 128t',42.413,46.802,52.428,47.745,0.8285,0.8919),('1024×1024×1024','128×32×1024 @ 128t',270.675,266.105,272.572,284.654,0.9938,0.9513),('256×1024×128','64×64×128 @ 256t',16.025,17.286,20.350,28.668,0.8189,0.5554),('1024×128×256','32×32×32 @ 128t',16.500,18.508,26.270,28.655,0.5946,0.5596),('127×193×61','32×32×32 @ 256t',8.861,7.127,16.915,26.997,0.5172,0.3266),('513×257×129','32×32×32 @ 256t',20.607,24.424,35.043,34.002,0.5874,0.6057)) AS t(shape,schedule,tirx_mpp_views_us,hand_mpp_us,mps_us,torch_us,view_over_mps,view_over_torch)"}
+    },
+    {
+      "id": "metal_validation", "label": "MPP cost-v2 Metal validation counts", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/results.json",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Validation and win counts recomputed from 112 rows and all seven path outputs per row.", "sql": "SELECT 784::INTEGER AS metal_validated_outputs, 8::INTEGER AS torch_shapes_won, 8::INTEGER AS mps_shapes_won"}
+    },
+    {
+      "id": "regression_validation", "label": "Post-replay Tile regression counts", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Complete test_tile_* CTest result and retained dual-bridge LLM case count.", "sql": "SELECT 32::INTEGER AS passing_tests, 21::INTEGER AS llm_cases"}
+    },
+    {
+      "id": "llm_coverage", "label": "Dual-bridge LLM coverage", "path": "scripts/benchmark/tile_torch/results/m1-max-20260905-xir-validation/notes.md",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T03:07:43+08:00", "description": "Bounded final regression and dual-bridge LLM coverage snapshot.", "sql": "SELECT * FROM (VALUES ('Attention',3,'Causal prefill, ragged GQA, decode Q=1'),('Normalization',6,'RMSNorm + LayerNorm; widths 7, 32, 65'),('Nonlinear/fused',6,'SwiGLU + GELU/residual; widths 7, 32, 65'),('RoPE',3,'Split-half rotation; widths 6, 32, 66'),('Masked softmax',3,'Row-dependent masks; widths 7, 32, 65')) AS t(family,cases,coverage)"}
+    },
+    {
+      "id": "design_docs", "label": "Tile design and XIR planning documents", "path": "docs/source/tile_xir_design.md",
+      "query": {"engine": "duckdb", "language": "sql", "executed_at": "2026-09-05T04:15:43+08:00", "description": "Bounded implementation-state table reviewed against the design, planner and source.", "sql": "SELECT * FROM (VALUES ('CPU planning','Root permutations × worker-block widths','Tile distribution, register/cache plans, calibrated model'),('Native Metal','Typed FP32 MPP subset','General epilogues, K pipelines, dtypes and operators'),('TIRx Metal MPP','Typed v2 modes, view proof, MPP features and bounded exact solver','Held-out calibration, broader atoms/operators and low precision'),('TileIR','Mutable typed SSA, regions, effects and layouts','Realized Machine TileIR and transform suite'),('XIR/SIMD','Direct XIR, PHIs/CFG, bounds proof and JIT','Packed matrix atom and general resource/layout realization')) AS t(area,implemented,remaining)"}
+    }
+  ]
+}

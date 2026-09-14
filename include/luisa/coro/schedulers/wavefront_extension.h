@@ -125,6 +125,18 @@ public:
     [[nodiscard]] virtual WavefrontCoroExtensionExecution execution() const noexcept {
         return WavefrontCoroExtensionExecution::stage;
     }
+    /// Explicit permission to jointly process compatible before-resume queues.
+    /// Empty (the default) preserves a distinct invocation for every boundary.
+    /// Equal nonempty identities promise that either instance and its captured
+    /// resources/policy can process the disjoint union using a representative
+    /// Stage descriptor. The operation must not depend on predecessor/queue
+    /// identity or on one invocation per source boundary. The scheduler also
+    /// checks the complete ordered suffix, normalized metadata, typed physical
+    /// bindings and resident certificates; schema equality alone is not enough.
+    /// An independent semantic stage is never eligible for this batching.
+    [[nodiscard]] virtual luisa::string_view batching_identity() const noexcept {
+        return {};
+    }
     virtual void dispatch(
         const WavefrontCoroExtensionDispatchContext &) noexcept {
         LUISA_ERROR_WITH_LOCATION("Extension handler must implement dispatch or dispatch_queue.");

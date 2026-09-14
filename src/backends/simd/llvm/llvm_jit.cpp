@@ -1,6 +1,7 @@
 #include "llvm_jit.h"
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -175,8 +176,8 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     auto optimization_level = size_bounded ?
                                   ::llvm::OptimizationLevel::O1 :
                                   ::llvm::OptimizationLevel::O2;
-    if (luisa::compute::detail::env_flag(
-            "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+    auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
+    if (report) {
         LUISA_INFO(
             "SIMD LLVM pipeline: {}, blocks={}, instructions={}",
             size_bounded ? "O1 size-bounded" : "O2",
@@ -184,7 +185,35 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     }
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
         optimization_level);
+    auto started = report ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     pipeline.run(module, module_analyses);
+    if (report) {
+        auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        auto post_block_count = size_t{0u};
+        auto post_instruction_count = size_t{0u};
+        auto phi_count = size_t{0u};
+        auto max_block_size = size_t{0u};
+        auto max_block_phis = size_t{0u};
+        for (auto &&function : module) {
+            if (function.isDeclaration()) { continue; }
+            for (auto &&block : function) {
+                post_block_count++;
+                post_instruction_count += block.size();
+                max_block_size = std::max(max_block_size, block.size());
+                auto block_phis = size_t{0u};
+                for (auto &&instruction : block) {
+                    block_phis += ::llvm::isa<::llvm::PHINode>(instruction);
+                }
+                phi_count += block_phis;
+                max_block_phis = std::max(max_block_phis, block_phis);
+            }
+        }
+        LUISA_INFO(
+            "SIMD LLVM post-opt '{}': pipeline={}, optimize_ms={:.3f}, "
+            "blocks={}, instructions={}, phis={}, max_block_size={}, max_block_phis={}",
+            module.getModuleIdentifier(), size_bounded ? "O1 size-bounded" : "O2", elapsed_ms,
+            post_block_count, post_instruction_count, phi_count, max_block_size, max_block_phis);
+    }
     return true;
 }
 
@@ -225,7 +254,15 @@ std::string LLVMJIT::emit_assembly_copy(
 
 void *LLVMJIT::lookup(std::string_view name) noexcept {
     if (!succeeded()) { return nullptr; }
+    auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
+    auto started = report ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     auto symbol = _jit->lookup(::llvm::StringRef{name.data(), name.size()});
+    if (report) {
+        auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        // ORC lookup includes materialization, native codegen and linking on
+        // the first lookup. Later symbol lookups may reuse that materialization.
+        LUISA_INFO("SIMD ORC lookup '{}': lookup_ms={:.3f}, succeeded={}", name, elapsed_ms, static_cast<bool>(symbol));
+    }
     if (!symbol) {
         _fail("failed to look up LLVM JIT symbol '" +
               std::string{name} + "': " +

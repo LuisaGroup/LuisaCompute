@@ -1,0 +1,20 @@
+[0/2] Re-checking globbed directories...
+[1/19] Embedding metal built-in sources...
+[2/13] Building CXX object src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/planner.cpp.o
+[3/13] Building CXX object src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/lower.cpp.o
+[4/13] Linking CXX shared library bin/libluisa-tile-bridge-xir.dylib
+[5/13] Building CXX object src/tests/CMakeFiles/test_tile_xir.dir/unit/tile/bridge/test_xir.cpp.o
+[6/13] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_tile.cpp.o
+[7/13] Linking CXX shared module bin/libluisa-backend-simd.so
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/tbb/lib/libtbb.12.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[8/13] Linking CXX executable bin/test_tile_xir
+[9/13] Building CXX object src/tests/CMakeFiles/benchmark_tile_xir.dir/benchmark/benchmark_tile_xir.cpp.o
+[10/13] Linking CXX executable bin/benchmark_tile_xir
+[11/13] Building CXX object src/tests/CMakeFiles/test_tile_xir_runtime.dir/unit/tile/bridge/test_xir_runtime.cpp.o
+[12/13] Linking CXX executable bin/test_tile_xir_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0

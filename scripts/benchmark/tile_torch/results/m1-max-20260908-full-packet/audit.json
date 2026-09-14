@@ -1,0 +1,1541 @@
+{
+  "passed": true,
+  "native_visits": 144,
+  "capture_visits": 16,
+  "runtime_visits": 240,
+  "full_outputs_rechecked": 256,
+  "default_actual_code_byte_identical": 8,
+  "rejected_mutated_evidence": [
+    "missing_visit",
+    "duplicate_visit",
+    "failed_oracle",
+    "changed_median",
+    "mixed_input_bits",
+    "wrong_worker_count"
+  ],
+  "native": [
+    {
+      "rows": 64,
+      "columns": 256,
+      "local_lanes": 1,
+      "fusion": false,
+      "median_us": {
+        "baseline": 11.4036357421875,
+        "candidate": 11.405817626953125,
+        "inductor": 9.123260620117188
+      },
+      "packet_on_off": {
+        "median": 1.0002693818897361,
+        "minimum": 0.9987874642457405,
+        "maximum": 1.001531759928102,
+        "slower_rounds": 4,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 1.2497405027688568,
+        "minimum": 1.2479441062035568,
+        "maximum": 1.2525827544862047,
+        "slower_rounds": 6,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 64,
+      "columns": 256,
+      "local_lanes": 1,
+      "fusion": true,
+      "median_us": {
+        "baseline": 13.900014282226563,
+        "candidate": 12.403569580078125,
+        "inductor": 9.120956420898438
+      },
+      "packet_on_off": {
+        "median": 0.8921626835571848,
+        "minimum": 0.8914142851189183,
+        "maximum": 0.9034931188735975,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 1.3598384837704907,
+        "minimum": 1.3589180061888735,
+        "maximum": 1.3604479022465077,
+        "slower_rounds": 6,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 64,
+      "columns": 256,
+      "local_lanes": 8,
+      "fusion": false,
+      "median_us": {
+        "baseline": 14.593175170898437,
+        "candidate": 5.33393603515625,
+        "inductor": 8.840382934570313
+      },
+      "packet_on_off": {
+        "median": 0.36574621561327525,
+        "minimum": 0.36067128112320684,
+        "maximum": 0.3722949339069014,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 0.6033041165896129,
+        "minimum": 0.5916737097875078,
+        "maximum": 0.6105193195966093,
+        "slower_rounds": 0,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 64,
+      "columns": 256,
+      "local_lanes": 8,
+      "fusion": true,
+      "median_us": {
+        "baseline": 18.044453857421875,
+        "candidate": 8.306477905273438,
+        "inductor": 9.126434326171875
+      },
+      "packet_on_off": {
+        "median": 0.46020421065971695,
+        "minimum": 0.45601277704718524,
+        "maximum": 0.4630965104050511,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 0.9104115339938166,
+        "minimum": 0.9090730878365064,
+        "maximum": 0.9110324264981524,
+        "slower_rounds": 0,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 1024,
+      "columns": 4096,
+      "local_lanes": 1,
+      "fusion": false,
+      "median_us": {
+        "baseline": 3251.83725,
+        "candidate": 3251.4739375,
+        "inductor": 2185.153625
+      },
+      "packet_on_off": {
+        "median": 0.9998630350674764,
+        "minimum": 0.9847343957471887,
+        "maximum": 1.0007490926920248,
+        "slower_rounds": 3,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 1.4888142198299072,
+        "minimum": 1.4870744202627462,
+        "maximum": 1.4939960644058545,
+        "slower_rounds": 6,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 1024,
+      "columns": 4096,
+      "local_lanes": 1,
+      "fusion": true,
+      "median_us": {
+        "baseline": 3807.890625,
+        "candidate": 3384.53903125,
+        "inductor": 2145.71875
+      },
+      "packet_on_off": {
+        "median": 0.8888815277664106,
+        "minimum": 0.883760394033947,
+        "maximum": 0.899853502372626,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 1.57698678904309,
+        "minimum": 1.5627736214295032,
+        "maximum": 1.5964068107533613,
+        "slower_rounds": 6,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 1024,
+      "columns": 4096,
+      "local_lanes": 8,
+      "fusion": false,
+      "median_us": {
+        "baseline": 3293.97134375,
+        "candidate": 1117.151046875,
+        "inductor": 2184.9570625
+      },
+      "packet_on_off": {
+        "median": 0.33920779728007955,
+        "minimum": 0.33588848204584487,
+        "maximum": 0.34007396900390174,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 0.5113840435403325,
+        "minimum": 0.5077756082008577,
+        "maximum": 0.5116488164249744,
+        "slower_rounds": 0,
+        "rounds": 6
+      }
+    },
+    {
+      "rows": 1024,
+      "columns": 4096,
+      "local_lanes": 8,
+      "fusion": true,
+      "median_us": {
+        "baseline": 4039.846375,
+        "candidate": 2091.67709375,
+        "inductor": 2185.819
+      },
+      "packet_on_off": {
+        "median": 0.5175106160280089,
+        "minimum": 0.4934346488698756,
+        "maximum": 0.5523350745075326,
+        "slower_rounds": 0,
+        "rounds": 6
+      },
+      "candidate_inductor": {
+        "median": 0.9568722345285089,
+        "minimum": 0.9225227417314167,
+        "maximum": 1.019350504503011,
+        "slower_rounds": 1,
+        "rounds": 6
+      }
+    }
+  ],
+  "runtime": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 38.2439343245,
+      "on_us": 34.7342903781,
+      "packet_on_off": {
+        "median": 0.9097158931247779,
+        "minimum": 0.869436535205531,
+        "maximum": 0.9499952510440247,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 37.3354498285,
+      "on_us": 40.6731448403,
+      "packet_on_off": {
+        "median": 1.0899782816552253,
+        "minimum": 0.9957475359251162,
+        "maximum": 1.1842090273853345,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 45.65020205570001,
+      "on_us": 38.504885100150005,
+      "packet_on_off": {
+        "median": 0.8520579805640811,
+        "minimum": 0.7631194588049959,
+        "maximum": 0.9409965023231663,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 42.74540136795,
+      "on_us": 39.0606480167,
+      "packet_on_off": {
+        "median": 0.9138284038164096,
+        "minimum": 0.8993868089253954,
+        "maximum": 0.9282699987074239,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 1.313962072135,
+      "on_us": 1.31414730055,
+      "packet_on_off": {
+        "median": 1.0001429078914703,
+        "minimum": 0.9995027260551719,
+        "maximum": 1.000783089727769,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 1.327720491615,
+      "on_us": 1.242335332705,
+      "packet_on_off": {
+        "median": 0.9356904926695222,
+        "minimum": 0.9353610175499469,
+        "maximum": 0.9360199677890976,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 35.97492896905,
+      "on_us": 37.690156170899996,
+      "packet_on_off": {
+        "median": 1.0474276415162738,
+        "minimum": 1.024893372536238,
+        "maximum": 1.0699619104963098,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 39.16266979285,
+      "on_us": 37.426641942,
+      "packet_on_off": {
+        "median": 0.9557395868081913,
+        "minimum": 0.9117244358494275,
+        "maximum": 0.9997547377669549,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 718.0756688965,
+      "on_us": 746.5472692305,
+      "packet_on_off": {
+        "median": 1.0398665048178168,
+        "minimum": 1.029514428457626,
+        "maximum": 1.0502185811780078,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 849.0142272725,
+      "on_us": 742.734466374,
+      "packet_on_off": {
+        "median": 0.8754891133265674,
+        "minimum": 0.8378507658114424,
+        "maximum": 0.9131274608416926,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 706.8201692309999,
+      "on_us": 307.77870604400005,
+      "packet_on_off": {
+        "median": 0.43558392699646153,
+        "minimum": 0.42214340531649835,
+        "maximum": 0.44902444867642477,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 846.7708333334999,
+      "on_us": 443.3013499625,
+      "packet_on_off": {
+        "median": 0.5234959333400577,
+        "minimum": 0.5183028645957272,
+        "maximum": 0.5286890020843882,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 287.698169757,
+      "on_us": 291.15338405800003,
+      "packet_on_off": {
+        "median": 1.0120078444723546,
+        "minimum": 1.0062563586923523,
+        "maximum": 1.0177593302523569,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 321.4203629035,
+      "on_us": 293.0225803495,
+      "packet_on_off": {
+        "median": 0.9116489449945246,
+        "minimum": 0.9111792591614184,
+        "maximum": 0.9121186308276309,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 94.0562317664,
+      "on_us": 68.13230725725,
+      "packet_on_off": {
+        "median": 0.7243854331156534,
+        "minimum": 0.7188753217713061,
+        "maximum": 0.7298955444600008,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 105.1723004365,
+      "on_us": 80.3429146398,
+      "packet_on_off": {
+        "median": 0.7639216151548387,
+        "minimum": 0.761391565724399,
+        "maximum": 0.7664516645852785,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 14.882575609749999,
+      "on_us": 14.8611691662,
+      "packet_on_off": {
+        "median": 0.9985707322729227,
+        "minimum": 0.9942678143692213,
+        "maximum": 1.002873650176624,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 12.264029102950001,
+      "on_us": 13.0226160703,
+      "packet_on_off": {
+        "median": 1.0618526001573463,
+        "minimum": 1.0599181345697293,
+        "maximum": 1.0637870657449633,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 3.37668960747,
+      "on_us": 1.12267325884,
+      "packet_on_off": {
+        "median": 0.33248251805288126,
+        "minimum": 0.3235936792309268,
+        "maximum": 0.3413713568748357,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 3.851701805185,
+      "on_us": 1.98112455494,
+      "packet_on_off": {
+        "median": 0.5143481720365368,
+        "minimum": 0.5089419454356652,
+        "maximum": 0.5197543986374085,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 23.90395460685,
+      "on_us": 24.44510841875,
+      "packet_on_off": {
+        "median": 1.0227319589106068,
+        "minimum": 1.0116951903666966,
+        "maximum": 1.0337687274545169,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 21.804979458200002,
+      "on_us": 22.55848645745,
+      "packet_on_off": {
+        "median": 1.0346204144780908,
+        "minimum": 1.0259923833173243,
+        "maximum": 1.0432484456388573,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 5.0434313857549995,
+      "on_us": 1.84170088083,
+      "packet_on_off": {
+        "median": 0.3651715449957086,
+        "minimum": 0.3596124458862308,
+        "maximum": 0.37073064410518636,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 5.65796153774,
+      "on_us": 2.72022591342,
+      "packet_on_off": {
+        "median": 0.48081357947949205,
+        "minimum": 0.47519079253330226,
+        "maximum": 0.48643636642568183,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 440.2319444445,
+      "on_us": 385.50203921599996,
+      "packet_on_off": {
+        "median": 0.8756794264678198,
+        "minimum": 0.8756331765028468,
+        "maximum": 0.8757256764327929,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 454.06013636349996,
+      "on_us": 390.57231372549995,
+      "packet_on_off": {
+        "median": 0.8603463877973749,
+        "minimum": 0.8473866665893655,
+        "maximum": 0.8733061090053845,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 124.387643185,
+      "on_us": 82.13603366255,
+      "packet_on_off": {
+        "median": 0.6602758231318648,
+        "minimum": 0.6455561679126537,
+        "maximum": 0.6749954783510761,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 142.83131009599998,
+      "on_us": 93.98013471495,
+      "packet_on_off": {
+        "median": 0.6579765454261377,
+        "minimum": 0.6140833805478475,
+        "maximum": 0.701869710304428,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 1155.07720588,
+      "on_us": 922.777627941,
+      "packet_on_off": {
+        "median": 0.798887166142461,
+        "minimum": 0.7966253709873444,
+        "maximum": 0.8011489612975775,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 1174.311514705,
+      "on_us": 943.885715278,
+      "packet_on_off": {
+        "median": 0.8037720717260977,
+        "minimum": 0.7969379301704296,
+        "maximum": 0.8106062132817656,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 1093.9692003700002,
+      "on_us": 449.2503932615,
+      "packet_on_off": {
+        "median": 0.4108318380795648,
+        "minimum": 0.40634248919904253,
+        "maximum": 0.41532118696008713,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 1286.8722333350001,
+      "on_us": 559.158203125,
+      "packet_on_off": {
+        "median": 0.43472820381365734,
+        "minimum": 0.41270637819577655,
+        "maximum": 0.45675002943153814,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 525.8289873015,
+      "on_us": 426.68393782600003,
+      "packet_on_off": {
+        "median": 0.8114548104330916,
+        "minimum": 0.8088906512685654,
+        "maximum": 0.8140189695976178,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 524.4091436505,
+      "on_us": 430.38210235500003,
+      "packet_on_off": {
+        "median": 0.8206980108702763,
+        "minimum": 0.8188220739109712,
+        "maximum": 0.8225739478295814,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 191.51541208499998,
+      "on_us": 168.9824746275,
+      "packet_on_off": {
+        "median": 0.8874597016437314,
+        "minimum": 0.8261309000948732,
+        "maximum": 0.9487885031925897,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 208.2807754135,
+      "on_us": 165.9722947565,
+      "packet_on_off": {
+        "median": 0.7969178864754218,
+        "minimum": 0.7957071582110833,
+        "maximum": 0.7981286147397604,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 3.573478181155,
+      "on_us": 3.611193912025,
+      "packet_on_off": {
+        "median": 1.0105494473056105,
+        "minimum": 1.0001310399465744,
+        "maximum": 1.0209678546646468,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 3.6137403094350002,
+      "on_us": 3.59372633986,
+      "packet_on_off": {
+        "median": 0.994607432235099,
+        "minimum": 0.9799036051071965,
+        "maximum": 1.0093112593630014,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 36.90215862565,
+      "on_us": 35.664371531849994,
+      "packet_on_off": {
+        "median": 0.9664987272169787,
+        "minimum": 0.9399302485443288,
+        "maximum": 0.9930672058896287,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 36.468251953350006,
+      "on_us": 37.127715269700005,
+      "packet_on_off": {
+        "median": 1.0182649794740957,
+        "minimum": 0.9999686089072048,
+        "maximum": 1.0365613500409865,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 2002.67361111,
+      "on_us": 2000.909375,
+      "packet_on_off": {
+        "median": 0.9987980029977854,
+        "minimum": 0.9645274084737628,
+        "maximum": 1.0330685975218081,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 1957.6967357150002,
+      "on_us": 1809.038194445,
+      "packet_on_off": {
+        "median": 0.9242525843923793,
+        "minimum": 0.899126714482485,
+        "maximum": 0.9493784543022736,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 1270.3181547650001,
+      "on_us": 1283.391715945,
+      "packet_on_off": {
+        "median": 1.0102981450213515,
+        "minimum": 1.0099207200701246,
+        "maximum": 1.0106755699725782,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 1223.72448626,
+      "on_us": 1226.789800905,
+      "packet_on_off": {
+        "median": 1.0025144243624475,
+        "minimum": 1.0022321791000912,
+        "maximum": 1.0027966696248038,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 6.295940344605,
+      "on_us": 5.88861311708,
+      "packet_on_off": {
+        "median": 0.9353989178481226,
+        "minimum": 0.926563376232537,
+        "maximum": 0.9442344594637082,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 6.2096822948299994,
+      "on_us": 5.881936537085,
+      "packet_on_off": {
+        "median": 0.9472222146305567,
+        "minimum": 0.9457799233492598,
+        "maximum": 0.9486645059118537,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 37.689205450900005,
+      "on_us": 36.83934977855,
+      "packet_on_off": {
+        "median": 0.9775064639321432,
+        "minimum": 0.9698970649947453,
+        "maximum": 0.9851158628695412,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 37.64713448635,
+      "on_us": 37.0516956121,
+      "packet_on_off": {
+        "median": 0.9844251980342352,
+        "minimum": 0.9756566671824739,
+        "maximum": 0.9931937288859966,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 3469.7956999999997,
+      "on_us": 2793.644892855,
+      "packet_on_off": {
+        "median": 0.8047727862693417,
+        "minimum": 0.7721628004968741,
+        "maximum": 0.8373827720418093,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 3229.192708335,
+      "on_us": 2563.8515625,
+      "packet_on_off": {
+        "median": 0.7970824414685925,
+        "minimum": 0.7091126590315794,
+        "maximum": 0.8850522239056057,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 2984.7552928550003,
+      "on_us": 2137.794171325,
+      "packet_on_off": {
+        "median": 0.7167615576456781,
+        "minimum": 0.6822454919035715,
+        "maximum": 0.7512776233877846,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 2807.876729165,
+      "on_us": 2199.22276389,
+      "packet_on_off": {
+        "median": 0.7828141421953234,
+        "minimum": 0.7688088451732773,
+        "maximum": 0.7968194392173695,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        128
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 44.69900120335,
+      "on_us": 38.92172541455,
+      "packet_on_off": {
+        "median": 0.8719608213824004,
+        "minimum": 0.7869453911203552,
+        "maximum": 0.9569762516444457,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        128
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 43.896571021149995,
+      "on_us": 36.9298480894,
+      "packet_on_off": {
+        "median": 0.8412248549163202,
+        "minimum": 0.8217197340438499,
+        "maximum": 0.8607299757887904,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        128
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 37.71836092025,
+      "on_us": 36.87755366795,
+      "packet_on_off": {
+        "median": 0.9782026025231435,
+        "minimum": 0.9558215592234474,
+        "maximum": 1.0005836458228397,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        128
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 37.5108155226,
+      "on_us": 37.18507435425,
+      "packet_on_off": {
+        "median": 0.9911786808555783,
+        "minimum": 0.983432892568707,
+        "maximum": 0.9989244691424494,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "local_lanes": 1,
+      "fusion": false,
+      "off_us": 1.909097221715,
+      "on_us": 1.89390603648,
+      "packet_on_off": {
+        "median": 0.9920427489450682,
+        "minimum": 0.9919810708154542,
+        "maximum": 0.9921044270746822,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "local_lanes": 1,
+      "fusion": true,
+      "off_us": 1.9158660515550001,
+      "on_us": 1.908208454865,
+      "packet_on_off": {
+        "median": 0.9959917849051628,
+        "minimum": 0.9878159428911042,
+        "maximum": 1.0041676269192215,
+        "slower_rounds": 1,
+        "rounds": 2
+      },
+      "specializations": [
+        1,
+        1
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "local_lanes": 8,
+      "fusion": false,
+      "off_us": 35.44764317785,
+      "on_us": 36.26956880755,
+      "packet_on_off": {
+        "median": 1.0233395580072884,
+        "minimum": 1.0132976612727504,
+        "maximum": 1.0333814547418263,
+        "slower_rounds": 2,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "local_lanes": 8,
+      "fusion": true,
+      "off_us": 37.948618752049995,
+      "on_us": 36.22365498885,
+      "packet_on_off": {
+        "median": 0.9553505697767716,
+        "minimum": 0.9372834090702882,
+        "maximum": 0.973417730483255,
+        "slower_rounds": 0,
+        "rounds": 2
+      },
+      "specializations": [
+        0,
+        0
+      ]
+    }
+  ],
+  "assessment": "Share with caveats: fixed mapping/one host/FP32; native ABI is RMSNorm only; no new Metal/MPS/BLAS or universal/default parity claim."
+}

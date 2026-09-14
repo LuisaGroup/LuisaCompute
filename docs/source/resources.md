@@ -560,6 +560,13 @@ stream << buf.write(data)            // Write to buf
 
 ## Shaders
 
+The examples below compile worker-oriented SIMT kernels. Experimental
+[Tile kernels](tile/index.md) use the same Device, buffers and Stream command
+model through the optional `tile::compile` adapter. See
+[Tile shader creation and dispatch](internals/tile/runtime.md#boundary-and-usage)
+for that entry point; a Tile compiler bridge is not another Runtime device or
+memory-resource hierarchy.
+
 Shaders are compiled kernels ready for dispatch on the device. The `Shader<N, Args...>` type captures both the dimensionality (1D/2D/3D) and the argument types at compile time.
 
 ### Compiling Kernels

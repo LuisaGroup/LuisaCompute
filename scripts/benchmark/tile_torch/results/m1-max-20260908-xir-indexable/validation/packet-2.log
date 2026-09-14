@@ -1,0 +1,20 @@
+[2026-09-08 11:07:50.186] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 11:07:50.187] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 11:07:50.190] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 3.039042 ms.
+[2026-09-08 11:07:50.190] [console] [info] Test device backend: simd.
+
+Running "tile_xir_runtime_reduction_fold_policies"... [33mSKIPPED[0m
+
+Running "tile_xir_runtime_gemm"... [33mSKIPPED[0m
+
+Running "tile_xir_runtime_elementwise_reductions_softmax"... [33mSKIPPED[0m
+
+Running "tile_xir_runtime_aligned_and_ragged_packet_gemm"... [33mSKIPPED[0m
+
+Running "tile_xir_runtime_loop_carries_and_load_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_bounds_proof_rejects_negative_and_overflowing_origins"... [33mSKIPPED[0m
+
+Running "tile_xir_runtime_indexable_snapshots_and_simultaneous_carries"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 7 tests)
+7 tests skipped

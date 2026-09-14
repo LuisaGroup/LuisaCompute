@@ -1,0 +1,441 @@
+# TileIR representation and capture
+
+This page owns in-memory IR, capture dataflow, ownership and verification. The mutable SSA core is implemented; the full analysis inventory, region-form pipeline stages and general Scheduled/Machine forms below are extension contracts, not an inventory of finished passes. See [implementation coverage](../../performance/tile/implementation.md).
+
+```{contents} On this page
+:local:
+:depth: 2
+```
+
+## TileIR as a thin but transformable IR
+
+The current implementation and the target design must not be conflated:
+
+```{table} Implemented IR versus extension contracts
+:class: design-table
+:name: tile-ir-implementation-boundary
+
+| Area | Implemented representation | Extension specified here |
+|---|---|---|
+| Mutation | Managed intrusive lists, SSA uses, typed kinds, structural verifier and basic rewriter/analysis manager | Dependency-aware analysis invalidation and transactional execution remapping |
+| Reduction | Domain, captured state and typed per-operation fold/tree policy; unordered-tree default; bridge-local merge recognition | General typed lift/merge, law provenance and exceptional-value contracts |
+| Pipeline | `PIPELINE` body with `STAGE` marker operations | Stage subregions, explicit dependence/version protocol and modulo schedule |
+| Scheduling | Bridge-local mapping, matrix and reduction plans | Common Scheduled/Machine verifier forms and generic target atom calls |
+```
+
+Primitive semantics and their refinement rules live in the
+[execution calculus](calculus.md). `verify(module, target)` checks structure,
+types, use/ownership relations, state flow and explicit target constraints;
+it is not a general proof of the source program's `parallel` independence.
+Passes may rely on semantic contracts while validating newly introduced
+mapping, storage and synchronization. Optional invocation/debug validation is
+separate from the normal optimization admission path.
+
+### In-memory structure
+
+TileIR borrows the useful structural properties of LLVM IR and Luisa XIR,
+without importing MLIR:
+
+- `Module`, `Function`, `Region`, `Block`, `Operation`;
+- explicit `ExecStructure`, stable `ExecLevel` identities, and prefix cuts;
+- typed SSA `Value` and explicit `Use` lists;
+- operations own zero or more regions;
+- interned immutable `Type`, `Dim`, `Space`, `IndexSet`, `LayoutMap`,
+  `LayoutCorr`, and attributes;
+- typed `ExecRemap` objects carrying old/new structures, active domains,
+  prefix factorizations, and transform provenance;
+- stable source locations and diagnostic provenance;
+- explicit successors and block arguments;
+- verified parent/ownership relationships;
+- an `IRRewriter` for insertion, replacement, region movement, erasure, and
+  transactional execution-structure remapping;
+- an `AnalysisManager` with dependency declarations and invalidation;
+- interfaces for effects, layout inference, tiling, atoms, and target export.
+
+Serialization is one consumer of this model. It is not the in-memory design
+and does not define transformability.
+
+#### Ownership and mutation contract
+
+The mutable spine follows Luisa XIR's managed intrusive-list model, adapted for
+multi-result operations:
+
+~~~text
+Module
+└─ FunctionList                         managed intrusive, ordered
+   └─ Function
+      └─ Region                        single owner
+         └─ BlockList                  managed intrusive, ordered
+            └─ Block
+               └─ OperationList        managed intrusive, ordered
+                  └─ Operation
+                     ├─ operand slots  vector<ManagedPtr<Use>>, ordered
+                     │                    │
+                     │                    └── intrusive link ──> Value::UseList
+                     ├─ result Values  single owner, stable address
+                     └─ child Regions  single owner
+~~~
+
+`Function`, `Block`, and `Operation` need stable identity plus constant-time
+detach, insertion, and movement, so their ordered parent sequences are doubly
+linked managed intrusive lists. `Use` needs stable identity and constant-time
+unlink but no semantic order in the defining value's user set, so it is a
+managed intrusive *forward* node. The ordered operand slots retain a managed
+reference to each `Use`; the defining `Value::UseList` retains another reference
+only while the user operation is linked into TileIR.
+
+This linkedness rule is part of IR semantics:
+
+- `Operation::remove_self()` first detaches all operand uses and returns a
+  managed ownership handle;
+- insertion restores the parent pointer and reattaches those same `Use`
+  identities;
+- `set_operand` moves one `Use` between value lists in constant time;
+- replace-all-uses walks only the old value's use list, never the module;
+- erasure is legal only when every result has no linked uses, then automatically
+  removes all incoming use-def edges;
+- a detached operation is outside the IR and therefore does not participate in
+  liveness, use counts, verification, or analyses until reinserted.
+
+The verifier checks both relations for every operand: its logical
+`Use::value()` and the physical identity of the `Value::UseList` that owns its
+intrusive link. It also checks ordered parent membership, parent pointers,
+result definitions, unique IDs, and lexical dominance. `IRRewriter` wraps these
+mutations and invalidates cached analyses.
+
+Not every object is intrusive. `Region` and result `Value` have exactly one
+structural owner and never need sibling splicing; immutable types, dimensions,
+layouts, and attributes are shared/interned values. Keeping those simple avoids
+turning TileIR into a general object graph while preserving the operations that
+real transformation passes need.
+
+### Minimal operations
+
+The Candidate semantic core needs only the following operation families:
+
+| Family | Only primitive form |
+|---|---|
+| Control | function, call, return, block argument, branch, conditional, region yield |
+| Structured execution | `parallel`; `serial` as the canonical counted loop; `pipeline` with ordered stage subregions and dependence edges |
+| Aggregation | `reduce` with ordered contribution domain, grouping, state update and resolved fold/tree policy; tree policies also require a compatible merge |
+| Pure values | constant, tuple/aggregate, generic scalar SSA region lifted over dimension identities, reindex, semantic `mma(a, b, c)` |
+| Addressable effects | `view(base, domain, index_map, validity)`, explicit `memory`, load, store, atomic, abstract sync |
+
+This is an operation inventory, not a list of every IR class. Dimensions, layouts,
+anchor/frontier constraints, bindings, reducer laws, source locations, and
+remap proofs are immutable attributes or analysis/proof objects. Frontend Tile
+variables are capture bookkeeping and are promoted immediately to block
+arguments and SSA values. In the proposed region form, `k.stage()` becomes
+pipeline subregion boundaries, not a lasting executable marker. Current capture
+does use `OperationKind::STAGE`; removing it is an IR normalization extension,
+not an implemented fact. `subview`, reshape, transpose, broadcast, slicing,
+padding, and swizzle are constructors for the one view/index-map form, not
+opcodes. `Repartition` is an explicit Scheduled TileIR realization record and
+cost boundary, not Candidate value semantics.
+
+The proposed Machine TileIR adds one parameterized operation form:
+
+~~~text
+atom.call(catalog_id, operands, layout/effect/protocol attributes)
+    -> values and protocol tokens
+~~~
+
+Target MMA instructions, asynchronous transfer, shuffle collective,
+barrier/event, sort network, and tensor-memory instructions are catalog entries
+of that form. The Candidate `mma` operation is not itself one of these catalog
+entries: atom selection replaces it with a target-specific realization only
+after proving type, arithmetic-policy, participant, and operand-layout
+compatibility. Protocol tokens are ordinary SSA results; resource binding and
+capability guards are attributes and verified constraints. A new target
+instruction therefore does not require a new C++ construct, TileIR opcode,
+visitor method, or serializer enum.
+
+The Candidate core deliberately has no dedicated GEMM, convolution, softmax,
+normalization, Top-K, sort, scan, gather, scatter, or copy opcode. Their library
+definitions compose the rows above: `matmul` is zero initialization plus
+`mma`; general einsum is reindex + elementwise multiply + reduce; gather is a
+load whose index map is a value; scatter is an indexed store or atomic; and
+copy is a load/store dataflow edge. Scheduled or Machine TileIR may replace a
+proved subgraph with a registered target atom referenced by a stable ID and
+verified attributes.
+
+### Forms and invariants
+
+The design gives one IR data structure progressively stronger verified forms:
+
+1. **Candidate TileIR**: logical hierarchy and semantic operations; some
+   anchors, frontiers, layouts, bindings, distributions, and realizations may
+   be variables.
+2. **Scheduled TileIR**: execution binding, pipeline schedule, distributions,
+   memory plans, transformed execution structure, and guards are concrete.
+3. **Machine TileIR**: atom calls, explicit realized transfers/synchronization,
+   and addresses are legal for one target.
+
+These are intended verifier states, not three unrelated object models. The
+general Scheduled/Machine verification pipeline is not implemented yet.
+
+### Proposed reduction contract record
+
+The semantic record belongs on the reduction operation, not in a target-name
+switch or transient cost annotation. It contains:
+
+- the contribution domain, grouping and source order;
+- state/element types, the typed update and its operand orientation;
+- incoming seed and, when available, lift/merge and identity;
+- the resolved regrouping/permutation permission and reference fold direction;
+- arithmetic and determinism requirements, including exceptional values;
+- provenance for builtin laws, derived conditions and trusted custom contracts.
+
+Capture resolves an omitted policy to `unordered_tree`; an explicit local
+restriction takes precedence. This order-policy portion is implemented as
+`Operation::reduction_policy()`, separate from bridge-local body matching.
+`IRRewriter::set_reduction_policy` invalidates cached analyses; direct low-level
+mutation still requires the pass to invalidate them explicitly. Tree
+permission admits the registered reducer's changed evaluation order, not a
+different dtype or arbitrary approximation. Exact algebraic laws remain
+distinct from this permission. A default tree update without a compatible
+merge should be diagnosed with the alternative of an explicit strict fold by
+the proposed general contract checker. Today unmatched bodies remain serial;
+only the bounded recognized merge family is admitted to tree lowering.
+
+All bridges consume the same resolved record. Backend options enable candidate
+families; they cannot strengthen the permission. Changing a contract invalidates
+its derived placement, protocol and cost summaries. Stable immutable semantic
+data and revision-keyed analysis side tables keep this distinction transformable,
+without making a serializable attribute the only source of compiler structure.
+
+### Essential analyses
+
+- dominance and post-dominance;
+- liveness across regions and pipeline iterations;
+- memory effects and alias sets;
+- layout-map and correspondence equivalence, image/preimage, and proof obligations;
+- distribution compatibility and repartition cost;
+- reduction grouping, reducer-law, accuracy/order, and placement legality;
+- ordering-contract, logical permutation, Top-K state, and scan legality;
+- execution-prefix ownership and visibility;
+- execution-remap equivalence and prefix-factorization legality;
+- resource pressure and occupancy;
+- dependence distance and modulo scheduling;
+- guard implication and variant coverage.
+
+Analyses live in side tables keyed by stable IR identities. Transform passes do
+not stuff transient conclusions into serialization fields.
+
+## Capture algorithm
+
+Every surface `Tile` declaration owns a staged variable identity. Reading it
+records the current definition; assignment records a new definition. When a
+structured region closes, its builder compares the incoming and outgoing
+definition environments.
+
+For a pipeline or loop it computes two related sets:
+
+~~~text
+loop_carried  = read_before_definition_inside
+              intersect written_inside
+
+region_result = written_inside
+              intersect live_after
+~~~
+
+For an execution nest it also computes:
+
+~~~text
+ancestor_update = written_inside
+                intersect declared_in_ancestor_scope
+
+Assembly : ChildPrefix x ChildFragment -> AncestorLogicalCoord
+~~~
+
+For a reduction region it computes:
+
+~~~text
+reduction_state = written_inside
+                intersect declared_outside_region
+
+next_s = Update_s(incoming_s, reduction_coord, captured_values)
+~~~
+
+Capture first verifies typed reaching definitions, region state flow and the
+pure state-update boundary. Recognition of a merge is a separate obligation:
+tree policies, including the proposed default, need a compatible lift/merge
+under their arithmetic contract. An explicitly selected strict fold can retain
+a pure update without any parallel merge law. Merely reading the incoming
+state does not prove associativity; conversely, an update may ignore it on a
+path without making a strict fold structurally invalid.
+
+Independent states can form a product only with each component's permissions
+preserved; coupled states require a joint contract. Disjoint per-coordinate
+assembly belongs in `parallel`, not an inferred last-writer-wins reduction.
+General ordered effects and observable prefixes remain `serial` or scan
+semantics. This is the target contract, not a claim that current capture
+already implements these algebra and policy checks.
+
+An inner scope may read or write an ancestor Tile. `Assembly` records the
+actual update footprints and joins their payloads; partial coverage retains
+the incoming value at untouched coordinates, and old SSA snapshots remain
+unchanged. Ordinary `parallel` supplies the cross-instance noninterference
+contract, rather than requiring capture to prove it again. Updates within one
+instance retain their local order; overlapping cross-instance updates need an
+explicit supported combiner, not an implicit last writer or inferred replica
+agreement. Mutable Memory effects instead use MemorySSA, alias, and
+synchronization rules. The compiler must validate that its chosen assembly
+implementation preserves these semantics; an inconclusive overlap analysis
+does not itself make the source program invalid. See
+[ancestor access](calculus.md#ancestor-access-is-not-forbidden-by-lexical-nesting)
+for the current capture and IR implementation gaps.
+
+These are control-flow data-flow sets, not textual scans:
+`read_before_definition_inside` means a read not dominated by an in-region
+definition on every reaching path. Nested conditionals and early exits are
+therefore handled by the same definite-assignment analysis.
+
+A recurrence may be loop-carried even when its final value is dead after the
+loop; only `region_result` becomes externally visible SSA. Values read but not
+written are captures, and values written without a prior read need no initial
+operand unless control-flow merging requires one.
+
+The frontend temporarily permits variable reads/writes. The first mandatory
+canonicalization pass promotes them to region arguments and SSA results.
+
+The current straight-line capture uses a temporary forwarding definition for
+each live C++ variable at temporal-region entry. At region exit, a mutated
+variable resolves to its own body argument; an unchanged variable resolves to
+its incoming definition. The forwarding definitions are then removed, so the
+stored TileIR remains SSA without an additional public operation kind:
+
+~~~text
+before loop:  a -> %initial, b -> %initial, snapshot -> %initial
+inside loop:  a -> %a_in,    b -> %b_in,    snapshot -> %initial
+~~~
+
+Sharing an initial definition does not merge variable identities. In
+particular, `auto old_a = a; ...; b = old_a;` yields `%a_in`, not `%initial`.
+The builder installs the yield before resolving forwarding definitions, and
+also rewrites live C++ handles before erasing them. The implementation
+conservatively carries every mutated incoming variable; later liveness and
+canonicalization can eliminate redundant state. CPU and Metal tests cover
+Scalar and Tile snapshots, zero/one/many iterations, and nested pipelines.
+
+The proposed pipeline and nested partial update become conceptually the
+following. This is an update/join design sketch, not currently accepted IR;
+the source's explicit logical slice determines the patch, not an implicit
+hardware lane or a difference between the old and new values:
+
+~~~text
+%acc1 = exec.parallel %subnest_shape init(%acc0) {
+  ^subnest(%subnest_coord, %entry_acc0):
+    %origin = ... explicit logical coordinates from %subnest_coord ...
+    %acc_fragment = tile.slice %entry_acc0, %origin, %patch_shape
+    %next = exec.pipeline range(...) init(%acc_fragment) {
+      ^body(%k0, %acc_in):
+        %a = load ...
+        %b = load ...
+        %updated = tile.mma %a, %b, %acc_in
+        yield %updated
+    }
+    yield.updates result[0] (payload = %next, origin = %origin, ordinal = 0)
+} join_updates(preserve_untouched = %acc0)
+~~~
+
+Every child starts with the same entry snapshot; it does not consume the
+previous child's result. Patch payloads and origins are tracked SSA operands.
+After the region closes, the surface handle `acc` denotes `%acc1`, while prior
+snapshots still denote `%acc0`. A child reading a coordinate it has not itself
+updated reads its entry value, without requiring an explicit `old` alias.
+
+Conditional assignment constructs merge values. A verifier rejects a value
+that is not definitely assigned on every required path, or carries the old
+definition when that is the declared semantics.
+
+## Shared SSA preserves a resource-planning choice
+
+A Tile SSA definition with several consumers is one logical value. That fact
+must survive canonicalization and structural bridge export because erasing it
+by cloning the producer is irreversible. It does **not** mean that the source
+declared an addressable allocation or that every backend must store the value.
+
+For a pure definition `%v = f(...)`, target planning may choose among:
+
+~~~text
+recompute(%v, use)     inline f at selected consumers
+retain(%v)             keep it in distributed registers/fragments
+materialize(%v, R)     assign a compiler-owned resource, layout and lifetime
+~~~
+
+The choices are equivalent only after checking purity, effects, aliasing,
+layout correspondence, active participants and the target arithmetic policy.
+`materialize` additionally needs an ownership map, address map, lifetime,
+capacity proof and legal target access. A later pass may still inline a
+preserved pure definition; it cannot reconstruct sharing that structural
+lowering already destroyed.
+
+```{figure} ../../../_static/tile/shared-tile-planning.svg
+:alt: A shared semantic Tile value remains one SSA definition while target planning chooses recomputation or bounded materialization.
+:width: 100%
+
+Sharing is semantic information. Storage, placement and recomputation are
+target-dependent resource decisions.
+```
+
+The implemented TIRx bridge therefore preserves every pure multi-consumer
+Tile by default. Its `EXPENSIVE_ONLY` mode is an explicit diagnostic/JIT
+candidate that keeps shared transcendentals but recomputes cheap arithmetic.
+The Metal row-program mapper can realize a preserved value as a bounded
+worker-private stripe after proving ownership; LLVM may instead profit from
+recomputation and fusion. Both modes keep the same Candidate TileIR semantics.
+
+This rule also explains why compiler-created materialization is not surfaced
+as `memory<T>(...)`. Manual `Memory` states that stable addressable identity is
+part of the requested schedule. It cannot be silently recomputed and every
+write remains an explicit effect.
+
+## Required verifier invariants
+
+Before backend export, at minimum verify:
+
+1. Every layout composition has matching domain/codomain spaces.
+2. Every `ParallelMap` or temporal child map is total on its active domain,
+   preserves the required parent projection, and has no escaped `ExecScope`
+   handle.
+3. Every pair of nested execution bindings respects the target-scope
+   containment poset and commutes with logical and target ancestor projection;
+   same-scope factorization is capacity- and convergence-safe.
+4. Every semantic operation belongs to an execution region and references
+   existing, ordered prefix cuts.
+5. Every accepted execution remap preserves its active logical domain and
+   factors through all affected anchor, frontier, ownership, and convergence
+   cuts, or carries an explicit equivalent rewrite.
+6. Every operation has `anchor <= frontier`, uses only legal ancestor data,
+   and satisfies the selected atom's participant contract.
+7. Every distributed value covers the required logical domain exactly, unless
+   replication or masking is explicit.
+8. Every ancestor value updated inside a child nest has a typed update/join
+   representation that preserves its footprints, untouched coordinates, old
+   snapshots, and instance-local order. Cross-instance noninterference comes
+   from `parallel`'s contract, or updates use an explicit supported combiner;
+   optional overlap validation is not a mandatory source-level proof.
+9. Every reduction has a total grouping map, a type-correct identity/update/
+   merge contract, counts semantic contributions rather than storage replicas,
+   and uses only reassociations allowed by its policy.
+10. Every sort/selection comparator supplies a deterministic total-order policy
+   for all represented values, including ties, invalid padding, and NaNs; every
+   emitted permutation is total and single-valued on its active domain.
+11. Every Memory resource constraint resolves to a target class whose instance
+   topology and explicit access relation are compatible with its lexical owner,
+   all bound accessing execution scopes, and the performed operations.
+12. Every memory access resolves to one legal resource instance, allocation
+   slice, and in-range address under its predicate.
+13. Descendants access ancestor-owned memory only through valid visibility and
+   synchronization rules.
+14. Explicit pipeline cursor calls form unconditional top-level segment cuts
+   with unique optional names; dependences respect issue time, iteration
+   distance, and synchronization scope.
+15. Ring-buffer versions cannot alias while simultaneously live.
+16. Atom operand layouts match the selected atom contract or an explicit
+   repartition is present.
+17. Specialization guards imply all static shape, alignment, and capability
+   assumptions.
+18. Every candidate family has a legal fallback or explicitly rejects the
+   unsupported input region.

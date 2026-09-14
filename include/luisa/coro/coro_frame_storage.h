@@ -8,11 +8,15 @@
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/shared.h>
+#include <luisa/dsl/stmt.h>
 #include <luisa/runtime/byte_buffer.h>
 
 #include <limits>
 
 namespace luisa::compute::coro {
+
+inline constexpr luisa::string_view coro_frame_raw_access_comment =
+    "luisa.coro.frame.raw";
 
 struct CoroFrameStorageLayout {
     luisa::vector<size_t> field_offsets;
@@ -130,6 +134,13 @@ struct CoroFrameStorageLayout {
         return layout;
     }
 };
+
+inline void coro_frame_mark_raw_access(
+    const CoroFrameStorageLayout &layout) noexcept {
+    if (layout.size_bytes <= std::numeric_limits<uint>::max()) {
+        luisa::compute::detail::comment(coro_frame_raw_access_comment);
+    }
+}
 
 [[nodiscard]] inline auto coro_frame_is_active_field(
     size_t index, luisa::optional<luisa::span<const size_t>> active_fields,
@@ -494,9 +505,11 @@ inline void coro_frame_store_aos(
                 include_reserved_fields)) { continue; }
         auto *type = frame.desc()->frame_field_type(field_index);
         auto *member = fb->member(type, frame.expression(), field_index);
+        auto offset = def(base + static_cast<uint>(layout.field_offsets[field_index]));
+        coro_frame_mark_raw_access(layout);
         fb->call(is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE : CallOp::BYTE_BUFFER_WRITE,
                  {buffer.expression(),
-                  luisa::compute::detail::extract_expression(base + static_cast<uint>(layout.field_offsets[field_index])),
+                  luisa::compute::detail::extract_expression(offset),
                   member});
     }
 }
@@ -515,9 +528,11 @@ inline void coro_frame_load_aos_into(
                 field_index, active_fields,
                 include_reserved_fields)) { continue; }
         auto *type = frame.desc()->frame_field_type(field_index);
+        auto offset = def(base + static_cast<uint>(layout.field_offsets[field_index]));
+        coro_frame_mark_raw_access(layout);
         auto *value = fb->call(type, is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ : CallOp::BYTE_BUFFER_READ,
                                {buffer.expression(),
-                                luisa::compute::detail::extract_expression(base + static_cast<uint>(layout.field_offsets[field_index]))});
+                                luisa::compute::detail::extract_expression(offset)});
         auto *member = fb->member(type, frame.expression(), field_index);
         fb->assign(member, value);
     }
@@ -547,10 +562,11 @@ inline void coro_frame_store_soa(
         if (!coro_frame_is_active_field(
                 field_index, active_fields,
                 include_reserved_fields)) { continue; }
-        auto offset = static_cast<uint>(layout.field_offsets[field_index]) +
-                      frame_index * static_cast<uint>(layout.field_strides[field_index]);
+        auto offset = def(static_cast<uint>(layout.field_offsets[field_index]) +
+                          frame_index * static_cast<uint>(layout.field_strides[field_index]));
         auto *type = frame.desc()->frame_field_type(field_index);
         auto *member = fb->member(type, frame.expression(), field_index);
+        coro_frame_mark_raw_access(layout);
         fb->call(is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE : CallOp::BYTE_BUFFER_WRITE,
                  {buffer.expression(), luisa::compute::detail::extract_expression(offset), member});
     }
@@ -568,9 +584,10 @@ inline void coro_frame_load_soa_into(
         if (!coro_frame_is_active_field(
                 field_index, active_fields,
                 include_reserved_fields)) { continue; }
-        auto offset = static_cast<uint>(layout.field_offsets[field_index]) +
-                      frame_index * static_cast<uint>(layout.field_strides[field_index]);
+        auto offset = def(static_cast<uint>(layout.field_offsets[field_index]) +
+                          frame_index * static_cast<uint>(layout.field_strides[field_index]));
         auto *type = frame.desc()->frame_field_type(field_index);
+        coro_frame_mark_raw_access(layout);
         auto *value = fb->call(type, is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ : CallOp::BYTE_BUFFER_READ,
                                {buffer.expression(), luisa::compute::detail::extract_expression(offset)});
         auto *member = fb->member(type, frame.expression(), field_index);
@@ -626,18 +643,22 @@ inline void coro_frame_copy_fields(
         auto *type = desc->frame_field_type(field_index);
         auto copy_at_offsets = [&](auto source_offset,
                                    auto destination_offset) noexcept {
+            auto source_byte_offset = def(source_offset);
+            auto destination_byte_offset = def(destination_offset);
+            coro_frame_mark_raw_access(layout);
             auto *value = fb->call(
                 type,
                 is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
                               CallOp::BYTE_BUFFER_READ,
                 {buffer.expression(),
-                 luisa::compute::detail::extract_expression(source_offset)});
+                 luisa::compute::detail::extract_expression(source_byte_offset)});
+            coro_frame_mark_raw_access(layout);
             fb->call(
                 is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
                               CallOp::BYTE_BUFFER_WRITE,
                 {buffer.expression(),
                  luisa::compute::detail::extract_expression(
-                     destination_offset),
+                     destination_byte_offset),
                  value});
         };
         if (soa) {
@@ -671,10 +692,11 @@ inline void coro_frame_store_runtime_soa(
         if (!coro_frame_is_active_field(
                 field_index, active_fields,
                 include_reserved_fields)) { continue; }
-        auto offset = coro_frame_runtime_soa_offset(
-            frame_index, capacity, layout, field_index);
+        auto offset = def(coro_frame_runtime_soa_offset(
+            frame_index, capacity, layout, field_index));
         auto *type = frame.desc()->frame_field_type(field_index);
         auto *member = fb->member(type, frame.expression(), field_index);
+        coro_frame_mark_raw_access(layout);
         fb->call(is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
                                CallOp::BYTE_BUFFER_WRITE,
                  {buffer.expression(),
@@ -695,9 +717,10 @@ inline void coro_frame_load_runtime_soa_into(
         if (!coro_frame_is_active_field(
                 field_index, active_fields,
                 include_reserved_fields)) { continue; }
-        auto offset = coro_frame_runtime_soa_offset(
-            frame_index, capacity, layout, field_index);
+        auto offset = def(coro_frame_runtime_soa_offset(
+            frame_index, capacity, layout, field_index));
         auto *type = frame.desc()->frame_field_type(field_index);
+        coro_frame_mark_raw_access(layout);
         auto *value = fb->call(
             type,
             is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
@@ -839,6 +862,7 @@ template<typename T>
     const CoroFrameStorageLayout &layout, bool soa, size_t field_index) noexcept {
     auto offset = def(static_cast<uint>(layout.field_offsets[field_index]));
     offset += frame_index * static_cast<uint>(soa ? layout.field_strides[field_index] : layout.frame_stride);
+    coro_frame_mark_raw_access(layout);
     return buffer.template read<T>(offset);
 }
 
@@ -848,6 +872,7 @@ inline void coro_frame_write_field(
     const CoroFrameStorageLayout &layout, bool soa, size_t field_index, V &&value) noexcept {
     auto offset = def(static_cast<uint>(layout.field_offsets[field_index]));
     offset += frame_index * static_cast<uint>(soa ? layout.field_strides[field_index] : layout.frame_stride);
+    coro_frame_mark_raw_access(layout);
     buffer.write(offset, std::forward<V>(value));
 }
 
@@ -857,8 +882,9 @@ template<typename T>
     Expr<uint> soa_capacity, const CoroFrameStorageLayout &layout,
     bool soa, size_t field_index) noexcept {
     if (soa) {
-        auto offset = coro_frame_runtime_soa_offset(
-            frame_index, soa_capacity, layout, field_index);
+        auto offset = def(coro_frame_runtime_soa_offset(
+            frame_index, soa_capacity, layout, field_index));
+        coro_frame_mark_raw_access(layout);
         return buffer.template read<T>(offset);
     }
     return coro_frame_read_field<T>(
@@ -871,8 +897,9 @@ inline void coro_frame_write_field(
     Expr<uint> soa_capacity, const CoroFrameStorageLayout &layout,
     bool soa, size_t field_index, V &&value) noexcept {
     if (soa) {
-        auto offset = coro_frame_runtime_soa_offset(
-            frame_index, soa_capacity, layout, field_index);
+        auto offset = def(coro_frame_runtime_soa_offset(
+            frame_index, soa_capacity, layout, field_index));
+        coro_frame_mark_raw_access(layout);
         buffer.write(offset, std::forward<V>(value));
     } else {
         coro_frame_write_field(

@@ -1,0 +1,64 @@
+
+Running test "tile_matrix_direct_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.
+Running test "tile_matrix_direct_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [1536 == 0]
+
+
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [1536 == 0]FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2041 - test condition:  [false == true]
+
+ 37 x 37 x 21  offset= 1 , 3
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [1536 == 0]FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2041 - test condition:  [false == true] 37 x 37 x 21  offset= 1 , 3FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [1536 == 0]FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2041 - test condition:  [false == true] 37 x 37 x 21  offset= 1 , 3FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost boundsFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [1536 == 0]FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2041 - test condition:  [false == true] 37 x 37 x 21  offset= 1 , 3FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] Check failed: (!op->predicate.has_value()) is false: Predicated buffer store is not supported.FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2055 - test condition:  [2048 == 0]
+
+
+===============================================================================
+Suite global
+tests:   32 | 9 failed
+asserts: 3579 | 30 passed | 9 failed
+

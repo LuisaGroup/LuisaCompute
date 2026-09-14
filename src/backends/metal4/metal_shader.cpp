@@ -239,6 +239,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             static_cast<size_t>(argument_alignment));
 
         auto root_argument_address = stage_argument_block(argument_size);
+        encoder.note_timing_indirect_dispatch();
 
         // update indirect command buffer
         {
@@ -342,9 +343,11 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             compute_encoder->setArgumentTable(table);
             auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
             auto blocks = (dispatch_size + block_size - 1u) / block_size;
+            auto timing_ordinal = encoder.begin_dispatch_timing(compute_encoder, _source_checksum, dispatch_size, block_size);
             compute_encoder->dispatchThreadgroups(
                 MTL::Size{blocks.x, blocks.y, blocks.z},
                 MTL::Size{block_size.x, block_size.y, block_size.z});
+            encoder.end_dispatch_timing(compute_encoder, timing_ordinal);
             compute_encoder->endEncoding();
         }
     }

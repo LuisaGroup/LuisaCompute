@@ -1,0 +1,153 @@
+{
+  "assessment": "Share with caveats: fixed opt-in native entries; 12 winning and 12 losing cases; no new compiler optimization.",
+  "audience": "technical",
+  "surface": "existing repository Sphinx docs, as requested",
+  "structure": "current results; exact metric and ABI; numerical contracts; generated-code observations; generic candidate priorities; evidence and limits",
+  "visual_choice": "Exact comparison tables: six operator ranges in Sphinx, all 24 shapes/paired ranges in the linked table; no misleading cross-size absolute-time chart.",
+  "caveats": [
+    "fixed mappings, not calibrated planner choices",
+    "native callbacks/traversal/internal allocations remain timed",
+    "different variance/reduction/math implementations",
+    "finite deterministic inputs, not a complete numerical stress suite",
+    "six orders are descriptive, not confidence intervals",
+    "no new Metal/MPS/GEMM/attention or E2E measurements"
+  ],
+  "compiler_tests": "No compiler source changes. Full build before capture recorded in build-capture-prepare-logs.json.gz. Predecessor CTest is not relabeled as a new run.",
+  "data_validation": "audit.json: 48 capture and 72 unique native outputs re-read; 432 visits recalculated; nine invalid evidence mutations rejected.",
+  "incomplete_handoff_blockers": [],
+  "commands": [
+    {
+      "name": "python-tests",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "numpy",
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/benchmark/tile_torch",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.16419399995356798,
+      "warning_lines": 0
+    },
+    {
+      "name": "cpp-syntax",
+      "command": [
+        "clang++",
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-fsyntax-only",
+        "-Isrc",
+        "scripts/benchmark/tile_torch/native_rows_replay.cpp"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5422934590606019,
+      "warning_lines": 0
+    },
+    {
+      "name": "cpp-format",
+      "command": [
+        "clang-format",
+        "--dry-run",
+        "--Werror",
+        "scripts/benchmark/tile_torch/native_rows_replay.cpp"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.0329617919633165,
+      "warning_lines": 0
+    },
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 18.08592633297667,
+      "warning_lines": 15093
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-native-rows.LuX3yX/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 57.5210896669887,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-native-rows.LuX3yX/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5715294160181656,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/qa_docs.cjs",
+        "/tmp/luisa-native-rows.LuX3yX/docs-html-final",
+        "/tmp/luisa-native-rows.LuX3yX/docs-visual-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.651539416052401,
+      "warning_lines": 0
+    }
+  ],
+  "source_sha256": {
+    "docs/source/performance/tile/results.md": "5d448b30fe05d66878948823e386a3dbf7ac01c0a331120cbca081ffa61385a4",
+    "docs/source/performance/tile/index.md": "f872933c90f6ed4f93ee8c037872b5a611fd0d45bcbb32e1a9e5b48a8ccc4f05",
+    "scripts/benchmark/tile_torch/README.md": "d71ec5b9bd03cc6d7fff4b3cb9efea203e5eb1a938f682e05823e31352a0d868",
+    "scripts/benchmark/tile_torch/native_rows.py": "1d2b2b4f8a484314e688779324d418281932520e86c6c9c69b85d5daa1198634",
+    "scripts/benchmark/tile_torch/native_rows_replay.cpp": "45a80a4dabac7ba79b611d9360d21cf77956527c94d9ca507424284d17ea0792",
+    "scripts/benchmark/tile_torch/test_native_rows.py": "551bbce5f8007a828fb01d4d2221d8091dcbe290eb452e4b5889a3dd055a4b20",
+    "scripts/benchmark/tile_torch/audit_native_rows.py": "cc3b92a04b6135ac3cf26e08702aa4f2eb07306708be925b4aa0b3facf543b40"
+  },
+  "complete": true
+}

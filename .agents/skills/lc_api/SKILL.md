@@ -2128,6 +2128,15 @@ LUISA_WARNING_WITH_LOCATION("deprecated: {}", api);
 
 Format: `{}` (default), `{:x}` (hex), `{:b}` (binary), `{:e}` (scientific), `{:.2f}` (fixed precision).
 
+### Error Handling: No C++ Exceptions
+
+`LUISA_ERROR("...")` (and `LUISA_ERROR_WITH_LOCATION`) logs a fatal message and **aborts** the process — it is the project's error signal, not something you recover from.
+
+- **Never use `try`/`catch`/`throw`.** The whole codebase compiles with C++ exceptions **disabled** (MSVC `_HAS_EXCEPTIONS=0` + `/EHs-c-`, GCC/Clang `-fno-exceptions`) and virtually every public API is `noexcept`. A `try` block fails to compile (`error: cannot use 'try' with exceptions disabled`) and a `catch` can never fire, so exception-based control flow is dead by construction.
+- **Signal failure with return values, not exceptions.** A `noexcept` `[[nodiscard]]` factory (device/stream/resource/`Shader`) reports "couldn't create" by returning an **invalid handle** — test it with `operator bool` (`if (!device) LUISA_ERROR(...)`); check `Shader::compile_ok()` for a compile that failed to recover from. Prefer `std::optional`/invalid objects / an out status over throwing.
+- **Fatal vs. recoverable.** Use `LUISA_ERROR` only for unrecoverable/programming errors (it aborts). For an expected, skippable failure inside a loop, log `LUISA_WARNING` and continue; never wrap it in `try`/`catch`.
+- **Isolated need for exceptions** (rare — e.g. a throwing STL call or a third-party/test framework that requires them): enable it on the *specific build target* via `enable_exception = true`, or keep it compiling under the global no-exceptions default by guarding with `#if defined(__cpp_exceptions)` (throw in the `#if`, `LUISA_ERROR`/abort in the `#else`). Do **not** rely on catching a throw in normal project code.
+
 ### Mathematics
 
 **Header**: `<luisa/core/mathematics.h>`

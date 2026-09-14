@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "started": 1789321853.419957,
+  "finished": 1789321856.91653,
+  "archive": {
+    "bytes": 4707272,
+    "sha256": "3615cd2f08cd5be2733f62789f5c1040f426882feac9bfd345f0577799a74cbd"
+  },
+  "members": 1007,
+  "raw_members": 799,
+  "tensor_members": 192,
+  "overlay_files": 10,
+  "full_readback_verified": true,
+  "raw_unchanged": true
+}

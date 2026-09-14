@@ -98,6 +98,30 @@ public:
     }
 };
 
+class ProjectedCoroSuspendExtension final : public CoroSuspendExtension {
+    CoroSuspendExtensionPtr _logical;
+    luisa::vector<CoroSuspendBinding> _bindings;
+    luisa::vector<CoroSuspendBindingProjection> _projections;
+public:
+    ProjectedCoroSuspendExtension(CoroSuspendExtensionPtr logical,
+                                  luisa::vector<CoroSuspendBinding> bindings,
+                                  luisa::vector<CoroSuspendBindingProjection> projections) noexcept
+        : _logical{std::move(logical)}, _bindings{std::move(bindings)},
+          _projections{std::move(projections)} {}
+    luisa::string_view schema() const noexcept override { return _logical->schema(); }
+    uint32_t version() const noexcept override { return _logical->version(); }
+    bool is_annotation() const noexcept override { return _logical->is_annotation(); }
+    CoroSuspendFallback fallback() const noexcept override { return _logical->fallback(); }
+    luisa::span<const CoroSuspendBinding> bindings() const noexcept override { return _bindings; }
+    luisa::span<const CoroSuspendAttribute> attributes() const noexcept override { return _logical->attributes(); }
+    luisa::span<const CoroSuspendBindingProjection> binding_projections() const noexcept override { return _projections; }
+    CoroSuspendExtensionPtr clone_logical() const noexcept override { return _logical->clone(); }
+    CoroSuspendExtensionPtr clone() const noexcept override {
+        return luisa::make_unique<ProjectedCoroSuspendExtension>(_logical->clone(), _bindings, _projections);
+    }
+    CoroSuspendExtensionPtr freeze(CoroSuspendExtensionRecorder &) && noexcept override { return clone(); }
+};
+
 }// namespace
 
 [[nodiscard]] CoroSuspendExtensionPtr make_coro_suspend_extension_data(
@@ -122,4 +146,9 @@ public:
         std::move(bindings), std::move(attributes));
 }
 
+CoroSuspendExtensionPtr make_coro_suspend_projected_extension(
+    CoroSuspendExtensionPtr logical, luisa::vector<CoroSuspendBinding> bindings,
+    luisa::vector<CoroSuspendBindingProjection> projections) noexcept {
+    return luisa::make_unique<ProjectedCoroSuspendExtension>(std::move(logical), std::move(bindings), std::move(projections));
+}
 }// namespace luisa::compute

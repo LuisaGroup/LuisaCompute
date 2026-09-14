@@ -1,0 +1,87 @@
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- macOS deployment target: 13
+-- Could not find sccache
+-- Configuring LuisaCompute 0.10.0...
+-- Build for Darwin-25.6.0 (arm64)
+-- Build spdlog: 1.17.0
+-- Build type: RelWithDebInfo
+-- Build with Metal backend
+-- Build with Metal 4 AIR backend
+-- Removed redundant Apple SDK include directory from LLVM's ZLIB dependency
+-- Building with -fPIC
+CMake Warning (policy) at /opt/homebrew/opt/llvm@22/lib/cmake/llvm/HandleLLVMOptions.cmake:926 (CHECK_C_SOURCE_COMPILES):
+  Policy CMP0219 is not set: Macro invocations preserve backslashes in
+  arguments.  Run "cmake --help-policy CMP0219" for policy details.  Use the
+  cmake_policy command to set the policy and suppress this warning.
+
+  Command "CHECK_C_SOURCE_COMPILES" called with arguments containing
+  backslashes.
+
+  Since the policy is not set, backslashes in the arguments:
+
+   "// \\\n//\nint main(void) {return 0;}"
+
+  will be interpreted as escape sequences for compatibility.
+
+  Set the policy to NEW to instead pass
+
+   "// \\\\\\n//\\nint main(void) {return 0;}"
+
+  so that argument parsing will preserve the original values.
+Call Stack (most recent call first):
+  src/backends/common/CMakeLists.txt:182 (include)
+  src/backends/metal4/CMakeLists.txt:173 (luisa_compute_link_llvm_into_backend)
+This warning is for project developers.  Use -Wno-author or -Wno-policy to
+suppress it.
+
+-- Linking LLVM to target luisa-compute-metal4-air-codegen with components: core;support;bitreader;bitwriter;irreader;linker;passes;analysis;transformutils;ipo;scalaropts;instcombine;vectorize
+-- Linking with LLVM libraries: LLVMCore;LLVMSupport;LLVMBitReader;LLVMBitWriter;LLVMIRReader;LLVMLinker;LLVMPasses;LLVMAnalysis;LLVMTransformUtils;LLVMipo;LLVMScalarOpts;LLVMInstCombine;LLVMVectorize
+-- Build SIMD CPU codegen core with LLVM 22.1.8
+-- Building tests
+-- Configuring done (0.4s)
+-- Generating done (0.4s)
+-- Build files have been written to: /tmp/luisa-next-integration.roZbN8/build
+[0/4] Re-checking globbed directories...
+[1/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o
+FAILED: [code=1] src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o 
+/usr/bin/c++ -DFMT_EXCEPTIONS=0 -DFMT_HEADER_ONLY=1 -DFMT_USE_CONSTEVAL=0 -DFMT_USE_NOEXCEPT=1 -DGLSLANG_IS_SHARED_LIBRARY=1 -DLUISA_ENABLE_DSL=1 -DLUISA_PLATFORM_APPLE=1 -DLUISA_PLATFORM_UNIX=1 -DLUISA_TILE_HAS_ACCELERATE=1 -DLUISA_TILE_TIRX_BRIDGE_EXPORT_DLL=1 -DLUISA_USE_SYSTEM_STL=1 -DMARL_DLL=1 -DMARL_USE_SYSTEM_STL=1 -DREPROCXX_SHARED -DREPROC_SHARED -DSPDLOG_DISABLE_DEFAULT_LOGGER -DSPDLOG_NO_EXCEPTIONS -DSPDLOG_NO_THREAD_ID -DXXH_INLINE_ALL -DYYJSON_IMPORTS=1 -Dluisa_compute_tile_bridge_tirx_EXPORTS -I/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/include -I/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include -I/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/3rdparty/dlpack/include -I/tmp/luisa-next-integration.roZbN8/source/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/BTree/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/spdlog/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/xxHash -I/tmp/luisa-next-integration.roZbN8/source/src/ext/magic_enum/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/reproc/reproc/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/reproc/reproc++/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/marl/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/half/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/stb -I/tmp/luisa-next-integration.roZbN8/source/src/ext/glslang/glslang/.. -I/tmp/luisa-next-integration.roZbN8/build/include -I/tmp/luisa-next-integration.roZbN8/source/src/ext/yyjson/src -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks -O2 -g -DNDEBUG -std=c++20 -arch arm64 -mmacosx-version-min=13 -fPIC -fvisibility=hidden -Wno-invalid-specialization -Wno-deprecated-literal-operator -Wno-elaborated-enum-base -MD -MT src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o -MF src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o.d -o src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o -c /tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/compiler.cpp
+/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/compiler.cpp:815:185: error: no matching constructor for initialization of 'tvm::ffi::Module'
+  815 |                 return diagnostic.reject("ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension", tvm::ffi::Module{});
+      |                                                                                                                                                                                         ^               ~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/extra/module.h:255:12: note: candidate constructor not viable: requires single argument 'ptr', but no arguments were provided
+  255 |   explicit Module(const ObjectPtr<ModuleObj>& ptr) : ObjectRef(ptr) {
+      |            ^      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/extra/module.h:274:49: note: candidate constructor not viable: requires single argument 'tag', but no arguments were provided
+  274 |   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Module, ObjectRef, ModuleObj);
+      |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/object.h:1161:12: note: expanded from macro 'TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE'
+ 1161 |   explicit TypeName(::tvm::ffi::UnsafeInit tag) : ParentType(tag) {}                         \
+      |            ^        ~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/extra/module.h:274:49: note: candidate constructor not viable: requires single argument 'other', but no arguments were provided
+  274 |   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Module, ObjectRef, ModuleObj);
+      |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/object.h:1162:47: note: expanded from macro 'TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE'
+ 1162 |   TVM_FFI_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN(TypeName)                                      \
+      |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/base_details.h:191:3: note: expanded from macro 'TVM_FFI_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN'
+  191 |   TypeName(const TypeName& other) = default;            /* NOLINT(bugprone-macro-parentheses) */ \
+      |   ^        ~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/extra/module.h:274:49: note: candidate constructor not viable: requires single argument 'other', but no arguments were provided
+  274 |   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Module, ObjectRef, ModuleObj);
+      |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/object.h:1162:47: note: expanded from macro 'TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE'
+ 1162 |   TVM_FFI_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN(TypeName)                                      \
+      |   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include/tvm/ffi/base_details.h:192:3: note: expanded from macro 'TVM_FFI_DEFINE_DEFAULT_COPY_MOVE_AND_ASSIGN'
+  192 |   TypeName(TypeName&& other) noexcept = default;        /* NOLINT(bugprone-macro-parentheses) */ \
+      |   ^        ~~~~~~~~~~~~~~~~
+1 error generated.
+[2/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/layout.cpp.o
+[3/510] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_cfg_dataflow.cpp.o
+[4/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/matrix.cpp.o
+[5/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/execution.cpp.o
+[6/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/lower.cpp.o
+[7/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cpu.cpp.o
+[8/510] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cooperative.cpp.o
+ninja: build stopped: subcommand failed.

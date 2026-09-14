@@ -78,6 +78,7 @@ void HIPStream::_spawn_callback_thread() noexcept {
             for (auto &&callback : package.callbacks) { callback->recycle(); }
             // signal the event that the callbacks have finished
             _finished_ticket.store(package.ticket, std::memory_order_release);
+            _finished_ticket.notify_all();
         }
     }};
 }
@@ -299,14 +300,15 @@ void HIPStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
     _notify_hiprt_build_completed_after_synchronize();
-    auto wait_iterations = 0u;
-    constexpr auto max_wait_iterations_before_yield = 1024u;
-    for (;;) {// TODO: is spinning good enough?
-        if (_finished_ticket.load(std::memory_order_acquire) >= ticket) { break; }
-        if (++wait_iterations >= max_wait_iterations_before_yield) {
-            wait_iterations = 0u;
-            std::this_thread::yield();
-        }
+    // HIP has already drained the device stream. The remaining wait is only
+    // for the callback thread to recycle host-side command resources and
+    // publish the completion ticket. Waiting on that atomic avoids occupying
+    // a CPU core while a callback package is being retired; the callback
+    // thread calls notify_all() immediately after publishing the ticket.
+    for (;;) {
+        auto finished = _finished_ticket.load(std::memory_order_acquire);
+        if (finished >= ticket) { break; }
+        _finished_ticket.wait(finished, std::memory_order_acquire);
     }
 }
 

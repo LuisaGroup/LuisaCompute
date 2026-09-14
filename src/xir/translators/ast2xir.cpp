@@ -416,19 +416,76 @@ private:
                          "Custom function argument count mismatch.");
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
+            struct SwizzleReference {
+                Value *base;
+                Value *temporary;
+                luisa::fixed_vector<Value *, 4u> indices;
+            };
+            luisa::fixed_vector<SwizzleReference, 4u> writebacks;
             auto formal = f->arguments().begin();
+            auto argument_index = 0u;
             for (auto ast_arg : ast_args) {
                 // Opaque/custom AST arguments may use a resource-shaped AST
                 // variable (for example IndirectDispatchBuffer) while XIR
                 // deliberately represents them as reference arguments. The
                 // XIR callee ABI is therefore the authoritative load/lvalue
                 // boundary, just as it is for external calls above.
-                auto arg = _translate_expression(
-                    b, ast_arg, !(*formal)->is_reference());
+                Value *arg = nullptr;
+                if ((*formal)->is_reference() && ast_arg->tag() == Expression::Tag::MEMBER &&
+                    static_cast<const MemberExpr *>(ast_arg)->is_swizzle() &&
+                    static_cast<const MemberExpr *>(ast_arg)->swizzle_size() > 1u) {
+                    // A multi-component swizzle is a value, not an addressable
+                    // subobject. Materialize the callable's copy-in/copy-out
+                    // reference and capture its base (including dynamic access
+                    // indices) exactly once. Compose nested swizzles first.
+                    auto member = static_cast<const MemberExpr *>(ast_arg);
+                    luisa::fixed_vector<uint32_t, 4u> component_indices;
+                    for (auto i = 0u; i < member->swizzle_size(); i++) {
+                        component_indices.emplace_back(member->swizzle_index(i));
+                    }
+                    auto self = member->self();
+                    while (self->tag() == Expression::Tag::MEMBER) {
+                        auto parent = static_cast<const MemberExpr *>(self);
+                        if (!parent->is_swizzle()) { break; }
+                        for (auto &index : component_indices) { index = parent->swizzle_index(index); }
+                        self = parent->self();
+                    }
+                    auto base = _translate_expression(b, self, false);
+                    LUISA_ASSERT(base->is_lvalue(), "Callable swizzle reference requires an lvalue base.");
+                    luisa::fixed_vector<Value *, 4u> indices;
+                    luisa::fixed_vector<Value *, 5u> gather;
+                    gather.emplace_back(b.load(base->type(), base));
+                    for (auto index : component_indices) {
+                        auto value = _translate_constant_access_index(index);
+                        indices.emplace_back(value);
+                        gather.emplace_back(value);
+                    }
+                    arg = b.alloca_local(ast_arg->type());
+                    b.store(arg, b.call(ast_arg->type(), ArithmeticOp::SHUFFLE, gather));
+                    auto usage = ast.variable_usage(ast.arguments()[argument_index].uid());
+                    if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u) {
+                        writebacks.emplace_back(SwizzleReference{base, arg, std::move(indices)});
+                    }
+                } else {
+                    arg = _translate_expression(b, ast_arg, !(*formal)->is_reference());
+                }
                 args.emplace_back(arg);
                 ++formal;
+                ++argument_index;
             }
-            return b.call(f->type(), f, args);
+            auto result = b.call(f->type(), f, args);
+            for (auto &&writeback : writebacks) {
+                auto value = b.load(writeback.temporary->type(), writeback.temporary);
+                auto element_type = value->type()->element();
+                for (auto i = 0u; i < writeback.indices.size(); i++) {
+                    auto element = b.call(element_type, ArithmeticOp::EXTRACT,
+                                          {value, _translate_constant_access_index(i)});
+                    b.store(b.gep(element_type, writeback.base, {writeback.indices[i]}), element);
+                }
+            }
+            // Complete copy-out before the caller consumes the result, e.g.
+            // an assignment to a component overlapping the swizzle argument.
+            return result;
         }
         auto ast_op = expr->op();
         auto bindless_access = BindlessResourceAccess{
@@ -471,6 +528,34 @@ private:
                           std::is_same_v<ResourceOp, ResourceReadOp> ||
                           std::is_same_v<ResourceOp, ResourceWriteOp>);
             LUISA_ASSERT(!expr->arguments().empty(), "Resource call requires at least one argument.");
+            // Coroutine frame accesses are marked by a pending AST comment
+            // emitted immediately before the ByteBuffer expression. Consume
+            // it before translating arguments, so a nested ordinary buffer read
+            // cannot consume the marker belonging to the outer frame write.
+            constexpr luisa::string_view frame_raw_comment =
+                "luisa.coro.frame.raw";
+            auto consume_frame_raw_comment = [&]() noexcept {
+                for (auto iter = _current.comments.begin();
+                     iter != _current.comments.end(); ++iter) {
+                    if ((*iter)->comment() == frame_raw_comment) {
+                        _current.comments.erase(iter);
+                        return true;
+                    }
+                }
+                return false;
+            };
+            auto frame_byte_access = [&]() noexcept {
+                if constexpr (std::is_same_v<ResourceOp, ResourceReadOp>) {
+                    return target_op == ResourceReadOp::BYTE_BUFFER_READ ||
+                           target_op == ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
+                } else if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
+                    return target_op == ResourceWriteOp::BYTE_BUFFER_WRITE ||
+                           target_op == ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
+                } else {
+                    return false;
+                }
+            }();
+            auto frame_raw = frame_byte_access && consume_frame_raw_comment();
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
             auto base = _translate_expression(b, expr->arguments()[0], false);
@@ -484,11 +569,16 @@ private:
                 }
                 args.emplace_back(arg);
             }
+            auto mark_if_frame_raw = [frame_raw, frame_raw_comment](auto *inst) noexcept {
+                if (frame_raw) { inst->add_comment(frame_raw_comment); }
+                return inst;
+            };
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
-                return b.call(target_op, args, bindless_access);
+                return mark_if_frame_raw(
+                    b.call(target_op, args, bindless_access));
             } else {
-                return b.call(
-                    expr->type(), target_op, args, bindless_access);
+                return mark_if_frame_raw(b.call(
+                    expr->type(), target_op, args, bindless_access));
             }
         };
         auto rq_call = [&]<typename T>(T target_op) noexcept {
@@ -1083,57 +1173,6 @@ private:
             case CallOp::COOPERATIVE_VECTOR_EQUAL:
             case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
                 return _translate_cooperative_call(b, expr);
-            // Runtime tensor operators (plan.md §1.4): these ops carry raw
-            // device addresses plus host-side descriptor constants and are
-            // implemented directly by each backend's AST codegen (CUDA first).
-            // They have no XIR representation yet, so the experimental XIR
-            // pipeline rejects them loudly here instead of silently miscompiling.
-            case CallOp::TENSOR_COPY:
-            case CallOp::TENSOR_FILL:
-            case CallOp::TENSOR_CAST:
-            case CallOp::TENSOR_PERMUTE:
-            case CallOp::TENSOR_CONCAT:
-            case CallOp::TENSOR_PAD:
-            case CallOp::TENSOR_NEG:
-            case CallOp::TENSOR_ABS:
-            case CallOp::TENSOR_EXP:
-            case CallOp::TENSOR_LOG:
-            case CallOp::TENSOR_SQRT:
-            case CallOp::TENSOR_RSQRT:
-            case CallOp::TENSOR_SIN:
-            case CallOp::TENSOR_COS:
-            case CallOp::TENSOR_TAN:
-            case CallOp::TENSOR_TANH:
-            case CallOp::TENSOR_SIGMOID:
-            case CallOp::TENSOR_GELU:
-            case CallOp::TENSOR_RELU:
-            case CallOp::TENSOR_LEAKY_RELU:
-            case CallOp::TENSOR_ERF:
-            case CallOp::TENSOR_CEIL:
-            case CallOp::TENSOR_FLOOR:
-            case CallOp::TENSOR_ROUND:
-            case CallOp::TENSOR_ISNAN:
-            case CallOp::TENSOR_ISINF:
-            case CallOp::TENSOR_ADD:
-            case CallOp::TENSOR_SUB:
-            case CallOp::TENSOR_MUL:
-            case CallOp::TENSOR_DIV:
-            case CallOp::TENSOR_POW:
-            case CallOp::TENSOR_MIN:
-            case CallOp::TENSOR_MAX:
-            case CallOp::TENSOR_CLAMP:
-            case CallOp::TENSOR_FMA:
-            case CallOp::TENSOR_REDUCE_SUM:
-            case CallOp::TENSOR_REDUCE_MAX:
-            case CallOp::TENSOR_REDUCE_MIN:
-            case CallOp::TENSOR_CUMSUM:
-            case CallOp::TENSOR_MATMUL:
-            case CallOp::TENSOR_CONTRACT:
-            case CallOp::TENSOR_BATCH_MATMUL:
-                LUISA_NOT_IMPLEMENTED(
-                    "AST tensor operator {} is not representable in XIR yet; "
-                    "use the AST codegen path (disable the experimental XIR codegen).",
-                    luisa::to_string(ast_op));
             case CallOp::ASYNC_COPY:
                 LUISA_NOT_IMPLEMENTED(
                     "AST ASYNC_COPY cannot be represented faithfully in XIR: the AST API models "
@@ -1443,11 +1482,13 @@ private:
 
     void _translate_switch_stmt(XIRBuilder &b, const SwitchStmt *ast_switch, luisa::span<const Statement *const> cdr) noexcept {
         auto old_break_continue_target = _current.break_continue_target;
-        _current.break_continue_target = {.break_target = nullptr,
-                                          .continue_target = old_break_continue_target.continue_target};
         auto value = _translate_expression(b, ast_switch->expression(), true);
         auto inst = _commented(b.switch_(value));
         auto merge_block = inst->create_merge_block();
+        // Nested conditional breaks leave this switch just like its trailing
+        // case break; continue still targets the enclosing loop.
+        _current.break_continue_target = {.break_target = merge_block,
+                                          .continue_target = old_break_continue_target.continue_target};
         auto case_break_removed = [](auto stmt_span) noexcept {
             while (!stmt_span.empty() &&
                    (stmt_span.back()->tag() == Statement::Tag::BREAK ||
@@ -1458,29 +1499,33 @@ private:
         };
         for (auto s : ast_switch->body()->statements()) {
             switch (s->tag()) {
-                case Statement::Tag::SWITCH_CASE: {
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: {
                     auto ast_case = static_cast<const SwitchCaseStmt *>(s);
-                    LUISA_ASSERT(ast_case->expression()->tag() == Expression::Tag::LITERAL,
-                                 "Unexpected switch case expression.");
-                    auto ast_literal = static_cast<const LiteralExpr *>(ast_case->expression());
-                    auto case_value = luisa::visit(
-                        []<typename T>(T x) noexcept -> SwitchInst::case_value_type {
-                            if constexpr (std::is_integral_v<T>) {
-                                if constexpr (std::is_same_v<T, bool>) {
-                                    return static_cast<SwitchInst::case_value_type>(x);
-                                } else if constexpr (std::is_signed_v<T>) {
-                                    using U = std::make_unsigned_t<T>;
-                                    return static_cast<SwitchInst::case_value_type>(
-                                        luisa::bit_cast<U>(x));
+                    auto case_block = _commented(inst->parent_function()->create_basic_block());
+                    for (auto expression : ast_case->expressions()) {
+                        LUISA_ASSERT(expression->tag() == Expression::Tag::LITERAL,
+                                     "Unexpected switch case expression.");
+                        auto ast_literal = static_cast<const LiteralExpr *>(expression);
+                        auto case_value = luisa::visit(
+                            []<typename T>(T x) noexcept -> SwitchInst::case_value_type {
+                                if constexpr (std::is_integral_v<T>) {
+                                    if constexpr (std::is_same_v<T, bool>) {
+                                        return static_cast<SwitchInst::case_value_type>(x);
+                                    } else if constexpr (std::is_signed_v<T>) {
+                                        using U = std::make_unsigned_t<T>;
+                                        return static_cast<SwitchInst::case_value_type>(
+                                            luisa::bit_cast<U>(x));
+                                    } else {
+                                        return static_cast<SwitchInst::case_value_type>(x);
+                                    }
                                 } else {
-                                    return static_cast<SwitchInst::case_value_type>(x);
+                                    LUISA_ERROR_WITH_LOCATION("Unexpected literal integer in switch case.");
                                 }
-                            } else {
-                                LUISA_ERROR_WITH_LOCATION("Unexpected literal integer in switch case.");
-                            }
-                        },
-                        ast_literal->value());
-                    auto case_block = _commented(inst->create_case_block(case_value));
+                            },
+                            ast_literal->value());
+                        inst->add_case(case_value, case_block);
+                    }
                     b.set_insertion_point(case_block);
                     auto case_stmts = case_break_removed(ast_case->body()->statements());
                     _translate_statements(b, case_stmts);
@@ -1728,7 +1773,8 @@ private:
                     auto ast_switch = static_cast<const SwitchStmt *>(car);
                     return _translate_switch_stmt(b, ast_switch, cdr);
                 }
-                case Statement::Tag::SWITCH_CASE: LUISA_ERROR_WITH_LOCATION("Unexpected switch case statement.");
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: LUISA_ERROR_WITH_LOCATION("Unexpected switch case statement.");
                 case Statement::Tag::SWITCH_DEFAULT: LUISA_ERROR_WITH_LOCATION("Unexpected switch default statement.");
                 case Statement::Tag::ASSIGN: {
                     auto assign = static_cast<const AssignStmt *>(car);

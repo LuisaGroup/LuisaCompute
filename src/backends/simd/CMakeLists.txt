@@ -66,6 +66,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_emitter_debug.cpp
         llvm/llvm_schedule_emitter_direct.cpp
         llvm/llvm_schedule_emitter_memory.cpp
+        llvm/llvm_schedule_emitter_mma.cpp
         llvm/llvm_schedule_emitter_texture.cpp
         llvm/llvm_schedule_emitter_terminators.cpp
         llvm/llvm_schedule_emitter_local_regions.cpp
@@ -157,6 +158,7 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_motion_instance.cpp
         runtime/simd_procedural_primitive.cpp
         runtime/simd_shader.cpp
+        runtime/simd_tile.cpp
         runtime/simd_stream.cpp
         runtime/simd_thread_pool.cpp
         runtime/simd_texture.cpp
@@ -180,6 +182,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif ()
 target_link_libraries(luisa-compute-backend-simd PRIVATE
         luisa-compute-simd-compiler
+        luisa::tile-xir
         embree)
 if (EMBREE_TASKING_SYSTEM STREQUAL "TBB" AND TARGET TBB::tbb)
     target_link_libraries(luisa-compute-backend-simd PRIVATE TBB::tbb)

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="1"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="38"
+	timestamp="2026-09-10T11:11:29"
+	>
+	<testcase name="test_metal4_timing" classname="test_metal4_timing" time="38.9093" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal4;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 11:11:29.557] [console] [info] Created context for program 'test_metal4_timing'.
+[2026-09-10 11:11:29.557] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:11:29.567] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 9.663416999999999 ms.
+[2026-09-10 11:11:29.596] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:11:29.596] [console] [info] Test device backend: metal4.
+[2026-09-10 11:11:29.596] [console] [info] Metal4 timing capabilities: feedback=true, timestamp_heap=true, frequency_hz=24000000, error=''
+[2026-09-10 11:11:29.607] [console] [info] Metal4 timing setup: creating primary stream
+[2026-09-10 11:11:29.608] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:1...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

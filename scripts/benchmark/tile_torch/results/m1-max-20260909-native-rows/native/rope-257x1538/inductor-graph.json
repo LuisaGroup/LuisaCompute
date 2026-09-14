@@ -1,0 +1,8 @@
+{
+  "source": "\n\n\ndef forward(self, L_x_ : torch.Tensor, L_u_ : torch.Tensor, L_v_ : torch.Tensor):\n    l_x_ = L_x_\n    l_u_ = L_u_\n    l_v_ = L_v_\n    chunk = l_x_.chunk(2, dim = -1);  l_x_ = None\n    left = chunk[0]\n    right = chunk[1];  chunk = None\n    mul = left * l_u_\n    mul_1 = right * l_v_\n    sub = mul - mul_1;  mul = mul_1 = None\n    mul_2 = left * l_v_;  left = l_v_ = None\n    mul_3 = right * l_u_;  right = l_u_ = None\n    add = mul_2 + mul_3;  mul_2 = mul_3 = None\n    cat = torch.cat((sub, add), dim = -1);  sub = add = None\n    return (cat,)\n    ",
+  "inputs": [
+    "L_x_",
+    "L_u_",
+    "L_v_"
+  ]
+}

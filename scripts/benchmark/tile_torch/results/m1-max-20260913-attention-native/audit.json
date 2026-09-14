@@ -1,0 +1,188 @@
+{
+  "status": "passed",
+  "independent_numpy_oracles": 8,
+  "replay_output_checks": 72,
+  "guard_scope": "Numerical outputs replayed independently; buffer/workspace/input guards are C++ execution receipts, not saved guard payloads.",
+  "experiments": [
+    {
+      "case": "prefill",
+      "experiment": "pv-qk-mma",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_pv"
+      ],
+      "medians_us": {
+        "mma-mma": 138.91357421875,
+        "mma-reduce": 185.73128515625
+      },
+      "paired_ratio": 1.3320900307020196,
+      "pair_range": [
+        1.3098622667124655,
+        1.3446945039302385
+      ]
+    },
+    {
+      "case": "prefill",
+      "experiment": "pv-qk-reduce",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_pv"
+      ],
+      "medians_us": {
+        "reduce-mma": 188.84049609375,
+        "reduce-reduce": 234.06884765625
+      },
+      "paired_ratio": 1.251951431607936,
+      "pair_range": [
+        1.2210986786872566,
+        1.265989417433225
+      ]
+    },
+    {
+      "case": "prefill",
+      "experiment": "qk-pv-mma",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_qk"
+      ],
+      "medians_us": {
+        "mma-mma": 141.51171875,
+        "reduce-mma": 188.21875
+      },
+      "paired_ratio": 1.329193219640173,
+      "pair_range": [
+        1.3159780946700645,
+        1.3363281895334522
+      ]
+    },
+    {
+      "case": "decode",
+      "experiment": "pv-qk-mma",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_pv"
+      ],
+      "medians_us": {
+        "mma-mma": 3130.296875,
+        "mma-reduce": 3532.77075
+      },
+      "paired_ratio": 1.12868851436096,
+      "pair_range": [
+        1.1224296466829078,
+        1.1307809304162992
+      ]
+    },
+    {
+      "case": "decode",
+      "experiment": "pv-qk-reduce",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_pv"
+      ],
+      "medians_us": {
+        "reduce-mma": 3090.8255,
+        "reduce-reduce": 3272.364625
+      },
+      "paired_ratio": 1.0597212609386113,
+      "pair_range": [
+        1.0549040687181845,
+        1.0685948291448202
+      ]
+    },
+    {
+      "case": "decode",
+      "experiment": "qk-pv-mma",
+      "controls_equal": [
+        "operation",
+        "dimensions",
+        "attention_block",
+        "precision",
+        "fast_math",
+        "relaxed_precision",
+        "requested_group_threads",
+        "requested_input_views",
+        "reduction_tree",
+        "source_reduction_policy",
+        "input_shapes",
+        "output_shape"
+      ],
+      "changed": [
+        "attention_qk"
+      ],
+      "medians_us": {
+        "mma-mma": 3137.7239375,
+        "reduce-mma": 3082.8360000000002
+      },
+      "paired_ratio": 0.9842070185961578,
+      "pair_range": [
+        0.9765534419507409,
+        0.9925253709980418
+      ]
+    }
+  ]
+}

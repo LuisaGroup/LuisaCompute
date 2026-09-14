@@ -1,0 +1,1693 @@
+#include "ut/ut.hpp"
+#include "test_device.h"
+#include "tile_xir_test_utils.h"
+#include "tile_reduction_policy_test_utils.h"
+#include "tile_packet_reduction_test_utils.h"
+#include "tile_xir_attention_test_utils.h"
+#include "tile_llm_test_utils.h"
+#include <bit>
+#include <cstdlib>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/tile/runtime.h>
+#include <luisa/tile/bridge/xir/planner.h>
+#include <luisa/tile/algorithms.h>
+#include <luisa/backends/ext/simd_config_ext.h>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+#ifdef LUISA_TEST_TILE_XIR_TIRX
+#include "tile_tirx_test_utils.h"
+#endif
+
+using namespace luisa;
+using namespace luisa::compute;
+using namespace boost::ut;
+
+namespace {
+
+[[nodiscard]] bool close(span<const float> actual, span<const double> expected);
+
+class ScopedRootAxisTiles {
+private:
+    optional<string> _previous;
+
+public:
+    ScopedRootAxisTiles() {
+        if (auto value = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES")) { _previous.emplace(value); }
+    }
+    ~ScopedRootAxisTiles() noexcept { set(_previous ? _previous->c_str() : nullptr); }
+    static void set(const char *value) noexcept {
+#ifdef _WIN32
+        LUISA_ASSERT(_putenv_s("LUISA_SIMD_ROOT_AXIS_TILES", value == nullptr ? "" : value) == 0,
+                     "Cannot set SIMD root-axis test constraint");
+#else
+        auto result = value == nullptr ? unsetenv("LUISA_SIMD_ROOT_AXIS_TILES") :
+                                         setenv("LUISA_SIMD_ROOT_AXIS_TILES", value, 1);
+        LUISA_ASSERT(result == 0, "Cannot set SIMD root-axis test constraint");
+#endif
+    }
+};
+
+void root_traversal_environment_errors(Device &device) {
+    using namespace tile;
+    ScopedRootAxisTiles environment;
+    auto kernel = tile_kernel("root_environment_constraints", [](TensorView<float, 2> output) {
+                      auto a = axis("a", 4), b = axis("b", 6);
+                      for (auto &nest : parallel(shape(a, b))) {
+                          output(coord(nest.index(a), nest.index(b)), shape(1, 1)).store(full<float>(shape(1, 1), 1.0f));
+                      }
+                  }).capture(tensor_shape(4, 6));
+    auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_tiles = {1u, 1u}};
+    auto reject = [&](const char *value, string_view expected_error) {
+        environment.set(value);
+        auto shader = compile(device, kernel, {.xir = &options});
+        expect(!shader) << value;
+        expect(shader.metadata().error == expected_error) << value << shader.metadata().error;
+        expect(shader.metadata().source.empty());
+        expect(shader.metadata().arguments.empty());
+        expect(options.root_axis_tiles == vector<uint32_t>{1u, 1u});
+    };
+    // Windows treats an empty environment value as removal.
+#ifndef _WIN32
+    reject("", "LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors");
+#endif
+    for (auto value : {"0", "-1", "4294967296", "1x", "1,", ",1", "1,,2"}) {
+        reject(value, "LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors");
+    }
+    reject("2,3", "Conflicting XIR and LUISA_SIMD_ROOT_AXIS_TILES constraints");
+
+    // Recover in the same process after every rejected configuration. Matching
+    // constraints remain legal, and an absent explicit constraint adopts env.
+    environment.set("1,1");
+    auto matching = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(matching)) << matching.metadata().error;
+    expect(matching.metadata().error.empty());
+    expect(matching.metadata().realization.find("fixed_root_axis_tiles=[1,1]") != string::npos);
+    options.root_axis_tiles.clear();
+    environment.set("2,3");
+    auto adopted = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(adopted)) << adopted.metadata().error;
+    expect(adopted.metadata().error.empty());
+    expect(adopted.metadata().realization.find("fixed_root_axis_tiles=[2,3]") != string::npos);
+    expect(options.root_axis_tiles.empty());
+}
+
+void root_traversal_recurrences(Device &device) {
+    using namespace tile;
+    constexpr int64_t rows = 4 * 3 * 10, steps = 5, modes = 4;
+    auto kernel = tile_kernel("root_recurrences", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto a = axis("a", 4), b = axis("b", 3), c = axis("c", 10);
+                      for (auto &nest : parallel(shape(a, b, c))) {
+                          auto row = (nest.index(a) * 3 + nest.index(b)) * 10 + nest.index(c);
+                          auto values = input[coord(row, 0), shape(1, steps)];
+                          for (auto mode = int64_t{0}; mode < modes; mode++) {
+                              auto state = cast<float>(row) * .125f;
+                              if (mode == 0) {
+                                  for (auto &step : nest.serial(shape(steps))) { state = state * 2.0f + values.at(coord(0, step.index())); }
+                              } else if (mode == 1) {
+                                  for (auto &step : nest.pipeline(shape(steps), {.window = 2u, .interval = 1u})) {
+                                      step.stage("load");
+                                      auto value = input[coord(row, step.index()), shape(1, 1)];
+                                      step.stage("compute");
+                                      state = state * 2.0f + value.at(coord(0, 0));
+                                  }
+                              } else {
+                                  auto policy = mode == 2 ? reduction::fold_left : reduction::fold_right;
+                                  for (auto &step : nest.reduce(shape(steps), policy)) { state = state * 2.0f + values.at(coord(0, step.index())); }
+                              }
+                              output(coord(row, mode), shape(1, 1)).store(full<float>(shape(1, 1), state));
+                          }
+                      }
+                  }).capture(tensor_shape(rows, steps), tensor_shape(rows, modes));
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input(rows * steps + 2u * pad, guard), initial(rows * modes + 2u * pad, guard);
+    vector<double> expected(rows * modes);
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t i = 0; i < steps; i++) { input[pad + row * steps + i] = static_cast<float>((row * 3 + i * 7) % 31 - 15) * .125f; }
+        for (int64_t mode = 0; mode < modes; mode++) {
+            auto state = static_cast<double>(row) * .125;
+            for (int64_t i = 0; i < steps; i++) { state = state * 2.0 + input[pad + row * steps + (mode == 3 ? steps - 1 - i : i)]; }
+            expected[row * modes + mode] = state;
+        }
+    }
+    // Dyadic inputs keep every update exact. Different fold directions really
+    // differ, so bitwise agreement cannot conceal an accidentally reordered fold.
+    expect(expected[0] != expected[3]);
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    vector<float> baseline;
+    for (auto order : vector<vector<uint32_t>>{{0u, 1u, 2u}, {2u, 0u, 1u}}) {
+        string baseline_llvm;
+        for (auto tiles : vector<vector<uint32_t>>{{}, {1u, 1u, 1u}, {4u, 3u, 10u}, {2u, 1u, 5u}}) {
+            auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_order = order, .blocks_per_task = tiles.empty() ? 1u : 3u, .root_axis_tiles = tiles};
+            auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+            expect(static_cast<bool>(shader)) << shader.metadata().error;
+            if (!shader) { continue; }
+            auto actual = initial, after = input;
+            stream << a.copy_from(span{input}) << b.copy_from(span{initial})
+                   << shader(a.view(pad, rows * steps), b.view(pad, rows * modes)).dispatch()
+                   << a.copy_to(span{after}) << b.copy_to(span{actual}) << synchronize();
+            expect(after == input);// includes readonly input and both input guards
+            expect(close(span{actual}.subspan(pad, rows * modes), expected));
+            expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+            expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+            if (baseline.empty()) { baseline = actual; }
+            expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float x, float y) {
+                return std::bit_cast<uint32_t>(x) == std::bit_cast<uint32_t>(y);
+            }));
+            if (tiles.empty()) {
+                baseline_llvm = shader.metadata().source;
+            } else {
+                expect(shader.metadata().realization.find("fixed_root_axis_tiles=[") != string::npos);
+                expect(shader.metadata().realization.find("root_temporal_cache_cost=unmodeled") != string::npos);
+                if (tiles == vector<uint32_t>{1u, 1u, 1u} || tiles == vector<uint32_t>{4u, 3u, 10u}) {
+                    expect(shader.metadata().source == baseline_llvm);
+                }
+            }
+        }
+    }
+}
+
+void root_traversal_local_axis(Device &device, uint32_t lanes) {
+    using namespace tile;
+    constexpr int64_t rows = 6 * 10, width = 65;
+    auto kernel = tile_kernel("root_local_axis", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto a = axis("a", 6), b = axis("b", 10), m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(a, b))) {
+                          auto row = nest.index(a) * 10 + nest.index(b);
+                          auto x = input[coord(row, 0), shape(m, n)];
+                          output(coord(row, 0), shape(m, n)).store(x + reduce(x, n, add));
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input(rows * width + 2u * pad, guard), initial(input.size(), guard), baseline;
+    vector<double> expected(rows * width);
+    for (int64_t row = 0; row < rows; row++) {
+        double sum = 0.0;
+        for (int64_t i = 0; i < width; i++) {
+            auto value = static_cast<float>((row * 3 + i * 7) % 31 - 15) * .125f;
+            input[pad + row * width + i] = value;
+            sum += value;
+        }
+        for (int64_t i = 0; i < width; i++) { expected[row * width + i] = input[pad + row * width + i] + sum; }
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto tiles : vector<vector<uint32_t>>{{}, {1u, 1u}, {6u, 10u}, {2u, 5u}}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_order = {1u, 0u}, .local_lanes = lanes, .blocks_per_task = 3u, .root_axis_tiles = tiles};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto actual = initial, after = input;
+        stream << a.copy_from(span{input}) << b.copy_from(span{initial})
+               << shader(a.view(pad, rows * width), b.view(pad, rows * width)).dispatch()
+               << a.copy_to(span{after}) << b.copy_to(span{actual}) << synchronize();
+        expect(after == input);
+        expect(close(span{actual}.subspan(pad, rows * width), expected));
+        expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+        if (baseline.empty()) { baseline = actual; }
+        expect(actual == baseline);// every dyadic reduction/update is exact
+    }
+}
+
+void map_chain(Device &device, int64_t width, uint32_t variant) {
+    using namespace tile;
+    constexpr int64_t rows = 17;
+    auto kernel = tile_kernel("map_chain", [=](TensorView<float, 2> data, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = data[coord(nest.index(), 0), shape(m, n)];
+                          for (auto &step : nest.serial(shape(3))) {
+                              auto reversed = reindex(x, shape(m, n), [&](const Nest &element) {
+                                  return coord(element.index(m), width - 1 - element.index(n));
+                              });
+                              auto selected = variant == 3u ? map<float>(shape(m, n), [&](const Nest &element) {
+                                  auto offset = element.index(n);
+                                  auto rotated = reindex(x, shape(m, n), [&](const Nest &inner) {
+                                      return coord(0, (inner.index(n) + offset) % width);
+                                  });
+                                  return rotated.at(coord(0, 0));
+                              }) :
+                                              variant == 0u ? reindex(reversed, shape(m, n), [&](const Nest &element) {
+                                                  return coord(element.index(m), width - 1 - element.index(n));
+                                              }) :
+                                                              gather(reversed, variant == 1u ? iota(n) - 1 : (iota(n) * 7 + step.index()) % width, n, -4.0f);
+                              // Deferred extraction must still read x's original
+                              // SSA snapshot after overwriting its source buffer.
+                              data(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 99.0f));
+                              x = selected + cast<float>(step.index());
+                              output(coord(nest.index(), 0), shape(m, n)).store(x);
+                          }
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr size_t pad = 19u;
+    constexpr float guard = -731.25f;
+    auto count = static_cast<size_t>(rows * width);
+    vector<float> seed(count + 2u * pad, guard);
+    vector<double> expected(count);
+    for (size_t i = 0u; i < count; i++) { expected[i] = seed[pad + i] = static_cast<float>(static_cast<int32_t>(i % 31u) - 15) * .125f; }
+    for (int64_t step = 0; step < 3; step++) {
+        auto previous = expected;
+        for (int64_t r = 0; r < rows; r++) {
+            for (int64_t c = 0; c < width; c++) {
+                auto index = variant == 0u || variant == 3u ? c : variant == 1u ? width - c :
+                                                                                  width - 1 - (c * 7 + step) % width;
+                expected[r * width + c] = (index >= width ? -4.0 : previous[r * width + index]) + step;
+            }
+        }
+    }
+    vector<float> baseline;
+    for (auto mode : {0u, 1u, 2u}) {
+        auto enabled = mode != 0u;
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .enable_load_reduction_fusion = mode == 2u, .enable_pointwise_fusion = mode == 2u, .enable_expression_reduction_fusion = mode == 2u, .enable_map_fusion = enabled};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        if (enabled) { expect(shader.metadata().realization.find("deferred_maps=0;") == string::npos); }
+        auto a = device.create_buffer<float>(seed.size()), b = device.create_buffer<float>(seed.size());
+        auto actual = vector<float>(seed.size(), guard), input = seed;
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.copy_from(span{seed}) << b.copy_from(span{actual})
+               << shader(a.view(pad, count), b.view(pad, count)).dispatch()
+               << a.copy_to(span{input}) << b.copy_to(span{actual}) << synchronize();
+        expect(close(span{actual}.subspan(pad, count), expected)) << width << variant << enabled;
+        for (size_t i = 0u; i < count; i++) { expect(eq(input[pad + i], 99.0f)); }
+        for (auto &values : {input, actual}) {
+            expect(std::all_of(values.begin(), values.begin() + pad, [](float v) { return v == guard; }));
+            expect(std::all_of(values.end() - pad, values.end(), [](float v) { return v == guard; }));
+        }
+        if (enabled) {
+            expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float a, float b) {
+                return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+            }));
+        } else {
+            baseline = actual;
+        }
+    }
+}
+
+void shared_pointwise(Device &device, int64_t width, uint32_t lanes, uint32_t variant, int32_t alias_shift, bool shared_buffer = false) {
+    using namespace tile;
+    // One program for shifted aliases: this exercises intra-program snapshot
+    // semantics without introducing a cross-parallel-iteration data race.
+    shared_buffer |= alias_shift != 0;
+    auto rows = shared_buffer ? int64_t{1} : int64_t{17};
+    auto stride = width * 2;
+    auto kernel = tile_kernel("shared_pointwise", [=](TensorView<const float, 2> input,
+                                                      TensorView<float, 2> output, TensorView<float, 2> other) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          auto y = input[coord(nest.index(), width), shape(m, n)];
+                          auto shared = x * y + x;
+                          output(coord(nest.index(), 0), shape(m, n)).store(shared + y);
+                          if (variant == 0u) {
+                              output(coord(nest.index(), width), shape(m, n)).store(shared - y);
+                          } else if (variant == 1u) {
+                              other(coord(nest.index(), 0), shape(m, n)).store(shared - y);
+                          } else {
+                              // Overlapping writes must keep whole-store order.
+                              output(coord(nest.index(), 1), shape(m, n)).store(shared - y);
+                          }
+                      }
+                  }).capture(tensor_shape(rows, stride), tensor_shape(rows, stride), tensor_shape(rows, stride));
+    constexpr auto pad = size_t{19u};
+    constexpr auto guard = -731.25f;
+    auto count = static_cast<size_t>(rows * stride);
+    auto extra = static_cast<size_t>(std::abs(alias_shift));
+    vector<float> seed(count + extra + pad * 2u, guard);
+    for (size_t i = 0u; i < count + extra; i++) { seed[pad + i] = static_cast<float>(static_cast<int32_t>(i % 31u) - 15) * .125f; }
+    vector<float> baseline_a, baseline_b, baseline_c;
+    for (auto enabled : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_pointwise_fusion = enabled};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        auto admitted = enabled && variant != 2u;
+        expect(shader.metadata().realization.find(format("fused_pointwise_loads={};", admitted ? 2u : 0u)) != string::npos);
+        auto a = device.create_buffer<float>(seed.size());
+        auto b = device.create_buffer<float>(seed.size());
+        auto c = device.create_buffer<float>(seed.size());
+        auto x_offset = pad + static_cast<size_t>(std::max(-alias_shift, 0));
+        auto y_offset = pad + static_cast<size_t>(std::max(alias_shift, 0));
+        auto x_view = a.view(x_offset, count);
+        auto y_view = shared_buffer ? a.view(y_offset, count) : b.view(pad, count);
+        // In the separate-output case, also test output/output aliases.
+        auto z_view = variant == 1u && shared_buffer ? a.view(x_offset, count) : c.view(pad, count);
+        vector<float> expected_a = seed, expected_b = seed, expected_c = seed;
+        auto &dest = shared_buffer ? expected_a : expected_b;
+        auto dest_offset = shared_buffer ? y_offset : pad;
+        auto &second = variant == 1u && shared_buffer ? expected_a : expected_c;
+        auto second_offset = variant == 1u && shared_buffer ? x_offset : pad;
+        for (int64_t r = 0; r < rows; r++) {
+            vector<float> first(width), last(width);
+            for (int64_t col = 0; col < width; col++) {
+                auto x = seed[x_offset + r * stride + col], y = seed[x_offset + r * stride + width + col];
+                auto shared = x * y + x;
+                first[col] = shared + y;
+                last[col] = shared - y;
+            }
+            for (int64_t col = 0; col < width; col++) { dest[dest_offset + r * stride + col] = first[col]; }
+            for (int64_t col = 0; col < width; col++) {
+                if (variant == 1u) {
+                    second[second_offset + r * stride + col] = last[col];
+                } else {
+                    dest[dest_offset + r * stride + (variant == 0u ? width : 1) + col] = last[col];
+                }
+            }
+        }
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto actual_a = seed, actual_b = seed, actual_c = seed;
+        stream << a.copy_from(span{seed}) << b.copy_from(span{seed}) << c.copy_from(span{seed})
+               << shader(x_view, y_view, z_view).dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
+        // Dyadic finite inputs make this operation sequence exactly representable.
+        // Compare all three allocations, including unchanged regions and guards.
+        expect(actual_a == expected_a && actual_b == expected_b && actual_c == expected_c) << "width=" << width << " lanes=" << lanes << " alias shift=" << alias_shift;
+        if (!enabled) {
+            baseline_a = actual_a;
+            baseline_b = actual_b;
+            baseline_c = actual_c;
+        } else {
+            expect(actual_a == baseline_a && actual_b == baseline_b && actual_c == baseline_c);
+        }
+    }
+}
+
+void rope_shared_pointwise(Device &device, int64_t half_width) {
+    using namespace tile;
+    // Reuse the actual four-load/two-store RoPE DAG and its independent FP64
+    // oracle. One program makes every shifted overlap an intra-program
+    // snapshot test, without introducing a cross-parallel-iteration race.
+    auto fixture = test::tile_llm::rows(test::tile_llm::RowOp::ROPE, 1, half_width * 2);
+    expect(fixture.kernel.valid());
+    if (!fixture.kernel.valid()) { return; }
+    auto lanes = device.compute_warp_size();
+    constexpr auto pad = size_t{19u};
+    constexpr auto input_offset = pad + 1u;
+    constexpr auto guard = -731.25f;
+    auto output_count = fixture.expected.size();
+    auto allocation_count = output_count + 2u * pad + 2u;
+    std::array<vector<float>, 4u> seeds;
+    vector<Buffer<float>> buffers;
+    for (size_t i = 0u; i < seeds.size(); i++) {
+        seeds[i].resize(allocation_count, guard);
+        if (i < fixture.inputs.size()) {
+            std::copy(fixture.inputs[i].begin(), fixture.inputs[i].end(), seeds[i].begin() + input_offset);
+        }
+        buffers.emplace_back(device.create_buffer<float>(allocation_count));
+    }
+    struct Binding {
+        size_t output_allocation;
+        int32_t shift;
+    };
+    // Distinct output, then Y overlapping X/U/V at the same base and on both
+    // sides. Auxiliary allocations also have room for the full-width Y view.
+    constexpr std::array bindings{Binding{3u, 0},
+                                  Binding{0u, -1}, Binding{0u, 0}, Binding{0u, 1},
+                                  Binding{1u, -1}, Binding{1u, 0}, Binding{1u, 1},
+                                  Binding{2u, -1}, Binding{2u, 0}, Binding{2u, 1}};
+    using Allocations = std::array<vector<float>, 4u>;
+    std::array<Allocations, bindings.size()> baselines;
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto enabled : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_pointwise_fusion = enabled};
+        auto shader = compile(device, fixture.kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        const auto &metadata = shader.metadata();
+        expect(metadata.realization.find(format("; local_lanes={};", lanes)) != string::npos) << metadata.realization;
+        expect(metadata.realization.find(format("; pointwise_fusion={}; fused_pointwise_regions={}; fused_pointwise_loads={}; fused_pointwise_stores={}; pointwise_alias_checks={};",
+                                                enabled, enabled ? 1u : 0u, enabled ? 4u : 0u,
+                                                enabled ? 2u : 0u, enabled ? 3u : 0u)) != string::npos)
+            << metadata.realization;
+        // Guarded fusion keeps the original four snapshots in its fallback.
+        auto snapshot_bytes = ceil_div(static_cast<uint64_t>(half_width), uint64_t{lanes}) * 4u * sizeof(float);
+        expect(metadata.realization.find(format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations=4;", snapshot_bytes)) != string::npos)
+            << metadata.realization;
+        expect(eq(metadata.dispatch_size.x, lanes));
+        for (size_t binding_index = 0u; binding_index < bindings.size(); binding_index++) {
+            auto binding = bindings[binding_index];
+            auto output_offset = static_cast<size_t>(static_cast<int64_t>(input_offset) + binding.shift);
+            auto actual = seeds;
+            std::array<vector<double>, 4u> expected;
+            for (size_t i = 0u; i < seeds.size(); i++) {
+                expected[i].assign(seeds[i].begin(), seeds[i].end());
+                stream << buffers[i].copy_from(span{seeds[i]});
+            }
+            std::copy(fixture.expected.begin(), fixture.expected.end(), expected[binding.output_allocation].begin() + output_offset);
+            stream << shader(buffers[0].view(input_offset, fixture.inputs[0].size()),
+                             buffers[1].view(input_offset, fixture.inputs[1].size()),
+                             buffers[2].view(input_offset, fixture.inputs[2].size()),
+                             buffers[binding.output_allocation].view(output_offset, output_count))
+                          .dispatch();
+            for (size_t i = 0u; i < actual.size(); i++) { stream << buffers[i].copy_to(span{actual[i]}); }
+            stream << synchronize();
+            for (size_t i = 0u; i < actual.size(); i++) {
+                expect(close(actual[i], expected[i])) << "RoPE half=" << half_width << " fused=" << enabled
+                                                      << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift << " allocation=" << i;
+                // All guards, all independent read-only inputs, and the
+                // unmodified part of an aliased input remain bit-identical.
+                auto unchanged = true;
+                for (size_t j = 0u; j < allocation_count; j++) {
+                    auto written = i == binding.output_allocation && j >= output_offset && j < output_offset + output_count;
+                    if (!written && std::bit_cast<uint32_t>(actual[i][j]) != std::bit_cast<uint32_t>(seeds[i][j])) {
+                        unchanged = false;
+                        break;
+                    }
+                }
+                expect(unchanged) << "RoPE changed an unwritten element: half=" << half_width << " allocation=" << i
+                                  << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
+                if (enabled) {
+                    expect(std::equal(actual[i].begin(), actual[i].end(), baselines[binding_index][i].begin(), baselines[binding_index][i].end(), [](float a, float b) {
+                        return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+                    })) << "RoPE on/off mismatch: half="
+                        << half_width << " allocation=" << i << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
+                }
+            }
+            if (!enabled) { baselines[binding_index] = std::move(actual); }
+        }
+    }
+}
+
+void task_grain(Device &device, int64_t rows, uint32_t lanes) {
+    using namespace tile;
+    constexpr auto width = int64_t{65};
+    auto kernel = tile_kernel("task_grain", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          output(coord(nest.index(), 0), shape(m, n)).store(x + reduce(x, n, add));
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr auto pad = size_t{17u};
+    constexpr auto guard = -731.25f;
+    vector<float> input(rows * width), initial(rows * width + 2u * pad, guard), baseline;
+    vector<double> expected(rows * width);
+    for (int64_t row = 0; row < rows; row++) {
+        double sum = 0.0;
+        for (int64_t col = 0; col < width; col++) {
+            auto value = static_cast<float>((row * 3 + col * 7) % 31 - 15) * .125f;
+            input[row * width + col] = value;
+            sum += value;
+        }
+        for (int64_t col = 0; col < width; col++) { expected[row * width + col] = input[row * width + col] + sum; }
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.copy_from(span{input}) << synchronize();
+    string baseline_llvm;
+    for (auto grain : {0u, 1u, 3u, 16u, UINT32_MAX}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .blocks_per_task = grain};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        expect(shader.metadata().realization.find(format("blocks_per_task={};", grain)) != string::npos);
+        auto output = initial;
+        stream << b.copy_from(span{initial}) << shader(a, b.view(pad, input.size())).dispatch()
+               << b.copy_to(span{output}) << synchronize();
+        expect(close(span{output}.subspan(pad, input.size()), expected));
+        expect(std::all_of(output.begin(), output.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(output.end() - pad, output.end(), [](float x) { return x == guard; }));
+        if (grain == 0u) {
+            baseline = output;
+            baseline_llvm = shader.metadata().source;
+        } else {
+            expect(output == baseline);
+            expect(shader.metadata().source == baseline_llvm) << "CPU task grain must not alter native kernel code";
+        }
+    }
+}
+
+void fused_load_reductions(Device &device, int64_t width, uint32_t lanes, uint32_t variant) {
+    using namespace tile;
+    constexpr auto rows = int64_t{17};
+    auto definition = tile_kernel("fused_load_reductions", [=](TensorView<const float, 2> input,
+                                                               TensorView<float, 2> alias, TensorView<float, 2> output) {
+        auto m = axis("m", 1), n = axis("n", width);
+        for (auto &nest : parallel(shape(rows))) {
+            auto x = input[coord(nest.index(), 0), shape(m, n)];
+            auto y = alias[coord(nest.index(), 0), shape(m, n)];
+            if (variant == 2u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+            auto sum = reduce(x * y, n, add);
+            if (variant == 1u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+            output(coord(nest.index(), 0), shape(m, n)).store(variant == 1u ? x + sum : full<float>(shape(m, n), sum.at(coord(0))));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(rows, width), tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> original(rows * width + 2 * pad, guard);
+    vector<double> expected(rows * width);
+    for (int64_t row = 0; row < rows; row++) {
+        double sum = 0.0;
+        for (int64_t i = 0; i < width; i++) {
+            auto x = static_cast<float>((i * 7 + row * 3) % 17 - 8) * .125f;
+            original[pad + row * width + i] = x;
+            sum += x * x;
+        }
+        for (int64_t i = 0; i < width; i++) { expected[row * width + i] = sum + (variant == 1u ? original[pad + row * width + i] : 0.0); }
+    }
+    vector<float> baseline;
+    for (auto fusion : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = fusion};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        auto fused = fusion && variant != 2u ? 2u : 0u;
+        expect(shader.metadata().realization.find(format("fused_reduction_loads={};", fused)) != string::npos);
+        vector<float> data = original, actual(original.size(), guard);
+        auto a = device.create_buffer<float>(data.size()), b = device.create_buffer<float>(actual.size());
+        auto av = a.view(pad, expected.size()), bv = b.view(pad, expected.size());
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.copy_from(span{data}) << b.copy_from(span{actual}) << shader(av, av, bv).dispatch()
+               << a.copy_to(span{data}) << b.copy_to(span{actual}) << synchronize();
+        expect(close(span{actual}.subspan(pad, expected.size()), expected));
+        for (size_t i = 0u; i < expected.size(); i++) { expect(eq(data[pad + i], variant == 0u ? original[pad + i] : 9.0f)); }
+        for (auto values : {span{actual}, span{data}}) {
+            expect(std::all_of(values.begin(), values.begin() + pad, [](float x) { return x == guard; }));
+            expect(std::all_of(values.end() - pad, values.end(), [](float x) { return x == guard; }));
+        }
+        if (!fusion) {
+            baseline = actual;
+        } else {
+            expect(actual == baseline);
+        }
+    }
+}
+
+void fused_expression_reductions(Device &device, int64_t width, uint32_t lanes, uint32_t variant) {
+    using namespace tile;
+    constexpr auto rows = int64_t{17};
+    auto kernel = tile_kernel("expression_reductions", [=](TensorView<const float, 2> input,
+                                                           TensorView<float, 2> alias, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          auto y = variant == 4u ? exp(x - reduce(x, n, maximum)) : x * x + 2.0f;
+                          if (variant == 2u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+                          auto policy = variant == 3u ? reduction::fold_left : reduction::unordered_tree;
+                          auto sum = reduce(variant == 4u ? y : y * y, n, add, policy);
+                          if (variant == 5u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+                          auto result = variant == 4u ? y / sum : variant == 1u || variant == 5u ? y + sum :
+                                                                                                   full<float>(shape(m, n), sum.at(coord(0)));
+                          output(coord(nest.index(), 0), shape(m, n)).store(result);
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr auto pad = size_t{17u};
+    constexpr auto guard = -731.25f;
+    auto count = static_cast<size_t>(rows * width);
+    vector<float> original(count + 2u * pad, guard), baseline;
+    vector<double> expected(count);
+    for (int64_t row = 0; row < rows; row++) {
+        auto max_value = -std::numeric_limits<double>::infinity();
+        for (int64_t col = 0; col < width; col++) {
+            auto value = static_cast<float>((row * 3 + col * 7) % 17 - 8) * .125f;
+            original[pad + row * width + col] = value;
+            max_value = std::max(max_value, static_cast<double>(value));
+        }
+        vector<double> values(width);
+        double sum = 0.0;
+        for (int64_t col = 0; col < width; col++) {
+            auto x = static_cast<double>(original[pad + row * width + col]);
+            auto y = variant == 4u ? std::exp(x - max_value) : x * x + 2.0;
+            values[col] = y;
+            sum += variant == 4u ? y : y * y;
+        }
+        for (int64_t col = 0; col < width; col++) {
+            expected[row * width + col] = variant == 4u ? values[col] / sum : sum + (variant == 1u || variant == 5u ? values[col] : 0.0);
+        }
+    }
+    for (auto mode : {0u, 1u, 2u}) {
+        auto fusion = mode != 0u;
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = mode == 2u, .enable_pointwise_fusion = mode == 2u, .enable_expression_reduction_fusion = fusion};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        expect(shader.metadata().realization.find(format("fused_reduction_expressions={};", fusion && variant != 2u && variant != 3u ? 1u : 0u)) != string::npos);
+        auto a = device.create_buffer<float>(original.size()), b = device.create_buffer<float>(original.size());
+        auto data = original;
+        vector<float> actual(original.size(), guard);
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto av = a.view(pad, count);
+        stream << a.copy_from(span{data}) << b.copy_from(span{actual}) << shader(av, av, b.view(pad, count)).dispatch()
+               << a.copy_to(span{data}) << b.copy_to(span{actual}) << synchronize();
+        expect(close(span{actual}.subspan(pad, count), expected)) << variant << width << lanes;
+        for (size_t i = 0u; i < count; i++) { expect(eq(data[pad + i], variant == 2u || variant == 5u ? 9.0f : original[pad + i])); }
+        for (auto values : {span{actual}, span{data}}) {
+            expect(std::all_of(values.begin(), values.begin() + pad, [](float x) { return x == guard; }));
+            expect(std::all_of(values.end() - pad, values.end(), [](float x) { return x == guard; }));
+        }
+        if (!fusion) {
+            baseline = actual;
+        } else {
+            for (size_t i = 0u; i < actual.size(); i++) { expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(baseline[i]))); }
+        }
+    }
+}
+
+void fused_producer_scopes(Device &device, int64_t iterations, bool staged, bool retained, bool expression = false) {
+    using namespace tile;
+    constexpr auto width = int64_t{69};
+    auto definition = tile_kernel("fused_load_scopes", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+        auto m = axis("m", 3), n = axis("n", 23);
+        for (auto &nest : parallel(shape(1))) {
+            auto range = staged ? nest.pipeline(shape(iterations)) : nest.serial(shape(iterations));
+            for (auto &step : range) {
+                // Different captured origins, an out-of-bounds first row,
+                // and a multidimensional/permuted reduction domain.
+                auto loaded = input.tile(coord(step.index() * 3 - 3, 0), shape(m, n), bounds::zero).load();
+                auto x = expression ? loaded * loaded + 2.0f : loaded;
+                if (staged) { step.stage("consumer"); }
+                auto sum = Scalar<float>{2.5f};
+                for (auto &element : step.reduce(shape(n, m))) {
+                    // Two direct users make the expression materialized even
+                    // when the snapshot has no consumer after this reduction.
+                    auto value = x.at(coord(element.index(m), element.index(n)));
+                    sum += expression ? value * x.at(coord(element.index(m), element.index(n))) : value;
+                }
+                auto y = retained ? x + sum : full<float>(shape(m, n), sum);
+                output(coord(step.index() * 3, 0), shape(m, n)).store(y);
+            }
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(9, 23), tensor_shape(9, 23));
+    vector<float> input(3 * width), expected(3 * width, -731.25f), baseline;
+    for (size_t i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(i % 13u) * .125f; }
+    for (int64_t step = 0; step < iterations; step++) {
+        auto sum = 2.5f;
+        auto point = [&](int64_t i) {
+            auto value = step != 0 ? input[(step - 1) * width + i] : 0.0f;
+            return expression ? value * value + 2.0f : value;
+        };
+        for (int64_t i = 0; i < width; i++) { sum += expression ? point(i) * point(i) : point(i); }
+        for (int64_t i = 0; i < width; i++) { expected[step * width + i] = sum + (retained ? point(i) : 0.0f); }
+    }
+    for (auto fusion : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.enable_load_reduction_fusion = fusion && !expression, .enable_expression_reduction_fusion = fusion && expression};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        if (staged) { expect(shader.metadata().realization.find("fused_reduction_loads=0;") != string::npos); }
+        if (staged) { expect(shader.metadata().realization.find("fused_reduction_expressions=0;") != string::npos); }
+        constexpr auto pad = size_t{17};
+        constexpr auto guard = -731.25f;
+        vector<float> actual(input.size() + 2u * pad, guard);
+        auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(actual.size());
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.copy_from(span{input}) << b.copy_from(span{actual}) << shader(a, b.view(pad, input.size())).dispatch()
+               << b.copy_to(span{actual}) << synchronize();
+        expect(std::equal(expected.begin(), expected.end(), actual.begin() + pad));
+        expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+        if (!fusion) {
+            baseline = actual;
+        } else {
+            expect(actual == baseline);
+        }
+    }
+}
+
+void reduction_fold_policies(Device &device) {
+    namespace cases = test::tile_reduction;
+    constexpr auto rows = int64_t{3};
+    for (auto dimensions : {std::pair{0, 3}, std::pair{2, 0}, std::pair{1, 1},
+                            std::pair{1, 3}, std::pair{2, 3}, std::pair{3, 5}, std::pair{5, 13}}) {
+        auto [outer, inner] = dimensions;
+        auto width = outer * inner;
+        auto stride = std::max(width, 1);
+        for (auto seed : {0.0f, -0.0f, 3.0f}) {
+            auto kernel = cases::folds(rows, outer, inner, seed);
+            auto shader = tile::compile(device, kernel, {}, {.enable_fast_math = true});
+            expect(static_cast<bool>(shader)) << shader.metadata().error;
+            if (!shader) { continue; }
+            expect(shader.metadata().realization.find("fast_math=false; ordered_reduction=true") != string::npos);
+            vector<float> values(rows * stride), actual(rows * cases::outputs);
+            for (auto r = int64_t{0}; r < rows; r++) {
+                for (auto i = 0; i < width; i++) {
+                    constexpr float cancellation[]{16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f};
+                    values[r * stride + i] = r == 0 ? cancellation[i % 5] : static_cast<float>((i + 1) * (r + 1));
+                }
+            }
+            auto input = device.create_buffer<float>(values.size());
+            auto output = device.create_buffer<float>(actual.size());
+            auto stream = device.create_stream(StreamTag::COMPUTE);
+            stream << input.copy_from(values.data()) << shader(input, output).dispatch()
+                   << output.copy_to(actual.data()) << synchronize();
+            for (auto r = int64_t{0}; r < rows; r++) {
+                auto expected = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
+                for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
+                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])))
+                        << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
+                }
+            }
+        }
+    }
+}
+
+[[nodiscard]] bool close(span<const float> actual, span<const double> expected) {
+    if (actual.size() != expected.size()) { return false; }
+    for (size_t i = 0u; i < actual.size(); i++) {
+        if (!std::isfinite(actual[i]) || std::abs(actual[i] - expected[i]) > 2e-5 + 2e-5 * std::abs(expected[i])) { return false; }
+    }
+    return true;
+}
+
+void gemm(Device &device, test::tile_xir::Gemm cfg, bool compare_tirx) {
+    auto kernel = test::tile_xir::gemm(cfg);
+    expect(kernel.valid());
+    auto shader = tile::compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    expect(shader.metadata().realization.find("XIR SSA") != string::npos);
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    constexpr auto pad = size_t{19u};
+    constexpr auto guard = -731.25f;
+    vector<float> a(cfg.m * cfg.k), b(cfg.k * cfg.n), c(cfg.m * cfg.n + 2u * pad, guard);
+    vector<double> expected(cfg.m * cfg.n);
+    auto ab = device.create_buffer<float>(a.size() + pad);
+    auto bb = device.create_buffer<float>(b.size() + pad + 1u);
+    auto cb = device.create_buffer<float>(c.size());
+    auto av = ab.view(pad, a.size()), bv = bb.view(pad + 1u, b.size()), cv = cb.view(pad, expected.size());
+    for (auto repeat = 0; repeat < 2; repeat++) {
+        for (size_t i = 0u; i < a.size(); i++) { a[i] = std::sin(static_cast<float>(i) * .371f + .13f + repeat); }
+        for (size_t i = 0u; i < b.size(); i++) { b[i] = std::cos(static_cast<float>(i) * .213f + .47f - repeat); }
+        for (int64_t m = 0; m < cfg.m; m++) {
+            for (int64_t n = 0; n < cfg.n; n++) {
+                auto sum = static_cast<double>(cfg.initial);
+                for (int64_t k = 0; k < cfg.k; k++) {
+                    sum += static_cast<double>(a[cfg.transpose_a ? k * cfg.m + m : m * cfg.k + k]) * b[cfg.transpose_b ? n * cfg.k + k : k * cfg.n + n];
+                }
+                expected[m * cfg.n + n] = sum;
+            }
+        }
+        std::fill(c.begin() + pad, c.end() - pad, std::numeric_limits<float>::quiet_NaN());
+        stream << av.copy_from(a.data()) << bv.copy_from(b.data()) << cb.copy_from(c.data())
+               << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+        expect(close(span{c}.subspan(pad, expected.size()), expected));
+        expect(std::all_of(c.begin(), c.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(c.end() - pad, c.end(), [](float x) { return x == guard; }));
+    }
+    auto moved = std::move(shader);
+    expect(!shader && static_cast<bool>(moved));
+    shader = std::move(moved);
+    stream << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+    expect(close(span{c}.subspan(pad, expected.size()), expected));
+#ifdef LUISA_TEST_TILE_XIR_TIRX
+    if (compare_tirx) {
+        test::tile_tirx::Runtime runtime{"cpu"};
+        auto executable = runtime.build(kernel);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { return; }
+        auto ta = runtime.upload<float>({cfg.transpose_a ? cfg.k : cfg.m, cfg.transpose_a ? cfg.m : cfg.k}, a);
+        auto tb = runtime.upload<float>({cfg.transpose_b ? cfg.n : cfg.k, cfg.transpose_b ? cfg.k : cfg.n}, b);
+        auto tc = runtime.allocate<float>({cfg.m, cfg.n});
+        (*executable.entry)(ta, tb, tc);
+        expect(close(runtime.download<float>(tc, expected.size()), expected));
+    }
+#else
+    static_cast<void>(compare_tirx);
+#endif
+}
+
+void rows(Device &device, int64_t width, bool softmax) {
+    using namespace tile;
+    constexpr int64_t count = 17;
+    auto definition = tile_kernel("row_ops", [=](TensorView<const float, 2> A, TensorView<float, 2> B) {
+        auto m = axis("m", 1), n = axis("n", width);
+        for (auto &nest : parallel(shape(count))) {
+            auto x = A.tile(coord(nest.index(), 0), shape(m, n)).load();
+            auto y = x * 1.25f - 0.75f;
+            if (softmax) {
+                auto e = exp(y - reduce(y, n, maximum));
+                y = e / reduce(e, n, add);
+            } else {
+                y = ite(y > 0.0f, y, -y) + reduce(x, n, add);
+            }
+            B(coord(nest.index(), 0), shape(m, n)).store(y);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, width), tensor_shape(count, width));
+    expect(kernel.valid());
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> a(count * width), b(a.size());
+    vector<double> expected(a.size());
+    for (size_t i = 0u; i < a.size(); i++) { a[i] = std::sin(static_cast<float>(i) * .173f); }
+    for (int64_t row = 0; row < count; row++) {
+        auto sum = 0.0, denom = 0.0;
+        for (int64_t col = 0; col < width; col++) {
+            sum += a[row * width + col];
+            denom += std::exp(a[row * width + col] * 1.25 - .75);
+        }
+        for (int64_t col = 0; col < width; col++) {
+            auto y = a[row * width + col] * 1.25 - .75;
+            expected[row * width + col] = softmax ? std::exp(y) / denom : std::abs(y) + sum;
+        }
+    }
+    auto ab = device.create_buffer<float>(a.size()), bb = device.create_buffer<float>(b.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << ab.copy_from(a.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
+    if (!close(b, expected)) {
+        for (size_t i = 0u; i < b.size(); i++) {
+            if (!std::isfinite(b[i]) || std::abs(b[i] - expected[i]) > 2e-5 + 2e-5 * std::abs(expected[i])) {
+                auto row = i / width;
+                auto sequential = 0.0f;
+                for (auto col = int64_t{0}; col < width; col++) { sequential += a[row * width + col]; }
+                auto y = a[i] * 1.25f - .75f;
+                LUISA_WARNING("Row mismatch width={} softmax={} index={} actual={} fp64={} fp32_sequential={}",
+                              width, softmax, i, b[i], expected[i], std::abs(y) + sequential);
+                break;
+            }
+        }
+    }
+    expect(close(b, expected)) << "width=" << width << " softmax=" << softmax;
+}
+
+void recurrence(Device &device, int64_t iterations, bool pipelined) {
+    using namespace tile;
+    constexpr int64_t count = 19;
+    auto definition = tile_kernel("recurrence", [=](TensorView<float, 1> input, TensorView<float, 1> output) {
+        for (auto &nest : parallel(shape(count))) {
+            auto a = input.tile(coord(nest.index()), shape(1)).load();
+            auto b = a, snapshot = a;
+            input(coord(nest.index()), shape(1)).store(full<float>(shape(1), 17.0f));
+            auto range = pipelined ? nest.pipeline(shape(iterations)) : nest.serial(shape(iterations));
+            for (auto &step : range) {
+                if (pipelined) { step.stage("compute"); }
+                auto old_a = a;
+                a += b + snapshot;
+                b = old_a;
+            }
+            output(coord(nest.index() * 3), shape(1)).store(a);
+            output(coord(nest.index() * 3 + 1), shape(1)).store(b);
+            output(coord(nest.index() * 3 + 2), shape(1)).store(snapshot);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count), tensor_shape(count * 3));
+    expect(kernel.valid());
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> input(count), output(count * 3), overwritten(count);
+    vector<double> expected(count * 3);
+    for (int64_t i = 0; i < count; i++) {
+        input[i] = static_cast<float>(i + 1) * .03125f;
+        auto a = static_cast<double>(input[i]), b = a;
+        for (int64_t k = 0; k < iterations; k++) {
+            auto old_a = a;
+            a += b + input[i];
+            b = old_a;
+        }
+        expected[i * 3] = a;
+        expected[i * 3 + 1] = b;
+        expected[i * 3 + 2] = input[i];
+    }
+    auto ab = device.create_buffer<float>(input.size()), bb = device.create_buffer<float>(output.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << ab.copy_from(input.data()) << shader(ab, bb).dispatch()
+           << bb.copy_to(output.data()) << ab.copy_to(overwritten.data()) << synchronize();
+    expect(close(output, expected)) << "iterations=" << iterations << " pipelined=" << pipelined
+                                    << " actual=" << output[0] << "," << output[1] << "," << output[2]
+                                    << " expected=" << expected[0] << "," << expected[1] << "," << expected[2];
+    expect(std::all_of(overwritten.begin(), overwritten.end(), [](float x) { return x == 17.0f; }));
+}
+
+void clipped_origin(Device &device, bool overflow, bool fused = false) {
+    using namespace tile;
+    constexpr auto width = int64_t{65};
+    auto definition = tile_kernel("clipped_origin", [=](TensorView<const float, 1> A, TensorView<float, 1> B) {
+        auto element = axis("element", width);
+        for (auto &nest : parallel(shape(3))) {
+            auto origin = overflow ? nest.index() * INT64_MAX : nest.index() - 1;
+            auto x = A.tile(coord(origin), shape(element), bounds::zero).load();
+            B(coord(nest.index() * width), shape(element)).store(x);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(2), tensor_shape(3 * width));
+    auto options = bridge::xir::PlannerOptions{.enable_pointwise_fusion = fused};
+    auto shader = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    expect(shader.metadata().realization.find(format("fused_pointwise_loads={};", fused ? 1u : 0u)) != string::npos);
+    vector<float> a{2.5f, -3.0f}, b(3 * width, std::numeric_limits<float>::quiet_NaN());
+    vector<double> expected(3 * width, 0.0);
+    for (int64_t r = 0; r < 3; r++) {
+        // Tile Index arithmetic wraps; spell out the wrapped origin so the
+        // host oracle itself never evaluates an overflowing signed multiply.
+        auto origin = overflow ? (r == 0 ? int64_t{0} : r == 1 ? INT64_MAX :
+                                                                 int64_t{-2}) :
+                                 r - 1;
+        if (origin > 1) { continue; }
+        for (int64_t c = 0; c < width; c++) {
+            auto index = origin + c;
+            if (index >= 0 && index < 2) { expected[r * width + c] = a[index]; }
+        }
+    }
+    auto ab = device.create_buffer<float>(2), bb = device.create_buffer<float>(3 * width);
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << ab.copy_from(a.data()) << bb.copy_from(b.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
+    expect(close(b, expected));
+}
+
+void indexed_snapshots(Device &device, int64_t width, int64_t iterations, bool pipelined) {
+    using namespace tile;
+    constexpr auto count = int64_t{19};
+    auto definition = tile_kernel("indexed_snapshots", [=](TensorView<const float, 2> input,
+                                                           TensorView<float, 2> alias, TensorView<float, 2> output) {
+        for (auto &nest : parallel(shape(count))) {
+            auto snapshot = input[coord(nest.index(), 0), shape(1, width)];
+            auto a = snapshot, b = snapshot + 100.0f;
+            // The const View aliases this writable parameter at runtime.
+            alias(coord(nest.index(), 0), shape(1, width)).store(full<float>(shape(1, width), 17.0f));
+            auto trace = Scalar<float>{0.0f};
+            auto range = pipelined ? nest.pipeline(shape(iterations)) : nest.serial(shape(iterations));
+            for (auto &step : range) {
+                if (pipelined) { step.stage("compute"); }
+                auto index = step.index() % width;
+                trace += a.at(coord(0, index)) + 2.0f * b.at(coord(0, index)) + snapshot.at(coord(0, index));
+                auto old_a = a;
+                a = b + 3.0f;
+                b = old_a - 2.0f;
+            }
+            auto index = nest.index() % width;
+            for (auto column = 0; column < 4; column++) {
+                auto value = column == 0 ? trace : column == 1 ? a.at(coord(0, index)) :
+                                               column == 2     ? b.at(coord(0, index)) :
+                                                                 snapshot.at(coord(0, index));
+                output(coord(nest.index(), column), shape(1, 1)).store(full<float>(shape(1, 1), value));
+            }
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, width), tensor_shape(count, width), tensor_shape(count, 4));
+    expect(kernel.valid());
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> input(count * width), actual(count * 4 + 2 * pad, guard), overwritten(input.size());
+    vector<double> expected(count * 4);
+    for (auto r = int64_t{0}; r < count; r++) {
+        vector<double> a(width), b(width);
+        for (auto i = int64_t{0}; i < width; i++) {
+            input[r * width + i] = static_cast<float>(r * width + i) * .125f;
+            a[i] = input[r * width + i];
+            b[i] = a[i] + 100.0;
+        }
+        auto trace = 0.0;
+        for (auto k = int64_t{0}; k < iterations; k++) {
+            auto i = k % width;
+            trace += a[i] + 2.0 * b[i] + input[r * width + i];
+            auto old_a = a;
+            for (auto j = int64_t{0}; j < width; j++) {
+                a[j] = b[j] + 3.0;
+                b[j] = old_a[j] - 2.0;
+            }
+        }
+        expected[r * 4] = trace;
+        expected[r * 4 + 1] = a[r % width];
+        expected[r * 4 + 2] = b[r % width];
+        expected[r * 4 + 3] = input[r * width + r % width];
+    }
+    auto ab = device.create_buffer<float>(input.size() + pad), cb = device.create_buffer<float>(actual.size());
+    auto av = ab.view(pad, input.size()), cv = cb.view(pad, expected.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << av.copy_from(input.data()) << cb.copy_from(actual.data()) << shader(av, av, cv).dispatch()
+           << cb.copy_to(actual.data()) << av.copy_to(overwritten.data()) << synchronize();
+    expect(close(span{actual}.subspan(pad, expected.size()), expected)) << "width=" << width << " iterations=" << iterations << " pipeline=" << pipelined;
+    expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+    expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+    expect(std::all_of(overwritten.begin(), overwritten.end(), [](float x) { return x == 17.0f; }));
+}
+
+void indexed_bounds(Device &device, int64_t width) {
+    using namespace tile;
+    auto definition = tile_kernel("indexed_bounds", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
+        for (auto &nest : parallel(shape(width + 2))) {
+            auto x = input[coord(0), shape(width)];
+            auto value = x.at(coord(nest.index() - 1));
+            output(coord(nest.index()), shape(1)).store(full<float>(shape(1), value));
+        }
+    });
+    auto input_count = std::max(width, int64_t{1});
+    auto kernel = definition.capture(tensor_shape(input_count), tensor_shape(width + 2));
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> input(input_count), actual(width + 2);
+    vector<double> expected(width + 2, 0.0);
+    for (auto i = int64_t{0}; i < width; i++) { expected[i + 1] = input[i] = static_cast<float>(i + 1) * .25f; }
+    auto ab = device.create_buffer<float>(input.size()), cb = device.create_buffer<float>(actual.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << ab.copy_from(input.data()) << shader(ab, cb).dispatch() << cb.copy_to(actual.data()) << synchronize();
+    expect(close(actual, expected)) << "width=" << width;
+}
+
+void bounded_transpose_alias(Device &device, int64_t rows = 7, int64_t columns = 11) {
+    using namespace tile;
+    constexpr auto count = int64_t{67};
+    auto definition = tile_kernel("bounded_transpose_alias", [=](TensorView<const float, 3> input, TensorView<float, 3> output) {
+        auto b = axis("b", 1), m = axis("m", rows), n = axis("n", columns);
+        for (auto &nest : parallel(shape(count))) {
+            auto snapshot = input[coord(nest.index(), 0, 0), shape(b, m, n)];
+            auto transposed = map<float>(shape(b, n, m), [&](const Nest &element) {
+                return snapshot.at(coord(0, element.index(m), element.index(n))) * 1.25f + cast<float>(nest.index());
+            });
+            output(coord(nest.index(), 0, 0), shape(b, n, m)).store(transposed);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, rows, columns), tensor_shape(count, columns, rows));
+    auto shader = compile(device, kernel, {.threads_per_group = 32u});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    if (rows * columns * 8 > 65536) {
+        expect(shader.metadata().realization.find("private_workspace_bytes=0;") == string::npos);
+    }
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> data(count * rows * columns + 2 * pad, guard);
+    vector<double> expected(count * rows * columns);
+    for (auto b = int64_t{0}; b < count; b++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                auto value = static_cast<float>(b * rows * columns + m * columns + n) * .125f;
+                data[pad + b * rows * columns + m * columns + n] = value;
+                expected[b * rows * columns + n * rows + m] = value * 1.25 + b;
+            }
+        }
+    }
+    auto buffer = device.create_buffer<float>(data.size());
+    auto view = buffer.view(pad, expected.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << buffer.copy_from(span{data}) << shader(view, view).dispatch() << buffer.copy_to(span{data}) << synchronize();
+    expect(close(span{data}.subspan(pad, expected.size()), expected));
+    expect(std::all_of(data.begin(), data.begin() + pad, [](float x) { return x == guard; }));
+    expect(std::all_of(data.end() - pad, data.end(), [](float x) { return x == guard; }));
+}
+
+void partitioned_reductions(Device &device, int64_t width, uint32_t partitions) {
+    using namespace tile;
+    constexpr auto rows = int64_t{4};
+    auto stride = std::max(width, int64_t{1});
+    auto definition = tile_kernel("partitioned_reductions", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+        for (auto &nest : parallel(shape(rows))) {
+            auto x = input[coord(nest.index(), 0), shape(1, width)];
+            auto sum = ite(nest.index() == 0, Scalar<float>{-0.0f}, Scalar<float>{2.5f});
+            auto product = Scalar<float>{2.0f};
+            auto dependent = Scalar<float>{1.0f};
+            for (auto &step : nest.reduce(shape(width))) { sum += x.at(coord(0, step.index())); }
+            for (auto &step : nest.reduce(shape(width))) { product *= x.at(coord(0, step.index())); }
+            // This is not a closed associative combine and must keep its
+            // original recurrence despite unordered contribution permission.
+            for (auto &step : nest.reduce(shape(width))) { dependent = dependent * .5f + x.at(coord(0, step.index())); }
+            output(coord(nest.index(), 0), shape(1, 1)).store(full<float>(shape(1, 1), sum));
+            output(coord(nest.index(), 1), shape(1, 1)).store(full<float>(shape(1, 1), product));
+            output(coord(nest.index(), 2), shape(1, 1)).store(full<float>(shape(1, 1), dependent));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(rows, stride), tensor_shape(rows, 3));
+    auto options = bridge::xir::PlannerOptions{.reduction_partitions = partitions};
+    auto shader = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> input(rows * stride), actual(rows * 3), expected(rows * 3);
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t i = 0; i < width; i++) { input[row * stride + i] = row == 0 ? -0.0f : row == 1 ? .25f :
+                                                                                                      (i % 3 == 0 ? 1.0f : .5f); }
+        auto values = span<const float>{input}.subspan(row * stride, width);
+        auto fold = [&](float seed, auto combine) {
+            auto count = width > 64 && partitions > 1 ? partitions : 1u;
+            if (count == 1u || width == 0) {
+                for (auto value : values) { seed = combine(seed, value); }
+            } else {
+                for (auto p = 0u; p < count; p++) {
+                    auto partial = values[p];
+                    for (auto i = static_cast<size_t>(p + count); i < values.size(); i += count) { partial = combine(partial, values[i]); }
+                    seed = combine(seed, partial);
+                }
+            }
+            return seed;
+        };
+        expected[row * 3] = fold(row == 0 ? -0.0f : 2.5f, [](float a, float b) { return a + b; });
+        expected[row * 3 + 1] = fold(2.0f, [](float a, float b) { return a * b; });
+        auto dependent = 1.0f;
+        for (auto value : values) { dependent = dependent * .5f + value; }
+        expected[row * 3 + 2] = dependent;
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(actual.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.copy_from(span{input}) << shader(a, b).dispatch() << b.copy_to(span{actual}) << synchronize();
+    for (size_t i = 0u; i < actual.size(); i++) {
+        expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(expected[i]))) << "width=" << width << " partitions=" << partitions << " index=" << i;
+    }
+}
+
+void packet_local_reductions(Device &device, int64_t count, int64_t width, uint32_t partitions) {
+    test::tile_xir::packet_local_reductions(device, count, width, partitions);
+}
+
+void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped, uint32_t max_unrolled_mma_terms = 0u, bool rhs_transposed = false, bool enable_mma_2d_blocking = false, bool carry_seed = false) {
+    using namespace tile;
+    // A zero logical contraction still uses valid nonempty Runtime bindings.
+    auto physical_terms = std::max(terms, int64_t{1});
+    auto kernel = tile_kernel("ordered_mma_blocks", [=](TensorView<float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                      auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                      for (auto &nest : parallel(shape(1))) {
+                          auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                          auto rhs = b.tile(coord(0, 0), rhs_transposed ? shape(n, k) : shape(k, n)).load();
+                          auto seed = c.tile(coord(0, 0), shape(m, n)).load();
+                          // Eager snapshots must survive writes before the
+                          // contraction; its output also aliases the seed view.
+                          a(coord(0, 0), shape(m, k)).store(full<float>(shape(m, k), 13.0f));
+                          c(coord(0, 0), shape(m, n)).store(full<float>(shape(m, n), -7.0f));
+                          if (carry_seed) {
+                              // Exercise the small-SSA carry's canonical flat
+                              // element order without hiding the FMA probe by
+                              // accumulating its product a second time.
+                              for (auto &step : nest.serial(shape(1))) {
+                                  static_cast<void>(step);
+                                  seed = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                   mma(lhs, rhs, seed, {.allow_reassociation = false});
+                              }
+                              c(coord(0, 0), shape(m, n)).store(seed);
+                          } else {
+                              auto result = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                      mma(lhs, rhs, seed, {.allow_reassociation = false});
+                              c(coord(0, 0), shape(m, n)).store(result);
+                          }
+                      }
+                  }).capture(tensor_shape(rows, physical_terms), rhs_transposed ? tensor_shape(columns, physical_terms) : tensor_shape(physical_terms, columns), tensor_shape(rows, columns));
+    expect(kernel.valid());
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input_a(rows * physical_terms + 2u * pad, guard), input_b(physical_terms * columns + 2u * pad, guard), input_c(rows * columns + 2u * pad, guard);
+    for (int64_t i = 0; i < rows * physical_terms; i++) { input_a[pad + i] = i % 3 == 0 ? 1048576.0f : i % 3 == 1 ? 0.125f :
+                                                                                                                    -1048576.0f; }
+    auto b_index = [&](int64_t k, int64_t n) { return pad + (rhs_transposed ? n * physical_terms + k : k * columns + n); };
+    for (int64_t k = 0; k < physical_terms; k++) {
+        for (int64_t n = 0; n < columns; n++) {
+            // Same logical values in both layouts; only physical indexing changes.
+            auto i = k * columns + n;
+            input_b[b_index(k, n)] = static_cast<float>((i * 5 + 3) % 13 - 6) * 0.125f;
+        }
+    }
+    for (int64_t i = 0; i < rows * columns; i++) { input_c[pad + i] = static_cast<float>(i % 7 - 3) * 0.25f; }
+    // Output (0, 0) distinguishes separate MUL + ADD (0) from FMA (-2^-46).
+    // Keep the other columns' cancellation patterns to detect reassociation.
+    input_a[pad] = std::bit_cast<float>(0x3f800001u);// 1 + 2^-23
+    input_b[pad] = std::bit_cast<float>(0x3f7ffffeu);// 1 - 2^-23
+    input_c[pad] = -1.0f;
+    for (int64_t k = 1; k < terms; k++) { input_b[b_index(k, 0)] = 0.0f; }
+    auto expected = input_c;
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t column = 0; column < columns; column++) {
+            auto sum = input_c[pad + row * columns + column];
+            for (int64_t k = 0; k < terms; k++) {
+                auto lhs = input_a[pad + row * physical_terms + k], rhs = input_b[b_index(k, column)];
+                volatile float product = swapped ? rhs * lhs : lhs * rhs;
+                volatile float next = sum + product;// explicit noncontracted FP32 reference order
+                sum = next;
+            }
+            expected[pad + row * columns + column] = sum;
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size()), c = device.create_buffer<float>(input_c.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    vector<float> baseline;
+    for (auto width : {1u, 2u, 4u}) {
+        auto options = bridge::xir::PlannerOptions{.mma_output_block = width, .enable_mma_2d_blocking = enable_mma_2d_blocking, .max_unrolled_mma_terms = max_unrolled_mma_terms};
+        auto shader = compile(device, kernel, {.xir = &options});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto two_dimensional = enable_mma_2d_blocking && width == 4u && rows > 1 && columns > 1;
+        auto grouped = two_dimensional || (width != 1u && columns > 1 && (!rhs_transposed || !swapped || terms == 1));
+        expect(shader.metadata().realization.find(format("requested_mma_output_block={}; blocked_mmas={};", width, grouped ? 1u : 0u)) != string::npos);
+        expect(shader.metadata().realization.find(format("requested_mma_2d_blocking={}; two_dimensional_mmas={}", enable_mma_2d_blocking, two_dimensional ? 1u : 0u)) != string::npos);
+        auto rolled = terms > 64 || (max_unrolled_mma_terms != 0u && terms > max_unrolled_mma_terms);
+        expect(shader.metadata().realization.find(format("requested_max_unrolled_mma_terms={}; rolled_mmas={}; mma_unroll_cost=unmodeled", max_unrolled_mma_terms, rolled ? 1u : 0u)) != string::npos);
+        auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
+        stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << c.copy_from(span{input_c})
+               << shader(a.view(pad, rows * physical_terms), b.view(pad, physical_terms * columns), c.view(pad, rows * columns)).dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
+        for (size_t i = 0u; i < actual_c.size(); i++) {
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " 2d=" << enable_mma_2d_blocking << " rhs_transposed=" << rhs_transposed << " swapped=" << swapped << " carry=" << carry_seed << " output=" << i;
+        }
+        expect(actual_b == input_b);
+        for (size_t i = 0u; i < actual_a.size(); i++) {
+            auto unchanged = terms == 0 || i < pad || i >= actual_a.size() - pad;
+            expect(eq(std::bit_cast<uint32_t>(actual_a[i]), std::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
+        }
+        if (width == 1u) {
+            baseline = actual_c;
+        } else {
+            expect(actual_c == baseline);
+        }
+    }
+}
+
+void native_copy_snapshots(Device &device, int64_t width) {
+    using namespace tile;
+    constexpr auto programs = int64_t{17}, rows = int64_t{2}, stride = int64_t{11};
+    auto kernel = tile_kernel("native_copy_snapshot_bits", [=](TensorView<float, 3> a,
+                                                               TensorView<const float, 3> b,
+                                                               TensorView<float, 3> output) {
+                      auto program = axis("program", 1), row = axis("row", 1), column = axis("column", width);
+                      for (auto &nest : parallel(shape(programs))) {
+                          // One packet mixes full views, negative origins and
+                          // cross-row tails. Flat buffer capacity is NOT the
+                          // logical bound of a row. Each program owns two rows.
+                          auto offset = nest.index() % 5 * 3 - 3;
+                          auto row_offset = (nest.index() + 1) % 4 - 1;
+                          auto origin = coord(nest.index(), row_offset, offset);
+                          auto x = a.tile(origin, shape(program, row, column), bounds::zero).load();
+                          auto y = b.tile(origin, shape(program, row, column), bounds::zero).load();
+                          // b may alias a. Both loads must already be complete,
+                          // including the scalar fallback's zero-filled lanes.
+                          a(coord(nest.index(), 0, 0), shape(1, rows, stride)).store(full<float>(shape(1, rows, stride), 13.0f));
+                          output(coord(nest.index(), 0, 0), shape(program, row, column)).store(x);
+                          output(coord(nest.index(), 1, 0), shape(program, row, column)).store(y);
+                      }
+                  }).capture(tensor_shape(programs, rows, stride), tensor_shape(programs, rows, stride), tensor_shape(programs, 2, width));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    constexpr size_t pad = 17u;
+    constexpr auto guard = uint32_t{0xc436d000u};
+    constexpr uint32_t bits[]{0x00000000u, 0x80000000u, 0x7fc00001u, 0xffc01234u,
+                              0x7f800000u, 0xff800000u, 0x00000001u, 0x80000001u,
+                              0x3f800001u, 0xbf000003u, 0x41200000u};
+    vector<float> input_a(programs * rows * stride + 2u * pad, std::bit_cast<float>(guard));
+    auto input_b = input_a;
+    vector<float> initial(programs * 2 * width + 2u * pad, std::bit_cast<float>(guard));
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto i = int64_t{0}; i < rows * stride; i++) {
+            input_a[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i) % std::size(bits)]);
+            input_b[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i + 4) % std::size(bits)]);
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size());
+    auto output = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto vector_width : {0u, 2u, 4u, 8u}) {
+        auto options = bridge::xir::PlannerOptions{};
+        options.block_size = 32u;
+        options.local_lanes = 1u;
+        options.max_unrolled_tile_elements = 4u;
+        options.native_copy_vector_width = vector_width;
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto &metadata = shader.metadata().realization;
+        expect(metadata.find(format("native_copy_vector_width={}; native_copies={};", vector_width, vector_width == 0u ? 0u : 2u)) != string::npos)
+            << metadata;
+        expect(metadata.find(format("static_snapshot_bytes_per_worker={}; static_snapshot_allocations=2;", 2u * width * sizeof(float))) != string::npos)
+            << metadata;
+        for (auto alias : {false, true}) {
+            auto expected = initial;
+            for (auto p = int64_t{0}; p < programs; p++) {
+                auto offset = p % 5 * 3 - 3;
+                auto row_offset = (p + 1) % 4 - 1;
+                for (auto i = int64_t{0}; i < width; i++) {
+                    auto valid = row_offset >= 0 && row_offset < rows && offset + i >= 0 && offset + i < stride;
+                    auto source = (p * rows + row_offset) * stride + offset + i;
+                    expected[pad + (2 * p) * width + i] = valid ? input_a[pad + source] : 0.0f;
+                    expected[pad + (2 * p + 1) * width + i] = valid ? (alias ? input_a : input_b)[pad + source] : 0.0f;
+                }
+            }
+            auto actual_a = input_a, actual_b = input_b, actual_output = initial;
+            auto a_view = a.view(pad, programs * rows * stride);
+            auto b_view = alias ? a_view : b.view(pad, programs * rows * stride);
+            stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << output.copy_from(span{initial})
+                   << shader(a_view, b_view, output.view(pad, programs * 2 * width)).dispatch()
+                   << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b})
+                   << output.copy_to(span{actual_output}) << synchronize();
+            // No floating-point comparison may canonicalize NaN payloads or
+            // hide -0: this transfer performs no arithmetic on the payload.
+            for (size_t i = 0u; i < actual_output.size(); i++) {
+                expect(eq(std::bit_cast<uint32_t>(actual_output[i]), std::bit_cast<uint32_t>(expected[i])))
+                    << "copy=" << vector_width << " packet=" << device.compute_warp_size()
+                    << " width=" << width << " alias=" << alias << " index=" << i;
+            }
+            for (size_t i = 0u; i < actual_a.size(); i++) {
+                auto unchanged = i < pad || i >= actual_a.size() - pad;
+                expect(eq(std::bit_cast<uint32_t>(actual_a[i]), unchanged ? guard : std::bit_cast<uint32_t>(13.0f)));
+                expect(eq(std::bit_cast<uint32_t>(actual_b[i]), std::bit_cast<uint32_t>(input_b[i])));
+            }
+        }
+    }
+}
+
+void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool strict, bool fast_math = true, uint32_t native_copy_width = 0u) {
+    using namespace tile;
+    constexpr auto programs = int64_t{19};// Several W8 packets and an incomplete final packet.
+    auto rows = rhs_transposed ? int64_t{2} : int64_t{3};
+    auto columns = rhs_transposed ? int64_t{3} : int64_t{5};
+    auto physical_terms = std::max(terms, int64_t{1});
+    auto kernel = tile_kernel(strict ? "strict_native_mma_policy" : "default_native_mma_policy",
+                              [=](TensorView<float, 3> a, TensorView<const float, 3> b,
+                                  TensorView<float, 3> c, TensorView<float, 3> saved) {
+                                  auto p = axis("p", 1), m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                                  for (auto &nest : parallel(shape(programs))) {
+                                      auto origin = coord(nest.index(), 0, 0);
+                                      auto lhs = a.tile(origin, shape(p, m, k)).load();
+                                      auto rhs = b.tile(origin, rhs_transposed ? shape(p, n, k) : shape(p, k, n)).load();
+                                      auto seed = c.tile(origin, shape(p, m, n)).load();
+                                      auto old_seed = seed;
+                                      // All native operands are definition-time snapshots. The
+                                      // result must be fresh even when the seed remains live.
+                                      a(origin, shape(p, m, k)).store(full<float>(shape(p, m, k), 13.0f));
+                                      c(origin, shape(p, m, n)).store(full<float>(shape(p, m, n), -7.0f));
+                                      for (auto &step : nest.serial(shape(1))) {
+                                          static_cast<void>(step);
+                                          seed = mma(lhs, rhs, seed, strict ? MmaPolicy{.allow_reassociation = false} : MmaPolicy{});
+                                      }
+                                      c(origin, shape(p, m, n)).store(seed);
+                                      saved(origin, shape(p, m, n)).store(old_seed);
+                                  }
+                              })
+                      .capture(tensor_shape(programs, rows, physical_terms),
+                               rhs_transposed ? tensor_shape(programs, columns, physical_terms) : tensor_shape(programs, physical_terms, columns),
+                               tensor_shape(programs, rows, columns), tensor_shape(programs, rows, columns));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input_a(programs * rows * physical_terms + 2u * pad, guard);
+    vector<float> input_b(programs * physical_terms * columns + 2u * pad, guard);
+    vector<float> input_c(programs * rows * columns + 2u * pad, guard);
+    auto a_index = [&](int64_t p, int64_t m, int64_t k) { return pad + (p * rows + m) * physical_terms + k; };
+    auto b_index = [&](int64_t p, int64_t k, int64_t n) {
+        return pad + p * physical_terms * columns + (rhs_transposed ? n * physical_terms + k : k * columns + n);
+    };
+    auto c_index = [&](int64_t p, int64_t m, int64_t n) { return pad + (p * rows + m) * columns + n; };
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto k = int64_t{0}; k < physical_terms; k++) {
+                constexpr float cancellation[]{16777216.0f, 1.0f, 1.0f, -16777216.0f, 3.0f};
+                input_a[a_index(p, m, k)] = strict ? cancellation[k % 5] : static_cast<float>((p + m + k) % 7 - 3) * .25f;
+            }
+            for (auto n = int64_t{0}; n < columns; n++) {
+                input_c[c_index(p, m, n)] = strict ? 0.0f : static_cast<float>((p + m + n) % 5 - 2) * .125f;
+            }
+        }
+        for (auto k = int64_t{0}; k < physical_terms; k++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                input_b[b_index(p, k, n)] = strict ? 1.0f : static_cast<float>((p + k + n) % 5 - 2) * .5f;
+            }
+        }
+        if (strict) {
+            // (row 0,col 0): separate MUL+ADD gives +0, FMA gives -2^-46.
+            // (row 1,col 1), K=4: ordered gives 0, pairwise gives 1.
+            input_a[a_index(p, 0, 0)] = std::bit_cast<float>(0x3f800001u);
+            input_b[b_index(p, 0, 0)] = std::bit_cast<float>(0x3f7ffffeu);
+            for (auto k = int64_t{1}; k < terms; k++) { input_b[b_index(p, k, 0)] = 0.0f; }
+            input_c[c_index(p, 0, 0)] = terms == 0 ? -0.0f : -1.0f;
+        } else if (p == programs - 1) {
+            // Reassociation does not permit injecting +0 or ignoring zero's
+            // sign. Every product and seed in this row is negative zero.
+            for (auto k = int64_t{0}; k < physical_terms; k++) {
+                input_a[a_index(p, 0, k)] = -0.0f;
+                for (auto n = int64_t{0}; n < columns; n++) { input_b[b_index(p, k, n)] = 1.0f; }
+            }
+            for (auto n = int64_t{0}; n < columns; n++) { input_c[c_index(p, 0, n)] = -0.0f; }
+        }
+    }
+    auto expected = input_c;
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                auto sum = input_c[c_index(p, m, n)];
+                for (auto k = int64_t{0}; k < terms; k++) {
+                    volatile float product = input_a[a_index(p, m, k)] * input_b[b_index(p, k, n)];
+                    volatile float next = sum + product;
+                    sum = next;
+                }
+                expected[c_index(p, m, n)] = sum;
+            }
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size());
+    auto c = device.create_buffer<float>(input_c.size()), saved = device.create_buffer<float>(input_c.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto width : {0u, 4u}) {
+        auto options = bridge::xir::PlannerOptions{};
+        options.block_size = 32u;
+        options.mma_output_block = 4u;
+        options.native_mma_vector_width = width;
+        options.native_copy_vector_width = native_copy_width;
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = fast_math});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto native_output = width != 0u && terms != 0 && !rhs_transposed;
+        auto native_contraction = width != 0u && terms >= 4 && rhs_transposed && !strict;
+        auto &text = shader.metadata().realization;
+        expect(text.find(format("native_mmas={};", native_output || native_contraction ? 1u : 0u)) != string::npos);
+        expect(text.find(format("native_output_mmas={};", native_output ? 1u : 0u)) != string::npos);
+        expect(text.find(format("native_contraction_mmas={}", native_contraction ? 1u : 0u)) != string::npos);
+        if (native_copy_width != 0u) {
+            // This focused arm uses K=5 and small full contiguous A/B views.
+            // Only the native MMA makes those two snapshots indexable. The
+            // seed enters through the SSA loop carry, not a direct MMA use;
+            // its original load and still-live old_seed must remain intact.
+            expect(text.find(format("native_copies={};", native_output || native_contraction ? 2u : 0u)) != string::npos) << text;
+        }
+        expect(text.find(format("fast_math={};", fast_math && !strict)) != string::npos);
+        expect(text.find(format("strict_mma={}", strict)) != string::npos);
+        auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
+        vector<float> actual_saved(input_c.size(), guard);
+        stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << c.copy_from(span{input_c})
+               << saved.copy_from(span{actual_saved})
+               << shader(a.view(pad, input_a.size() - 2u * pad), b.view(pad, input_b.size() - 2u * pad),
+                         c.view(pad, input_c.size() - 2u * pad), saved.view(pad, input_c.size() - 2u * pad))
+                      .dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c})
+               << saved.copy_to(span{actual_saved}) << synchronize();
+        // Default-policy inputs are small dyadics: all admitted evaluation
+        // trees give the same exactly representable result. This checks the
+        // native math without imposing a particular authorized tree.
+        for (size_t i = 0u; i < actual_c.size(); i++) {
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i])))
+                << "native MMA width=" << width << " strict=" << strict << " transposed=" << rhs_transposed << " K=" << terms << " index=" << i;
+            expect(eq(std::bit_cast<uint32_t>(actual_saved[i]), std::bit_cast<uint32_t>(input_c[i])));
+        }
+        expect(actual_b == input_b);
+        for (size_t i = 0u; i < actual_a.size(); i++) {
+            auto unchanged = terms == 0 || i < pad || i >= actual_a.size() - pad;
+            expect(eq(std::bit_cast<uint32_t>(actual_a[i]), std::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
+        }
+    }
+}
+
+}// namespace
+
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_root_traversal_environment_errors_are_recoverable"_test = [&] {
+        root_traversal_environment_errors(device);
+    };
+    "tile_xir_runtime_root_traversal_preserves_strict_program_order"_test = [&] {
+        root_traversal_recurrences(device);
+    };
+    "tile_xir_runtime_root_traversal_preserves_packet_local_coordinates"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) { root_traversal_local_axis(device, lanes); }
+    };
+    "tile_xir_runtime_map_fusion_snapshots_and_carries"_test = [&] {
+        for (auto width : {1, 7, 32, 65, 129}) {
+            for (auto variant : {0u, 1u, 2u, 3u}) { map_chain(device, width, variant); }
+        }
+    };
+    "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) {
+            for (auto width : {65, 256, 4097}) {
+                for (auto variant : {0u, 1u, 2u, 3u, 4u, 5u}) {
+                    if (lanes == 1u || variant != 3u) { fused_expression_reductions(device, width, lanes, variant); }
+                }
+            }
+        }
+        for (auto iterations : {0, 1, 3}) {
+            for (auto staged : {false, true}) {
+                for (auto retained : {false, true}) { fused_producer_scopes(device, iterations, staged, retained, true); }
+            }
+        }
+    };
+    "tile_xir_runtime_shared_pointwise_alias_paths"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) {
+            for (auto width : {65, 128, 257}) {
+                for (auto variant : {0u, 1u, 2u}) {
+                    for (auto shift : {-1, 0, 1}) { shared_pointwise(device, width, lanes, variant, shift); }
+                    shared_pointwise(device, width, lanes, variant, 0, true);
+                }
+                // Equality at the interval boundary is disjoint, even when
+                // the two resource views share an underlying allocation.
+                for (auto shift : {-2 * width, 2 * width}) { shared_pointwise(device, width, lanes, 0u, shift); }
+            }
+        }
+    };
+    "tile_xir_runtime_rope_shared_dag_three_alias_guards"_test = [&] {
+        for (auto half_width : {33, 2049}) { rope_shared_pointwise(device, half_width); }
+    };
+    "tile_xir_runtime_task_grain_preserves_kernel_and_guards"_test = [&] {
+        for (auto rows : {17, 129}) {
+            for (auto lanes : {1u, device.compute_warp_size()}) { task_grain(device, rows, lanes); }
+        }
+    };
+    "tile_xir_runtime_fused_loads_preserve_alias_snapshots"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) {
+            for (auto width : {65, 256, 4096}) {
+                for (auto variant : {0u, 1u, 2u}) { fused_load_reductions(device, width, lanes, variant); }
+            }
+        }
+        for (auto iterations : {0, 1, 3}) {
+            for (auto staged : {false, true}) {
+                for (auto retained : {false, true}) { fused_producer_scopes(device, iterations, staged, retained); }
+            }
+        }
+    };
+    "tile_xir_runtime_packet_local_reductions_and_snapshot"_test = [&] {
+        auto width = static_cast<int64_t>(device.compute_warp_size());
+        for (auto partitions : {1u, 3u, 4u, 16u}) {
+            for (auto n : {int64_t{1}, int64_t{2}, int64_t{7}, int64_t{16}, int64_t{31}, int64_t{32}, int64_t{33}, width, width + 1, int64_t{65}, int64_t{127}, int64_t{256}}) {
+                packet_local_reductions(device, 17, n, partitions);
+            }
+        }
+        packet_local_reductions(device, 1, 4096, 4u);
+        packet_local_reductions(device, 67, 16384, 4u);
+    };
+    "tile_xir_runtime_packet_local_fill_is_a_valid_contribution"_test = [&] {
+        test::tile_xir::packet_local_reductions(device, 17, 7, 4u, true);
+    };
+    "tile_xir_runtime_program_team_projection_reads"_test = [&] {
+        test::tile_xir::program_team_projection_reads(device);
+    };
+    "tile_xir_runtime_program_team_attention_key33_value3"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_llm::attention(1, 2, 1, 3, 35, 7, 3, 2, 33), 2);
+    };
+    "tile_xir_runtime_sibling_parallel_outer_views_capture"_test = [] {
+        test::tile_xir::sibling_parallel_outer_views_capture();
+    };
+    "tile_xir_runtime_program_team_attention_key65_value7"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_llm::attention(1, 2, 1, 3, 67, 33, 7, 2, 65), 2);
+    };
+    "tile_xir_runtime_program_team_attention_alias_snapshots_and_carries"_test = [&] {
+        test::tile_xir::program_team_attention(device, test::tile_xir::attention_snapshot_fixture(), 1, true);
+    };
+    "tile_xir_runtime_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };
+    "tile_xir_runtime_bounded_transpose_preserves_alias_snapshot"_test = [&] {
+        bounded_transpose_alias(device);
+        bounded_transpose_alias(device, 129, 65);
+    };
+    "tile_xir_runtime_partitioned_closed_reductions"_test = [&] {
+        for (auto partitions : {1u, 3u, 4u, 16u}) {
+            for (auto width : {0, 1, 65, 66, 67, 128}) { partitioned_reductions(device, width, partitions); }
+        }
+    };
+    "tile_xir_runtime_mma_output_blocks_order_and_snapshots"_test = [&] {
+        for (auto swapped : {false, true}) {
+            mma_output_blocks(device, 2, 5, 3, swapped);
+            mma_output_blocks(device, 2, 35, 17, swapped);
+            mma_output_blocks(device, 1, 7, 65, swapped);
+        }
+    };
+    "tile_xir_runtime_native_mma_policy_and_snapshots"_test = [&] {
+        for (auto terms : {0, 1, 3, 4, 5}) {
+            for (auto strict : {false, true}) {
+                native_mma_policy(device, terms, false, strict);
+                native_mma_policy(device, terms, true, strict);
+            }
+        }
+        native_mma_policy(device, 5, false, true, false);
+        native_mma_policy(device, 5, true, false, false);
+    };
+    "tile_xir_runtime_native_copy_bits_bounds_alias_and_packet_tails"_test = [&] {
+        for (auto packet : {1u, 4u, 8u}) {
+            DeviceConfig config{};
+            config.extension = luisa::make_unique<SIMDDeviceConfigExt>(packet, 1u);
+            auto copy_device = context.create_device("simd", &config);
+            expect(eq(copy_device.compute_warp_size(), packet));
+            for (auto width : {8, 9}) { native_copy_snapshots(copy_device, width); }
+        }
+    };
+    "tile_xir_runtime_native_copy_small_mma_snapshots_and_carries"_test = [&] {
+        native_mma_policy(device, 5, false, true, false, 4u);
+    };
+    "tile_xir_runtime_mma_unroll_caps_order_and_snapshots"_test = [&] {
+        for (auto swapped : {false, true}) {
+            // Both sides of each cap, including empty K, small-SSA dynamic
+            // reads, cancellation, FMA distinction and eager alias snapshots.
+            for (auto [terms, cap] : {std::pair{0, 1u}, {1, 1u}, {8, 8u}, {9, 8u}, {16, 1u}, {64, 8u}}) {
+                mma_output_blocks(device, 1, 5, terms, swapped, cap);
+                mma_output_blocks(device, 1, 5, terms, swapped, cap, true);
+            }
+        }
+    };
+    "tile_xir_runtime_mma_2d_blocks_order_carries_and_snapshots"_test = [&] {
+        for (auto swapped : {false, true}) {
+            for (auto rhs_transposed : {false, true}) {
+                // Odd row/column tails with a small-SSA carried accumulator.
+                // K=0 must return its seed; K=1 keeps the FMA discriminator;
+                // K=9 exercises newly indexable operands and rolled K.
+                for (auto terms : {0, 1, 9}) {
+                    mma_output_blocks(device, 3, 5, terms, swapped, 8u, rhs_transposed, true, true);
+                }
+                // The 81-element output crosses the snapshot boundary. Its
+                // flat layout and original eager alias snapshots must survive
+                // two-dimensional grouping and both output tails.
+                mma_output_blocks(device, 9, 9, 65, swapped, 8u, rhs_transposed, true);
+                // A single nonunit output axis retains the exact old 1D
+                // admission, including the swapped strided-LHS fallback.
+                mma_output_blocks(device, 1, 5, 9, swapped, 8u, rhs_transposed, true, true);
+            }
+        }
+    };
+    "tile_xir_runtime_gemm"_test = [&] {
+        gemm(device, {16, 24, 16, 1, 1, 8}, true);
+        gemm(device, {17, 19, 13, 2, 3, 4, false, false, .25f}, true);
+        for (auto ta : {false, true}) {
+            for (auto tb : {false, true}) { gemm(device, {7, 11, 9, 2, 3, 4, ta, tb, .5f, 1u}, false); }
+        }
+        gemm(device, {7, 11, 129, 3, 5, 65, true, true, .25f}, false);
+        gemm(device, {11, 13, 17, 9, 9, 5, false, false, .25f}, false);
+    };
+    "tile_xir_runtime_elementwise_reductions_softmax"_test = [&] {
+        for (auto width : {1, 7, 17, 65, 129, 4096}) {
+            rows(device, width, false);
+            rows(device, width, true);
+        }
+    };
+    "tile_xir_runtime_aligned_and_ragged_packet_gemm"_test = [&] {
+        for (auto columns : {32, 33, 128}) {
+            for (auto rows_per_tile : {1, 4}) {
+                gemm(device, {19, columns, 65, rows_per_tile, 1, 8}, false);
+            }
+        }
+    };
+    "tile_xir_runtime_loop_carries_and_load_snapshot"_test = [&] {
+        for (auto iterations : {0, 1, 5}) {
+            recurrence(device, iterations, false);
+            recurrence(device, iterations, true);
+        }
+    };
+    "tile_xir_bounds_proof_rejects_negative_and_overflowing_origins"_test = [&] {
+        for (auto fused : {false, true}) {
+            clipped_origin(device, false, fused);
+            clipped_origin(device, true, fused);
+        }
+    };
+    "tile_xir_runtime_indexable_snapshots_and_simultaneous_carries"_test = [&] {
+        for (auto width : {1, 7, 65, 127}) {
+            for (auto iterations : {0, 1, 5}) {
+                indexed_snapshots(device, width, iterations, false);
+                indexed_snapshots(device, width, iterations, true);
+            }
+        }
+        for (auto width : {0, 1, 7, 65, 129}) { indexed_bounds(device, width); }
+    };
+}

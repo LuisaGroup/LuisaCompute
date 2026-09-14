@@ -18,6 +18,8 @@
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -1544,9 +1546,13 @@ struct MetadataRecord {
                        CURVE_BASIS,
                        SIGNATURE_CONSTRAINT,
                        REG2MEM_SPILL,
-                       NO_INLINE } kind;
+                       NO_INLINE,
+                       STRIDED_MMA,
+                       CONTIGUOUS_COPY } kind;
     luisa::string text;
     int64_t number{0};
+    StridedMmaDescriptor strided_mma;
+    ContiguousCopyDescriptor contiguous_copy;
 };
 
 constexpr uint64_t reg2mem_spill_phi_wire_kind = 0u;
@@ -1572,6 +1578,25 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             return Reg2MemSpillKind::CROSS_BLOCK;
         default:
             return luisa::nullopt;
+    }
+}
+
+// Stable wire values are independent of the C++ enum representation.
+[[nodiscard]] constexpr luisa::optional<uint64_t>
+encode_strided_mma_vectorization(StridedMmaVectorization value) noexcept {
+    switch (value) {
+        case StridedMmaVectorization::OUTPUT: return 0u;
+        case StridedMmaVectorization::CONTRACTION: return 1u;
+    }
+    return luisa::nullopt;
+}
+
+[[nodiscard]] constexpr luisa::optional<StridedMmaVectorization>
+decode_strided_mma_vectorization(uint64_t value) noexcept {
+    switch (value) {
+        case 0u: return StridedMmaVectorization::OUTPUT;
+        case 1u: return StridedMmaVectorization::CONTRACTION;
+        default: return luisa::nullopt;
     }
 }
 
@@ -1637,6 +1662,58 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             }
         } else if (kind == "no_inline") {
             record.kind = MetadataRecord::Kind::NO_INLINE;
+        } else if (kind == "contiguous_copy") {
+            record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+            auto &d = record.contiguous_copy;
+            uint64_t width = 0u;
+            if (!parser.unsigned_integer(d.element_count) || !parser.unsigned_integer(width)) { return false; }
+            if (width > std::numeric_limits<uint32_t>::max()) {
+                return parser.fail("Invalid XIR contiguous-copy vector width.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            if (!is_valid_contiguous_copy_descriptor(d)) {
+                return parser.fail("Invalid XIR contiguous-copy descriptor.");
+            }
+        } else if (kind == "strided_mma") {
+            record.kind = MetadataRecord::Kind::STRIDED_MMA;
+            auto &d = record.strided_mma;
+            luisa::string mode;
+            uint64_t width = 0u;
+            uint64_t reassociation = 0u;
+            size_t rank = 0u;
+            if (!parser.word(mode) || !parser.unsigned_integer(width) ||
+                !parser.unsigned_integer(reassociation) ||
+                !parser.unsigned_integer(d.contraction_extent) ||
+                !parser.unsigned_integer(d.lhs_contraction_stride) ||
+                !parser.unsigned_integer(d.rhs_contraction_stride) ||
+                !parser.count(rank) || !budget.consume(parser, rank)) {
+                return false;
+            }
+            if (mode == "output") {
+                d.vectorization = StridedMmaVectorization::OUTPUT;
+            } else if (mode == "contraction") {
+                d.vectorization = StridedMmaVectorization::CONTRACTION;
+            } else {
+                return parser.fail("Unknown XIR strided-MMA vectorization.");
+            }
+            if (width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                return parser.fail("Invalid XIR strided-MMA scalar fields.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            d.allow_reassociation = reassociation != 0u;
+            d.output_extents.resize(rank);
+            d.lhs_output_strides.resize(rank);
+            d.rhs_output_strides.resize(rank);
+            for (auto j = size_t{0u}; j < rank; j++) {
+                if (!parser.unsigned_integer(d.output_extents[j]) ||
+                    !parser.unsigned_integer(d.lhs_output_strides[j]) ||
+                    !parser.unsigned_integer(d.rhs_output_strides[j])) {
+                    return false;
+                }
+            }
+            if (!is_valid_strided_mma_descriptor(d)) {
+                return parser.fail("Invalid XIR strided-MMA descriptor.");
+            }
         } else {
             return parser.fail("Unknown XIR metadata kind.");
         }
@@ -1672,6 +1749,12 @@ void apply_metadata_records(
                 break;
             case MetadataRecord::Kind::NO_INLINE:
                 metadata = luisa::make_managed<NoInlineMD>();
+                break;
+            case MetadataRecord::Kind::STRIDED_MMA:
+                metadata = luisa::make_managed<StridedMmaMD>(iter->strided_mma);
+                break;
+            case MetadataRecord::Kind::CONTIGUOUS_COPY:
+                metadata = luisa::make_managed<ContiguousCopyMD>(iter->contiguous_copy);
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1742,6 +1825,34 @@ void apply_metadata_records(
             case DerivedMetadataTag::NO_INLINE:
                 text.append("no_inline");
                 break;
+            case DerivedMetadataTag::STRIDED_MMA: {
+                auto &&d = static_cast<const StridedMmaMD *>(metadata)->descriptor;
+                if (!is_valid_strided_mma_descriptor(d) || d.output_extents.size() > max_record_count) {
+                    error = "XIR strided-MMA metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text),
+                                 "strided_mma {} {} {} {} {} {} {}",
+                                 to_string(d.vectorization), d.vector_width,
+                                 static_cast<uint32_t>(d.allow_reassociation),
+                                 d.contraction_extent, d.lhs_contraction_stride,
+                                 d.rhs_contraction_stride, d.output_extents.size());
+                for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                    luisa::format_to(std::back_inserter(text), " {} {} {}",
+                                     d.output_extents[i], d.lhs_output_strides[i],
+                                     d.rhs_output_strides[i]);
+                }
+                break;
+            }
+            case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                auto &&d = static_cast<const ContiguousCopyMD *>(metadata)->descriptor;
+                if (!is_valid_contiguous_copy_descriptor(d)) {
+                    error = "XIR contiguous-copy metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text), "contiguous_copy {} {}", d.element_count, d.vector_width);
+                break;
+            }
             default:
                 error = "XIR contains an unknown metadata kind.";
                 return false;
@@ -2033,6 +2144,69 @@ parse_u64_hex(luisa::string_view text) noexcept {
                                  std::move(attributes));
         data.extensions.emplace_back(std::move(extension));
     }
+    // Optional compiler-owned projection tail. Old records retain their exact
+    // encoding; unknown/truncated tails fail closed instead of losing aliases.
+    if (auxiliary_index < record.auxiliary.size() && record.auxiliary[auxiliary_index] == -1) {
+        ++auxiliary_index;
+        auto next = [&](size_t &value) {
+            return auxiliary_index < record.auxiliary.size() && read_count(record.auxiliary[auxiliary_index++], value);
+        };
+        for (auto &extension : data.extensions) {
+            size_t count = 0;
+            if (!next(count)) { return fail("Truncated coroutine projection count."); }
+            luisa::vector<CoroSuspendBindingProjection> projections;
+            luisa::vector<bool> support(binding_value_count, false);
+            for (size_t i = 0; i < count; ++i) {
+                size_t access, lifetime, index, alternatives;
+                if (!next(access) || access > 2 || !next(lifetime) || lifetime > 2 ||
+                    !next(index) || index >= binding_value_count || !next(alternatives) || alternatives == 0 ||
+                    payload_index >= record.payloads.size()) { return fail("Invalid coroutine projection header."); }
+                CoroSuspendBindingProjection projection;
+                projection.binding = {record.payloads[payload_index++], static_cast<CoroSuspendBindingAccess>(access),
+                                      static_cast<CoroSuspendBindingLifetime>(lifetime), static_cast<uint32_t>(index)};
+                if (projection.binding.name.empty()) { return fail("Unnamed coroutine projection."); }
+                for (size_t j = 0; j < alternatives; ++j) {
+                    size_t vi, ci;
+                    if (!next(vi) || !next(ci) || vi >= binding_value_count || ci >= binding_value_count ||
+                        vi == ci || support[vi] || support[ci] || (j == 0 && vi != index)) {
+                        return fail("Invalid coroutine projection alternative.");
+                    }
+                    auto has_binding = [&](size_t binding_index, CoroSuspendBindingAccess mode) {
+                        return std::any_of(extension->bindings().begin(), extension->bindings().end(), [&](auto &b) {
+                            return b.index == binding_index && b.access == mode && b.lifetime == projection.binding.lifetime;
+                        });
+                    };
+                    if (!has_binding(vi, CoroSuspendBindingAccess::read_write) || !has_binding(ci, CoroSuspendBindingAccess::read)) {
+                        return fail("Coroutine projection refers outside its normalized owner.");
+                    }
+                    support[vi] = support[ci] = true;
+                    projection.alternatives.push_back({static_cast<uint32_t>(vi), static_cast<uint32_t>(ci)});
+                }
+                projections.emplace_back(std::move(projection));
+            }
+            if (!projections.empty()) {
+                luisa::vector<CoroSuspendBinding> logical_bindings;
+                for (auto &binding : extension->bindings()) {
+                    auto p = std::find_if(projections.begin(), projections.end(), [&](auto &p) { return p.binding.index == binding.index; });
+                    if (p != projections.end()) {
+                        logical_bindings.emplace_back(p->binding);
+                    } else if (!support[binding.index]) {
+                        logical_bindings.emplace_back(binding);
+                    }
+                }
+                for (size_t i = 0; i < logical_bindings.size(); ++i) {
+                    for (size_t j = 0; j < i; ++j) {
+                        if (logical_bindings[i].name == logical_bindings[j].name) { return fail("Duplicate logical coroutine binding."); }
+                    }
+                }
+                auto make = extension->is_annotation() ? make_coro_suspend_annotation_data : make_coro_suspend_extension_data;
+                auto logical = make(luisa::string{extension->schema()}, extension->version(), extension->fallback(),
+                                    std::move(logical_bindings), {extension->attributes().begin(), extension->attributes().end()});
+                extension = make_coro_suspend_projected_extension(std::move(logical),
+                                                                  {extension->bindings().begin(), extension->bindings().end()}, std::move(projections));
+            }
+        }
+    }
     if (auxiliary_index != record.auxiliary.size() ||
         payload_index != record.payloads.size() ||
         std::find(bound.begin(), bound.end(), false) != bound.end()) {
@@ -2103,6 +2277,25 @@ void encode_coro_suspend_record(
             payloads.emplace_back(attribute.name);
             payloads.emplace_back(
                 encode_coro_suspend_attribute_value(attribute.value));
+        }
+    }
+    auto projected = std::any_of(suspend->extensions().begin(), suspend->extensions().end(),
+                                 [](auto &e) { return !e->binding_projections().empty(); });
+    if (projected) {
+        auxiliary.emplace_back(-1);
+        for (auto &extension : suspend->extensions()) {
+            auxiliary.emplace_back(extension->binding_projections().size());
+            for (auto &projection : extension->binding_projections()) {
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.access));
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.lifetime));
+                auxiliary.emplace_back(projection.binding.index);
+                auxiliary.emplace_back(projection.alternatives.size());
+                payloads.emplace_back(projection.binding.name);
+                for (auto alternative : projection.alternatives) {
+                    auxiliary.emplace_back(alternative.value_index);
+                    auxiliary.emplace_back(alternative.condition_index);
+                }
+            }
         }
     }
 }
@@ -2219,6 +2412,8 @@ binary_instruction_tag(uint64_t id) noexcept {
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                 case MetadataRecord::Kind::REG2MEM_SPILL:
                 case MetadataRecord::Kind::NO_INLINE:
+                case MetadataRecord::Kind::STRIDED_MMA:
+                case MetadataRecord::Kind::CONTIGUOUS_COPY:
                     break;
             }
         }
@@ -2358,6 +2553,39 @@ public:
                 case MetadataRecord::Kind::NO_INLINE:
                     integer(6u);
                     break;
+                case MetadataRecord::Kind::STRIDED_MMA: {
+                    auto &&d = record.strided_mma;
+                    auto mode = encode_strided_mma_vectorization(d.vectorization);
+                    if (!mode || !is_valid_strided_mma_descriptor(d)) {
+                        _error = "XIR binary strided-MMA metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(7u);
+                    integer(*mode);
+                    integer(d.vector_width);
+                    integer(static_cast<uint64_t>(d.allow_reassociation));
+                    integer(d.contraction_extent);
+                    integer(d.lhs_contraction_stride);
+                    integer(d.rhs_contraction_stride);
+                    if (!count(d.output_extents.size())) { return false; }
+                    for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                        integer(d.output_extents[i]);
+                        integer(d.lhs_output_strides[i]);
+                        integer(d.rhs_output_strides[i]);
+                    }
+                    break;
+                }
+                case MetadataRecord::Kind::CONTIGUOUS_COPY: {
+                    auto &&d = record.contiguous_copy;
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        _error = "XIR binary contiguous-copy metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(8u);
+                    integer(d.element_count);
+                    integer(d.vector_width);
+                    break;
+                }
             }
         }
         return true;
@@ -2604,6 +2832,54 @@ public:
                 case 6u:
                     record.kind = MetadataRecord::Kind::NO_INLINE;
                     break;
+                case 7u: {
+                    record.kind = MetadataRecord::Kind::STRIDED_MMA;
+                    auto &d = record.strided_mma;
+                    uint64_t mode = 0u;
+                    uint64_t width = 0u;
+                    uint64_t reassociation = 0u;
+                    size_t rank = 0u;
+                    if (!integer(mode) || !integer(width) || !integer(reassociation) ||
+                        !integer(d.contraction_extent) || !integer(d.lhs_contraction_stride) ||
+                        !integer(d.rhs_contraction_stride) ||
+                        !count<std::array<uint64_t, 3u>>(rank)) {
+                        return false;
+                    }
+                    auto vectorization = decode_strided_mma_vectorization(mode);
+                    if (!vectorization || width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                        return _reader.fail("Invalid XIR binary strided-MMA scalar fields.");
+                    }
+                    d.vectorization = *vectorization;
+                    d.vector_width = static_cast<uint32_t>(width);
+                    d.allow_reassociation = reassociation != 0u;
+                    d.output_extents.resize(rank);
+                    d.lhs_output_strides.resize(rank);
+                    d.rhs_output_strides.resize(rank);
+                    for (auto j = size_t{0u}; j < rank; j++) {
+                        if (!integer(d.output_extents[j]) || !integer(d.lhs_output_strides[j]) ||
+                            !integer(d.rhs_output_strides[j])) {
+                            return false;
+                        }
+                    }
+                    if (!is_valid_strided_mma_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary strided-MMA descriptor.");
+                    }
+                    break;
+                }
+                case 8u: {
+                    record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+                    auto &d = record.contiguous_copy;
+                    uint64_t width = 0u;
+                    if (!integer(d.element_count) || !integer(width)) { return false; }
+                    if (width > std::numeric_limits<uint32_t>::max()) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy vector width.");
+                    }
+                    d.vector_width = static_cast<uint32_t>(width);
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy descriptor.");
+                    }
+                    break;
+                }
                 default: return _reader.fail("Unknown XIR binary metadata kind.");
             }
             records.emplace_back(std::move(record));
@@ -2917,7 +3193,8 @@ public:
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RETURN: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::PHI: return operand_count == auxiliary_count && payload_count == 0u;
-        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
+        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && payload_count == 0u &&
+                                                   auxiliary_count <= 1u;
         case DerivedInstructionTag::LOAD: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::STORE: return operand_count == 2u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::GEP: return operand_count >= 2u && auxiliary_count == 0u && payload_count == 0u;
@@ -4545,6 +4822,10 @@ template<typename OperandSpan>
                            [](int64_t value) noexcept { return value >= 0; });
     };
     switch (record.tag) {
+        case DerivedInstructionTag::ALLOCA:
+            return record.auxiliary.empty() || (record.auxiliary.size() == 1u && record.auxiliary[0] > 0 &&
+                                                static_cast<uint64_t>(record.auxiliary[0]) <= std::numeric_limits<uint32_t>::max());
+
         case DerivedInstructionTag::IF:
             return !record.auxiliary.empty() && record.auxiliary.front() >= -1;
         case DerivedInstructionTag::LOOP:
@@ -4656,9 +4937,12 @@ template<typename OperandSpan>
             instruction = std::move(value);
             break;
         }
-        case DerivedInstructionTag::ALLOCA:
-            instruction = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+        case DerivedInstructionTag::ALLOCA: {
+            auto value = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+            if (!record.auxiliary.empty()) { value->set_coro_return_selector(static_cast<uint32_t>(record.auxiliary[0])); }
+            instruction = std::move(value);
             break;
+        }
         case DerivedInstructionTag::LOAD:
             instruction = luisa::make_managed<LoadInst>(block, type, nullptr);
             break;
@@ -5258,6 +5542,12 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     };
     auto append_metadata = [&](const MetadataListMixin &owner, luisa::string_view indentation) noexcept {
         if (!consume_writer_records(owner.metadata_list().count_size())) { return false; }
+        for (auto metadata : owner.metadata_list()) {
+            if (metadata->isa<StridedMmaMD>()) {
+                auto mma = static_cast<const StridedMmaMD *>(metadata);
+                if (!consume_writer_records(mma->descriptor.output_extents.size())) { return false; }
+            }
+        }
         luisa::string error;
         if (append_metadata_records(result.text, owner, indentation, error)) { return true; }
         fail(std::move(error));
@@ -5376,7 +5666,11 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }
                 auto op = int64_t{-1};
                 switch (instruction->derived_instruction_tag()) {
-                    case DerivedInstructionTag::ALLOCA: op = static_cast<int64_t>(static_cast<const AllocaInst *>(instruction)->op()); break;
+                    case DerivedInstructionTag::ALLOCA: {
+                        auto *alloca = static_cast<const AllocaInst *>(instruction);
+                        op = static_cast<int64_t>(alloca->op());
+                        break;
+                    }
                     case DerivedInstructionTag::ATOMIC: op = static_cast<int64_t>(static_cast<const AtomicInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::ARITHMETIC: op = static_cast<int64_t>(static_cast<const ArithmeticInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::THREAD_GROUP: op = static_cast<int64_t>(static_cast<const ThreadGroupInst *>(instruction)->op()); break;
@@ -5399,6 +5693,9 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }
                 luisa::vector<int64_t> auxiliary;
                 luisa::vector<luisa::string> payloads;
+                if (instruction->isa<AllocaInst>()) {
+                    if (auto selector = static_cast<const AllocaInst *>(instruction)->coro_return_selector()) { auxiliary.emplace_back(selector); }
+                }
                 switch (instruction->derived_instruction_tag()) {
                     case DerivedInstructionTag::RESOURCE_QUERY: {
                         auto access = static_cast<const ResourceQueryInst *>(instruction)

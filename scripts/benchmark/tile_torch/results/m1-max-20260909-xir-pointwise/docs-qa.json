@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback-1280.png",
+      "fullScreenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/results-by-route-1280.png",
+      "fullScreenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/results-by-route-1280-full.png"
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback-390.png",
+      "fullScreenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback-390-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/results-by-route-390.png",
+      "fullScreenshot": "/tmp/luisa-pointwise.0imY7I/docs-qa-final/results-by-route-390-full.png"
+    }
+  ]
+}

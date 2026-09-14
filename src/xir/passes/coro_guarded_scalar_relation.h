@@ -79,6 +79,7 @@ public:
     [[nodiscard]] bool widened() const noexcept { return _widened; }
     [[nodiscard]] size_t node_count() const noexcept { return _nodes.size(); }
     [[nodiscard]] luisa::string describe(Set set) const noexcept;
+    [[nodiscard]] luisa::vector<Value *> support(Set set) const noexcept;
 };
 
 // Abstract value of one masked unsigned-scalar projection. `nonzero_possible`
@@ -156,10 +157,16 @@ public:
     [[nodiscard]] bool feasible() const noexcept {
         return !CoroBooleanSetManager::is_empty(_feasible);
     }
+    [[nodiscard]] CoroBooleanSetManager::Set
+    feasible_set() const noexcept { return _feasible; }
     [[nodiscard]] bool knows_less(AllocaInst *index) const noexcept;
     [[nodiscard]] bool knows_equal(AllocaInst *index) const noexcept;
     [[nodiscard]] bool knows_last(AllocaInst *index) const noexcept;
     [[nodiscard]] bool knows_counter_positive() const noexcept;
+    [[nodiscard]] CoroBooleanSetManager::Set
+    counter_positive_unsafe_set() const noexcept {
+        return _counter_positive_unsafe;
+    }
     [[nodiscard]] bool knows_tail() const noexcept;
     [[nodiscard]] bool knows_initialized(AllocaInst *index) const noexcept;
     [[nodiscard]] bool tracks_masked_scalar(
@@ -235,12 +242,14 @@ public:
         CoroScalarZeroProjection projection) noexcept;
 
     void forget_boolean(Value *predicate) noexcept;
-    void retain_booleans(
+    luisa::vector<Value *> retain_booleans(
         luisa::span<Value *const> live_predicates) noexcept;
     void assign_boolean(
         Value *destination, Value *source,
         bool true_when_source_is,
         luisa::optional<bool> copied_constant) noexcept;
+    [[nodiscard]] luisa::optional<bool>
+    known_boolean(Value *predicate) const noexcept;
     [[nodiscard]] bool refine_boolean(
         Value *predicate, bool value) noexcept;
 

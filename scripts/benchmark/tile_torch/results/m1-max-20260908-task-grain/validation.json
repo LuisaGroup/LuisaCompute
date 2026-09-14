@@ -1,0 +1,88 @@
+{
+  "ctest": "final-ctest.log",
+  "build": "final-build.log",
+  "source_audit": "provenance.json",
+  "evidence_audit": "audit.json",
+  "audience": "technical",
+  "surface": "existing repository Sphinx docs, as requested by user",
+  "structure": "technical summary; definitions; fixed-code controls; provisional model counterexamples; model implications; follow-ups",
+  "visuals": "exact cell-lookup tables for multiple fixed factors, plus native text diagrams; no cross-size absolute-time chart",
+  "documentation": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 16.46340412495192,
+      "warning_lines": 15093
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-task-grain.3eLK7H/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 51.14813975000288,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-task-grain.3eLK7H/docs-html-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.442016041954048,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/qa_docs.cjs",
+        "/tmp/luisa-task-grain.3eLK7H/docs-html-final",
+        "/tmp/luisa-task-grain.3eLK7H/docs-qa-final"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.9526682499563321,
+      "warning_lines": 0
+    }
+  ],
+  "source_sha256": {
+    "docs/source/internals/tile/xir.md": "427de4804968e5c477cdb809b1d46d956ebf2eaa1ef1492148abf1751abe5215",
+    "docs/source/performance/tile/results.md": "223e7c476d6b2e497c01ba1415692b98256d60dfd4daac4916da9f976ce957c6",
+    "docs/source/performance/tile/index.md": "b545daf9d31f8a10f94cebb8df7994ae8e65909397147dbab58eb08215b91e54"
+  },
+  "complete": true
+}

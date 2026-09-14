@@ -57,7 +57,7 @@ static constexpr char hip_shader_cache_magic[] = "LCHIPCCH";
 static constexpr auto hip_shader_cache_artifact_version = 2u;
 // Increment whenever the HIP lowering or final-compilation contract changes in
 // a way that can alter generated code without changing the kernel AST hash.
-static constexpr auto hip_shader_cache_codegen_revision = 84u;
+static constexpr auto hip_shader_cache_codegen_revision = 85u;
 static constexpr auto hip_shader_cache_max_artifact_size = 1ull << 30u;
 static constexpr auto hip_shader_cache_payload_hash_seed =
     0x4849504341434845ull;
@@ -451,7 +451,8 @@ namespace {
         static_cast<uint32_t>(LUISA_XIR_ELIMINATE_EARLY_RETURN) << 2u |
         static_cast<uint32_t>(LUISA_XIR_NORMALIZE_CFG) << 3u |
         static_cast<uint32_t>(LUISA_XIR_RESTRUCTURE_CFG) << 4u |
-        static_cast<uint32_t>(kernel.requires_autodiff()) << 5u;
+        static_cast<uint32_t>(kernel.requires_autodiff()) << 5u |
+        static_cast<uint32_t>(option.assume_no_packed_textures) << 6u;
     writer.write_u32(flags);
     writer.write_string(option.native_include);
     return std::move(writer).finish();
@@ -1426,6 +1427,7 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
             .opt_level = HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE,
             .enable_fast_math = option.enable_fast_math,
             .enable_debug_info = option.enable_debug_info,
+            .assume_no_packed_textures = option.assume_no_packed_textures,
             .requires_ray_tracing = kernel.requires_raytracing(),
             .requires_ray_query = builtin_callables.uses_ray_query(),
             .requires_motion_blur = kernel.requires_motion_blur(),

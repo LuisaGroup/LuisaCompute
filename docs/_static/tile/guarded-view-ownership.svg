@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">Guarded indirect Tile reads and worker ownership</title>
+  <desc id="desc">A logical immutable Tile snapshot feeds reductions and a guarded dynamic gather. Distributing only its initialization across private worker arrays is invalid. Path-sensitive forwarding turns each use into a guarded global Tensor read; otherwise a separate ownership audit rejects the cooperative map and falls back.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#52606d"/>
+    </marker>
+    <style>
+      .title { font: 700 22px system-ui, sans-serif; fill: #172b4d; }
+      .head { font: 700 16px system-ui, sans-serif; fill: #172b4d; }
+      .text { font: 14px system-ui, sans-serif; fill: #243b53; }
+      .small { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #334e68; }
+      .box { stroke-width: 2; rx: 13; ry: 13; }
+      .arrow { stroke: #52606d; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .bad { stroke: #de350b; stroke-width: 3; fill: none; }
+      .good { stroke: #36b37e; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="680" fill="#f7f9fc"/>
+  <text x="600" y="36" text-anchor="middle" class="title">A dynamic gather needs a view proof or a different execution map</text>
+
+  <rect x="35" y="75" width="1130" height="120" class="box" fill="#e3f2fd" stroke="#2684ff"/>
+  <text x="600" y="103" text-anchor="middle" class="head">Logical TileIR semantics</text>
+  <text x="70" y="135" class="small">V[i] = ite(source_bounds(i), A[row, i], 0)</text>
+  <text x="440" y="135" class="small">peak = reduce_max(V)</text>
+  <text x="700" y="135" class="small">total = reduce_sum(exp(V - peak))</text>
+  <text x="70" y="166" class="small">selected = ite(0 ≤ label &lt; N, V[label], 0)</text>
+  <text x="700" y="166" class="small">loss = log(total) + peak - selected</text>
+
+  <rect x="35" y="235" width="510" height="300" class="box" fill="#fff1f0" stroke="#de350b"/>
+  <text x="290" y="266" text-anchor="middle" class="head">Invalid mechanical distribution</text>
+  <text x="65" y="300" class="small">each worker allocates private V[N]</text>
+  <text x="65" y="328" class="small">worker w initializes only V[e(w)]</text>
+  <rect x="70" y="355" width="118" height="46" rx="8" fill="#ffffff" stroke="#de350b"/>
+  <rect x="210" y="355" width="118" height="46" rx="8" fill="#ffffff" stroke="#de350b"/>
+  <rect x="350" y="355" width="118" height="46" rx="8" fill="#ffffff" stroke="#de350b"/>
+  <text x="129" y="383" text-anchor="middle" class="small">worker 0: V[0]</text>
+  <text x="269" y="383" text-anchor="middle" class="small">worker 1: V[1]</text>
+  <text x="409" y="383" text-anchor="middle" class="small">worker …</text>
+  <text x="65" y="438" class="small">worker 0 reads private V[label]</text>
+  <path d="M71 452 L475 452 M273 425 L273 480" class="bad"/>
+  <text x="290" y="508" text-anchor="middle" class="text" fill="#de350b">label may belong to another worker → undefined value</text>
+
+  <rect x="655" y="235" width="510" height="300" class="box" fill="#e8f5e9" stroke="#36b37e"/>
+  <text x="910" y="266" text-anchor="middle" class="head">Proved immutable view forwarding</text>
+  <text x="685" y="300" class="small">path guard ⇒ 0 ≤ label &lt; N</text>
+  <text x="685" y="328" class="small">A is immutable under the noalias/effect proof</text>
+  <rect x="700" y="360" width="420" height="58" class="box" fill="#ffffff" stroke="#36b37e"/>
+  <text x="910" y="385" text-anchor="middle" class="small">selected = ite(0 ≤ label &lt; N,</text>
+  <text x="910" y="404" text-anchor="middle" class="small">               A[row, label], 0)</text>
+  <path d="M910 418 V462" class="good"/>
+  <text x="910" y="492" text-anchor="middle" class="text">no per-worker V[N]; all reductions/gathers read Tensor A</text>
+
+  <path d="M545 385 H655" class="arrow"/>
+  <text x="600" y="365" text-anchor="middle" class="small">repair</text>
+
+  <rect x="140" y="580" width="920" height="70" class="box" fill="#ffffff" stroke="#829ab1"/>
+  <text x="600" y="607" text-anchor="middle" class="head">Independent fail-closed gate</text>
+  <text x="600" y="632" text-anchor="middle" class="text">If forwarding is unavailable, prove every distributed local access has flatten(index) = owner; otherwise decline subgroup mapping and use the reference execution.</text>
+  <path d="M290 535 C290 565 385 565 430 580" class="arrow"/>
+  <path d="M910 535 C910 565 815 565 770 580" class="arrow"/>
+</svg>

@@ -96,35 +96,53 @@ CoroScalarRelationLiveness::CoroScalarRelationLiveness(
         }
     }
 
-    for (;;) {
-        auto changed = false;
-        for (size_t reverse_id = graph.block_count();
-             reverse_id != 0u; --reverse_id) {
-            auto block_id = reverse_id - 1u;
-            if (active_blocks[block_id] == 0u) { continue; }
-            auto next_out = Bits(word_count, 0u);
-            for (auto successor : graph.successors(block_id)) {
-                if (successor == lifetime_target ||
-                    active_blocks[successor] == 0u) {
-                    continue;
-                }
-                for (size_t word = 0u; word < word_count; ++word) {
-                    next_out[word] |= live_in_bits[successor][word];
-                }
+    // Chaotic iteration of the same backward data-flow equations as a full
+    // reverse scan:
+    //   OUT[b] = union IN[s], s in succ(b), s != lifetime_target
+    //   IN[b]  = USE[b] union (OUT[b] - DEF[b]).
+    // The bit-vector lattice is finite and transfer is monotone. A block can
+    // affect only its predecessors, and only when IN changes, so the sparse
+    // worklist reaches the identical least fixed point without rescanning
+    // unrelated blocks on every propagation step.
+    luisa::vector<size_t> worklist;
+    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
+    for (size_t block_id = 0u;
+         block_id < graph.block_count(); ++block_id) {
+        if (active_blocks[block_id] != 0u) {
+            worklist.emplace_back(block_id);
+            queued[block_id] = 1u;
+        }
+    }
+    while (!worklist.empty()) {
+        auto block_id = worklist.back();
+        worklist.pop_back();
+        queued[block_id] = 0u;
+        auto next_out = Bits(word_count, 0u);
+        for (auto successor : graph.successors(block_id)) {
+            if (successor == lifetime_target ||
+                active_blocks[successor] == 0u) {
+                continue;
             }
-            auto next_in = uses[block_id];
             for (size_t word = 0u; word < word_count; ++word) {
-                next_in[word] |=
-                    next_out[word] & ~definitions[block_id][word];
-            }
-            if (next_in != live_in_bits[block_id] ||
-                next_out != live_out_bits[block_id]) {
-                live_in_bits[block_id] = std::move(next_in);
-                live_out_bits[block_id] = std::move(next_out);
-                changed = true;
+                next_out[word] |= live_in_bits[successor][word];
             }
         }
-        if (!changed) { break; }
+        auto next_in = uses[block_id];
+        for (size_t word = 0u; word < word_count; ++word) {
+            next_in[word] |=
+                next_out[word] & ~definitions[block_id][word];
+        }
+        auto in_changed = next_in != live_in_bits[block_id];
+        live_in_bits[block_id] = std::move(next_in);
+        live_out_bits[block_id] = std::move(next_out);
+        if (!in_changed || block_id == lifetime_target) { continue; }
+        for (auto predecessor : graph.predecessors(block_id)) {
+            if (active_blocks[predecessor] != 0u &&
+                queued[predecessor] == 0u) {
+                queued[predecessor] = 1u;
+                worklist.emplace_back(predecessor);
+            }
+        }
     }
 
     for (size_t block_id = 0u;
@@ -258,35 +276,45 @@ CoroBooleanPredicateLiveness::CoroBooleanPredicateLiveness(
         }
     }
 
-    for (;;) {
-        auto changed = false;
-        for (size_t reverse_id = graph.block_count();
-             reverse_id != 0u; --reverse_id) {
-            auto block_id = reverse_id - 1u;
-            if (active_blocks[block_id] == 0u) { continue; }
-            auto next_out = Bits(word_count, 0u);
-            for (auto successor : graph.successors(block_id)) {
-                if (successor == lifetime_target ||
-                    active_blocks[successor] == 0u) {
-                    continue;
-                }
-                for (size_t word = 0u; word < word_count; ++word) {
-                    next_out[word] |= live_in_bits[successor][word];
-                }
+    luisa::vector<size_t> worklist;
+    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
+    for (size_t block_id = 0u;
+         block_id < graph.block_count(); ++block_id) {
+        if (active_blocks[block_id] != 0u) {
+            worklist.emplace_back(block_id);
+            queued[block_id] = 1u;
+        }
+    }
+    while (!worklist.empty()) {
+        auto block_id = worklist.back();
+        worklist.pop_back();
+        queued[block_id] = 0u;
+        auto next_out = Bits(word_count, 0u);
+        for (auto successor : graph.successors(block_id)) {
+            if (successor == lifetime_target ||
+                active_blocks[successor] == 0u) {
+                continue;
             }
-            auto next_in = uses[block_id];
             for (size_t word = 0u; word < word_count; ++word) {
-                next_in[word] |=
-                    next_out[word] & ~definitions[block_id][word];
-            }
-            if (next_in != live_in_bits[block_id] ||
-                next_out != live_out_bits[block_id]) {
-                live_in_bits[block_id] = std::move(next_in);
-                live_out_bits[block_id] = std::move(next_out);
-                changed = true;
+                next_out[word] |= live_in_bits[successor][word];
             }
         }
-        if (!changed) { break; }
+        auto next_in = uses[block_id];
+        for (size_t word = 0u; word < word_count; ++word) {
+            next_in[word] |=
+                next_out[word] & ~definitions[block_id][word];
+        }
+        auto in_changed = next_in != live_in_bits[block_id];
+        live_in_bits[block_id] = std::move(next_in);
+        live_out_bits[block_id] = std::move(next_out);
+        if (!in_changed || block_id == lifetime_target) { continue; }
+        for (auto predecessor : graph.predecessors(block_id)) {
+            if (active_blocks[predecessor] != 0u &&
+                queued[predecessor] == 0u) {
+                queued[predecessor] = 1u;
+                worklist.emplace_back(predecessor);
+            }
+        }
     }
 
     for (size_t block_id = 0u;
@@ -295,6 +323,50 @@ CoroBooleanPredicateLiveness::CoroBooleanPredicateLiveness(
         for (size_t i = 0u; i < predicates.size(); ++i) {
             if (bit_test(live_in_bits[block_id], i)) {
                 _live_in[block_id].emplace_back(predicates[i]);
+            }
+        }
+        auto live = live_out_bits[block_id];
+        luisa::vector<Instruction *> instructions;
+        for (auto *instruction : graph.block(block_id)->instructions()) {
+            instructions.emplace_back(instruction);
+        }
+        for (auto iter = instructions.rbegin(); iter != instructions.rend(); ++iter) {
+            auto *instruction = *iter;
+            auto use_iter = semantic_uses.find(instruction);
+            auto def_iter = semantic_definitions.find(instruction);
+            // DEAD[i] = (USE[i] union DEF[i]) - LIVE_AFTER[i]. Compute both
+            // sets against the same live-after state, before killing any
+            // definition: a value can be both used and defined here. Include
+            // never-used definitions, whose newly created relation also dies.
+            auto record_deaths = [&](const auto &values) noexcept {
+                for (auto *predicate : values) {
+                    if (auto id = predicate_ids.find(predicate);
+                        id != predicate_ids.end() && !bit_test(live, id->second)) {
+                        auto &dead = _dead_after[instruction];
+                        if (std::find(dead.begin(), dead.end(), predicate) == dead.end()) {
+                            dead.emplace_back(predicate);
+                        }
+                    }
+                }
+            };
+            if (use_iter != semantic_uses.end()) { record_deaths(use_iter->second); }
+            if (def_iter != semantic_definitions.end()) { record_deaths(def_iter->second); }
+            // LIVE_BEFORE[i] = USE[i] union (LIVE_AFTER[i] - DEF[i]). The
+            // enclosing fixed point includes every semantic loop/resume edge,
+            // so retirement cannot discard an instance used on a later visit.
+            if (def_iter != semantic_definitions.end()) {
+                for (auto *predicate : def_iter->second) {
+                    if (auto id = predicate_ids.find(predicate); id != predicate_ids.end()) {
+                        bit_clear(live, id->second);
+                    }
+                }
+            }
+            if (use_iter != semantic_uses.end()) {
+                for (auto *predicate : use_iter->second) {
+                    if (auto id = predicate_ids.find(predicate); id != predicate_ids.end()) {
+                        bit_set(live, id->second);
+                    }
+                }
             }
         }
     }
@@ -306,6 +378,15 @@ CoroBooleanPredicateLiveness::live_in(
     return block_id < _live_in.size() ?
                luisa::span<Value *const>{_live_in[block_id]} :
                luisa::span<Value *const>{};
+}
+
+luisa::span<Value *const>
+CoroBooleanPredicateLiveness::dead_after(
+    Instruction *instruction) const noexcept {
+    if (auto iter = _dead_after.find(instruction); iter != _dead_after.end()) {
+        return iter->second;
+    }
+    return {};
 }
 
 }// namespace luisa::compute::xir::detail

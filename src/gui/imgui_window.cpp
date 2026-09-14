@@ -1,4 +1,7 @@
 #include <mutex>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -90,6 +93,45 @@ namespace luisa::compute::detail {
 #endif
 }
 
+/// Monitor content scale used for GUI DPI awareness. Screen coordinates are
+/// physical pixels on Windows/X11, while macOS expresses display density
+/// through the framebuffer scale (window coordinates are points) and Wayland
+/// leaves scaling to the compositor; both report 1.0 here.
+[[nodiscard]] inline float window_content_scale(GLFWwindow *window) noexcept {
+#if defined(LUISA_PLATFORM_APPLE)
+    static_cast<void>(window);
+    return 1.0f;
+#else
+#if LUISA_ENABLE_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        static_cast<void>(window);
+        return 1.0f;
+    }
+#endif
+    auto sx = 1.0f;
+    auto sy = 1.0f;
+    glfwGetWindowContentScale(window, &sx, &sy);
+    auto scale = std::max(sx, sy);
+    return (scale > 0.0f && std::isfinite(scale)) ? std::clamp(scale, 1.0f, 8.0f) : 1.0f;
+#endif
+}
+
+/// Framebuffer-to-window size ratio (1.0 on Windows, 2.0 on Retina displays).
+[[nodiscard]] inline float window_framebuffer_scale(GLFWwindow *window) noexcept {
+    auto ww = 0;
+    auto wh = 0;
+    auto fw = 0;
+    auto fh = 0;
+    glfwGetWindowSize(window, &ww, &wh);
+    glfwGetFramebufferSize(window, &fw, &fh);
+    if (ww <= 0 || wh <= 0 || fw <= 0 || fh <= 0) { return 1.0f; }
+    auto scale = std::max(static_cast<float>(fw) / static_cast<float>(ww),
+                          static_cast<float>(fh) / static_cast<float>(wh));
+    return (scale > 0.0f && std::isfinite(scale)) ? std::clamp(scale, 1.0f, 8.0f) : 1.0f;
+}
+
+inline constexpr auto base_font_size = 13.0f;// ImGui's default font size (ProggyClean 13 px)
+
 struct alignas(16u) GUIVertex {
     float px;
     float py;
@@ -159,6 +201,14 @@ private:
     Device &_device;
     Stream &_stream;
     Config _config;
+    float _dpi_scale{1.0f};        // content scale currently applied to style/fonts
+    float _dpi_scale_applied{0.0f};// 0 => never applied
+    float _dpi_override{0.0f};     // > 0 => LUISA_GUI_DPI_SCALE override (testing)
+    float _base_font_size{detail::base_font_size};// style.FontSizeBase before DPI scaling
+    bool _owns_default_font{true}; // false once the app supplies its own fonts
+    ImGuiStyle _base_style{};      // style snapshot at scale 1 (captured on first frame)
+    bool _base_style_valid{false};
+    uint64_t _font_texture_id{0u};// bindless id of the font texture (0 => none)
     ImGuiContext *_context;
     GLFWwindow *_main_window;
     Swapchain _main_swapchain;
@@ -193,6 +243,93 @@ private:
     decltype(auto) _with_context(F &&f) noexcept {
         CtxGuard guard{_context};
         return luisa::invoke(std::forward<F>(f));
+    }
+
+private:
+    /// Content scale to apply, honoring the disable flag and the test override.
+    [[nodiscard]] float _content_scale() const noexcept {
+        if (!_config.dpi_aware) { return 1.0f; }
+        if (_dpi_override > 0.0f) { return _dpi_override; }
+        return detail::window_content_scale(_main_window);
+    }
+
+    /// Re-bake the default font at the DPI-scaled pixel size. With a legacy
+    /// backend (no ImGuiBackendFlags_RendererHasTextures) a font atlas can only
+    /// be rebuilt outside ImGui::NewFrame()/EndFrame(), where it is unlocked;
+    /// called from prepare_frame() accordingly.
+    /// Note: secondary viewport windows share this atlas, so they use the main
+    /// window's content scale.
+    void _rebuild_font_atlas(float scale) noexcept {
+        auto &io = ImGui::GetIO();
+        // The application supplied its own fonts: never drop them, scale the
+        // existing atlas instead (soft, but correct, on legacy backends).
+        if (!_owns_default_font) { return; }
+        io.Fonts->ClearFonts();
+        auto &style = ImGui::GetStyle();
+        // style.FontSizeBase must be set before AddFontDefault() (it picks the
+        // bitmap or the vector font from it), and re-asserted afterwards:
+        // ClearFonts() and AddFont() notify the surrounding contexts, which
+        // writes the previous frame's font size back into the style.
+        style.FontSizeBase = _base_font_size * scale;
+        style.FontScaleDpi = 1.0f;
+        ImFontConfig cfg{};
+        // Logical pixel size == baked pixel size, so the text is crisp at the
+        // scaled size; AddFontDefault() keeps the bitmap font for scale 1 and
+        // picks the scalable vector font for larger sizes.
+        cfg.SizePixels = _base_font_size * scale;
+        // On platforms where window coordinates are points (macOS Retina),
+        // rasterize at the framebuffer density while logical metrics stay
+        // unchanged; the renderer applies DisplayFramebufferScale to vertices.
+        cfg.RasterizerDensity = detail::window_framebuffer_scale(_main_window);
+        io.Fonts->AddFontDefault(&cfg);
+        style.FontSizeBase = _base_font_size * scale;
+        style.FontScaleDpi = 1.0f;
+    }
+
+    void _apply_dpi_scale(float scale) noexcept {
+        auto &style = ImGui::GetStyle();
+        if (!_base_style_valid) {
+            _base_style = style;
+            _base_style_valid = true;
+            _base_font_size = style.FontSizeBase > 0.0f ? style.FontSizeBase : detail::base_font_size;
+            _owns_default_font = ImGui::GetIO().Fonts->Fonts.empty();
+        }
+        style = _base_style;
+        if (scale != 1.0f) { style.ScaleAllSizes(scale); }
+        if (_owns_default_font) {
+            // The size is baked into the font source (see _rebuild_font_atlas),
+            // so no additional global font scale factor is wanted here.
+            _rebuild_font_atlas(scale);
+        } else {
+            style.FontScaleDpi = scale;
+        }
+        _dpi_scale = scale;
+        _dpi_scale_applied = scale;
+        LUISA_INFO("GUI DPI scale set to {:.2f} (font size {:.1f} px).", scale, style.FontSizeBase);
+    }
+
+    void _update_dpi_scale() noexcept {
+        auto scale = _content_scale();
+        if (_dpi_scale_applied > 0.0f && scale == _dpi_scale_applied) { return; }
+        _apply_dpi_scale(scale);
+    }
+
+    /// Grow the window so that a logical size keeps its apparent size when
+    /// screen coordinates are physical pixels (Windows/X11). On macOS window
+    /// sizes are in points and Wayland handles scaling itself.
+    void _apply_initial_window_size(uint2 logical_size) noexcept {
+        auto scale = _content_scale();
+        if (scale <= 1.0f) { return; }
+        auto ww = 0;
+        auto wh = 0;
+        auto fw = 0;
+        auto fh = 0;
+        glfwGetWindowSize(_main_window, &ww, &wh);
+        glfwGetFramebufferSize(_main_window, &fw, &fh);
+        if (ww <= 0 || wh <= 0 || fw != ww || fh != wh) { return; }
+        glfwSetWindowSize(_main_window,
+                          static_cast<int>(std::lround(logical_size.x * scale)),
+                          static_cast<int>(std::lround(logical_size.y * scale)));
     }
 
 private:
@@ -263,6 +400,14 @@ public:
           }()},
           _main_window{nullptr} {
 
+        // optional content scale override, does not apply when dpi_aware is disabled
+        if (auto env = std::getenv("LUISA_GUI_DPI_SCALE"); env != nullptr && *env != '\0') {
+            auto value = std::strtof(env, nullptr);
+            if (std::isfinite(value) && value > 0.0f) {
+                _dpi_override = std::clamp(value, 1.0f, 8.0f);
+            }
+        }
+
         // initialize GLFW
         static std::once_flag once_flag;
         std::call_once(once_flag, [] {
@@ -285,6 +430,9 @@ public:
                                         nullptr, nullptr);
         LUISA_ASSERT(_main_window != nullptr, "Failed to create GLFW window.");
         glfwSetWindowUserPointer(_main_window, this);
+        // apply the monitor content scale to the initial window size
+        _dpi_scale = _content_scale();
+        _apply_initial_window_size(config.size);
         // TODO: imgui
         glfwSetMouseButtonCallback(_main_window, [](GLFWwindow *window, int button, int action, int mods) noexcept {
             // if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
@@ -484,6 +632,7 @@ public:
 public:
     [[nodiscard]] auto handle() const noexcept { return _main_window; }
     [[nodiscard]] auto context() const noexcept { return _context; }
+    [[nodiscard]] auto dpi_scale() const noexcept { return _dpi_scale; }
     [[nodiscard]] auto &swapchain() const noexcept { return const_cast<Swapchain &>(_main_swapchain); }
     [[nodiscard]] auto &framebuffer() const noexcept { return const_cast<Image<float> &>(_main_framebuffer); }
     [[nodiscard]] auto should_close() const noexcept {
@@ -537,6 +686,7 @@ private:
         auto pixels = static_cast<unsigned char *>(nullptr);
         auto width = 0, height = 0;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+        if (width <= 0 || height <= 0) { return; }
         // TODO: mipmaps?
         if (!_font_texture || any(_font_texture.size() != make_uint2(width, height))) {
             if (_font_texture) { _stream << synchronize(); }
@@ -544,6 +694,12 @@ private:
         }
         _stream << _font_texture.copy_from(luisa::span{pixels, static_cast<size_t>(width * height * 4)});
         auto tex_id = register_texture(_font_texture, Sampler::linear_point_edge());
+        if (_font_texture_id != 0u && _font_texture_id != tex_id) {
+            // Register the new texture before unregistering the stale id so the
+            // deferred removal can never race the new emplace on the same slot.
+            unregister_texture(_font_texture_id);
+        }
+        _font_texture_id = tex_id;
         io.Fonts->SetTexID(tex_id);
     }
 
@@ -730,6 +886,9 @@ public:
         _old_ctx = ImGui::GetCurrentContext();
         glfwPollEvents();
         ImGui::SetCurrentContext(_context);
+        // Apply the monitor content scale before ImGui consumes
+        // sizes/fonts this frame (may re-bake the font atlas).
+        _update_dpi_scale();
         // ImGui checks if the font texture is created in
         // ImGui::NewFrame() so we have to create it here
         if (!ImGui::GetIO().Fonts->IsBuilt() || !_font_texture) { _create_font_texture(); }
@@ -775,6 +934,11 @@ Swapchain &ImGuiWindow::swapchain() const noexcept {
 Image<float> &ImGuiWindow::framebuffer() const noexcept {
     LUISA_ASSERT(_impl, "ImGuiWindow not created.");
     return _impl->framebuffer();
+}
+
+float ImGuiWindow::dpi_scale() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->dpi_scale();
 }
 
 void ImGuiWindow::create(Device &device, Stream &stream, luisa::string name, const Config &config) noexcept {

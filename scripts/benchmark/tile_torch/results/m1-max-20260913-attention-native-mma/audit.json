@@ -1,0 +1,1528 @@
+{
+  "status": "passed",
+  "scope": "six actual SIMD Tile lowering cases; opt-in native MMA width 0 versus 4",
+  "captures": [
+    {
+      "case": "decode-mha-d64",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 1.833378765058076e-08,
+      "captured_sha256": "c132ae27c97850b4f9cafa3bba0a3b22a553382fc219b1071d87fbfe1c82f847",
+      "actual_object_sha256": "c225064bfb9aafe716da43e17abc9f61b6d0184c3bdaeb0a32922080d35d678b",
+      "llvm_sha256": "cfc6e937c3f2ed822c8d385cc65b2175b30494d9a4a7c11edda6199e8296a162",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 8320,
+        "static_snapshot_allocations": 4,
+        "interleaved_private_arrays": 4,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 66560,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 2050,
+        "contiguous_private_writes": 34,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          8,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 66560
+      }
+    },
+    {
+      "case": "decode-mha-d64",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 1.1518727479383883e-08,
+      "captured_sha256": "3c6b274f2be17bdba2b1fddf326f8b53cc2c48cd560cb4ed05448ca58a6ea072",
+      "actual_object_sha256": "c3cd82e678a9ea6f77c85dcf51ddf422c11a7275b589b082ca159fc5d8b8ca4e",
+      "llvm_sha256": "a8b24e0466d7b37d6069598986b32a7c3f9ffacbeee52a23e08638f02835edf1",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 9216,
+        "static_snapshot_allocations": 9,
+        "interleaved_private_arrays": 1,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 73728,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 1,
+        "contiguous_private_writes": 16,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          8,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 73728
+      }
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 1.9929339581175806e-08,
+      "captured_sha256": "c1e8ef55d766e3c0d563cd626c5e3a018b1e1c8b4c38042863ff792dc5ff5e15",
+      "actual_object_sha256": "bdb8d96be3afb6eecda8262ae21222ab6e0f0745c64f0108d140db8ac24c41dc",
+      "llvm_sha256": "f7a3cc79b958580f82940f126aa9b37206c0499a1577676c33935d070ea1a935",
+      "imports": [
+        "_bzero",
+        "_memcpy"
+      ],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 12864,
+        "static_snapshot_allocations": 8,
+        "interleaved_private_arrays": 8,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 2787,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 102912,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 2,
+        "contiguous_private_reads": 34,
+        "contiguous_private_writes": 42,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          8,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 102912
+      }
+    },
+    {
+      "case": "decode-gqa-d80",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 1.4683874823744406e-08,
+      "captured_sha256": "665dc5f3293c77764ef651628ee740bbde4b2598ad7f70fbd538a4a1b94a2c3e",
+      "actual_object_sha256": "a0ad9bd5858c268bbe7c743c1820479b986d357343ba0ca077a994bc82127c1d",
+      "llvm_sha256": "33c0ca8cae54c778630ff4205b59b487523897c0c0b0f6ba23fec287edf0fc2c",
+      "imports": [
+        "_bzero",
+        "_memcpy"
+      ],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 13376,
+        "static_snapshot_allocations": 11,
+        "interleaved_private_arrays": 3,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 2369,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 107008,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 4,
+        "contiguous_private_writes": 19,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          8,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 107008
+      }
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 1.7918961369352033e-08,
+      "captured_sha256": "7cc7fac09b55cb6bd4a6137016f28d774ab03d3c2680c0509191d39b7e658e1e",
+      "actual_object_sha256": "9d35461394f3ddb87eae53bdbfa0362dea5e47afdda293d237f0569502cd420b",
+      "llvm_sha256": "7fd366d80a077e2acee80822b2259e6a93ee3725d7f4b863d6c084312cb1f8c8",
+      "imports": [
+        "_bzero",
+        "_memcpy"
+      ],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 18560,
+        "static_snapshot_allocations": 8,
+        "interleaved_private_arrays": 8,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 2787,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 148480,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 2,
+        "contiguous_private_reads": 34,
+        "contiguous_private_writes": 42,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          16,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 148480
+      }
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 8.79794671658626e-09,
+      "captured_sha256": "f0a2b5b2f5b5f7c8a5dab4ecdb36b3104b31423f8bf7e824ca579d677a53c9b5",
+      "actual_object_sha256": "3f1920f410e9336de0585f70a7e5b94e68d1b77e8a647a3e8e9816e33c6655a1",
+      "llvm_sha256": "3028f7aefe93906d4b250c54f15e0737f32328defa405bfc227c326135df64c2",
+      "imports": [
+        "_bzero",
+        "_memcpy"
+      ],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 19200,
+        "static_snapshot_allocations": 11,
+        "interleaved_private_arrays": 3,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 2369,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 153600,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 4,
+        "contiguous_private_writes": 19,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          16,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 153600
+      }
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 1.388857772330332e-07,
+      "captured_sha256": "5d4e4bac92907f652d7a9651dce7d7a801ba77aabe13bf8799e66aff8292bdb6",
+      "actual_object_sha256": "51648ccb93158b09c133d43ac2de94b9f7340164bf65830793bc9aa9775e6001",
+      "llvm_sha256": "d8a27c16d80df2c9eaeaf0e1a7410b16832df5f91c00f2bb3f694bcea94d798b",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 6688,
+        "static_snapshot_allocations": 10,
+        "interleaved_private_arrays": 10,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 0,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 2,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 724,
+        "contiguous_private_writes": 146,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          32,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 0
+      }
+    },
+    {
+      "case": "prefill-q4",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 9.781755560232808e-08,
+      "captured_sha256": "9f21d3688e5f7cdf45b9322e3473568b16a04a995381275dad41e1480937f1ed",
+      "actual_object_sha256": "fbacb7e73c9481bc2f2203d5116aa84224074a87c3b067a620c47cb30e9b6ee7",
+      "llvm_sha256": "86f0173e3e610981e8b6008dafe63890546d65e04630bd235a9eb23df424d64a",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 7712,
+        "static_snapshot_allocations": 13,
+        "interleaved_private_arrays": 5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 0,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 9,
+        "contiguous_private_writes": 75,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          32,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 0
+      }
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 1.4185479705469684e-07,
+      "captured_sha256": "00ed4b9ac3169ab59b93b568941c9762105f223594cae9eb777cf38f357c3093",
+      "actual_object_sha256": "81409ad9d4d4cfdca4998ca62f3ddd93e0b51f772d3771b7b1ca45922608fb1b",
+      "llvm_sha256": "866c58019e111e577ff65f88b9f8c8ca5dc93c01365b0d7e4bb5a5f9ff93bf7f",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 12720,
+        "static_snapshot_allocations": 16,
+        "interleaved_private_arrays": 14,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 101760,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 2,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 225,
+        "contiguous_private_writes": 64,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          32,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 101760
+      }
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 8.260829179734808e-08,
+      "captured_sha256": "9195b98b7d561c9d8ac3110bd552c9bd0748fbff6e066eb9b10ef903ee074b4e",
+      "actual_object_sha256": "c1ec69b2bb38d3c6cd0ef9895a91750edb4ecb06007c43a816ffc90f1867e5da",
+      "llvm_sha256": "c045364b44998f54308c4c95bec562d40a5859d5948a10933e5d11ccb2ad779f",
+      "imports": [
+        "_bzero",
+        "_memcpy"
+      ],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 14768,
+        "static_snapshot_allocations": 18,
+        "interleaved_private_arrays": 8,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 3786,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 118144,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 17,
+        "contiguous_private_writes": 52,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch.blocks",
+        "abi": 0,
+        "dispatch": [
+          32,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 118144
+      }
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "off",
+      "status": "passed",
+      "max_abs_error": 2.0095906161460785e-07,
+      "captured_sha256": "ec7f7d404a11647bdd5ba7b85a203f75fc247b6f63d39205dc06bf3e3bb0ef75",
+      "actual_object_sha256": "b1e60b37e54027a67b3a2dcebca84629a8a27c30f0cc65123b96389ea56df50a",
+      "llvm_sha256": "c664d679a0178c1c30e2e5c596c781af6ccd43c7ba70c7f5273a5837963b333a",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 9120,
+        "static_snapshot_allocations": 10,
+        "interleaved_private_arrays": 10,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 0,
+        "native_contraction_mmas": 0,
+        "native_output_mmas": 0,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 72960,
+        "blocked_mmas": 2,
+        "two_dimensional_mmas": 2,
+        "rolled_mmas": 2,
+        "contiguous_private_reads": 0,
+        "contiguous_private_writes": 136,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch",
+        "abi": 2,
+        "dispatch": [
+          60,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 72960
+      }
+    },
+    {
+      "case": "batch-gqa-q4",
+      "variant": "on",
+      "status": "passed",
+      "max_abs_error": 8.72806374954075e-08,
+      "captured_sha256": "93f69dd416a7b1e505f221591859e2a2b19e689132243e551fb27957b3cfbde4",
+      "actual_object_sha256": "43bc633deee6bd7d68f14cb4199f4287aa80d812c6ec0c58c8b7962f60e141b4",
+      "llvm_sha256": "00f5bd5cceec8b1fd097bd8e1688788cf18dbea00e8d4e1be55a178285fb2d82",
+      "imports": [],
+      "resources": {
+        "static_snapshot_bytes_per_worker": 10400,
+        "static_snapshot_allocations": 13,
+        "interleaved_private_arrays": 5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 2097152,
+        "private_workspace_bytes": 83200,
+        "blocked_mmas": 0,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": 0,
+        "contiguous_private_writes": 72,
+        "unordered_reduction_partitions": 4
+      },
+      "entry": {
+        "symbol": "llm_attention.packet_batch",
+        "abi": 2,
+        "dispatch": [
+          60,
+          1,
+          1
+        ],
+        "block": [
+          32,
+          1,
+          1
+        ],
+        "packet_width": 8,
+        "workspace_bytes": 83200
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "case": "decode-mha-d64",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 1036.88540625,
+        "on": 1579.23303125
+      },
+      "all_sample_on_over_off": 1.523054545594826,
+      "all_sample_off_over_on": 0.6565753031579391,
+      "visit_median_us": {
+        "off": 1034.23178125,
+        "on": 1593.9739375
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          1.4570293598879862,
+          1.5221077508216092,
+          1.5262362801655707,
+          1.592997587555112,
+          1.5229973234942764,
+          1.5241833335174824
+        ],
+        "median": 1.5235903285058794,
+        "minimum": 1.4570293598879862,
+        "maximum": 1.592997587555112
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.833378765058076e-08,
+      "results_sha256": "f33465cd631736d76149c9ec59b7be8bfea89e4a7e20550f0b19a9d4bd919332",
+      "dimensions": [
+        1,
+        8,
+        8,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "cap": 0,
+      "two_dimensional": false,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          2,
+          1
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 3.415236843329339e-17,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 896,
+        "static_snapshot_allocations": 5,
+        "interleaved_private_arrays": -3,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 7168,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": -2049,
+        "contiguous_private_writes": -18,
+        "unordered_reduction_partitions": 0
+      }
+    },
+    {
+      "case": "decode-gqa-d80",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 1920.7864375,
+        "on": 2788.966125
+      },
+      "all_sample_on_over_off": 1.45199178344365,
+      "all_sample_off_over_on": 0.6887091314169332,
+      "visit_median_us": {
+        "off": 1920.7864375,
+        "on": 2789.0676875
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          1.4529023782882289,
+          1.472128706578541,
+          1.4501674089003023,
+          1.469938195302843,
+          1.4272661256214438,
+          1.443546369071638
+        ],
+        "median": 1.4515348935942656,
+        "minimum": 1.4272661256214438,
+        "maximum": 1.472128706578541
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.9929339581175806e-08,
+      "results_sha256": "eb50bcffec5e060e19f033908f034102dbaeb2c329623b080877d2c077f37eb8",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "cap": 8,
+      "two_dimensional": false,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          2,
+          1
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 3.9898639947466563e-17,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 512,
+        "static_snapshot_allocations": 3,
+        "interleaved_private_arrays": -5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": -418,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 4096,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": -2,
+        "contiguous_private_reads": -30,
+        "contiguous_private_writes": -23,
+        "unordered_reduction_partitions": 0
+      }
+    },
+    {
+      "case": "decode-long-kv",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 15216.7915,
+        "on": 24397.7705
+      },
+      "all_sample_on_over_off": 1.603345258427179,
+      "all_sample_off_over_on": 0.623695984844189,
+      "visit_median_us": {
+        "off": 15214.875,
+        "on": 24403.0625
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          1.604555296080308,
+          1.606891090130391,
+          1.5836331978654266,
+          1.6049641541699553,
+          1.5761822882730911,
+          1.6028112668034402
+        ],
+        "median": 1.603683281441874,
+        "minimum": 1.5761822882730911,
+        "maximum": 1.606891090130391
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.7918961369352033e-08,
+      "results_sha256": "8104f93c123564f3c772d71b3121fc9d341f82019927c274b7dd2aa9d5e2982d",
+      "dimensions": [
+        1,
+        16,
+        4,
+        1,
+        8193,
+        128,
+        128
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "cap": 8,
+      "two_dimensional": false,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          2,
+          1
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 2.0003530082357557e-17,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 640,
+        "static_snapshot_allocations": 3,
+        "interleaved_private_arrays": -5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": -418,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 5120,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": 0,
+        "rolled_mmas": -2,
+        "contiguous_private_reads": -30,
+        "contiguous_private_writes": -23,
+        "unordered_reduction_partitions": 0
+      }
+    },
+    {
+      "case": "prefill-q4",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 123.852703125,
+        "on": 176.06575390625
+      },
+      "all_sample_on_over_off": 1.4215737683864136,
+      "all_sample_off_over_on": 0.7034457319334687,
+      "visit_median_us": {
+        "off": 123.80012890625,
+        "on": 176.118
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          1.406352202187804,
+          1.4359245871881021,
+          1.4142858841389265,
+          1.4216753205735584,
+          1.420330314174046,
+          1.4298967364293997
+        ],
+        "median": 1.421002817373802,
+        "minimum": 1.406352202187804,
+        "maximum": 1.4359245871881021
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.388857772330332e-07,
+      "results_sha256": "7198e01a8ea7d6f4cb3f3e6c7763f7d61f8f7359449f1c86da774e66362abd00",
+      "dimensions": [
+        1,
+        4,
+        2,
+        32,
+        65,
+        32,
+        32
+      ],
+      "attention_block": [
+        4,
+        16
+      ],
+      "cap": 0,
+      "two_dimensional": true,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          1,
+          2
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 2.220446049250313e-16,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 1024,
+        "static_snapshot_allocations": 3,
+        "interleaved_private_arrays": -5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 0,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": -2,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": -715,
+        "contiguous_private_writes": -71,
+        "unordered_reduction_partitions": 0
+      }
+    },
+    {
+      "case": "prefill-q8",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 460.8232421875,
+        "on": 489.7421875
+      },
+      "all_sample_on_over_off": 1.0627549625648731,
+      "all_sample_off_over_on": 0.9409506755786686,
+      "visit_median_us": {
+        "off": 461.1373671875,
+        "on": 489.75846875
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          1.0840379714004116,
+          1.0530460920511442,
+          1.0425982162946632,
+          1.0641566431667981,
+          1.0599541575689526,
+          1.0639063394092727
+        ],
+        "median": 1.0619302484891127,
+        "minimum": 1.0425982162946632,
+        "maximum": 1.0840379714004116
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 1.4185479705469684e-07,
+      "results_sha256": "866c512a42beea02fbfbcb970bb056878ad417a427873720dabce13865721e33",
+      "dimensions": [
+        1,
+        4,
+        2,
+        64,
+        129,
+        32,
+        48
+      ],
+      "attention_block": [
+        8,
+        16
+      ],
+      "cap": 0,
+      "two_dimensional": true,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          1,
+          2
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 1.5612511283791264e-16,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 2048,
+        "static_snapshot_allocations": 2,
+        "interleaved_private_arrays": -6,
+        "full_packet_specializations": 1,
+        "full_packet_cloned_instructions": 3786,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 16384,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": -2,
+        "rolled_mmas": 0,
+        "contiguous_private_reads": -208,
+        "contiguous_private_writes": -12,
+        "unordered_reduction_partitions": 0
+      }
+    },
+    {
+      "case": "batch-gqa-q4",
+      "status": "passed",
+      "all_sample_median_us": {
+        "off": 3194.35675,
+        "on": 2368.247375
+      },
+      "all_sample_on_over_off": 0.74138474827522,
+      "all_sample_off_over_on": 1.3488273158119726,
+      "visit_median_us": {
+        "off": 3194.09375,
+        "on": 2368.2161875
+      },
+      "paired_on_over_off": {
+        "baseline": "off",
+        "candidate": "on",
+        "pairs": [
+          0.7467666317835017,
+          0.7412573501175596,
+          0.7410064518532525,
+          0.7408321612362488,
+          0.7472428747978351,
+          0.7421630743069821
+        ],
+        "median": 0.7417102122122708,
+        "minimum": 0.7408321612362488,
+        "maximum": 0.7472428747978351
+      },
+      "visits": 12,
+      "samples": 84,
+      "max_abs_error": 2.0095906161460785e-07,
+      "results_sha256": "52f2913a81f7246a6a5a115121e5b33048e10347adfce81b98ad5622239319a7",
+      "dimensions": [
+        2,
+        6,
+        2,
+        17,
+        67,
+        40,
+        48
+      ],
+      "attention_block": [
+        4,
+        16
+      ],
+      "cap": 8,
+      "two_dimensional": true,
+      "ab_bitwise_equal": false,
+      "execution_controls": {
+        "root_order": [
+          0,
+          1,
+          2
+        ],
+        "blocks_per_task": 0
+      },
+      "oracle_einsum_vs_stored_max_abs_error": 2.3592239273284576e-16,
+      "resource_delta_on_minus_off": {
+        "static_snapshot_bytes_per_worker": 1280,
+        "static_snapshot_allocations": 3,
+        "interleaved_private_arrays": -5,
+        "full_packet_specializations": 0,
+        "full_packet_cloned_instructions": 0,
+        "native_mmas": 2,
+        "native_contraction_mmas": 1,
+        "native_output_mmas": 1,
+        "snapshot_budget": 0,
+        "private_workspace_bytes": 10240,
+        "blocked_mmas": -2,
+        "two_dimensional_mmas": -2,
+        "rolled_mmas": -2,
+        "contiguous_private_reads": 0,
+        "contiguous_private_writes": -64,
+        "unordered_reduction_partitions": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Source archive is the actual selected export, not full HEAD, a reproducible-build proof, or a loader dependency closure.",
+    "The audit never opens historical producer/tool paths: binary and compiler identities are frozen fingerprint receipts, not loader attestation.",
+    "Temporary uv Python launcher paths are command receipts; their symlink targets/interpreter binaries were not independently archived or fingerprinted.",
+    "Native width 4 may change snapshots, private interleaving, helper code, and permitted reduction reassociation; this is not a storage-preserving single-variable rewrite.",
+    "Each arm is checked against an independent dense FP64 oracle and its own captured bits; cross-arm bitwise equality is observed, not required.",
+    "Full finite checks cover these archived inputs/outputs, not all FP32 inputs or untested shapes.",
+    "Resource counters are cross-checked between metadata, capture summaries and actual-entry manifests; no cycle calibration or post-optimization physical-memory proof is inferred.",
+    "Native-entry timing includes the common C++ launch traversal/reset and emitted code; synchronized Runtime capture timing is a different metric and is not mixed into ratios.",
+    "ABBA min/max describes observed spread, not a confidence interval; user/system background work was not controlled."
+  ],
+  "gates": {
+    "source_members": 623,
+    "owned_sources": 36,
+    "ctests": 11,
+    "final_syntax_tus": 23,
+    "historical_attempts": [
+      {
+        "name": "full-build-1",
+        "returncode": 1,
+        "source_unchanged": true,
+        "owned_source_count": 35,
+        "source_matches_final": false,
+        "log_sha256": "6d00718ec6ff582e26ed089d68849806507474f75be9cb7ad9307271189e9b04"
+      },
+      {
+        "name": "full-build-2",
+        "returncode": 1,
+        "source_unchanged": true,
+        "owned_source_count": 35,
+        "source_matches_final": false,
+        "log_sha256": "1b105de6d5a774f0489b4a17617174d09e24d44c7d6024177608b736638f294c"
+      },
+      {
+        "name": "full-build-3",
+        "returncode": 1,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "bb48b6ce3496c186887e75b0971516731156b664aebdb7d50eaa895d0fb227d2"
+      },
+      {
+        "name": "full-build-4",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "e57cf933a987d014776223408503f989272277e82fd944ea6070ea73daff2a0a"
+      },
+      {
+        "name": "full-build-5",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "025668404aca4b755b7fa63a7d54ba47c7711cf80e9b9401dfb16b8103d89cf7"
+      },
+      {
+        "name": "regression-1",
+        "returncode": 8,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "d42e3cc7671ce54e79ca945d239603a774230071759298e8448cf9a7d2b4d55d"
+      },
+      {
+        "name": "regression-2",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "9096e4c7bae5e64b52d80c0c244be58f538b4eac285192227d5e8ea4761675d7"
+      },
+      {
+        "name": "syntax-1-10",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-11",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-12",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-13",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-17",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-18",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-19",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-20",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "57b7801382b1cfc7d23cc1c54b78f958be2701ff05855e402cefd4b816a0b49e"
+      },
+      {
+        "name": "syntax-1-21",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-22",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-23",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-24",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-25",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-29",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-30",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-31",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-32",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-33",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-34",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "1aa778337ae38bba3a2de6b9db620cbb88c241ce69958567a38a4b896199966a"
+      },
+      {
+        "name": "syntax-1-35",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-5",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-6",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-1-8",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": false,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-10",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-11",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-12",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-13",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-17",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-18",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-19",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-20",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "57b7801382b1cfc7d23cc1c54b78f958be2701ff05855e402cefd4b816a0b49e"
+      },
+      {
+        "name": "syntax-2-21",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-22",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-23",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-24",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-25",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-29",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-30",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-31",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-32",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-33",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-34",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "1aa778337ae38bba3a2de6b9db620cbb88c241ce69958567a38a4b896199966a"
+      },
+      {
+        "name": "syntax-2-35",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-5",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-6",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "name": "syntax-2-8",
+        "returncode": 0,
+        "source_unchanged": true,
+        "owned_source_count": 36,
+        "source_matches_final": true,
+        "log_sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      }
+    ],
+    "selected_build": "full-build-5.json",
+    "selected_test": "regression-2.json",
+    "ctest_seconds": 143.45
+  },
+  "raw_statuses": {
+    "capture": [
+      {
+        "case": "decode-mha-d64",
+        "status": "OK"
+      },
+      {
+        "case": "decode-gqa-d80",
+        "status": "OK"
+      },
+      {
+        "case": "decode-long-kv",
+        "status": "OK"
+      },
+      {
+        "case": "prefill-q4",
+        "status": "OK"
+      },
+      {
+        "case": "prefill-q8",
+        "status": "OK"
+      },
+      {
+        "case": "batch-gqa-q4",
+        "status": "OK"
+      }
+    ],
+    "replay": [
+      {
+        "case": "decode-mha-d64",
+        "status": "OK"
+      },
+      {
+        "case": "decode-gqa-d80",
+        "status": "OK"
+      },
+      {
+        "case": "decode-long-kv",
+        "status": "OK"
+      },
+      {
+        "case": "prefill-q4",
+        "status": "OK"
+      },
+      {
+        "case": "prefill-q8",
+        "status": "OK"
+      },
+      {
+        "case": "batch-gqa-q4",
+        "status": "OK"
+      }
+    ]
+  },
+  "chronology": {
+    "plan": 1789302909.470672,
+    "source": 1789303229.086261,
+    "capture_started": 1789303253.6675599,
+    "capture_finished": 1789303301.1167371,
+    "replay_started": 1789303314.5331829,
+    "replay_finished": 1789303338.232269
+  },
+  "captures_checked": 12,
+  "visits": 72,
+  "samples": 504,
+  "commands_checked": 90,
+  "source_archive_sha256": "b4547fe068beb9d1ad5903f40b2690cb25022144118e42819eadf4f1c35227e3",
+  "plan_sha256": "c47e04da6ce70cde319c6481eaab1162a0d1e0c630a008e3e71a182ce51375ae",
+  "audit_sha256": "ed4e58362fefb739e1750b6a8676d1ecc101aab2ebebebbf9a90f087761d8c8f",
+  "recorded_python_launchers": [
+    "/Users/mike/.cache/uv/builds-v0/.tmpbThPXM/bin/python",
+    "/Users/mike/.cache/uv/builds-v0/.tmpoyOVo7/bin/python"
+  ],
+  "metric": "single_thread_native_entry_host_wall_us",
+  "table_convention": "all_sample_median_us uses all 42 samples per arm; on/off < 1 is faster. visit_median_us is the median of six visit medians. Paired ratios separately use the six adjacent ABBA visit-median pairs."
+}

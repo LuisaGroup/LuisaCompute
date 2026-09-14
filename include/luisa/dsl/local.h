@@ -18,6 +18,21 @@ template<typename T>
                Type::array(elem, n);
 }
 
+[[nodiscard]] inline const RefExpr *declare_local_array(
+    const Type *type) noexcept {
+    auto *builder = FunctionBuilder::current();
+    auto *local = builder->local(type);
+    // A Local<T> is lexically a fresh, uninitialized object every time its
+    // declaration executes. Keep the physical allocation function-scoped,
+    // but record that dynamic lifetime boundary in the ordinary AST so XIR
+    // dataflow cannot inherit contents from a prior loop iteration.
+    // UNDEFINED is neither a zero fill nor evidence that a component has been
+    // initialized by the program.
+    auto *seed = builder->call(type, CallOp::UNDEFINED, {});
+    builder->assign(local, seed);
+    return local;
+}
+
 }// namespace detail
 
 template<typename T>
@@ -29,16 +44,14 @@ private:
 
 public:
     explicit Local(size_t n) noexcept
-        : _expression{detail::FunctionBuilder::current()->local(
+        : _expression{detail::declare_local_array(
               detail::local_array_choose_type<T>(n))},
           _size{n} {}
 
     Local(Local &&) noexcept = default;
-    Local(const Local &another) noexcept
-        : _size{another._size} {
-        auto fb = detail::FunctionBuilder::current();
-        _expression = fb->local(detail::local_array_choose_type<T>(_size));
-        fb->assign(_expression, another._expression);
+    Local(const Local &another) noexcept : Local{another._size} {
+        detail::FunctionBuilder::current()->assign(
+            _expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
         if (std::addressof(rhs) != this) [[likely]] {

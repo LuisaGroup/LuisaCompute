@@ -40,6 +40,8 @@ private:
     CoroSuspendBindingLifetime _lifetime{
         CoroSuspendBindingLifetime::boundary};
     luisa::vector<Piece> _pieces;
+    luisa::vector<CoroSlotAccess> _alternatives;
+    luisa::vector<CoroSlotAccess> _conditions;
     // Binding-local logical effects and their physical projection. Stage-wide
     // liveness belongs to CoroGraph::Boundary::Stage, not to each binding.
     luisa::vector<size_t> _use_frame_values;
@@ -78,7 +80,7 @@ public:
         return _access != CoroSuspendBindingAccess::read;
     }
     [[nodiscard]] bool materialized() const noexcept {
-        return !_pieces.empty();
+        return !_pieces.empty() || (!_alternatives.empty() && _alternatives.front().materialized());
     }
     [[nodiscard]] auto pieces() const noexcept {
         return luisa::span<const Piece>{_pieces};

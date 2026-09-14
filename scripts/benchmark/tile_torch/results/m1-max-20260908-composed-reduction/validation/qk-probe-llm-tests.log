@@ -1,0 +1,12 @@
+Test project /tmp/luisa-reduction-checkpoint.gQUERp/build
+    Start 56: test_tile_xir_llm
+1/1 Test #56: test_tile_xir_llm ................   Passed   30.74 sec
+
+100% tests passed out of 1
+
+Label Time Summary:
+integration             =  30.74 sec*proc (1 test)
+integration_simd        =  30.74 sec*proc (1 test)
+integration_tile_xir    =  30.74 sec*proc (1 test)
+
+Total Test time (real) =  30.74 sec

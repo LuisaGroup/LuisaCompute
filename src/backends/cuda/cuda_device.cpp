@@ -1145,6 +1145,18 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
         return ShaderCreationInfo::make_invalid();
     }
 
+    // Tile PTX artifacts use the same sidecar convention but are created and
+    // owned by create_tile_kernel (a direct static cuLaunchKernel entry with
+    // reordered buffer bindings). The generic loader has no Tile loader yet,
+    // so a colliding name must fail closed instead of pretending it is a DSL
+    // kernel_main module.
+    if (metadata.kind == CUDAShaderMetadata::Kind::TILE) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Shader '{}' is a Tile artifact; generic Tile bytecode loading is not implemented yet.",
+            name);
+        return ShaderCreationInfo::make_invalid();
+    }
+
     // check argument count
     if (metadata.argument_types.size() != arg_types.size()) {
         LUISA_WARNING_WITH_LOCATION("Argument count mismatch when loading shader {}.", name);

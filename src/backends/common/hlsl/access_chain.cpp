@@ -243,9 +243,24 @@ void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFuncti
     }
     builder << "}\n"sv;
 }
-void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const {
+void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor, vstd::span<NodeBound const> node_bounds) const {
     builder << _func_name << '(';
     LUISA_DEBUG_ASSERT(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());
+    // Debug out-of-range detection: wrap an index argument with _lc_oob_guard so
+    // the generated atomic helper never touches invalid memory (which would
+    // silently remove the D3D12 device) and records the violation instead.
+    auto emit_index = [&](size_t node_index, Expression const *arg) {
+        if (node_index < node_bounds.size() && !node_bounds[node_index].bound.empty()) {
+            auto const &bound = node_bounds[node_index];
+            builder << "_lc_oob_guard(("sv;
+            arg->accept(visitor);
+            builder << "),"sv << bound.bound << ',';
+            vstd::to_string(static_cast<int64_t>(bound.kind), builder);
+            builder << "u)"sv;
+        } else {
+            arg->accept(visitor);
+        }
+    };
     if (!_root_var.is_shared()) {
         args[0]->accept(visitor);
         builder << ',';
@@ -253,7 +268,7 @@ void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd
     for (auto i : vstd::range(0, static_cast<int64>(_nodes.size()))) {
         auto &node = _nodes[i];
         if (node.is_type_of<AccessNode>()) {
-            args[i + 1]->accept(visitor);
+            emit_index(static_cast<size_t>(i), args[i + 1]);
             builder << ',';
         }
     }

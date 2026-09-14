@@ -56,6 +56,7 @@ void CodegenStackData::Clear() {
     internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
     internalStruct.emplace(Type::of<ProceduralHit>(), "_Hit2");
     globallyCoherentBuffers.clear();
+    oob_check = false;
 }
 
 std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type const *t) {
@@ -144,7 +145,7 @@ struct CodegenGlobalPool {
             allCodegen.pop_back();
             return ite;
         }
-        return vstd::unique_ptr<CodegenStackData>(new CodegenStackData());
+        return vstd::make_unique<CodegenStackData>();
     }
     void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
         std::lock_guard lck(mtx);

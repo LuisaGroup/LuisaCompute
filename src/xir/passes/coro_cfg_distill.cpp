@@ -29,6 +29,7 @@
 
 #include "../pointer_containers.h"
 #include "coro_cfg_dataflow.h"
+#include "coro_scope_reachability.h"
 #include "coro_frame_abi.h"
 #include "coro_frame_access.h"
 #include "coro_replayable.h"
@@ -92,6 +93,18 @@ static void hash_coro_suspend_extension(
         h.add(binding.access);
         h.add(binding.lifetime);
         h.add(binding.index);
+    }
+    h.add(extension->binding_projections().size());
+    for (auto &projection : extension->binding_projections()) {
+        h.add_string(projection.binding.name);
+        h.add(projection.binding.access);
+        h.add(projection.binding.lifetime);
+        h.add(projection.binding.index);
+        h.add(projection.alternatives.size());
+        for (auto alternative : projection.alternatives) {
+            h.add(alternative.value_index);
+            h.add(alternative.condition_index);
+        }
     }
     h.add(extension->attributes().size());
     for (auto &&attribute : extension->attributes()) {
@@ -182,7 +195,7 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{7u});
+    h.add(uint64_t{9u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -214,6 +227,9 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
                     h.add_pointer(operand->value());
                 }
                 switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::ALLOCA:
+                        h.add(static_cast<const AllocaInst *>(instruction)->coro_return_selector());
+                        break;
                     case DerivedInstructionTag::CORO_SUSPEND: {
                         auto *suspend =
                             static_cast<const CoroSuspendInst *>(instruction);
@@ -244,6 +260,11 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     for (auto &scope : result.scopes) {
         h.add(scope.blocks.size());
         for (auto *block : scope.blocks) { h.add_pointer(block); }
+        h.add(scope.selected_successors.size());
+        for (auto selected : scope.selected_successors) {
+            h.add_pointer(selected.block);
+            h.add_pointer(selected.successor);
+        }
         h.add(scope.suspend_points.size());
         for (auto &point : scope.suspend_points) {
             h.add_pointer(point.block);
@@ -800,7 +821,15 @@ static void analyze_live_variables(
         designated_values_by_name;
     luisa::unordered_map<Value *, luisa::vector<luisa::string>>
         designated_aliases_by_value;
+    luisa::unordered_set<BasicBlock *> executable_suspends;
+    for (const auto &scope : result.scopes) {
+        for (const auto &point : scope.suspend_points) { executable_suspends.emplace(point.block); }
+    }
     for (auto *block : def->basic_blocks()) {
+        // A scheduler can observe a designated snapshot only on an executable
+        // suspension. Do not turn an export on a proved-dead arm into a
+        // mandatory frame field merely because it exists in the source CFG.
+        if (!executable_suspends.contains(block)) { continue; }
         for (auto *instruction : block->instructions()) {
             if (!instruction->isa<CoroSuspendInst>()) { continue; }
             auto *suspend =
@@ -935,6 +964,7 @@ static void analyze_live_variables(
         if (exit_block == nullptr || !exit_block->is_terminated()) { return; }
         luisa::vector<uint8_t> seen_targets(n, 0u);
         exit_block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+            if (!result.scopes[from].allows_successor(exit_block, succ)) { return; }
             if (scope_block_indices[from].contains(succ)) {
                 return;
             }
@@ -1182,16 +1212,24 @@ static void analyze_live_variables(
     // Starting at E and applying the monotone transfer to a worklist computes
     // the least fixed point, including cyclic sample/bounce schedules. The
     // domain and every edge relation share one value numbering.
+    auto call_contexts = detail::analyze_coro_call_contexts(def, result, value_domain, replayable);
+    if (stats != nullptr) { stats->call_context_state_count = call_contexts.state_count; }
+    if (call_contexts.state_count != 0u) { scope_external = call_contexts.scope_external; }
     luisa::vector<DenseValueSet> live_begin;
     live_begin.reserve(n);
     for (auto &external : scope_external) {
         live_begin.emplace_back(external);
     }
+    if (call_contexts.state_count != 0u) { live_begin = call_contexts.scope_live; }
+    auto target_live = [&](size_t edge_index) -> const DenseValueSet & {
+        return call_contexts.state_count == 0u ? live_begin[result.transition_edges[edge_index].to_scope] :
+                                                 call_contexts.edge_target_live[edge_index];
+    };
     luisa::deque<size_t> worklist;
     luisa::vector<uint8_t> queued(n, 1u);
     for (size_t i = 0u; i < n; ++i) { worklist.emplace_back(i); }
     auto inter_scope_evaluations = size_t{0u};
-    while (!worklist.empty()) {
+    while (call_contexts.state_count == 0u && !worklist.empty()) {
         auto scope = worklist.front();
         worklist.pop_front();
         queued[scope] = 0u;
@@ -1200,7 +1238,7 @@ static void analyze_live_variables(
         for (auto edge_index : outgoing_edges[scope]) {
             auto &edge = result.transition_edges[edge_index];
             auto propagated = transfer_extension_stages_backward(
-                edge_index, live_begin[edge.to_scope]);
+                edge_index, target_live(edge_index));
             propagated.subtract(
                 edge_data[edge_index].source_killed);
             next.union_with(propagated);
@@ -1231,7 +1269,7 @@ static void analyze_live_variables(
         auto &edge = result.transition_edges[edge_index];
         auto &dense = edge_data[edge_index];
         if (!edge.is_suspend) { continue; }
-        auto next = live_begin[edge.to_scope];
+        auto next = target_live(edge_index);
         for (size_t reverse = 0u;
              reverse < dense.extension_stages.size(); ++reverse) {
             auto index = dense.extension_stages.size() - 1u - reverse;
@@ -1253,7 +1291,7 @@ static void analyze_live_variables(
         for (auto edge_index : outgoing_edges[s]) {
             auto &edge = result.transition_edges[edge_index];
             auto edge_live_in = transfer_extension_stages_backward(
-                edge_index, live_begin[edge.to_scope]);
+                edge_index, target_live(edge_index));
             auto propagated = edge_live_in;
             propagated.subtract(
                 edge_data[edge_index].source_killed);
@@ -1271,7 +1309,7 @@ static void analyze_live_variables(
             auto extension_input = transfer_extension_stages_backward(
                 edge_index, DenseValueSet{value_count});
             store.union_with(extension_input);
-            edge_data[edge_index].live = live_begin[edge.to_scope];
+            edge_data[edge_index].live = target_live(edge_index);
             edge_data[edge_index].live.union_with(
                 edge_data[edge_index].designated);
             edge_data[edge_index].live.union_with(
@@ -1442,7 +1480,7 @@ static void analyze_live_variables(
             atom_to_frame_value_range);
         append_frame_value_indices(
             edge.target_live_frame_value_indices,
-            live_begin[edge.to_scope], atom_to_frame_value_range);
+            target_live(edge_index), atom_to_frame_value_range);
         auto normalize_frame_indices = [](auto &indices) noexcept {
             std::sort(indices.begin(), indices.end());
             indices.erase(
@@ -1538,8 +1576,10 @@ static void analyze_live_variables(
 
     color_frame_slots(result);
 
+    // Shared callables verify against the matched-state set oracle inside
+    // analyze_coro_call_contexts; this oracle describes context-free scopes.
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
-        flag != nullptr && luisa::string_view{flag} == "1") {
+        flag != nullptr && luisa::string_view{flag} == "1" && call_contexts.state_count == 0u) {
         auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
             luisa::unordered_set<size_t> indices;
             dense.for_each_set_bit([&](size_t index) noexcept {
@@ -1916,6 +1956,11 @@ static void analyze_live_variables(
     }
 
     auto reachable = collect_coro_reachable_blocks(def, token_to_resume);
+    auto feasible = analyze_coro_scope_reachability(def);
+    if (stats != nullptr) {
+        stats->reachability_state_count = feasible.state_count;
+        stats->reachability_widened = feasible.widened;
+    }
 
     struct Root {
         BasicBlock *block;
@@ -1928,6 +1973,7 @@ static void analyze_live_variables(
     resume_tokens.reserve(token_to_resume.size());
     for (auto &[token, bb] : token_to_resume) {
         if (!reachable.contains(bb)) { continue; }
+        if (feasible.valid && !feasible.scopes.contains(token)) { continue; }
         resume_tokens.emplace_back(token);
     }
     std::sort(resume_tokens.begin(), resume_tokens.end());
@@ -1945,6 +1991,7 @@ static void analyze_live_variables(
         scope.scope_id = static_cast<int>(i);
         scope.trigger_token = roots[i].token;
         scope.trigger_name = roots[i].name;
+        const auto *feasible_scope = feasible.valid ? &feasible.scopes.at(roots[i].token) : nullptr;
 
         luisa::unordered_set<BasicBlock *> visited;
         luisa::deque<BasicBlock *> worklist;
@@ -1962,6 +2009,12 @@ static void analyze_live_variables(
             }
             if (!visited.emplace(bb).second) { continue; }
             scope.blocks.emplace_back(bb);
+            if (feasible_scope != nullptr) {
+                if (auto selected = feasible_scope->selected_successors.find(bb);
+                    selected != feasible_scope->selected_successors.end()) {
+                    scope.selected_successors.push_back({bb, selected->second});
+                }
+            }
             if (!bb->is_terminated()) { continue; }
             auto *term = bb->terminator();
             switch (term->derived_instruction_tag()) {
@@ -1984,6 +2037,7 @@ static void analyze_live_variables(
                     break;
                 default:
                     bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                        if (!scope.allows_successor(bb, succ)) { return; }
                         worklist.emplace_back(succ);
                     });
                     break;
@@ -2013,6 +2067,7 @@ static void analyze_live_variables(
         for (auto *bb : result.scopes[i].blocks) {
             if (!bb->is_terminated()) { continue; }
             bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                if (!result.scopes[i].allows_successor(bb, succ)) { return; }
                 if (scope_blocks[i].contains(succ)) { return; }
                 for (size_t j = 0u; j < scope_blocks.size(); ++j) {
                     if (j != i && scope_blocks[j].contains(succ)) {
@@ -2027,6 +2082,23 @@ static void analyze_live_variables(
     for (size_t i = 0u; i < edge_sets.size(); ++i) {
         result.edges[i].assign(edge_sets[i].begin(), edge_sets[i].end());
         std::sort(result.edges[i].begin(), result.edges[i].end());
+    }
+
+    auto selected_count = size_t{0u};
+    for (const auto &scope : result.scopes) { selected_count += scope.selected_successors.size(); }
+    if (stats != nullptr) { stats->selected_successor_count = selected_count; }
+    if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");
+        flag != nullptr && luisa::string_view{flag} == "1") {
+        LUISA_INFO("Coroutine feasible reachability: valid={} widened={} states={} selected_arms={} scopes={}.",
+                   feasible.valid, feasible.widened, feasible.state_count, selected_count, result.scopes.size());
+        // Emit the executable relation before any liveness/coloring/layout
+        // decision, so frame changes can be audited against their cause.
+        for (size_t i = 0u; i < result.scopes.size(); ++i) {
+            for (auto target : result.edges[i]) {
+                LUISA_INFO("Coroutine feasible transition: {} -> {}.",
+                           result.scopes[i].trigger_token, result.scopes[target].trigger_token);
+            }
+        }
     }
 
     analyze_live_variables(result, def, stats);

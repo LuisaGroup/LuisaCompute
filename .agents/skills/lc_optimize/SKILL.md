@@ -604,7 +604,38 @@ The right size is found empirically:
 - Group size interacts with warp collectives: when cooperation is per-warp, enlarging the block packs more warps per CU (`item_idx = block_id().x * warps_per_block + thread_x() / warp_lane_count()`, section 3.8). Both `set_block_size(...)` and `set_warp_size(...)` are called inside the kernel lambda.
 - The LDS budget (section 4) caps how large a shared tile can be while keeping ≥2 groups resident.
 
----
+5.7 Empirical Benchmark Results (Measured, Not Theoretical)
+
+Measured with the block-size sweep harness `src/tests/unit/runtime/test_block_size_bench.cpp` (8 workload archetypes × block sizes 32–1024, constant total work, correctness-checked before timing, release build only). Device: NVIDIA GeForce RTX 5060 (warp 32, ~448 GB/s DRAM), Windows, LuisaCompute `vk` and `dx` backends. Every number below reproduced twice within 2.6% by an independent re-run; full data in `benchmark_results/<backend>_block_size_bench.csv`.
+
+Per-case winners (block size → throughput, VK / DX):
+
+| Case | Best size | Result | Worst | Lesson |
+|---|---|---|---|---|
+| elementwise float4 stream (256 MB traffic) | 64–1024 (plateau) | ~404 GB/s both backends | 32 on VK only: 247 GB/s (−39%); DX unaffected | On VK a 1-warp block underutilizes SM scheduling; 2+ warps per block saturate DRAM. Throughput identical from 64 to 1024 — for pure streaming, block size barely matters once ≥ 2 warps. |
+| block reduction (Shared<float> tree + barriers) | 64–128 | 159–166 GB/s | 1024: −46…51% | Barrier stragglers grow with warps/group. 1024-thread blocks halve throughput even though occupancy math suggests they should fit. |
+| tiled GEMM (shared staging) | 16×16 = 256 | 1572 GFLOPS VK / 1197 DX | 128×1, 512×1 column shapes: 4–5× slower on VK, ~1.6–2× on DX | Square tile shapes beat flat column shapes at equal thread count — LDS bank/layout and coalescing dominate, not raw size. |
+| warp-intrinsic reduction (warp_active_sum per item) | 64 (2 warps/block) | 297 GB/s VK / 332 DX | 32 (1 warp/block): 2.1× slower | Warp-scope kernels still want ≥ 2 warps per block: 1-warp blocks pay per-block overhead and limit scheduling slots. Match the *warp* to the item, not the *block*. |
+| divergent irregular loop (varied trip counts) | 64–512 (flat) | 0.86 ms VK / 0.34 ms DX | 32 on DX: 1.77× slower | Small blocks are fine, but 1-warp blocks are again the outlier on DX. Note the 2.6× VK-vs-DX absolute gap on identical code — always tune per backend. |
+| register-heavy (32+ live float4 accumulators) | 64–128 | baseline | 1024: 19× slower — but it still *launches* | High register pressure + huge blocks does not fail to launch; it spills and crawls. Treat "runs" ≠ "fits": check the slowdown, not just launch success. |
+| histogram: shared privatization vs global atomics | global wins ≤ 256; shared wins 512–1024 | 1.3–1.7× at 512+ | shared is 8× SLOWER at 64 | Privatization pays only when the zero-fill + drain cost is amortized over enough threads. Below ~256 threads/block it is a pessimization. |
+| image 2D write pattern | 16×16 or 256×1 | ~420 GB/s | 1×64, 1×256 column shapes: ~3.6× worse | Shape ≫ size. Never use 1-wide thread groups for 2D data. 8×8 was mid-pack (~290 GB/s), below 64×1 — row-major-linear beats square at small sizes on this part. |
+
+Cross-cutting measured findings:
+
+1. "Optimal" sizes cluster at 64–256. Not a single measured case was fastest at 512 or 1024; 1024 was worst or near-worst in every case except histogram-at-scale. This strongly confirms §5.2–5.3: start at 64/128/256 and only grow when the algorithm's tile demands it.
+2. Non-multiple-of-bundle sizes: the DSL hard-asserts block_size % 32 == 0, so a true 100-thread group is impossible. Emulated as a 128-thread block with 28 idle lanes ("100e"), it *beat* the full 128 block on the streaming case (514 vs 404 GB/s) — the partial warp leaves scheduling headroom. Do not chase this: it also wastes lanes on compute-bound work, and idle-lane groups are not portable. Just never deliberately pick non-multiples on hardware that allows them; here the API forces you into the right choice.
+3. VK vs DX on identical DSL kernels: streaming cases within ~4%, warp_reduce 12% apart, divergent 2.6× apart, GEMM ±30%. There is no universal winner — re-run the sweep on both backends when shipping cross-backend.
+4. Measured bandwidths: effective (L2-inclusive) numbers can slightly exceed DRAM peak on repeated back-to-back dispatches; compare sizes within one case, not against theoretical peaks.
+
+LuisaCompute-specific traps hit while building the harness (verified in source — read the harness before writing your own sweep):
+
+1. `dispatch(n)` takes a *total thread count*, not a block count — the runtime computes grid = ceil(n / block_size). Dispatching n/block_size silently under-dispatches by BS× and every case "passes" with ~0 ms.
+2. D3D12 caps dispatch dimensions at 65535; a 1D grid over >65535 groups fails on DX with "Dispatch size X out of range". Split into a 2D grid (round dim0 to a multiple of the block size) and flatten with `dispatch_id().y * dispatch_size().x + dispatch_id().x`.
+3. The DX/HLSL path asserts shared memory ≤ 32 KiB per group; the VK path allows more. Size shared tiles for the 32 KiB floor for portability.
+4. `warp_active_sum(v)` of a warp-uniform v returns 32×v — chained collectives compound this (32^k). Scale back by 1/lane_count or reduce non-uniform values.
+
+6. Hardware Mapping
 
 ## 6. Hardware Mapping
 

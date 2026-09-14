@@ -1,0 +1,179 @@
+Running Sphinx v9.1.0
+loading translations [en]... done
+making output directory... done
+myst v5.1.0: MdParserConfig(commonmark_only=False, gfm_only=False, enable_extensions=set(), disable_syntax=[], all_links_external=False, links_external_new_tab=False, url_schemes=('http', 'https', 'mailto', 'ftp'), ref_domains=None, fence_as_directive=set(), number_code_blocks=[], title_to_header=False, heading_anchors=0, heading_slug_func=None, html_meta={}, footnote_sort=True, footnote_transition=True, words_per_minute=200, substitutions={}, linkify_fuzzy_links=True, dmath_allow_labels=True, dmath_allow_space=True, dmath_allow_digits=True, dmath_double_inline=False, update_mathjax=True, mathjax_classes='tex2jax_process|mathjax_process|math|output_area', enable_checkboxes=False, strikethrough_single_tilde=False, colon_fence_exact_match=False, suppress_warnings=[], highlight_code_blocks=True)
+building [mo]: targets for 0 po files that are out of date
+writing output... 
+building [html]: targets for 17 source files that are out of date
+updating environment: [new config] 17 added, 0 changed, 0 removed
+reading sources... [  6%] custom_agility_sdk
+reading sources... [ 12%] index
+reading sources... [ 18%] source/api_reference
+reading sources... [ 24%] source/architecture
+reading sources... [ 29%] source/coro_suspend_extensions
+reading sources... [ 35%] source/dsl
+reading sources... [ 41%] source/gallery
+reading sources... [ 47%] source/getting_started
+reading sources... [ 53%] source/resources
+reading sources... [ 59%] source/tile_execution_planner
+reading sources... [ 65%] source/tile_native_runtime
+reading sources... [ 71%] source/tile_programming_design
+reading sources... [ 76%] source/tile_programming_poc_kernels
+reading sources... [ 82%] source/tile_status_report
+reading sources... [ 88%] source/tile_tirx_reduction_report
+reading sources... [ 94%] source/tile_xir_design
+reading sources... [100%] source/tutorials
+
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:246: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:271: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:335: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:364: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:367: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:424: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:468: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:510: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:595: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:806: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... /Users/mike/CLionProjects/luisa/docs/custom_agility_sdk.md: WARNING: document isn't included in any toctree [toc.not_included]
+/Users/mike/CLionProjects/luisa/docs/source/coro_suspend_extensions.md: WARNING: document isn't included in any toctree [toc.not_included]
+done
+preparing documents... done
+copying assets... 
+copying downloadable files... [  2%] ../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md
+copying downloadable files... [  5%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-structure.md
+copying downloadable files... [  7%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md
+copying downloadable files... [  9%] ../scripts/benchmark/tile_torch/README.md
+copying downloadable files... [ 11%] ../scripts/benchmark/tile_torch/compare_mpp.py
+copying downloadable files... [ 14%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md
+copying downloadable files... [ 16%] ../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md
+copying downloadable files... [ 18%] ../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md
+copying downloadable files... [ 20%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md
+copying downloadable files... [ 23%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-replay/notes.md
+copying downloadable files... [ 25%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-system/notes.md
+copying downloadable files... [ 27%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-replay/notes.md
+copying downloadable files... [ 30%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-system/notes.md
+copying downloadable files... [ 32%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-replay/notes.md
+copying downloadable files... [ 34%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-system/notes.md
+copying downloadable files... [ 36%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-guard-plan/notes.md
+copying downloadable files... [ 39%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-replay/notes.md
+copying downloadable files... [ 41%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-system/notes.md
+copying downloadable files... [ 43%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md
+copying downloadable files... [ 45%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md
+copying downloadable files... [ 48%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md
+copying downloadable files... [ 50%] ../src/tile/bridge/tirx/patches/README.md
+copying downloadable files... [ 52%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-views/notes.md
+copying downloadable files... [ 55%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-mpp/notes.md
+copying downloadable files... [ 57%] ../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-lowerings/notes.md
+copying downloadable files... [ 59%] source/tile_programming_poc.cpp
+copying downloadable files... [ 61%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/report.html
+copying downloadable files... [ 64%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-validation/notes.md
+copying downloadable files... [ 66%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md
+copying downloadable files... [ 68%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md
+copying downloadable files... [ 70%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md
+copying downloadable files... [ 73%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md
+copying downloadable files... [ 75%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md
+copying downloadable files... [ 77%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md
+copying downloadable files... [ 80%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md
+copying downloadable files... [ 82%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md
+copying downloadable files... [ 84%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md
+copying downloadable files... [ 86%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-element-grid-replay/notes.md
+copying downloadable files... [ 89%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-joint-map-replay/notes.md
+copying downloadable files... [ 91%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-execution-map-validation/notes.md
+copying downloadable files... [ 93%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-element-replay/notes.md
+copying downloadable files... [ 95%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-smoke-v2/notes.md
+copying downloadable files... [ 98%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/notes.md
+copying downloadable files... [100%] ../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-plan/notes.md
+
+copying static files... 
+Writing evaluated template result to /Users/mike/CLionProjects/luisa/docs/_build/tile-dual-timing/_static/basic.css
+Writing evaluated template result to /Users/mike/CLionProjects/luisa/docs/_build/tile-dual-timing/_static/language_data.js
+Writing evaluated template result to /Users/mike/CLionProjects/luisa/docs/_build/tile-dual-timing/_static/documentation_options.js
+Writing evaluated template result to /Users/mike/CLionProjects/luisa/docs/_build/tile-dual-timing/_static/js/versions.js
+copying static files: done
+copying extra files... 
+copying extra files: done
+copying assets: done
+writing output... [  6%] custom_agility_sdk
+writing output... [ 12%] index
+writing output... [ 18%] source/api_reference
+writing output... [ 24%] source/architecture
+writing output... [ 29%] source/coro_suspend_extensions
+writing output... [ 35%] source/dsl
+writing output... [ 41%] source/gallery
+writing output... [ 47%] source/getting_started
+writing output... [ 53%] source/resources
+writing output... [ 59%] source/tile_execution_planner
+writing output... [ 65%] source/tile_native_runtime
+writing output... [ 71%] source/tile_programming_design
+writing output... [ 76%] source/tile_programming_poc_kernels
+writing output... [ 82%] source/tile_status_report
+writing output... [ 88%] source/tile_tirx_reduction_report
+writing output... [ 94%] source/tile_xir_design
+writing output... [100%] source/tutorials
+
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:7: WARNING: 'myst' cross-reference target not found: 'shadertoy-style-mandelbrot-set' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:8: WARNING: 'myst' cross-reference target not found: 'path-tracing-renderer' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:9: WARNING: 'myst' cross-reference target not found: 'mpm-fluid-simulation' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:10: WARNING: 'myst' cross-reference target not found: 'conways-game-of-life' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:11: WARNING: 'myst' cross-reference target not found: 'wave-equation-simulation' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:12: WARNING: 'myst' cross-reference target not found: 'image-processing-pipeline' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:13: WARNING: 'myst' cross-reference target not found: 'n-body-gravitational-simulation' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:14: WARNING: 'myst' cross-reference target not found: 'fire-particle-system' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:15: WARNING: 'myst' cross-reference target not found: 'reaction-diffusion-simulation' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:16: WARNING: 'myst' cross-reference target not found: 'voxel-ray-tracer' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:17: WARNING: 'myst' cross-reference target not found: 'black-hole-renderer' [myst.xref_missing]
+/Users/mike/CLionProjects/luisa/docs/source/tutorials.md:1773: WARNING: Lexing literal_block "// Track previous position to detect plane crossing\nVar prev_y = cam_pos.y;\n\n$for (step, max_steps) {\n    // ... ray marching loop ...\n    \n    // Check if we crossed the disk plane (XZ plane at y=0)\n    Var crossed_plane = (prev_y > 0.0f & pos.y <= 0.0f) | \n                        (prev_y < 0.0f & pos.y >= 0.0f);\n    \n    $if (crossed_plane & r > inner_radius & r < outer_radius) {\n        // Interpolate to find exact intersection point\n        Var t = abs(prev_y) / (abs(prev_y) + abs(pos.y));\n        Var intersect_pos = prev_pos * (1.0f - t) + pos * t;\n        Var intersect_r = length(intersect_pos);\n        \n        // Calculate disk color (temperature, Doppler beaming, etc.)\n        // ... color calculation code ...\n        \n        // Determine if this is front or back side\n        // Front side: ray moving toward the plane from camera\n        Var moving_toward_plane = (cam_pos.y > 0.0f & pos.y < prev_y) | \n                                  (cam_pos.y < 0.0f & pos.y > prev_y);\n        \n        $if (moving_toward_plane) {\n            // Front side - use this sample\n            disk_color = local_disk_color;\n            hit_disk = true;\n        }\n        $else {\n            // Back side - only use if front wasn't hit\n            // (handles edge case of camera inside disk radius)\n            $if (!hit_disk) { disk_color = local_disk_color; };\n        };\n    };\n    \n    prev_y = pos.y;  // Update for next iteration\n    // ... continue ray marching ...\n};\n\n#### Step 4: Background Starfield\n\n```cpp\n// Procedural stars for lensing demonstration\nauto get_star_color = [&](Float3 rd) noexcept {\n    Var star_noise = fract(sin(rd.x * 123.45f + ...) * 43758.5453f);\n    Var star_brightness = ite(star_noise > 0.995f, star_noise, 0.0f);\n    return make_float3(star_brightness);\n};\n" as "cpp" resulted in an error at token: '`'. Retrying in relaxed mode. [misc.highlighting_failure]
+generating indices... genindex done
+highlighting module code... 
+writing additional pages... search done
+copying images... [  2%] gallery/test_path_tracing.png
+copying images... [  5%] gallery/test_path_tracing_hdr.png
+copying images... [  7%] gallery/test_path_tracing_camera.png
+copying images... [  9%] gallery/test_path_tracing_cutout.png
+copying images... [ 12%] gallery/test_path_tracing_nested_callable.png
+copying images... [ 14%] gallery/test_path_tracing_ray_masks.png
+copying images... [ 16%] gallery/test_path_tracing_spectrum.png
+copying images... [ 19%] gallery/test_photon_mapping.png
+copying images... [ 21%] gallery/sdf_renderer.png
+copying images... [ 23%] gallery/test_voxel_raytracer.png
+copying images... [ 26%] gallery/test_blackhole.png
+copying images... [ 28%] gallery/test_shader_toy.png
+copying images... [ 30%] gallery/test_shader_toy_spacex.png
+copying images... [ 33%] gallery/test_procedural.png
+copying images... [ 35%] gallery/test_mpm88.png
+copying images... [ 37%] gallery/test_game_of_life.png
+copying images... [ 40%] gallery/test_wave_equation.png
+copying images... [ 42%] gallery/test_fire_simulation.png
+copying images... [ 44%] gallery/test_nbody_simulation.png
+copying images... [ 47%] gallery/test_image_processing.png
+copying images... [ 49%] gallery/test_rtx.png
+copying images... [ 51%] gallery/test_procedural_callable.png
+copying images... [ 53%] gallery/test_native_code.png
+copying images... [ 56%] gallery/test_texture3d.png
+copying images... [ 58%] _static/tile/execution-planner.svg
+copying images... [ 60%] _static/tile/mpp-cost-model.svg
+copying images... [ 63%] _static/tile/shared-tile-planning.svg
+copying images... [ 65%] _static/tile/tirx-realization-pipeline.svg
+copying images... [ 67%] _static/tile/xir-planning-pipeline.svg
+copying images... [ 70%] _static/tile/execution-first-overview.svg
+copying images... [ 72%] _static/tile/primitive-layers.svg
+copying images... [ 74%] _static/tile/nest-calculus.svg
+copying images... [ 77%] _static/tile/binding-relations.svg
+copying images... [ 79%] _static/tile/anchor-frontier.svg
+copying images... [ 81%] _static/tile/execution-transform.svg
+copying images... [ 84%] _static/tile/layout-correspondence.svg
+copying images... [ 86%] _static/tile/reduction-model.svg
+copying images... [ 88%] _static/tile/execution-to-memory.svg
+copying images... [ 91%] _static/tile/pipeline-stage-flow.svg
+copying images... [ 93%] _static/tile/pipeline-timeline.svg
+copying images... [ 95%] _static/tile/tirx-subgroup-reduction.svg
+copying images... [ 98%] _static/tile/guarded-view-ownership.svg
+copying images... [100%] _static/tile/xir-mapping-roadmap.svg
+
+dumping search index in English (code: en)... done
+dumping object inventory... done
+build succeeded, 24 warnings.
+
+The HTML pages are in _build/tile-dual-timing.

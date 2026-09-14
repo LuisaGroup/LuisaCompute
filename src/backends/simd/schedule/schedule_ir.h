@@ -136,6 +136,31 @@ struct Value {
     ValueMetadata metadata{};
 };
 
+enum struct StridedMmaVectorization : uint8_t {
+    output,
+    contraction,
+};
+
+// Owned semantic descriptor for the only admitted private matrix leaf call.
+// No source XIR object or runtime callback survives this boundary.
+struct StridedMmaMetadata {
+    std::vector<uint64_t> output_extents{};
+    std::vector<uint64_t> lhs_output_strides{};
+    std::vector<uint64_t> rhs_output_strides{};
+    uint64_t contraction_extent{0u};
+    uint64_t lhs_contraction_stride{0u};
+    uint64_t rhs_contraction_stride{0u};
+    uint32_t vector_width{1u};
+    bool allow_reassociation{false};
+    StridedMmaVectorization vectorization{StridedMmaVectorization::output};
+};
+
+// Owned call-site copy semantics; no XIR lifetime or runtime callback ABI.
+struct ContiguousCopyMetadata {
+    uint64_t element_count{0u};
+    uint32_t vector_width{1u};
+};
+
 struct Instruction {
     Opcode opcode{Opcode::opaque};
     std::optional<ValueId> result{};
@@ -153,12 +178,18 @@ struct Instruction {
     // One operand may be lane-equal only at this instruction's dynamic
     // continuation even when its backing state is varying across loop exits.
     // This is a use-site fact, not a global ValueClass refinement.
+    // For a GEP index, users must establish the same dynamic epoch before
+    // using equality to realize a contiguous private access.
     std::optional<uint32_t> cohort_uniform_operand_index{};
     // One integer operand may be proven to increase by exactly one between
     // adjacent physical packet lanes. The proof is use-site-local and relies
     // on static block geometry, so it must not change the ValueClass of the
     // backing SSA value.
     std::optional<uint32_t> lane_consecutive_operand_index{};
+    // void(lhs, rhs, seed, output), all fixed-array<float> local references.
+    std::optional<StridedMmaMetadata> strided_mma{};
+    // void(buffer<float>, uint64 element_offset, local array<float> reference).
+    std::optional<ContiguousCopyMetadata> contiguous_copy{};
 };
 
 struct EdgeAssignment {

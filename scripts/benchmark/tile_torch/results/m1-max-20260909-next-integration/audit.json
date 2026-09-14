@@ -1,0 +1,39 @@
+{
+  "status": "passed",
+  "capture_manifest_sha256": "ee2bb81d78da6f2c500589f92d3bb8bd0ab229714268cdded161344cdbf555b1",
+  "previous_checkpoint_sha256": "7dba7ede46f953f9f65e4ad1ea906d2c180c23b0df3267ff7e20c7777413a2ed",
+  "runs": [
+    {
+      "name": "replay-v1",
+      "replay_sha256": "5e3d699d9502a4a227febfae0826caa05557b033527626dfb28ec4a71c0c7dfb",
+      "host_observation_sha256": "af9e9bd47112134231f10d09642037b580914ac551fed310b3c66c928272416e",
+      "heavy_samples": 2,
+      "total_observations": 45,
+      "performance_accepted": false
+    },
+    {
+      "name": "replay-v2",
+      "replay_sha256": "a9b9bb651522d8bb283e2e0a82eab75052696ea5a3419f4f0d4c4c07dde03b55",
+      "host_observation_sha256": "308734e79986a78be104e7f0f04588a2cb713915899d34c09492ce78e68e4419",
+      "heavy_samples": 6,
+      "total_observations": 45,
+      "performance_accepted": false
+    }
+  ],
+  "snapshots_re_read": 144,
+  "timed_visits_checked": 864,
+  "off_on_bitwise_equal_cases": 48,
+  "performance_accepted": false,
+  "reason": "Both complete attempts contain sampled concurrent foreign rendering. No performance ranking, default selection or model calibration is accepted.",
+  "guard_caveat": "Input immutability and ephemeral guards were checked during replay, not retained for later inspection.",
+  "rejected_in_memory_mutations": [
+    "sample",
+    "ratio",
+    "guard",
+    "output_hash",
+    "missing_visit",
+    "changed_tail",
+    "nonfinite",
+    "truncated"
+  ]
+}

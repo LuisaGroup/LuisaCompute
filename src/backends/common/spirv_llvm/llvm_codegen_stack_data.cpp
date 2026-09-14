@@ -66,7 +66,7 @@ struct LLVMCodegenGlobalPool {
             all_codegen.pop_back();
             return item;
         }
-        return vstd::unique_ptr<LLVMCodegenStackData>(new LLVMCodegenStackData());
+        return vstd::make_unique<LLVMCodegenStackData>();
     }
 
     void DeAllocate(vstd::unique_ptr<LLVMCodegenStackData> &&v) {

@@ -13,6 +13,7 @@ class MetalPinnedMemoryExt;
 class MetalDenoiserExt;
 class MetalTexCompressExt;
 class MetalRasterExt;
+class MetalTimingExt;
 
 class MetalDevice : public DeviceInterface {
 
@@ -41,6 +42,7 @@ private:
     luisa::unique_ptr<MetalDebugCaptureExt> _debug_capture_ext{nullptr};
     luisa::unique_ptr<MetalTexCompressExt> _tex_compress_ext{nullptr};
     luisa::unique_ptr<MetalRasterExt> _raster_ext{nullptr};
+    luisa::unique_ptr<MetalTimingExt> _timing_ext{nullptr};
 
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<MetalDenoiserExt> _denoiser_ext;
@@ -81,6 +83,9 @@ public:
     void destroy_swapchain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
+    ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                          const tile::CompileOptions &tile_options,
+                                          tile::KernelMetadata &metadata) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

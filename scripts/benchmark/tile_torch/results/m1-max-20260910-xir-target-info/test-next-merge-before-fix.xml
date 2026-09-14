@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="5"
+	failures="1"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="82"
+	timestamp="2026-09-10T10:28:18"
+	>
+	<testcase name="test_tile_ir" classname="test_tile_ir" time="0.536843" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (340 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_target_info" classname="test_tile_xir_target_info" time="0.815021" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (642 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_metal" classname="test_tile_xir_metal" time="4.5381" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal4;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:28:20.617] [console] [info] Created context for program 'test_tile_xir_metal'.
+[2026-09-10 10:28:20.618] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:28:21.566] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 947.155459 ms.
+[2026-09-10 10:28:21.608] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 10:28:21.608] [console] [info] Test device backend: metal4.
+[2026-09-10 10:28:21.608] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 10:28:21.622] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 10:28:21.697] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 10:28:21.704] [console] [info] Metal4 a...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_runtime" classname="test_tile_xir_runtime" time="58.2123" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:28:25.168] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-10 10:28:25.169] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:28:25.642] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 472.426209 ms.
+[2026-09-10 10:28:25.643] [console] [info] Test device backend: simd.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (5085845 asserts in 17 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm" classname="test_tile_xir_llm" time="18.4587" status="fail">
+		<failure message="Subprocess aborted"/>
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:29:23.433] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-10 10:29:23.434] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:29:23.447] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 12.905792 ms.
+[2026-09-10 10:29:23.448] [console] [info] Test device backend: simd.
+[2026-09-10 10:29:23.456] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 10:29:23.502] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-10 10:29:23.545] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 10:29:23.579] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:29:23.687] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:23.798] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:29:23.833] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:29:23.858] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:23.971] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:29:23.988] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:29:24.031] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:24.332] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:29:24.371] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:29:24.430] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:24.874] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:29:24.890] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:29:24.931] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:25.182] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:29:25.205] [console] [info] Checking llm_rows with 102 output elements
+[2026-09-10 10:29:25.339] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:29:25.492] [console] [info] Checking llm_rows with 1122 output elements
+[2026-09-10 10:29:25.977] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-10 10:29:26.123] [console] [info] Checking llm_attention with 392 output elements
+[2026-09-10 10:29:27.202] [console] [info] Checking llm_attention with 56 output elements
+[2026-09-10 10:29:27.391] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 10:29:27.445] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 10:29:28.692] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-10 10:29:41.324] [console] [error] Assertion 'batches &gt; 0 &amp;&amp; heads &gt; 0 &amp;&amp; kv_heads &gt; 0 &amp;&amp; heads % kv_heads == 0 &amp;&amp; queries &gt; 0 &amp;&amp; keys &gt;= queries &amp;&amp; channels &gt; 0 &amp;&amp; value_channels &gt; 0 &amp;&amp; bq &gt; 0 &amp;&amp; bk &gt; 0' failed: Invalid attention shape [/tmp/luisa-next-integration.roZbN8/source/src/tests/./common/tile_llm_test_utils.h:122]
+     0 [0x000102a1e9cc]: test_tile_xir_llm :: luisa::test::tile_llm::attention(long long, long long, long long, long long, long long, long long, long long, long long, long long, bool) + 4248
+     1 [0x0001029f5f1c]: test_tile_xir_llm :: main + 10288
+     2 [0x0001861804e4]: dyld :: start + 6992
+</system-out>
+	</testcase>
+</testsuite>

@@ -33,10 +33,12 @@ if (CUDAToolkit_FOUND)
             cuda_curve.cpp cuda_curve.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_motion_instance.cpp cuda_motion_instance.h
-            cuda_shader.cpp cuda_shader.h
-            cuda_shader_metadata.cpp cuda_shader_metadata.h
-            cuda_shader_native.cpp cuda_shader_native.h
-            cuda_shader_optix.cpp cuda_shader_optix.h
+              cuda_shader.cpp cuda_shader.h
+              cuda_shader_metadata.cpp cuda_shader_metadata.h
+              cuda_shader_native.cpp cuda_shader_native.h
+              cuda_shader_tile.cpp cuda_shader_tile.h
+              tile/cuda_tile.cpp tile/cuda_tile.h
+              cuda_shader_optix.cpp cuda_shader_optix.h
             cuda_shader_printer.cpp cuda_shader_printer.h
             cuda_sparse_heap.cpp cuda_sparse_heap.h
             cuda_swapchain.cpp cuda_swapchain.h
@@ -63,7 +65,13 @@ if (CUDAToolkit_FOUND)
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain
             luisa-compute-xir
+            luisa-compute-tile
             reproc reproc++)
+
+    if (TARGET luisa-compute-tile-bridge-tirx)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-compute-tile-bridge-tirx)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_CUDA_TILE_TIRX=1)
+    endif ()
 
     # LLVM
     option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN "Enable experimental LLVM-based CUDA codegen" OFF)

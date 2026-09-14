@@ -1,0 +1,87 @@
+{
+  "started_unix": 1788931611.178145,
+  "runs": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "log": "doxygen.log",
+      "log_sha256": "f10921f69f98c1c73bc607e61bbaecb250c9a4d3f444a645ff8035c50cbdcced",
+      "exit_observation": "Completed exec tool exit supplied explicitly."
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/docs-html"
+      ],
+      "exit_code": 0,
+      "log": "sphinx.log",
+      "log_sha256": "c6a3b2ac9eff8d6b5157a442206e5f566ced9a77f3b79e144aa6f6caec5441ef",
+      "exit_observation": "Completed exec tool exit supplied explicitly."
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/docs-html"
+      ],
+      "exit_code": 0,
+      "log": "docs-links.log",
+      "log_sha256": "29eddf459d1a08fd126206d8f9173bcc54573aa84275b518b39bea6898c5eb7d"
+    },
+    {
+      "name": "render",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/qa-docs.cjs",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/docs-html",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa"
+      ],
+      "exit_code": 0,
+      "log": "docs-render.log",
+      "log_sha256": "9a748d086fbeaa494fc73ba605d3639feda6c536154fb192f831449fa299e086"
+    }
+  ],
+  "source_contract": "Sphinx uses the original worktree, including the unchanged user-owned matrix documentation; separate from the isolated C++ build.",
+  "finished_unix": 1788931618.742541,
+  "passed": true,
+  "changed_source_sha256": {
+    "docs/source/internals/tile/xir.md": "bad89cdfb4325ff961e40510c5540c27948569aa20610f53c8cbdf08c89da9df",
+    "docs/source/performance/tile/index.md": "bed98413b1aab0d58d3aeabb610a9ed429736bcbc3c1a0d11c3fc979cdd79fc9",
+    "docs/source/performance/tile/validation.md": "34a043a409c194cecd1b3fe8c97e22d9e1543c831c6b112e351359a3ec7a19bd",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-expression-reduction/notes.md": "d2ad96cc80330a9b5be77aac161fe6a60f229d1877f5728e4e063fb0b17c7869"
+  },
+  "doxygen_index_sha256": "5c761cc6f3f3b3699d4f5eed18b3cf59eb3aea048d61d3dca5f562926f629635"
+}

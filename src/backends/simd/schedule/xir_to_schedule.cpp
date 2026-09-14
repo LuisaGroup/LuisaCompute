@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <queue>
 #include <string_view>
 #include <unordered_map>
@@ -19,6 +20,7 @@
 #include <luisa/xir/instructions/assert.h>
 #include <luisa/xir/instructions/atomic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
@@ -27,12 +29,16 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/thread_group.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/special_register.h>
 
 #include "../../../xir/passes/natural_loop.h"
 #include "warp_uniformity.h"
+#include "strided_mma_types.h"
+#include "contiguous_copy_types.h"
 
 namespace luisa::compute::simd::schedule {
 
@@ -151,6 +157,119 @@ struct CFGEdgeHash {
     }
 }
 
+[[nodiscard]] StridedMmaMetadata copy_strided_mma(const xir::StridedMmaDescriptor &d) {
+    return {
+        .output_extents = {d.output_extents.begin(), d.output_extents.end()},
+        .lhs_output_strides = {d.lhs_output_strides.begin(), d.lhs_output_strides.end()},
+        .rhs_output_strides = {d.rhs_output_strides.begin(), d.rhs_output_strides.end()},
+        .contraction_extent = d.contraction_extent,
+        .lhs_contraction_stride = d.lhs_contraction_stride,
+        .rhs_contraction_stride = d.rhs_contraction_stride,
+        .vector_width = d.vector_width,
+        .allow_reassociation = d.allow_reassociation,
+        .vectorization = d.vectorization == xir::StridedMmaVectorization::OUTPUT ?
+                             StridedMmaVectorization::output :
+                             StridedMmaVectorization::contraction,
+    };
+}
+
+[[nodiscard]] std::string_view validate_strided_mma_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
+        return "SIMD only admits compiler-owned strided MMA external calls; inline other calls first";
+    }
+    auto descriptor_count = size_t{0u};
+    for (auto *metadata : callee->metadata_list()) {
+        descriptor_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA;
+    }
+    if (descriptor_count != 1u) { return "external call requires exactly one strided MMA semantic descriptor"; }
+    auto *metadata = callee->find_metadata<xir::StridedMmaMD>();
+    if (metadata == nullptr || !xir::is_valid_strided_mma_descriptor(metadata->descriptor)) {
+        return "external call lacks valid strided MMA semantic metadata";
+    }
+    if (call->type() != nullptr || callee->type() != nullptr || call->argument_count() != 4u) {
+        return "strided MMA requires a void call with four reference arguments";
+    }
+    std::array<const Type *, 4u> types{};
+    auto index = size_t{0u};
+    for (auto *argument : callee->arguments()) {
+        if (index == types.size() || !argument->is_reference() || call->argument(index) == nullptr || argument->type() != call->argument(index)->type()) {
+            return "strided MMA formal/actual reference signatures disagree";
+        }
+        types[index++] = argument->type();
+    }
+    if (index != types.size()) { return "strided MMA requires four formal reference arguments"; }
+    if (auto error = validate_strided_mma(copy_strided_mma(metadata->descriptor), types); !error.empty()) { return error; }
+    for (auto i = size_t{0u}; i < types.size(); i++) {
+        auto *argument = call->argument(i);
+        if (!argument->isa<xir::AllocaInst>() || !static_cast<const xir::AllocaInst *>(argument)->is_local()) {
+            return "strided MMA arguments must be complete root thread-local allocations";
+        }
+        if (i < 3u && argument == call->argument(3u)) {
+            return "strided MMA output must not alias an input snapshot";
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] std::string_view validate_contiguous_copy_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    auto *metadata = callee->find_metadata<xir::ContiguousCopyMD>();
+    if (metadata == nullptr || !xir::is_valid_contiguous_copy_descriptor(metadata->descriptor)) {
+        return "external call lacks valid contiguous copy semantic metadata";
+    }
+    if (call->type() != nullptr || callee->type() != nullptr || call->argument_count() != 3u) {
+        return "contiguous copy requires a void call with three arguments";
+    }
+    std::array<const Type *, 3u> types{};
+    auto index = size_t{0u};
+    for (auto *argument : callee->arguments()) {
+        if (index == types.size() || call->argument(index) == nullptr ||
+            argument->type() != call->argument(index)->type() ||
+            (index == 0u && !argument->is_resource()) ||
+            (index == 1u && (!argument->is_value() || call->argument(index)->is_lvalue())) ||
+            (index == 2u && !argument->is_reference())) {
+            return "contiguous copy formal/actual resource, offset or destination signatures disagree";
+        }
+        types[index++] = argument->type();
+    }
+    if (index != types.size()) { return "contiguous copy requires three formal arguments"; }
+    ContiguousCopyMetadata descriptor{metadata->descriptor.element_count, metadata->descriptor.vector_width};
+    if (auto error = validate_contiguous_copy(descriptor, types); !error.empty()) { return error; }
+    auto *source = call->argument(0u);
+    if (!source->isa<xir::Argument>() || !static_cast<const xir::Argument *>(source)->is_resource()) {
+        return "contiguous copy source must be a root resource argument";
+    }
+    auto *destination = call->argument(2u);
+    if (!destination->isa<xir::AllocaInst>() || !static_cast<const xir::AllocaInst *>(destination)->is_local()) {
+        return "contiguous copy destination must be a complete root thread-local allocation";
+    }
+    return {};
+}
+
+[[nodiscard]] std::string_view validate_native_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
+        return "SIMD only admits compiler-owned native external calls; inline other calls first";
+    }
+    for (auto *metadata : call->metadata_list()) {
+        if (metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA ||
+            metadata->derived_metadata_tag() == xir::DerivedMetadataTag::CONTIGUOUS_COPY) {
+            return "native semantic descriptors belong on the external function, not the call instruction";
+        }
+    }
+    auto mma_count = size_t{0u};
+    auto copy_count = size_t{0u};
+    for (auto *metadata : callee->metadata_list()) {
+        mma_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA;
+        copy_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::CONTIGUOUS_COPY;
+    }
+    if (mma_count + copy_count != 1u) {
+        return "external call requires exactly one strided MMA or contiguous copy semantic descriptor";
+    }
+    return copy_count == 1u ? validate_contiguous_copy_call(call) : validate_strided_mma_call(call);
+}
+
 [[nodiscard]] bool is_collective(xir::ThreadGroupOp op) noexcept {
     return op != xir::ThreadGroupOp::SHADER_EXECUTION_REORDER &&
            op != xir::ThreadGroupOp::SYNCHRONIZE_BLOCK;
@@ -175,7 +294,7 @@ private:
 
     struct LoopRecord {
         const xir::NaturalLoop *source{nullptr};
-        const xir::PhiInst *cohort_uniform_induction{nullptr};
+        std::vector<const xir::PhiInst *> cohort_uniform_inductions{};
         const xir::ArithmeticInst *cohort_uniform_header_condition{nullptr};
         LoopId id{};
         size_t size{0u};
@@ -375,6 +494,13 @@ private:
                 if (instruction->isa<xir::RayQueryPipelineInst>()) {
                     continue;
                 }
+                if (instruction->isa<xir::CallInst>()) {
+                    if (auto error = validate_native_call(static_cast<const xir::CallInst *>(instruction)); !error.empty()) {
+                        _diagnose(XIRToScheduleDiagnosticCode::unsupported_instruction,
+                                  std::string{error}, block, instruction);
+                    }
+                    continue;
+                }
                 if (is_supported_non_terminator(instruction)) { continue; }
                 auto tag = instruction->derived_instruction_tag();
                 auto message = "XIR instruction '" +
@@ -544,6 +670,56 @@ private:
             _block_ids.at(_definition->body_block()));
     }
 
+    [[nodiscard]] std::vector<const xir::PhiInst *> _find_cohort_uniform_inductions(
+        const xir::NaturalLoop &loop) const {
+        std::vector<const xir::PhiInst *> inductions;
+        if (loop.header == nullptr || loop.preheader == nullptr || loop.latches.size() != 1u ||
+            loop.exit_edges.size() != 1u || loop.exit_edges.front().first != loop.header) {
+            return inductions;
+        }
+        auto *latch = loop.latches.front();
+        for (auto *instruction : loop.header->instructions()) {
+            if (!instruction->isa<xir::PhiInst>()) { break; }
+            auto *phi = static_cast<const xir::PhiInst *>(instruction);
+            auto *type = phi->type();
+            if (type == nullptr || !type->is_scalar() || (!type->is_int() && !type->is_uint()) ||
+                type->is_int4() || type->size() > sizeof(uint64_t) || phi->incoming_count() != 2u) {
+                continue;
+            }
+            auto start = phi->incoming(0u);
+            auto recurrence = phi->incoming(1u);
+            if (start.block == latch) { std::swap(start, recurrence); }
+            if (start.block != loop.preheader || recurrence.block != latch || start.value == nullptr ||
+                start.value->type() != type || !_uniformity.is_uniform(start.value) ||
+                recurrence.value == nullptr || !recurrence.value->isa<xir::ArithmeticInst>()) {
+                continue;
+            }
+            auto *add = static_cast<const xir::ArithmeticInst *>(recurrence.value);
+            auto *update_block = const_cast<xir::BasicBlock *>(add->parent_block());
+            if (add->op() != xir::ArithmeticOp::BINARY_ADD || add->operand_count() != 2u || add->type() != type ||
+                !loop.contains(update_block) || !_dom_tree->dominates(update_block, latch)) {
+                continue;
+            }
+            auto *stride = add->operand(0u) == phi ? add->operand(1u) :
+                           add->operand(1u) == phi ? add->operand(0u) :
+                                                     nullptr;
+            if (stride == nullptr || stride->type() != type || !stride->isa<xir::Constant>()) { continue; }
+            // Equality needs a fixed nonzero bit-pattern step, not a positive
+            // mathematical stride or a no-wrap trip-count formula. Signed
+            // negative constants are equally valid for this local proof.
+            auto stride_bits = uint64_t{0u};
+            std::memcpy(&stride_bits, static_cast<const xir::Constant *>(stride)->data(), type->size());
+            if (stride_bits == 0u) { continue; }
+            // In one natural-loop epoch every continuing lane has applied
+            // the same recurrence to the same start. Varying exits only
+            // remove participants. Do not depend on the header predicate's
+            // spelling (e.g. `$while` uses `!condition`) or select only the
+            // first PHI, which may instead be a varying accumulator.
+            inductions.emplace_back(phi);
+        }
+        return inductions;
+    }
+
     void _create_loops(
         const luisa::vector<xir::NaturalLoop> &natural_loops) {
         _loops.reserve(natural_loops.size());
@@ -591,11 +767,11 @@ private:
                     }
                 }
             }
-            auto *cohort_uniform_induction =
-                bounds.is_valid() && bounds.stride_is_constant &&
-                        _uniformity.is_uniform(bounds.start_value) ?
-                    bounds.induction_phi :
-                    nullptr;
+            if (_options.enable_counted_loop_uniformity && bounds.is_valid() &&
+                bounds.stride_is_constant && _uniformity.is_uniform(bounds.start_value) &&
+                _uniformity.is_uniform(bounds.bound_value)) {
+                early_exit_header_condition = bounds.comparison_inst;
+            }
             std::vector<BlockId> blocks;
             blocks.reserve(source_loop.body_blocks.size() + 1u);
             blocks.emplace_back(_block_ids.at(source_loop.header));
@@ -626,7 +802,7 @@ private:
                 std::move(exits), std::nullopt, max_trip_count);
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
-                .cohort_uniform_induction = cohort_uniform_induction,
+                .cohort_uniform_inductions = _find_cohort_uniform_inductions(source_loop),
                 .cohort_uniform_header_condition =
                     early_exit_header_condition,
                 .id = id,
@@ -679,8 +855,8 @@ private:
         // predication later in LLVM lowering.
         if (!_options.enable_cohort_uniform_induction) { return; }
         for (auto &&loop : _loops) {
-            if (loop.size <
-                _options.cohort_uniform_induction_min_loop_block_count) {
+            if (!_options.enable_counted_loop_uniformity && loop.size <
+                                                                _options.cohort_uniform_induction_min_loop_block_count) {
                 continue;
             }
             auto *condition = loop.cohort_uniform_header_condition;
@@ -968,6 +1144,7 @@ private:
         const xir::Instruction *instruction) const noexcept {
         using Tag = xir::DerivedInstructionTag;
         switch (instruction->derived_instruction_tag()) {
+            case Tag::CALL: return Opcode::call;
             case Tag::ALLOCA: return Opcode::alloca;
             case Tag::LOAD: return Opcode::load;
             case Tag::STORE: return Opcode::store;
@@ -1009,7 +1186,8 @@ private:
         return std::any_of(
             _loops.cbegin(), _loops.cend(),
             [&](const LoopRecord &loop) noexcept {
-                return loop.cohort_uniform_induction == value &&
+                return std::find(loop.cohort_uniform_inductions.cbegin(), loop.cohort_uniform_inductions.cend(), value) !=
+                           loop.cohort_uniform_inductions.cend() &&
                        loop.source->contains(
                            const_cast<xir::BasicBlock *>(use_block));
             });
@@ -1026,6 +1204,70 @@ private:
                 ->block_size();
         return block_size.x >= _options.logical_warp_width &&
                block_size.x % _options.logical_warp_width == 0u;
+    }
+
+    // A deliberately small, exact proof of x[lane] = W * q + lane with
+    // nonnegative, non-wrapping values. The upper bound also proves that an
+    // integer cast is value-preserving. Do not infer this from a cost-model
+    // slope: an arbitrary offset, ragged row or narrowing cast can cross a
+    // quotient/remainder boundary within a packet.
+    [[nodiscard]] std::optional<uint64_t> _aligned_packet_index_max(
+        const xir::Value *value, uint32_t depth = 0u) const noexcept {
+        auto width = _options.logical_warp_width;
+        if (value == nullptr || depth >= 64u || width <= 1u || (width & (width - 1u)) != 0u ||
+            value->type() == nullptr || !value->type()->is_scalar() ||
+            (!value->type()->is_int() && !value->type()->is_uint())) {
+            return std::nullopt;
+        }
+        if (value->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(value)->derived_special_register_tag();
+            if (tag == xir::DerivedSpecialRegisterTag::WARP_LANE_ID) { return width - 1u; }
+        }
+        if (value->isa<xir::CastInst>()) {
+            auto *cast = static_cast<const xir::CastInst *>(value);
+            if (cast->op() != xir::CastOp::STATIC_CAST) { return std::nullopt; }
+            auto maximum = _aligned_packet_index_max(cast->value(), depth + 1u);
+            return maximum && _nonnegative_integer_fits(value->type(), *maximum) ? maximum : std::nullopt;
+        }
+        if (!value->isa<xir::ArithmeticInst>()) { return std::nullopt; }
+        auto *arithmetic = static_cast<const xir::ArithmeticInst *>(value);
+        if (arithmetic->operand_count() != 2u) { return std::nullopt; }
+        auto *lhs = arithmetic->operand(0u);
+        auto *rhs = arithmetic->operand(1u);
+        uint64_t constant = 0u;
+        if (!xir::try_decode_constant_nonnegative_integer(rhs, constant)) { return std::nullopt; }
+        if (arithmetic->op() == xir::ArithmeticOp::EXTRACT && constant == 0u &&
+            _packet_stays_in_x_row() && lhs->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(lhs)->derived_special_register_tag();
+            if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_ID) { return std::numeric_limits<uint32_t>::max(); }
+            if (tag == xir::DerivedSpecialRegisterTag::THREAD_ID) {
+                return static_cast<const xir::KernelFunction *>(_source)->block_size().x - 1u;
+            }
+        }
+        auto maximum = _aligned_packet_index_max(lhs, depth + 1u);
+        if (!maximum) { return std::nullopt; }
+        switch (arithmetic->op()) {
+            case xir::ArithmeticOp::BINARY_MOD:
+                if (constant != 0u && constant % width == 0u) { return std::min(*maximum, constant - 1u); }
+                break;
+            case xir::ArithmeticOp::BINARY_DIV:
+            case xir::ArithmeticOp::BINARY_MUL:
+                if (constant == 1u) { return maximum; }
+                break;
+            case xir::ArithmeticOp::BINARY_ADD:
+                if (constant % width == 0u && constant <= std::numeric_limits<uint64_t>::max() - *maximum &&
+                    _nonnegative_integer_fits(value->type(), *maximum + constant)) { return *maximum + constant; }
+                break;
+            default: break;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] static bool _nonnegative_integer_fits(const Type *type, uint64_t maximum) noexcept {
+        // Packed four-bit types do not use size()*8 value bits.
+        if (type->is_int4()) { return false; }
+        auto bits = type->size() * 8u - (type->is_int() ? 1u : 0u);
+        return bits == 64u || (bits < 64u && maximum <= (uint64_t{1u} << bits) - 1u);
     }
 
     [[nodiscard]] LaneIndexStep _lane_index_step(
@@ -1062,11 +1304,23 @@ private:
                                         instruction->operand(0u), use_block,
                                         visiting) :
                                     LaneIndexStep::unknown;
-            // A cast of equal lane values stays equal. Consecutive casts need
-            // a separate no-wrap/range proof and deliberately remain unknown.
             result = operand_step == LaneIndexStep::equal ?
                          LaneIndexStep::equal :
                          LaneIndexStep::unknown;
+            auto *cast = static_cast<const xir::CastInst *>(instruction);
+            if (result == LaneIndexStep::unknown && cast->op() == xir::CastOp::STATIC_CAST) {
+                auto maximum = _aligned_packet_index_max(cast->value());
+                if (maximum && _nonnegative_integer_fits(value->type(), *maximum)) {
+                    result = LaneIndexStep::consecutive;
+                } else if (operand_step == LaneIndexStep::consecutive &&
+                           value->type()->size() == 8u && cast->value()->type()->size() == 8u) {
+                    // Signed/unsigned i64 casts preserve all address bits.
+                    // Contiguous address formation uses the same modulo-2^64
+                    // arithmetic. This does NOT authorize a narrower wrap
+                    // followed by a zero/sign extension to pointer width.
+                    result = LaneIndexStep::consecutive;
+                }
+            }
             leave();
             return result;
         }
@@ -1116,7 +1370,19 @@ private:
         } else if (operand_steps.size() == 2u) {
             auto lhs = operand_steps[0u];
             auto rhs = operand_steps[1u];
-            if (op == xir::ArithmeticOp::BINARY_ADD) {
+            uint64_t divisor = 0u;
+            if ((op == xir::ArithmeticOp::BINARY_DIV || op == xir::ArithmeticOp::BINARY_MOD) &&
+                xir::try_decode_constant_nonnegative_integer(arithmetic->operand(1u), divisor) && divisor != 0u &&
+                _aligned_packet_index_max(arithmetic->operand(0u))) {
+                if (divisor == 1u) {
+                    result = op == xir::ArithmeticOp::BINARY_DIV ? LaneIndexStep::consecutive : LaneIndexStep::equal;
+                } else if (divisor % _options.logical_warp_width == 0u) {
+                    result = op == xir::ArithmeticOp::BINARY_DIV ? LaneIndexStep::equal : LaneIndexStep::consecutive;
+                }
+            } else if (op == xir::ArithmeticOp::BINARY_MUL &&
+                       xir::try_decode_constant_nonnegative_integer(arithmetic->operand(1u), divisor) && divisor == 1u) {
+                result = lhs;
+            } else if (op == xir::ArithmeticOp::BINARY_ADD) {
                 if ((lhs == LaneIndexStep::consecutive &&
                      rhs == LaneIndexStep::equal) ||
                     (lhs == LaneIndexStep::equal &&
@@ -1259,7 +1525,20 @@ private:
                     source_instruction->parent_block(), source_instruction);
             }
         }
-        if (ray_query_pipeline == nullptr) {
+        if (source_instruction->isa<xir::CallInst>()) {
+            auto *call = static_cast<const xir::CallInst *>(source_instruction);
+            if (auto metadata = call->callee()->find_metadata<xir::StridedMmaMD>()) {
+                instruction.strided_mma = copy_strided_mma(metadata->descriptor);
+            } else if (auto metadata = call->callee()->find_metadata<xir::ContiguousCopyMD>()) {
+                instruction.contiguous_copy = ContiguousCopyMetadata{
+                    metadata->descriptor.element_count, metadata->descriptor.vector_width};
+            }
+            for (auto *use : call->argument_uses()) {
+                if (auto operand = _map_value(use->value(), source_instruction->parent_block(), source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            }
+        } else if (ray_query_pipeline == nullptr) {
             for (auto *operand_use : source_instruction->operand_uses()) {
                 if (auto operand = _map_value(
                         operand_use->value(),
@@ -1304,6 +1583,23 @@ private:
                 } else if (step == LaneIndexStep::consecutive) {
                     instruction.lane_consecutive_operand_index = 1u;
                 }
+            } else if (instruction.opcode == Opcode::warp_collective &&
+                       instruction.source_op == static_cast<uint32_t>(xir::ThreadGroupOp::WARP_READ_LANE) &&
+                       source_instruction->operand_count() == 2u &&
+                       _lane_index_step(source_instruction->operand(1u), source_instruction->parent_block()) == LaneIndexStep::equal) {
+                // Equality belongs to this collective's current participant
+                // cohort. In particular, a loop induction may be equal here
+                // but different after lanes reconverge at distinct exits.
+                instruction.cohort_uniform_operand_index = 1u;
+            } else if (_options.enable_cohort_private_access &&
+                       instruction.opcode == Opcode::gep &&
+                       source_instruction->operand_count() == 2u &&
+                       _lane_index_step(source_instruction->operand(1u),
+                                        source_instruction->parent_block()) == LaneIndexStep::equal) {
+                // The index is equal at this GEP, not necessarily after a
+                // later reconvergence. Keep its varying backing state and
+                // require consumers to preserve the address snapshot.
+                instruction.cohort_uniform_operand_index = 1u;
             }
         }
         if (instruction.opcode == Opcode::warp_collective) {
@@ -1674,7 +1970,8 @@ public:
             const_cast<xir::Function *>(_source),
             {.account_for_infinite_paths = false});
         _uniformity.analyze(
-            _source, _options.parameter_value_classes);
+            _source, _options.parameter_value_classes,
+            {natural_loops.data(), natural_loops.size()});
 
         _create_function_and_blocks();
         _create_loops(natural_loops);

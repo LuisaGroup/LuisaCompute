@@ -1,5 +1,8 @@
 #include "ut/ut.hpp"
 #include <utility>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 #include <luisa/luisa-compute.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
@@ -56,6 +59,113 @@ struct RoundtripResult {
         count++;
     }
     return count;
+}
+
+using UIntBufferWrites = std::vector<std::pair<uint32_t, uint32_t>>;
+
+// Execute only the scalar subset used by the continue regression. Undefined
+// stores are permitted until overwritten; reading one, encountering an unknown
+// operation, or failing to return within the bound rejects the execution.
+[[nodiscard]] std::optional<UIntBufferWrites> execute_uint_continue_kernel(
+    FunctionDefinition *definition, uint32_t limit, uint32_t skip) {
+    std::unordered_map<const Value *, uint32_t> values;
+    std::unordered_map<const Value *, std::optional<uint32_t>> memory;
+    Value *buffer = nullptr;
+    auto argument_index = 0u;
+    for (auto *argument : definition->arguments()) {
+        if (argument->derived_argument_tag() == DerivedArgumentTag::RESOURCE) {
+            if (buffer != nullptr || !argument->type()->is_buffer()) { return std::nullopt; }
+            buffer = argument;
+        } else {
+            if (argument->derived_argument_tag() != DerivedArgumentTag::VALUE ||
+                argument->type() != Type::of<uint32_t>() || argument_index >= 2u) { return std::nullopt; }
+            values.emplace(argument, argument_index++ == 0u ? limit : skip);
+        }
+    }
+    if (buffer == nullptr || argument_index != 2u) { return std::nullopt; }
+    auto read = [&](const Value *value) -> std::optional<uint32_t> {
+        if (value == nullptr ||
+            (value->type() != Type::of<uint32_t>() && value->type() != Type::of<bool>())) { return std::nullopt; }
+        if (value->isa<xir::Constant>()) {
+            auto *constant = static_cast<const xir::Constant *>(value);
+            return value->type()->is_bool() ? uint32_t(constant->as<bool>()) : constant->as<uint32_t>();
+        }
+        auto iter = values.find(value);
+        return iter == values.end() ? std::nullopt : std::optional{iter->second};
+    };
+    UIntBufferWrites writes;
+    auto *block = definition->body_block();
+    for (auto steps = 0u; steps < 10000u; ++steps) {
+        if (block == nullptr || !block->is_terminated()) { return std::nullopt; }
+        // A stale definition from a previous loop iteration cannot satisfy a
+        // missing SSA operand in this iteration.
+        for (auto *inst : block->instructions()) { values.erase(inst); }
+        BasicBlock *next = nullptr;
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<AllocaInst>()) {
+                if (inst->type() != Type::of<uint32_t>() && inst->type() != Type::of<bool>()) { return std::nullopt; }
+                memory[inst] = std::nullopt;
+            } else if (inst->isa<LoadInst>()) {
+                auto iter = memory.find(static_cast<LoadInst *>(inst)->variable());
+                if (iter == memory.end() || !iter->second.has_value()) { return std::nullopt; }
+                values[inst] = *iter->second;
+            } else if (inst->isa<StoreInst>()) {
+                auto *store = static_cast<StoreInst *>(inst);
+                auto iter = memory.find(store->variable());
+                if (iter == memory.end()) { return std::nullopt; }
+                if (store->value()->isa<Undefined>()) {
+                    iter->second = std::nullopt;
+                } else {
+                    auto value = read(store->value());
+                    if (!value.has_value()) { return std::nullopt; }
+                    iter->second = *value;
+                }
+            } else if (inst->isa<ArithmeticInst>()) {
+                auto *arithmetic = static_cast<ArithmeticInst *>(inst);
+                if (arithmetic->operand_count() != 1u && arithmetic->operand_count() != 2u) { return std::nullopt; }
+                auto x = read(arithmetic->operand(0u));
+                if (!x.has_value()) { return std::nullopt; }
+                if (arithmetic->operand_count() == 1u) {
+                    if (arithmetic->op() != ArithmeticOp::UNARY_BIT_NOT || arithmetic->type() != Type::of<bool>()) { return std::nullopt; }
+                    values[inst] = !*x;
+                } else {
+                    auto y = read(arithmetic->operand(1u));
+                    if (!y.has_value()) { return std::nullopt; }
+                    switch (arithmetic->op()) {
+                        case ArithmeticOp::BINARY_ADD: values[inst] = *x + *y; break;
+                        case ArithmeticOp::BINARY_LESS: values[inst] = *x < *y; break;
+                        case ArithmeticOp::BINARY_EQUAL: values[inst] = *x == *y; break;
+                        default: return std::nullopt;
+                    }
+                }
+            } else if (inst->isa<ResourceWriteInst>()) {
+                auto *write = static_cast<ResourceWriteInst *>(inst);
+                if (write->op() != ResourceWriteOp::BUFFER_WRITE || write->operand_count() != 3u || write->operand(0u) != buffer) { return std::nullopt; }
+                auto index = read(write->operand(1u));
+                auto value = read(write->operand(2u));
+                if (!index.has_value() || !value.has_value()) { return std::nullopt; }
+                writes.emplace_back(*index, *value);
+            } else if (inst->isa<IfInst>() || inst->isa<ConditionalBranchInst>()) {
+                auto *branch = static_cast<ConditionalBranchTerminatorInstruction *>(inst);
+                auto condition = read(branch->condition());
+                if (!condition.has_value()) { return std::nullopt; }
+                next = *condition ? branch->true_block() : branch->false_block();
+            } else if (inst->isa<BranchInst>() || inst->isa<BreakInst>() || inst->isa<ContinueInst>()) {
+                next = static_cast<BranchTerminatorInstruction *>(inst)->target_block();
+            } else if (inst->isa<SimpleLoopInst>()) {
+                next = static_cast<SimpleLoopInst *>(inst)->body_block();
+            } else if (inst->isa<LoopInst>()) {
+                next = static_cast<LoopInst *>(inst)->prepare_block();
+            } else if (inst->isa<ReturnInst>()) {
+                if (static_cast<ReturnInst *>(inst)->return_value() != nullptr) { return std::nullopt; }
+                return writes;
+            } else {
+                return std::nullopt;
+            }
+        }
+        block = next;
+    }
+    return std::nullopt;
 }
 
 }// namespace
@@ -139,15 +249,16 @@ int main(int argc, char *argv[]) {
     };
 
     "xir_to_ast_roundtrip_nested_continue_runs_update"_test = [] {
-        Kernel1D kernel = [](BufferUInt buffer) noexcept {
+        Kernel1D kernel = [](BufferUInt buffer, UInt limit, UInt skip) noexcept {
             UInt sum = 0u;
-            $for (i, 0u, 4u) {
-                $if (i == 1u) {
+            $for (i, 0u, limit) {
+                buffer->write(i + 1u, i);
+                $if (i == skip) {
                     $continue;
                 };
                 sum += i;
             };
-            buffer->write(dispatch_id().x, sum);
+            buffer->write(0u, sum);
         };
         auto result = roundtrip(kernel.function()->function());
         expect(result.module != nullptr);
@@ -155,50 +266,29 @@ int main(int argc, char *argv[]) {
         auto *kernel_definition = first_kernel_definition(result.module.get());
         expect(kernel_definition != nullptr);
         if (kernel_definition == nullptr) { return; }
-        auto equality_if_count = 0u;
-        auto skipped_body_action_is_guarded = false;
-        auto induction_update_is_common = false;
-        for (auto *block : kernel_definition->basic_blocks()) {
-            for (auto *inst : block->instructions()) {
-                if (inst->isa<IfInst>()) {
-                    auto *if_inst = static_cast<IfInst *>(inst);
-                    auto *condition = if_inst->condition();
-                    if (condition->isa<ArithmeticInst>() && static_cast<ArithmeticInst *>(condition)->op() == ArithmeticOp::BINARY_EQUAL) {
-                        equality_if_count++;
-                        auto count_adds_and_stores = [](BasicBlock *branch) noexcept {
-                            auto add_count = 0u;
-                            auto store_count = 0u;
-                            if (branch != nullptr) {
-                                for (auto *branch_inst : branch->instructions()) {
-                                    add_count += branch_inst->isa<ArithmeticInst>() &&
-                                                 static_cast<ArithmeticInst *>(branch_inst)->op() ==
-                                                     ArithmeticOp::BINARY_ADD;
-                                    store_count += branch_inst->isa<StoreInst>();
-                                }
-                            }
-                            return std::pair{add_count, store_count};
-                        };
-                        auto true_adds =
-                            count_adds_and_stores(
-                                if_inst->true_block())
-                                .first;
-                        auto [false_adds, false_stores] =
-                            count_adds_and_stores(if_inst->false_block());
-                        auto [merge_adds, merge_stores] =
-                            count_adds_and_stores(if_inst->merge_block());
-                        skipped_body_action_is_guarded |=
-                            true_adds == 0u &&
-                            false_adds == 1u && false_stores >= 1u;
-                        induction_update_is_common |=
-                            merge_adds == 1u && merge_stores >= 1u;
-                    }
+        // The update can be emitted once at a shared merge or in both mutually
+        // exclusive arms before Continue. Its physical location is incidental;
+        // every iteration must execute it exactly once, including a skipped
+        // body. The complete write trace proves both iteration order/count and
+        // the final accumulated value after the XIR -> AST -> XIR round trip.
+        for (auto limit : {0u, 1u, 2u, 4u, 9u, 16u}) {
+            for (auto skip : {0u, 1u, limit == 0u ? 0u : limit - 1u, limit, UINT32_MAX}) {
+                UIntBufferWrites expected;
+                auto sum = 0u;
+                for (auto i = 0u; i < limit; ++i) {
+                    expected.emplace_back(i + 1u, i);
+                    if (i != skip) { sum += i; }
+                }
+                expected.emplace_back(0u, sum);
+                auto actual = execute_uint_continue_kernel(kernel_definition, limit, skip);
+                expect(actual.has_value()) << "limit=" << limit << " skip=" << skip;
+                if (actual.has_value()) {
+                    auto equal = static_cast<bool>(*actual == expected);
+                    expect(equal) << "iteration/write trace limit=" << limit << " skip=" << skip;
+                    expect(actual->size() == size_t{limit} + 1u);
                 }
             }
         }
-        expect(equality_if_count == 1u);
-        expect(skipped_body_action_is_guarded);
-        expect(induction_update_is_common);
-        expect(result.text.find("resource_write buffer_write") != string::npos);
     };
 
     "xir_to_ast_roundtrip_path_tracing_kernel"_test = [] {

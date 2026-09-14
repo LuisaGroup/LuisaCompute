@@ -1577,6 +1577,7 @@ void LLVMStateVisitor::visit(const SuspendStmt *) {
 }
 
 void LLVMStateVisitor::visit(const AssignStmt *stmt) {
+    if (is_local_undefined_lifetime_seed(stmt)) { return; }
     auto *rhs = EvalExpr(stmt->rhs());
     // LHS must be a RefExpr (reference to a variable)
     auto *lhs = stmt->lhs();
@@ -1814,7 +1815,7 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
     // Collect case information
     struct CaseInfo {
         SwitchCaseStmt const *case_stmt;
-        llvm::ConstantInt *value;
+        luisa::vector<llvm::ConstantInt *> values;
         llvm::BasicBlock *block;
     };
     luisa::vector<CaseInfo> cases;
@@ -1822,15 +1823,20 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
     llvm::BasicBlock *default_bb = nullptr;
 
     for (auto *s : stmt->body()->statements()) {
-        if (s->tag() == Statement::Tag::SWITCH_CASE) {
+        if (s->tag() == Statement::Tag::SWITCH_CASE ||
+            s->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
             auto *case_stmt = static_cast<SwitchCaseStmt const *>(s);
-            auto *case_val = EvalExpr(case_stmt->expression());
-            auto *case_const = llvm::dyn_cast<llvm::ConstantInt>(case_val);
-            if (!case_const) {
-                LUISA_ERROR_WITH_LOCATION("Switch case value must be a constant integer.");
+            luisa::vector<llvm::ConstantInt *> values;
+            for (auto expression : case_stmt->expressions()) {
+                auto *case_val = EvalExpr(expression);
+                auto *case_const = llvm::dyn_cast<llvm::ConstantInt>(case_val);
+                if (!case_const) {
+                    LUISA_ERROR_WITH_LOCATION("Switch case value must be a constant integer.");
+                }
+                values.emplace_back(case_const);
             }
             auto *case_bb = llvm::BasicBlock::Create(_ctx, "switch_case", func);
-            cases.push_back({case_stmt, case_const, case_bb});
+            cases.push_back({case_stmt, std::move(values), case_bb});
         } else if (s->tag() == Statement::Tag::SWITCH_DEFAULT) {
             default_stmt = static_cast<SwitchDefaultStmt const *>(s);
             default_bb = llvm::BasicBlock::Create(_ctx, "switch_default", func);
@@ -1845,7 +1851,7 @@ void LLVMStateVisitor::visit(const SwitchStmt *stmt) {
     // Create the switch instruction
     auto *sw = _builder.CreateSwitch(expr, default_bb, static_cast<unsigned>(cases.size()));
     for (auto &ci : cases) {
-        sw->addCase(ci.value, ci.block);
+        for (auto value : ci.values) { sw->addCase(value, ci.block); }
     }
 
     _switch_merge_block = merge_bb;

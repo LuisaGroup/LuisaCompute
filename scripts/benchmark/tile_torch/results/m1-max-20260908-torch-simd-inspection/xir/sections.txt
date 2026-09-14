@@ -1,0 +1,7 @@
+
+/tmp/luisa-torch-simd.IxI6kn/xir-small/tile_xir_w8_42616_1788833696378267_0.o:	file format mach-o arm64
+
+Sections:
+Idx Name          Size     VMA              Type
+  0 __text        000344ec 0000000000000000 TEXT
+  1 __literal16   00000030 00000000000344f0 DATA

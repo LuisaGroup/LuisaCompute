@@ -53,6 +53,13 @@ struct XIRToScheduleOptions {
     // a private callback boundary by supplying one class per source argument.
     // This is deliberately backend-private: no public DSL ABI depends on it.
     std::span<const ValueClass> parameter_value_classes{};
+    // Canonical counted headers can remain cohort-equal after an unrelated
+    // earlier divergence. Publish a use-site predicate fact, not a global
+    // scalarization of induction/state values across reconvergence.
+    bool enable_counted_loop_uniformity{false};
+    // Preserve lane-equal integer GEP indices as use-site facts. Consumers
+    // must not widen this equality across divergent loop exits or epochs.
+    bool enable_cohort_private_access{false};
 };
 
 struct XIRToScheduleResult {

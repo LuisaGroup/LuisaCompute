@@ -31,6 +31,8 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/verifier.h>
@@ -809,6 +811,33 @@ template<typename Enum>
                     return false;
                 }
             }
+            luisa::unordered_set<uint32_t> projection_support;
+            luisa::unordered_set<luisa::string_view> logical_names;
+            for (auto &projection : extension->binding_projections()) {
+                auto &logical = projection.binding;
+                if (logical.name.empty() || !logical_names.emplace(logical.name).second ||
+                    static_cast<uint8_t>(logical.access) > 2u || static_cast<uint8_t>(logical.lifetime) > 2u ||
+                    projection.alternatives.empty() || projection.alternatives.front().value_index != logical.index) { return false; }
+                const Type *type = nullptr;
+                for (auto alternative : projection.alternatives) {
+                    auto matches = [&](uint32_t index, CoroSuspendBindingAccess access) {
+                        return std::any_of(extension->bindings().begin(), extension->bindings().end(), [&](auto &b) {
+                            return b.index == index && b.access == access && b.lifetime == logical.lifetime;
+                        });
+                    };
+                    if (!projection_support.emplace(alternative.value_index).second ||
+                        !projection_support.emplace(alternative.condition_index).second ||
+                        !matches(alternative.value_index, CoroSuspendBindingAccess::read_write) ||
+                        !matches(alternative.condition_index, CoroSuspendBindingAccess::read)) { return false; }
+                    auto *value = suspend->extension_binding_value(alternative.value_index);
+                    auto *guard = suspend->extension_binding_value(alternative.condition_index);
+                    if (guard->type() != Type::of<bool>() || (type != nullptr && value->type() != type)) { return false; }
+                    type = value->type();
+                }
+            }
+            for (auto &binding : extension->bindings()) {
+                if (!projection_support.contains(binding.index) && !logical_names.emplace(binding.name).second) { return false; }
+            }
             luisa::unordered_set<luisa::string_view> attribute_names;
             for (auto &&attribute : extension->attributes()) {
                 if (attribute.name.empty() ||
@@ -824,6 +853,10 @@ template<typename Enum>
         // cannot be checked by the legacy generic coroutine rule, which
         // assumes that every trailing operand is an rvalue.
         return true;
+    }
+    if (tag == DerivedInstructionTag::ALLOCA) {
+        auto *alloca = static_cast<const AllocaInst *>(instruction);
+        if (alloca->coro_return_selector() != 0u && (!alloca->is_local() || alloca->type() != Type::of<uint32_t>())) { return false; }
     }
     auto bindless_access = [&]() noexcept {
         switch (tag) {
@@ -1130,11 +1163,86 @@ public:
                 XIRVerificationResult &result) noexcept
         : _options{options}, _result{result} {}
 
+    // This tag carries executable semantics. Unlike diagnostic metadata, it
+    // must not migrate to an owner where backends would silently ignore it.
+    void verify_strided_mma_metadata(
+        const MetadataListMixin &owner, const Function *function = nullptr,
+        const BasicBlock *block = nullptr, const Instruction *instruction = nullptr,
+        bool external_function = false) noexcept {
+        auto count = size_t{0u};
+        auto copy_count = size_t{0u};
+        for (auto metadata : owner.metadata_list()) {
+            if (metadata->isa<ContiguousCopyMD>()) {
+                ++copy_count;
+                if (!external_function) {
+                    _error(function, block, instruction,
+                           "Contiguous-copy metadata is only valid on an external function.");
+                }
+                if (!is_valid_contiguous_copy_descriptor(static_cast<const ContiguousCopyMD *>(metadata)->descriptor)) {
+                    _error(function, block, instruction,
+                           "Contiguous-copy metadata has an invalid descriptor.");
+                }
+                if (external_function && function != nullptr) {
+                    auto valid_signature = function->type() == nullptr;
+                    auto index = size_t{0u};
+                    for (auto argument : function->arguments()) {
+                        auto type = argument->type();
+                        switch (index++) {
+                            case 0u:
+                                valid_signature &= argument->is_resource() && type != nullptr && type->is_buffer() &&
+                                                   type->element() != nullptr && type->element()->tag() == Type::Tag::FLOAT32;
+                                break;
+                            case 1u:
+                                valid_signature &= argument->is_value() && type != nullptr && type->tag() == Type::Tag::UINT64;
+                                break;
+                            case 2u:
+                                valid_signature &= argument->is_reference() && type != nullptr && type->is_array() &&
+                                                   type->element() != nullptr && type->element()->tag() == Type::Tag::FLOAT32 &&
+                                                   type->dimension() >= static_cast<const ContiguousCopyMD *>(metadata)->descriptor.element_count;
+                                break;
+                            default: valid_signature = false; break;
+                        }
+                    }
+                    if (!valid_signature || index != 3u) {
+                        _error(function, block, instruction,
+                               "Contiguous-copy external signature must be void(buffer<float> resource, uint64 value, sufficiently sized array<float> reference).");
+                    }
+                }
+                continue;
+            }
+            if (!metadata->isa<StridedMmaMD>()) { continue; }
+            ++count;
+            if (!external_function) {
+                _error(function, block, instruction,
+                       "Strided-MMA metadata is only valid on an external function.");
+            }
+            auto mma = static_cast<const StridedMmaMD *>(metadata);
+            if (!is_valid_strided_mma_descriptor(mma->descriptor)) {
+                _error(function, block, instruction,
+                       "Strided-MMA metadata has an invalid descriptor.");
+            }
+        }
+        if (count > 1u) {
+            _error(function, block, instruction,
+                   "Strided-MMA metadata must occur at most once per external function.");
+        }
+        if (copy_count > 1u) {
+            _error(function, block, instruction,
+                   "Contiguous-copy metadata must occur at most once per external function.");
+        }
+        if (count != 0u && copy_count != 0u) {
+            _error(function, block, instruction,
+                   "An external function cannot combine strided-MMA and contiguous-copy semantics.");
+        }
+    }
+
     void verify(const Function *function) noexcept {
         if (function == nullptr) {
             _error(nullptr, nullptr, nullptr, "Function is null.");
             return;
         }
+        verify_strided_mma_metadata(*function, function, nullptr, nullptr,
+                                    function->isa<ExternalFunction>());
         auto *module = function->parent_module();
         if (function->isa<KernelFunction>()) {
             auto block_size =
@@ -1154,6 +1262,7 @@ public:
             }
         }
         for (auto *argument : function->arguments()) {
+            verify_strided_mma_metadata(*argument, function);
             if (argument->parent_function() != function ||
                 !argument_kind_matches_type(argument)) {
                 _error(function, nullptr, nullptr,
@@ -1161,6 +1270,16 @@ public:
             }
         }
         auto *definition = function->definition();
+        if (definition == nullptr || definition->body_block() == nullptr) {
+            // Malformed/declaration owners can still own blocks. Do not let
+            // the early return hide a misplaced mandatory semantic contract.
+            for (auto block : function->basic_blocks()) {
+                verify_strided_mma_metadata(*block, function, block);
+                for (auto instruction : block->instructions()) {
+                    verify_strided_mma_metadata(*instruction, function, block, instruction);
+                }
+            }
+        }
         if (definition == nullptr) { return; }
         if (definition->body_block() == nullptr) {
             _error(function, nullptr, nullptr, "Function definition has no body block.");
@@ -1170,6 +1289,7 @@ public:
         luisa::vector<const BasicBlock *> blocks;
         BlockSet block_set;
         for (auto *block : definition->basic_blocks()) {
+            verify_strided_mma_metadata(*block, function, block);
             blocks.emplace_back(block);
             block_set.emplace(block);
             if (block->parent_function() != function) {
@@ -1207,6 +1327,7 @@ public:
             auto saw_non_phi = false;
             size_t order = 0u;
             for (auto *instruction : block->instructions()) {
+                verify_strided_mma_metadata(*instruction, function, block, instruction);
                 ++_result.statistics.instruction_tag_queries;
                 auto tag = instruction->derived_instruction_tag();
                 auto opcode_valid =
@@ -1915,6 +2036,10 @@ XIRVerificationResult xir_verify_module(
         return result;
     }
     detail::XIRVerifier verifier{options, result};
+    verifier.verify_strided_mma_metadata(*module);
+    for (auto value : module->constant_list()) { verifier.verify_strided_mma_metadata(*value); }
+    for (auto value : module->undefined_list()) { verifier.verify_strided_mma_metadata(*value); }
+    for (auto value : module->special_register_list()) { verifier.verify_strided_mma_metadata(*value); }
     for (auto *function : module->function_list()) {
         verifier.verify(function);
     }

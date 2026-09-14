@@ -1,0 +1,189 @@
+{
+  "status": "passed",
+  "performance_accepted": false,
+  "defaults_changed": false,
+  "cost_calibrated": false,
+  "reason": "Background CPU activity during preflight and foreign rendering during replay. Only the owned native benchmark was stopped with SIGTERM; the partial cohort is excluded in full.",
+  "capture_manifest_sha256": "035f3ce35aba60473db7434ac9091647f6d5adfa73a1945d80d69f9c2e329c62",
+  "snapshot_sha256": "904593a910fe450a52e86e2ff6c80249c2bf2ed23880a39c9da0eb22ec895596",
+  "snapshots_re_read": 138,
+  "smoke_visits": 72,
+  "excluded_timed_visits": 96,
+  "bitwise_equal_cases": 24,
+  "unchanged_llvm_cases": 16,
+  "unchanged_object_cases": 16,
+  "structure": [
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "fused_expressions": 1,
+      "schedule_blocks": [
+        36,
+        31
+      ],
+      "cloned_instructions": [
+        2127,
+        2227
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "fused_expressions": 1,
+      "schedule_blocks": [
+        22,
+        19
+      ],
+      "cloned_instructions": [
+        1740,
+        1882
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "fused_expressions": 1,
+      "schedule_blocks": [
+        36,
+        31
+      ],
+      "cloned_instructions": [
+        2127,
+        2227
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "fused_expressions": 1,
+      "schedule_blocks": [
+        36,
+        31
+      ],
+      "cloned_instructions": [
+        2135,
+        2235
+      ],
+      "workspace_bytes": [
+        65664,
+        65664
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "fused_expressions": 2,
+      "schedule_blocks": [
+        41,
+        31
+      ],
+      "cloned_instructions": [
+        2195,
+        2569
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        129,
+        768
+      ],
+      "fused_expressions": 2,
+      "schedule_blocks": [
+        25,
+        19
+      ],
+      "cloned_instructions": [
+        1782,
+        2252
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "fused_expressions": 2,
+      "schedule_blocks": [
+        41,
+        31
+      ],
+      "cloned_instructions": [
+        2195,
+        2569
+      ],
+      "workspace_bytes": [
+        0,
+        0
+      ]
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "fused_expressions": 2,
+      "schedule_blocks": [
+        41,
+        31
+      ],
+      "cloned_instructions": [
+        2205,
+        2579
+      ],
+      "workspace_bytes": [
+        86184,
+        86184
+      ]
+    }
+  ],
+  "guard_caveat": "Ephemeral input/workspace guards were checked by the replay driver; this audit rereads retained output snapshots and verifies those receipts, not the freed guards.",
+  "test_caveat": "Initial wildcard width launches executed zero assertions and are excluded; the exact-name rerun and nonzero-assertion receipts supersede them.",
+  "rejected_mutations": [
+    "zero_sample",
+    "wrong_median",
+    "guard",
+    "input_mutation",
+    "output_hash",
+    "nonfinite_output",
+    "changed_tail",
+    "truncated_output"
+  ]
+}

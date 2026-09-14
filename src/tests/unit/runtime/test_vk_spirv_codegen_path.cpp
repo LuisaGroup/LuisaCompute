@@ -2316,7 +2316,7 @@ OpName %8 "Fma"
         Kernel1D kernel = [](BufferUInt output) noexcept {
             output.write(0u, 7u);
         };
-        dc.device.compile_to(kernel, shader_path);
+        [[maybe_unused]] auto compile_ok = dc.device.compile_to(kernel, shader_path);
 
         auto buffer = dc.device.create_buffer<uint32_t>(1u);
         auto stream = dc.device.create_stream();

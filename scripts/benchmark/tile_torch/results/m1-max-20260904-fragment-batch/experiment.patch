@@ -1,0 +1,293 @@
+--- a/include/luisa/tile/bridge/tirx/planner.h
++++ b/include/luisa/tile/bridge/tirx/planner.h
+@@ -46,6 +46,11 @@
+     // Bound worker-private software-prefetch storage, not hardware registers.
+     // Zero disables late prefetching; pipeline window one is always ordered.
+     uint32_t max_pipeline_prefetch_scalars_per_lane{32u};
++    // Experimental fragment-load batching ceiling (1..4). The rectangular
++    // realization uses the largest divisor of its K-atom count under this
++    // limit, retaining distinct A/B fragments until their ordered MMA uses.
++    // This is not asynchronous copying; one preserves the reference schedule.
++    uint32_t max_matrix_load_batch{1u};
+     ExecutionCostModel cost;
+ };
+
+@@ -85,6 +90,8 @@
+     bool persistent_accumulator{false};
+     bool direct_accumulator_store{false};
+
++    uint32_t k_atom_batch{1u};
++
+     [[nodiscard]] bool rectangular() const noexcept { return subgroups_m != 0u && subgroups_n != 0u; }
+ };
+
+--- a/src/tile/bridge/tirx/planner.cpp
++++ b/src/tile/bridge/tirx/planner.cpp
+@@ -39,7 +39,7 @@
+         result.shared_fragment_transfers += 2.0 * atoms * accumulator_executions;
+     }
+     result.fragment_scalars_per_lane = distribution.rectangular() ?
+-                                           (64u / limits.subgroup_size) * (distribution.atom_rows * distribution.atom_columns + distribution.atom_rows + distribution.atom_columns) :
++                                           (64u / limits.subgroup_size) * (distribution.atom_rows * distribution.atom_columns + distribution.k_atom_batch * (distribution.atom_rows + distribution.atom_columns)) :
+                                            3u * (64u / limits.subgroup_size);
+     auto &model = options.cost;
+     auto issue_work = result.matrix_issues * model.matrix_issue + result.shared_fragment_transfers * model.shared_fragment_transfer;
+@@ -59,7 +59,8 @@
+     }
+     return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
+            options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u &&
+-           options.max_copy_batch != 0u && options.max_copy_batch <= 16u;
++           options.max_copy_batch != 0u && options.max_copy_batch <= 16u &&
++           options.max_matrix_load_batch != 0u && options.max_matrix_load_batch <= 4u;
+ }
+
+ struct Alternative {
+@@ -94,9 +95,11 @@
+     if (!valid_matrix(workload) || subgroup_size != 32u || threads < subgroup_size || threads % subgroup_size != 0u) { return false; }
+     if (distribution.persistent_accumulator && (!distribution.rectangular() || workload.accumulator_iterations == 0u)) { return false; }
+     if (distribution.direct_accumulator_store && (!distribution.persistent_accumulator || !workload.has_direct_output)) { return false; }
++    if (distribution.k_atom_batch == 0u || distribution.k_atom_batch > 4u ||
++        workload.contraction / 8u % distribution.k_atom_batch != 0u) { return false; }
+     if (!distribution.rectangular()) {
+         return distribution.subgroups_m == 0u && distribution.subgroups_n == 0u &&
+-               distribution.atom_rows == 1u && distribution.atom_columns == 1u;
++               distribution.atom_rows == 1u && distribution.atom_columns == 1u && distribution.k_atom_batch == 1u;
+     }
+     auto groups = threads / subgroup_size;
+     return distribution.subgroups_m <= groups && groups % distribution.subgroups_m == 0u &&
+@@ -169,6 +172,8 @@
+                 auto gn = groups / gm;
+                 plan.candidates_considered++;
+                 MatrixDistribution candidate{gm, gn, matrix.rows / 8u / gm, matrix.columns / 8u / gn};
++                candidate.k_atom_batch = options.max_matrix_load_batch;
++                while (matrix.contraction / 8u % candidate.k_atom_batch != 0u) { candidate.k_atom_batch--; }
+                 candidate.persistent_accumulator = options.retain_accumulators && matrix.accumulator_iterations != 0u;
+                 candidate.direct_accumulator_store = candidate.persistent_accumulator && options.direct_accumulator_store && matrix.has_direct_output;
+                 if (!verify_matrix_distribution(matrix, candidate, threads, limits.subgroup_size)) {
+@@ -178,7 +183,7 @@
+                 // Avoid overflow as well as unbounded generated unrolled code.
+                 auto scalar_budget = options.max_fragment_scalars_per_lane / (64u / limits.subgroup_size);
+                 if (candidate.atom_rows > scalar_budget || candidate.atom_columns > scalar_budget ||
+-                    candidate.atom_rows * candidate.atom_columns + candidate.atom_rows + candidate.atom_columns > scalar_budget) {
++                    candidate.atom_rows * candidate.atom_columns + candidate.k_atom_batch * (candidate.atom_rows + candidate.atom_columns) > scalar_budget) {
+                     plan.candidates_rejected++;
+                     continue;
+                 }
+--- a/src/tile/bridge/tirx/matrix.cpp
++++ b/src/tile/bridge/tirx/matrix.cpp
+@@ -281,22 +281,23 @@
+     auto suffix = matrix.axes[0]->name;
+     auto rows = static_cast<int64_t>(distribution.atom_rows);
+     auto columns = static_cast<int64_t>(distribution.atom_columns);
++    auto batch = static_cast<int64_t>(distribution.k_atom_batch);
+     auto subgroup = tvm::floordiv(thread, tvm::IntImm::Int64(32));
+     MatrixWorkload workload{static_cast<uint64_t>(matrix.m), static_cast<uint64_t>(matrix.n), static_cast<uint64_t>(matrix.k)};
+     auto layout = matrix_distribution_layout(workload, distribution);
+     if (!layout) { throw std::runtime_error{layout.error.c_str()}; }
+     tvm::ffi::Array<tvm::PrimExpr> atom_shape{tvm::IntImm::Int64(matrix.m / 8), tvm::IntImm::Int64(matrix.n / 8)};
+     auto fragment_index = [&](int64_t i, int64_t j) { return native_fragment_index(layout.value, atom_shape, i, j); };
+-    auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * 64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");
+-    auto bf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_b", "metal.simdgroup");
++    auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(batch * rows * 64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");
++    auto bf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(batch * columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_b", "metal.simdgroup");
+     auto cf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_c", "metal.simdgroup");
+     auto reduction = tvm::tirx::PrimVar{suffix + "_mma_k", tvm::PrimType::Int(64)};
+-    auto coordinates = [&](int64_t i, int64_t j) {
++    auto coordinates = [&](int64_t i, int64_t j, int64_t kk = 0) {
+         auto mapped = matrix_atom_coordinates(workload, distribution, subgroup, tvm::IntImm::Int64(i * columns + j));
+         if (!mapped) { throw std::runtime_error{mapped.error.c_str()}; }
+         return Coordinates{{matrix.axes[0], mapped.value[0] * tvm::IntImm::Int64(8)},
+                            {matrix.axes[1], mapped.value[1] * tvm::IntImm::Int64(8)},
+-                           {matrix.axes[2], reduction * tvm::IntImm::Int64(8)}};
++                           {matrix.axes[2], (reduction * tvm::IntImm::Int64(batch) + tvm::IntImm::Int64(kk)) * tvm::IntImm::Int64(8)}};
+     };
+     tvm::ffi::Array<tvm::tirx::Stmt> initial{tvm::tirx::AllocBuffer{cf}};
+     tvm::ffi::Array<tvm::tirx::Stmt> statements{tvm::tirx::AllocBuffer{af}, tvm::tirx::AllocBuffer{bf}};
+@@ -317,16 +318,20 @@
+     // The contraction is outside the local output-fragment grid. Each A/B
+     // fragment is loaded once and reused by all applicable accumulators.
+     tvm::ffi::Array<tvm::tirx::Stmt> step;
+-    for (auto i = int64_t{0}; i < rows; i++) { step.push_back(matrix_transfer(af, matrix.a, coordinates(i, 0), false, static_cast<int32_t>(i))); }
+-    for (auto j = int64_t{0}; j < columns; j++) { step.push_back(matrix_transfer(bf, matrix.b, coordinates(0, j), false, static_cast<int32_t>(j))); }
++    for (auto kk = int64_t{0}; kk < batch; kk++) {
++        for (auto i = int64_t{0}; i < rows; i++) { step.push_back(matrix_transfer(af, matrix.a, coordinates(i, 0, kk), false, static_cast<int32_t>(kk * rows + i))); }
++        for (auto j = int64_t{0}; j < columns; j++) { step.push_back(matrix_transfer(bf, matrix.b, coordinates(0, j, kk), false, static_cast<int32_t>(kk * columns + j))); }
++    }
+     static const auto mma_op = tvm::Op::Get("tirx.simdgroup_multiply_accumulate");
+-    for (auto i = int64_t{0}; i < rows; i++) {
+-        for (auto j = int64_t{0}; j < columns; j++) {
+-            auto index = tvm::IntImm::Int32(fragment_index(i, j));
+-            step.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, {cf, index, af, tvm::IntImm::Int32(static_cast<int32_t>(i)), bf, tvm::IntImm::Int32(static_cast<int32_t>(j)), cf, index}}});
++    for (auto kk = int64_t{0}; kk < batch; kk++) {
++        for (auto i = int64_t{0}; i < rows; i++) {
++            for (auto j = int64_t{0}; j < columns; j++) {
++                auto index = tvm::IntImm::Int32(fragment_index(i, j));
++                step.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, {cf, index, af, tvm::IntImm::Int32(static_cast<int32_t>(kk * rows + i)), bf, tvm::IntImm::Int32(static_cast<int32_t>(kk * columns + j)), cf, index}}});
++            }
+         }
+     }
+-    statements.push_back(tvm::tirx::For{reduction, tvm::IntImm::Int64(0), tvm::IntImm::Int64(matrix.k / 8),
++    statements.push_back(tvm::tirx::For{reduction, tvm::IntImm::Int64(0), tvm::IntImm::Int64(matrix.k / 8 / batch),
+                                         tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(step)});
+     auto destination = loop_emission == nullptr ? matrix.d : *matrix.c;
+     if (direct) {
+--- a/src/tests/benchmark/benchmark_tile_tirx.cpp
++++ b/src/tests/benchmark/benchmark_tile_tirx.cpp
+@@ -96,6 +96,7 @@
+         for (auto &matrix : plan.matrices) {
+             std::cout << matrix_separator << "{\"subgroups_m\":" << matrix.subgroups_m << ",\"subgroups_n\":" << matrix.subgroups_n
+                       << ",\"atom_rows\":" << matrix.atom_rows << ",\"atom_columns\":" << matrix.atom_columns
++                      << ",\"k_atom_batch\":" << matrix.k_atom_batch
+                       << ",\"persistent_accumulator\":" << (matrix.persistent_accumulator ? "true" : "false")
+                       << ",\"direct_accumulator_store\":" << (matrix.direct_accumulator_store ? "true" : "false") << '}';
+             matrix_separator = ",";
+@@ -320,6 +321,7 @@
+               << ",\"vectorize\":" << (options.vectorize ? "true" : "false")
+               << ",\"auto_vectorize\":" << (options.auto_vectorize ? "true" : "false")
+               << ",\"planner_threads\":" << options.planner.threads_per_group << ",\"copy_batch\":" << options.planner.max_copy_batch
++              << ",\"matrix_load_batch\":" << options.planner.max_matrix_load_batch
+               << ",\"realized_threads\":" << shader.block_size().x * shader.block_size().y * shader.block_size().z
+               << ",\"matrix_intrinsics\":" << matrix_calls << ",\"output_elements\":" << output_count
+               << ",\"mma_operations\":" << luisa::test::tile_tirx::count_operations(kernel.function().body(), OperationKind::MMA)
+@@ -337,8 +339,8 @@
+ }// namespace
+
+ int main(int argc, char *argv[]) {
+-    if (argc < 13 || argc > 20) {
+-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast]\n";
++    if (argc < 13 || argc > 21) {
++        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [matrix-load-batch:1..4]\n";
+         return 1;
+     }
+     try {
+@@ -372,6 +374,13 @@
+                 throw std::invalid_argument{"copy batching requires a value in [1,16] and Metal group execution"};
+             }
+             planner.max_copy_batch = static_cast<uint32_t>(requested);
++        }
++        if (argc >= 21) {
++            auto requested = positive_integer(argv[20]);
++            if (requested > 4u || backend != "metal" || cfg.execution_scope != exec::Scope::GROUP || !cooperative_matrix) {
++                throw std::invalid_argument{"matrix load batching requires a value in [1,4] and Metal group matrix execution"};
++            }
++            planner.max_matrix_load_batch = static_cast<uint32_t>(requested);
+         }
+         auto sample_count = positive_integer(argv[9]);
+         auto target_ms = positive_integer(argv[10]);
+@@ -381,7 +390,7 @@
+             throw std::invalid_argument{"benchmark dimensions or sample count exceed the supported limit"};
+         }
+         if (std::filesystem::exists(argv[12])) { throw std::invalid_argument{"output path already exists"}; }
+-        auto runtime_choice = argc == 20 ? std::string_view{argv[19]} : "tvm";
++        auto runtime_choice = argc >= 20 ? std::string_view{argv[19]} : "tvm";
+         if (runtime_choice != "tvm") {
+             if (backend != "metal" || (runtime_choice != "luisa" && runtime_choice != "luisa-fast")) {
+                 throw std::invalid_argument{"Runtime must be tvm, or luisa/luisa-fast on Metal"};
+@@ -459,6 +468,7 @@
+                   << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
+                   << ",\"planner_threads\":" << planner.threads_per_group
+                   << ",\"copy_batch\":" << planner.max_copy_batch
++                  << ",\"matrix_load_batch\":" << planner.max_matrix_load_batch
+                   << ",\"matrix_intrinsics\":" << matrix_calls
+                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
+                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
+--- a/src/tests/unit/tile/bridge/test_tirx_planner.cpp
++++ b/src/tests/unit/tile/bridge/test_tirx_planner.cpp
+@@ -174,6 +174,34 @@
+     expect(!verify_matrix_distribution(work.matrices[0], {}, 128u, 16u));
+ }
+
++void test_matrix_load_batch_resources() {
++    auto work = workload(32, 64, 32);
++    ExecutionLimits limits{256u, 32u, 32768u};
++    PlannerOptions options;
++    options.threads_per_group = 128u;
++    options.max_matrix_load_batch = 2u;
++    auto planned = plan_group(work, limits, options);
++    expect(planned.ok()) << planned.error;
++    if (planned) {
++        expect(planned.plan.matrices[0].rectangular());
++        expect(eq(planned.plan.matrices[0].k_atom_batch, 2u));
++        expect(eq(planned.plan.cost.fragment_scalars_per_lane, 40ull));
++        check_coverage(work.matrices[0], planned.plan.matrices[0], 128u);
++        auto invalid = planned.plan.matrices[0];
++        invalid.k_atom_batch = 3u;
++        expect(!verify_matrix_distribution(work.matrices[0], invalid, 128u, 32u));
++    }
++    options.max_fragment_scalars_per_lane = 6u;
++    auto reference = plan_group(work, limits, options);
++    expect(reference.ok());
++    expect(!reference.plan.matrices[0].rectangular());
++    expect(eq(reference.plan.matrices[0].k_atom_batch, 1u));
++    for (auto invalid : {0u, 5u}) {
++        options.max_matrix_load_batch = invalid;
++        expect(!plan_group(work, limits, options));
++    }
++}
++
+ void test_multiple_contracts_and_model_separation() {
+     auto work = workload(32, 64, 32);
+     work.matrices.push_back({16u, 24u, 16u, 3u});
+@@ -278,6 +306,7 @@
+     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+     "tile_planner_exact_thread_search_and_atom_coverage"_test = [] { test_exact_solver_and_coverage(); };
+     "tile_planner_constraints_and_reference"_test = [] { test_constraints_and_reference(); };
++    "tile_planner_matrix_load_batch_resources"_test = [] { test_matrix_load_batch_resources(); };
+     "tile_planner_multiple_contracts_and_model_separation"_test = [] { test_multiple_contracts_and_model_separation(); };
+     "tile_planner_pareto_capacity_beats_local_greedy_choice"_test = [] { test_capacity_requires_slower_resident_choice(); };
+     "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };
+--- a/src/tests/unit/tile/bridge/test_tirx_matrix.cpp
++++ b/src/tests/unit/tile/bridge/test_tirx_matrix.cpp
+@@ -431,6 +431,44 @@
+     }
+ }
+
++void test_matrix_load_batches(Runtime &runtime) {
++    if (runtime.target() != "metal") { return; }
++    Shape cases[]{
++        {64, 64, 65, 32, 64, 32}, {37, 71, 45, 32, 64, 32}, {37, 71, 45, 32, 64, 32, true, false}, {37, 71, 45, 32, 64, 32, false, true}, {37, 71, 45, 32, 64, 32, true, true}, {37, 71, 45, 32, 64, 24}, {37, 71, 45, 32, 64, 8}};
++    for (auto cfg : cases) {
++        for (auto batch : {1u, 2u, 4u}) {
++            for (auto window : {1u, 2u}) {
++                auto kernel = gemm(runtime, cfg, window);
++                bridge::tirx::PlannerOptions planner;
++                planner.threads_per_group = 256u;
++                planner.max_copy_batch = 4u;
++                planner.max_matrix_load_batch = batch;
++                auto executable = runtime.build(kernel, false, true, true, false, planner);
++                expect(executable.ok()) << executable.error;
++                if (!executable.ok()) { continue; }
++                auto expected = batch;
++                while (cfg.bk / 8 % expected != 0u) { expected--; }
++                expect(eq(executable.plans.size(), size_t{1u}));
++                if (executable.plans.size() == 1u) {
++                    auto &plan = executable.plans[0];
++                    // The small BK=8 allocation fits the eager software
++                    // pipeline version budget. Its steady state and drain
++                    // contain separate MMA sites, including in batch one.
++                    auto matrix_sites = cfg.bk == 8 && window == 2u ? size_t{2u} : size_t{1u};
++                    expect(eq(plan.matrices.size(), matrix_sites)) << cfg.bk << " batch=" << batch << " window=" << window;
++                    for (auto &matrix : plan.matrices) {
++                        expect(matrix.rectangular());
++                        expect(eq(matrix.k_atom_batch, expected));
++                        expect(eq(plan.cost.fragment_scalars_per_lane,
++                                  2ull * (matrix.atom_rows * matrix.atom_columns + expected * (matrix.atom_rows + matrix.atom_columns))));
++                    }
++                }
++                check_gemm(runtime, executable, cfg);
++            }
++        }
++    }
++}
++
+ void test_late_matrix_prefetch(Runtime &runtime) {
+     if (runtime.target() != "metal") { return; }
+     Shape cases[]{
+@@ -877,6 +915,7 @@
+     "tile_cpu_matrix_preserves_k_order"_test = [&] { test_cpu_matrix_preserves_k_order(runtime); };
+     "tile_matrix_planner_emits_reused_fragments"_test = [&] { test_planned_fragment_reuse(runtime); };
+     "tile_matrix_late_prefetch_resources_and_tails"_test = [&] { test_late_matrix_prefetch(runtime); };
++    "tile_matrix_fragment_load_batches"_test = [&] { test_matrix_load_batches(runtime); };
+     "tile_matrix_late_prefetch_rejects_global_mutation"_test = [&] { test_matrix_prefetch_rejects_global_writes(runtime); };
+     "tile_matrix_observed_carry_cannot_be_promoted"_test = [&] { test_observed_accumulator_stays_visible(runtime); };
+     "tile_matrix_direct_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime); };

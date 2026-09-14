@@ -184,7 +184,8 @@ private:
                     }
                     break;
                 }
-                case Statement::Tag::SWITCH_CASE: {
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: {
                     auto ast_case =
                         static_cast<const SwitchCaseStmt *>(statement);
                     if (!_handler_scope_is_structurable(
@@ -429,7 +430,8 @@ private:
                     }
                     break;
                 }
-                case Statement::Tag::SWITCH_CASE: {
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: {
                     if (!_collect_inline_ray_query_loops(
                             static_cast<const SwitchCaseStmt *>(statement)->body(),
                             inside_ray_query)) {

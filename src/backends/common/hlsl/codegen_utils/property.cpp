@@ -370,7 +370,10 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (kernel.requires_printing()) {
+    // The out-of-range detector reuses the device-printer ABI to report a
+    // violation to the host, so the print UAVs must be bound whenever the
+    // detector is enabled even if the kernel itself never logs.
+    if (kernel.requires_printing() || opt->oob_check) {
         auto &&r = registerCount.get((uint8_t)RegisterType::UAV);
         {
             Property prop = {

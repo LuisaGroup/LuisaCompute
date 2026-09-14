@@ -52,6 +52,8 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_codegen_llvm_impl_inst.cpp
             hip_codegen_llvm_impl_cflow.cpp
             hip_codegen_llvm_impl_arith.cpp
+            hip_floating_remainder.h
+            hip_floating_remainder.cpp
             hip_codegen_llvm_impl_var.cpp
             hip_codegen_llvm_impl_resource.cpp
             hip_codegen_llvm_impl_cast.cpp

@@ -11,9 +11,13 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/passes/dce.h>
 
 #include "block_barrier.h"
@@ -57,6 +61,74 @@ namespace {
 }
 
 void register_diamond_tests() {
+    "simd_xir_contiguous_copy_projection_contract"_test = [] {
+        for (auto variant = 0u; variant < 18u; variant++) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto buffer_type = Type::buffer(variant == 4u ? Type::of<int>() : Type::of<float>());
+            auto offset_type = variant == 5u ? Type::of<uint32_t>() : Type::of<uint64_t>();
+            auto array_type = Type::array(variant == 6u ? Type::of<int>() : Type::of<float>(), variant == 7u ? 4u : 8u);
+            // Construct intentionally malformed arguments directly: the
+            // public factory rejects these before projection is reached.
+            xir::Argument *source = variant == 12u ?
+                                        kernel->arguments().push_back(luisa::make_managed<xir::ValueArgument>(kernel, buffer_type)) :
+                                        static_cast<xir::Argument *>(kernel->create_resource_argument(buffer_type));
+            auto offset = kernel->create_value_argument(offset_type);
+            auto external = module.create_external_function(nullptr);
+            external->set_name("tile_contiguous_copy_name_does_not_grant_admission");
+            if (variant == 10u) {
+                external->arguments().push_back(luisa::make_managed<xir::ValueArgument>(external, buffer_type));
+            } else {
+                (void)external->create_resource_argument(buffer_type);
+            }
+            if (variant == 11u) {
+                (void)external->create_reference_argument(offset_type);
+            } else {
+                (void)external->create_value_argument(offset_type);
+            }
+            (void)external->create_reference_argument(array_type);
+            auto metadata = variant == 0u ? nullptr : external->create_metadata<ContiguousCopyMD>();
+            if (metadata != nullptr) {
+                metadata->descriptor = {variant == 16u ? 1u : 5u, variant == 17u ? 8u : 4u};
+                if (variant == 1u) { metadata->descriptor.element_count = 0u; }
+                if (variant == 2u) { metadata->descriptor.vector_width = 3u; }
+                if (variant == 3u) { metadata->descriptor.element_count = uint64_t{1u} << 61u; }
+                if (variant == 8u) { external->metadata_list().push_front(metadata->clone()); }
+                if (variant == 9u) {
+                    external->create_metadata<StridedMmaMD>()->descriptor = {
+                        .output_extents = {1u}, .lhs_output_strides = {0u}, .rhs_output_strides = {0u}};
+                }
+            }
+            XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            xir::Value *destination = variant == 13u ? builder.alloca_shared(array_type) : builder.alloca_local(array_type);
+            if (variant == 14u) { destination = kernel->create_reference_argument(array_type); }
+            auto call = builder.call(nullptr, external, {source, offset, destination});
+            builder.return_void();
+            auto result = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+            auto valid = variant >= 15u;
+            expect(result.succeeded() == valid) << variant << diagnostics_text(result);
+            if (!result.succeeded()) { continue; }
+            expect(verify(*result.function).succeeded());
+            auto found = size_t{0u};
+            for (auto &&block : result.function->blocks()) {
+                for (auto &&instruction : block.instructions) {
+                    if (instruction.opcode != Opcode::call) { continue; }
+                    ++found;
+                    expect(instruction.contiguous_copy.has_value());
+                    expect(!instruction.strided_mma.has_value());
+                    expect(instruction.operands.size() == 3u);
+                    if (instruction.contiguous_copy) {
+                        expect(instruction.contiguous_copy->element_count == metadata->descriptor.element_count);
+                        expect(instruction.contiguous_copy->vector_width == metadata->descriptor.vector_width);
+                    }
+                }
+            }
+            expect(found == 1u);
+            (void)call;
+        }
+    };
+
     "simd_xir_lowering_projects_divergent_phi_and_collective"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -460,8 +532,7 @@ void register_block_barrier_tests() {
                 result.function->blocks().size());
             if (barrier->resume_edge.target.value <
                 result.function->blocks().size()) {
-                const auto &resume = result.function->blocks()[
-                    barrier->resume_edge.target.value];
+                const auto &resume = result.function->blocks()[barrier->resume_edge.target.value];
                 expect(std::holds_alternative<ReturnTerminator>(
                     resume.terminator));
             }
@@ -818,6 +889,399 @@ void register_diagnostic_tests() {
 }
 
 void register_memory_layout_tests() {
+    "simd_xir_cohort_exit_values_do_not_seed_uniform_recurrences"_test = [] {
+        Module module;
+        auto kernel = module.create_kernel();
+        auto entry = kernel->create_body_block();
+        auto first_header = kernel->create_basic_block();
+        auto first_latch = kernel->create_basic_block();
+        auto between = kernel->create_basic_block();
+        auto second_header = kernel->create_basic_block();
+        auto second_latch = kernel->create_basic_block();
+        auto exit = kernel->create_basic_block();
+        auto type = Type::of<uint32_t>();
+        auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+        auto lane = module.create_warp_lane_id();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto storage = builder.alloca_local(type);
+        builder.br(first_header);
+        builder.set_insertion_point(first_header);
+        auto first_iteration = builder.phi(type, {{constant(0u), entry}});
+        auto population = builder.call(type, ThreadGroupOp::WARP_ACTIVE_SUM, {constant(1u)});
+        population->set_name("first_loop_population");
+        builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {first_iteration, lane}), first_latch, between);
+        builder.set_insertion_point(first_latch);
+        first_iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {first_iteration, constant(1u)}), first_latch);
+        builder.br(first_header);
+        builder.set_insertion_point(between);
+        // The collective is equal only in its defining header epoch. With
+        // active lanes [0, W), lane l exits with population W-l, so neither
+        // the reconverged value nor a new recurrence seeded by it is equal.
+        auto exit_read = builder.call(type, ThreadGroupOp::WARP_READ_LANE, {lane, population});
+        exit_read->set_name("mixed_epoch_exit_read");
+        builder.store(storage, exit_read);
+        builder.br(second_header);
+        builder.set_insertion_point(second_header);
+        auto second_iteration = builder.phi(type, {{population, between}});
+        second_iteration->set_name("mixed_epoch_start_iv");
+        builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {second_iteration, constant(9u)}), second_latch, exit);
+        builder.set_insertion_point(second_latch);
+        auto source = builder.call(type, ArithmeticOp::BINARY_SUB, {second_iteration, constant(1u)});
+        auto loop_read = builder.call(type, ThreadGroupOp::WARP_READ_LANE, {lane, source});
+        loop_read->set_name("mixed_epoch_loop_read");
+        builder.store(storage, loop_read);
+        second_iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {second_iteration, constant(1u)}), second_latch);
+        builder.br(second_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+        expect(lowered.succeeded()) << diagnostics_text(lowered);
+        if (!lowered.succeeded()) { return; }
+        auto count = 0u;
+        for (auto &block : lowered.function->blocks()) {
+            for (auto &instruction : block.instructions) {
+                if (instruction.opcode != Opcode::warp_collective || !instruction.result) { continue; }
+                auto value = lowered.function->value(*instruction.result);
+                if (value->name == "mixed_epoch_exit_read" || value->name == "mixed_epoch_loop_read") {
+                    expect(!instruction.cohort_uniform_operand_index) << value->name;
+                    count++;
+                }
+            }
+        }
+        expect(eq(count, 2u));
+        expect(eq(lowered.function->loops().size(), size_t{2u}));
+        expect(verify(*lowered.function).succeeded());
+    };
+    "simd_xir_cohort_recurrences_do_not_require_a_canonical_bound"_test = [] {
+        struct Case {
+            const char *name;
+            bool varying_start{false};
+            bool varying_stride{false};
+            bool zero_stride{false};
+            bool extra_entry{false};
+            bool extra_latch{false};
+            bool body_exit{false};
+        };
+        for (auto c : {Case{"multiple IVs after an accumulator"},
+                       Case{.name = "varying start", .varying_start = true},
+                       Case{.name = "varying stride", .varying_stride = true},
+                       Case{.name = "zero stride", .zero_stride = true},
+                       Case{.name = "non-unique preheader", .extra_entry = true},
+                       Case{.name = "multiple latches", .extra_latch = true},
+                       Case{.name = "non-header exit", .body_exit = true}}) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto entry = kernel->create_body_block();
+            auto arm = kernel->create_basic_block();
+            auto merge = kernel->create_basic_block();
+            auto header = kernel->create_basic_block();
+            auto body = kernel->create_basic_block();
+            auto latch = kernel->create_basic_block();
+            auto exit = kernel->create_basic_block();
+            auto extra_entry = c.extra_entry ? kernel->create_basic_block() : nullptr;
+            auto extra_latch = c.extra_latch ? kernel->create_basic_block() : nullptr;
+            auto type = Type::of<uint32_t>();
+            auto signed_type = Type::of<int32_t>();
+            auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+            auto signed_constant = [&](int32_t value) { return module.create_constant(signed_type, &value); };
+            auto lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto storage = builder.alloca_local(type);
+            auto condition = builder.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {lane, constant(0u)});
+            builder.cond_br(condition, arm, merge);
+            builder.set_insertion_point(arm);
+            builder.store(storage, lane);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            auto bound = builder.call(type, ArithmeticOp::BINARY_ADD, {lane, constant(1u)});
+            xir::Value *start = c.varying_start ? static_cast<xir::Value *>(lane) : constant(0u);
+            xir::Value *stride = constant(c.zero_stride ? 0u : 1u);
+            if (c.varying_stride) { stride = bound; }
+            if (extra_entry != nullptr) {
+                builder.cond_br(condition, extra_entry, header);
+                builder.set_insertion_point(extra_entry);
+            }
+            builder.br(header);
+            builder.set_insertion_point(header);
+            // The first additive PHI is not a constant-step induction. Both
+            // later IVs must be discovered, including a signed decrement.
+            auto accumulator = builder.phi(type, {{constant(0u), merge}});
+            auto iteration = builder.phi(type, {{start, merge}});
+            auto reverse = builder.phi(signed_type, {{signed_constant(17), merge}});
+            accumulator->set_name("cohort_accumulator");
+            iteration->set_name("cohort_forward_iv");
+            reverse->set_name("cohort_reverse_iv");
+            if (extra_entry != nullptr) {
+                accumulator->add_incoming(constant(0u), extra_entry);
+                iteration->add_incoming(start, extra_entry);
+                reverse->add_incoming(signed_constant(17), extra_entry);
+            }
+            auto keep_going = builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iteration, bound});
+            auto stop = builder.call(Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {keep_going});
+            builder.cond_br(stop, exit, body);
+            auto read = [&](xir::Value *source, const char *name) {
+                auto value = builder.call(type, ThreadGroupOp::WARP_READ_LANE, {lane, source});
+                value->set_name(name);
+                builder.store(storage, value);
+            };
+            builder.set_insertion_point(body);
+            read(accumulator, "loop_accumulator_read");
+            read(iteration, "loop_forward_read");
+            read(reverse, "loop_reverse_read");
+            if (extra_latch != nullptr) {
+                builder.cond_br(condition, latch, extra_latch);
+            } else if (c.body_exit) {
+                builder.cond_br(condition, exit, latch);
+            } else {
+                builder.br(latch);
+            }
+            auto emit_latch = [&](xir::BasicBlock *block) {
+                builder.set_insertion_point(block);
+                accumulator->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {accumulator, lane}), block);
+                iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {iteration, stride}), block);
+                reverse->add_incoming(builder.call(signed_type, ArithmeticOp::BINARY_ADD, {signed_constant(-1), reverse}), block);
+                builder.br(header);
+            };
+            emit_latch(latch);
+            if (extra_latch != nullptr) { emit_latch(extra_latch); }
+            builder.set_insertion_point(exit);
+            read(accumulator, "exit_accumulator_read");
+            read(iteration, "exit_forward_read");
+            read(reverse, "exit_reverse_read");
+            builder.return_void();
+            auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+            expect(lowered.succeeded()) << c.name << diagnostics_text(lowered);
+            if (!lowered.succeeded()) { continue; }
+            auto canonical = !c.extra_entry && !c.extra_latch && !c.body_exit;
+            auto count = 0u;
+            for (auto &block : lowered.function->blocks()) {
+                for (auto &instruction : block.instructions) {
+                    if (instruction.opcode != Opcode::warp_collective || !instruction.result) { continue; }
+                    auto value = lowered.function->value(*instruction.result);
+                    auto expected = value->name == "loop_reverse_read" ? canonical :
+                                    value->name == "loop_forward_read" ? canonical && !c.varying_start && !c.varying_stride && !c.zero_stride :
+                                                                         false;
+                    expect((instruction.cohort_uniform_operand_index == 1u) == expected) << c.name << value->name;
+                    count++;
+                }
+            }
+            for (auto name : {"cohort_accumulator", "cohort_forward_iv", "cohort_reverse_iv"}) {
+                auto value = find_value(*lowered.function, name);
+                expect(value != nullptr && value->value_class == ValueClass::varying) << c.name << name;
+            }
+            expect(eq(count, 6u)) << c.name;
+            expect(eq(lowered.function->loops().size(), size_t{1u})) << c.name;
+            for (auto &loop : lowered.function->loops()) { expect(!loop.max_trip_count) << c.name; }
+            expect(verify(*lowered.function).succeeded()) << c.name;
+        }
+    };
+    "simd_xir_read_lane_source_equality_is_local_to_its_epoch"_test = [] {
+        for (auto variant : {0u, 1u, 2u}) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto entry = kernel->create_body_block();
+            auto arm = kernel->create_basic_block();
+            auto merge = kernel->create_basic_block();
+            auto header = kernel->create_basic_block();
+            auto body = kernel->create_basic_block();
+            auto exit = kernel->create_basic_block();
+            auto type = Type::of<uint32_t>();
+            auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+            auto lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto storage = builder.alloca_local(type);
+            builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {lane, constant(0u)}), arm, merge);
+            builder.set_insertion_point(arm);
+            builder.store(storage, lane);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            xir::Value *start = variant == 2u ? static_cast<xir::Value *>(lane) : constant(0u);
+            xir::Value *limit = constant(9u);
+            if (variant == 1u) { limit = builder.call(type, ArithmeticOp::BINARY_ADD, {lane, constant(1u)}); }
+            builder.br(header);
+            builder.set_insertion_point(header);
+            auto iteration = builder.phi(type, {{start, merge}});
+            iteration->set_name("source_iv");
+            builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iteration, limit}), body, exit);
+            builder.set_insertion_point(body);
+            auto source = builder.call(type, ArithmeticOp::BINARY_MOD, {iteration, constant(8u)});
+            auto read = builder.call(type, ThreadGroupOp::WARP_READ_LANE, {lane, source});
+            read->set_name("loop_read");
+            builder.store(storage, read);
+            iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {iteration, constant(1u)}), body);
+            builder.br(header);
+            builder.set_insertion_point(exit);
+            auto exit_read = builder.call(type, ThreadGroupOp::WARP_READ_LANE, {lane, iteration});
+            exit_read->set_name("exit_read");
+            builder.store(storage, exit_read);
+            builder.return_void();
+            auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+            expect(lowered.succeeded()) << diagnostics_text(lowered);
+            if (!lowered.succeeded()) { continue; }
+            auto iv = find_value(*lowered.function, "source_iv");
+            expect(iv != nullptr && iv->value_class == ValueClass::varying);
+            auto count = 0u;
+            for (auto &block : lowered.function->blocks()) {
+                for (auto &instruction : block.instructions) {
+                    if (instruction.opcode != Opcode::warp_collective || !instruction.result) { continue; }
+                    auto value = lowered.function->value(*instruction.result);
+                    if (value->name == "loop_read") {
+                        expect((instruction.cohort_uniform_operand_index == 1u) == (variant != 2u));
+                        count++;
+                        auto saved = instruction.cohort_uniform_operand_index;
+                        instruction.cohort_uniform_operand_index = 0u;
+                        expect(!verify(*lowered.function).succeeded());
+                        instruction.cohort_uniform_operand_index = saved;
+                    } else if (value->name == "exit_read") {
+                        expect(!instruction.cohort_uniform_operand_index);
+                        count++;
+                    }
+                }
+            }
+            expect(eq(count, 2u));
+            expect(verify(*lowered.function).succeeded());
+        }
+    };
+    "simd_xir_lowering_keeps_private_index_equality_at_its_use"_test = [] {
+        for (auto variant : {0u, 1u, 2u}) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *entry = kernel->create_body_block();
+            auto *arm = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+            auto *header = kernel->create_basic_block();
+            auto *body = kernel->create_basic_block();
+            auto *exit = kernel->create_basic_block();
+            auto type = Type::of<uint32_t>();
+            auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+            auto lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto storage = builder.alloca_local(Type::array(type, 33u));
+            auto condition = builder.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {lane, constant(0u)});
+            builder.cond_br(condition, arm, merge);
+            builder.set_insertion_point(arm);
+            builder.store(builder.gep(type, storage, {constant(32u)}), lane);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            xir::Value *start = variant == 2u ? static_cast<xir::Value *>(lane) : constant(0u);
+            xir::Value *limit = constant(4u);
+            if (variant == 1u) { limit = builder.call(type, ArithmeticOp::BINARY_ADD, {lane, constant(1u)}); }
+            builder.br(header);
+            builder.set_insertion_point(header);
+            auto iteration = builder.phi(type, {{start, merge}});
+            iteration->set_name("cohort_iv");
+            builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iteration, limit}), body, exit);
+            builder.set_insertion_point(body);
+            auto slot = builder.call(type, ArithmeticOp::BINARY_ADD, {builder.call(type, ArithmeticOp::BINARY_MUL, {iteration, constant(2u)}), constant(1u)});
+            auto pointer = builder.gep(type, storage, {slot});
+            pointer->set_name("loop_pointer");
+            builder.store(pointer, lane);
+            iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {iteration, constant(1u)}), body);
+            builder.br(header);
+            builder.set_insertion_point(exit);
+            auto escaped = builder.gep(type, storage, {iteration});
+            escaped->set_name("exit_pointer");
+            builder.load(type, escaped);
+            builder.return_void();
+            for (auto enabled : {false, true}) {
+                auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u, .enable_cohort_private_access = enabled});
+                expect(lowered.succeeded()) << diagnostics_text(lowered);
+                if (!lowered.succeeded()) { continue; }
+                auto iv = find_value(*lowered.function, "cohort_iv");
+                expect(iv != nullptr && iv->value_class == ValueClass::varying);
+                auto count = 0u;
+                for (auto &block : lowered.function->blocks()) {
+                    for (auto &instruction : block.instructions) {
+                        if (instruction.opcode != Opcode::gep || !instruction.result) { continue; }
+                        auto value = lowered.function->value(*instruction.result);
+                        if (value->name == "loop_pointer") {
+                            expect((instruction.cohort_uniform_operand_index == 1u) == (enabled && variant != 2u));
+                            count++;
+                        } else if (value->name == "exit_pointer") {
+                            expect(!instruction.cohort_uniform_operand_index);
+                            count++;
+                        }
+                    }
+                }
+                expect(eq(count, 2u));
+                expect(verify(*lowered.function).succeeded());
+            }
+        }
+    };
+    "simd_xir_lowering_proves_bounded_packet_quotient_remainder"_test = [] {
+        auto check = [](uint32_t width, uint32_t block_x, int64_t divisor, int64_t offset,
+                        const Type *cast_type, bool bitcast, bool dynamic_divisor,
+                        size_t equal_count, size_t consecutive_count) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            kernel->set_block_size(luisa::make_uint3(block_x, block_x < 32u ? 64u / block_x : 1u, 1u));
+            auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+            auto *dynamic = kernel->create_value_argument(Type::of<int64_t>());
+            auto *entry = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+            auto *x = builder.call(Type::of<uint32_t>(), ArithmeticOp::EXTRACT, {module.create_dispatch_id(), zero});
+            xir::Value *index = builder.static_cast_(Type::of<int64_t>(), x);
+            if (offset != 0) {
+                index = builder.call(Type::of<int64_t>(), ArithmeticOp::BINARY_ADD,
+                                     {index, module.create_constant(Type::of<int64_t>(), &offset)});
+            }
+            if (cast_type != nullptr) {
+                index = builder.cast_(cast_type, bitcast ? xir::CastOp::BITWISE_CAST : xir::CastOp::STATIC_CAST, index);
+                index = builder.static_cast_(Type::of<int64_t>(), index);
+            }
+            xir::Value *d = dynamic_divisor ? static_cast<xir::Value *>(dynamic) : module.create_constant(Type::of<int64_t>(), &divisor);
+            for (auto op : {ArithmeticOp::BINARY_DIV, ArithmeticOp::BINARY_MOD}) {
+                auto *coordinate = builder.call(Type::of<int64_t>(), op, {index, d});
+                auto *address = builder.static_cast_(Type::of<uint64_t>(), coordinate);
+                builder.call(Type::of<float>(), ResourceReadOp::BUFFER_READ, {buffer, address});
+            }
+            builder.return_void();
+            auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = width});
+            expect(lowered.succeeded()) << diagnostics_text(lowered);
+            if (!lowered.succeeded()) { return; }
+            size_t equal = 0u, consecutive = 0u;
+            for (auto &&block : lowered.function->blocks()) {
+                for (auto &&instruction : block.instructions) {
+                    if (instruction.opcode == Opcode::resource_read) {
+                        equal += instruction.cohort_uniform_operand_index == 1u;
+                        consecutive += instruction.lane_consecutive_operand_index == 1u;
+                    }
+                }
+            }
+            expect(eq(equal, equal_count)) << "equal: W=" << width << " divisor=" << divisor << " offset=" << offset;
+            expect(eq(consecutive, consecutive_count)) << "consecutive: W=" << width << " divisor=" << divisor << " offset=" << offset;
+            expect(verify(*lowered.function).succeeded());
+        };
+        for (auto width : {2u, 4u, 8u, 16u}) {
+            for (auto divisor : {1, 32, 128}) {
+                check(width, 64u, divisor, 0, nullptr, false, false, 1u, 1u);
+                check(width, 64u, divisor, 32, nullptr, false, false, 1u, 1u);
+            }
+            // Neither an unaligned offset nor a ragged dimension provides a
+            // packet-wide quotient/remainder relation, even after widening.
+            check(width, 64u, 32, 1, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 33, 0, nullptr, false, false, 0u, 0u);
+            check(width, 1u, 32, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 0, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, -32, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 32, -32, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 32, 0, nullptr, false, true, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<int32_t>(), false, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint16_t>(), false, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint64_t>(), true, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint64_t>(), false, false, 1u, 1u);
+        }
+        // Schedule IR permits non-power-of-two symbolic specializations;
+        // they do not inherit the uint32 wrap/alignment proof of W2/4/8/16.
+        check(3u, 96u, 96, 0, nullptr, false, false, 0u, 0u);
+    };
     "simd_xir_lowering_proves_packet_lane_buffer_layout"_test = [] {
         auto lower = [](luisa::uint3 block_size) {
             Module module;

@@ -55,10 +55,15 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_predicated_acyclic_control_flow,
     bool enable_biased_narrow_buffer_gather,
     bool enable_gathered_native_texture_read,
-    bool enable_native_half4_texture_packet)
+    bool enable_native_half4_texture_packet,
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access)
     : _module{module},
       _source{source},
       _width{width},
+      _private_stack_budget_bytes{private_stack_budget_bytes},
+      _enable_interleaved_private_arrays{enable_interleaved_private_arrays},
+      _enable_contiguous_private_access{enable_contiguous_private_access},
       _entry_name{entry_name},
       _enable_fast_math{enable_fast_math},
       _static_block_size{static_block_size},
@@ -725,6 +730,8 @@ void ScheduleEmitter::_preflight() {
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
+    _preflight_typed_calls();
+    if (_failed()) { return; }
     _analyze_ray_query_scratch();
     if (_source.blocks().size() >
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
@@ -879,6 +886,7 @@ void ScheduleEmitter::_preflight() {
                 }
             }
             if (instruction.opcode != schedule::Opcode::arithmetic &&
+                instruction.opcode != schedule::Opcode::call &&
                 instruction.opcode != schedule::Opcode::cast &&
                 instruction.opcode != schedule::Opcode::alloca &&
                 instruction.opcode != schedule::Opcode::load &&

@@ -689,22 +689,22 @@ MhaOnlineAttentionKernel create_mha_online_attention_kernel() {
 ReshapeKVToPagedKernel create_reshape_kv_to_paged_kernel() {
     // One thread per dense K/V element. The flat dense index `idx` already
     // equals qkv_index(b, h, i, d), so decompose it and route the element to
-    // its paged location through the block table (the "page table" analog):
-    //   logical page   p    = i / tokens_per_page
-    //   token in page  t    = i % tokens_per_page
-    //   physical page  phys = block_table[b * pages_per_seq + p]
-    //   physical index      = phys * elems_per_page
-    //                       + (h * tokens_per_page + t) * head_dim + d
-    // The physical page layout is [h][t][d] (each page holds all heads for
-    // tokens_per_page tokens); elems_per_page is the tile stride (>= the used
-    // region, so coarse tiles leave padding -- vLLM "internal fragmentation").
+    // its paged location through the page index (the "page table" analog):
+    //   logical page  p      = i / tokens_per_page
+    //   token in page t      = i % tokens_per_page
+    //   page base     base   = page_index[b * pages_per_seq + p]
+    //   physical index       = base + (h * tokens_per_page + t) * head_dim + d
+    // The index stores an *element offset* rather than a page id, so the
+    // kernel is independent of the pool's tile stride and of which segment a
+    // page currently lives in (see PagedAttention page index). The physical
+    // page layout is [h][t][d] (each page holds all heads for
+    // tokens_per_page tokens).
     // Grid: qkv_size. Block: 256 (no shared memory / no barriers, so a wide
     // block is the occupancy-friendly default per lc_optimize sec.5.4).
     ReshapeKVToPagedKernel kernel = [&](BufferFloat K, BufferFloat V,
                                         BufferFloat paged_k, BufferFloat paged_v,
-                                        BufferUInt block_table,
-                                        UInt tokens_per_page, UInt pages_per_seq,
-                                        UInt elems_per_page) noexcept {
+                                        BufferUInt page_index,
+                                        UInt tokens_per_page, UInt pages_per_seq) noexcept {
         set_block_size(256u, 1u, 1u);
         set_name("paged_reshape_kv");
 
@@ -716,9 +716,9 @@ ReshapeKVToPagedKernel create_reshape_kv_to_paged_kernel() {
 
         Var p = i / tokens_per_page;
         Var t = i % tokens_per_page;
-        // Logical -> physical indirection.
-        Var phys = block_table.read(b * pages_per_seq + p);
-        Var dst = phys * elems_per_page + (h * tokens_per_page + t) * head_dim + d;
+        // Logical -> physical indirection (index holds element offsets).
+        Var base = page_index.read(b * pages_per_seq + p);
+        Var dst = base + (h * tokens_per_page + t) * head_dim + d;
 
         // idx == qkv_index(b, h, i, d) by construction of the decomposition.
         paged_k.write(dst, K.read(idx));
@@ -730,10 +730,9 @@ ReshapeKVToPagedKernel create_reshape_kv_to_paged_kernel() {
 // ---------------------------------------------------------------------------
 // Paged attention kernel: block-table-indirected online softmax
 // ---------------------------------------------------------------------------
-PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host,
-                                                   uint elems_per_page_host) {
+PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host) {
     // vLLM PagedAttention: a clone of create_mha_online_attention_kernel with
-    // the dense contiguous K/V addressing replaced by block-table indirection.
+    // the dense contiguous K/V addressing replaced by page-index indirection.
     // One thread per (b, h, i) query row; a 128-thread block (4 warps) spans
     // consecutive i of the same (b, h) (seq_len % 128 == 0), so the
     // block_table read and the resolved physical page are block-uniform.
@@ -752,7 +751,6 @@ PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host,
     constexpr uint kBlockSize = paged_attention_block_size;
     static_assert((kBlockSize & (kBlockSize - 1u)) == 0u);
     const uint tokens_per_page = tokens_per_page_host;
-    const uint elems_per_page = elems_per_page_host;
     const uint sub_tile = paged_sub_tile(tokens_per_page_host);
     const uint sub_tiles_per_page = tokens_per_page_host / sub_tile;
     LUISA_ASSERT(tokens_per_page_host % sub_tile == 0u,
@@ -762,7 +760,7 @@ PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host,
 
     PagedAttentionKernel kernel = [&](BufferFloat Q, BufferFloat paged_k,
                                       BufferFloat paged_v, BufferFloat O,
-                                      BufferUInt block_table,
+                                      BufferUInt page_index,
                                       UInt pages_per_seq) noexcept {
         set_block_size(kBlockSize, 1u, 1u);
         set_name("paged_attention");
@@ -791,13 +789,14 @@ PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host,
         Shared<float> V_shared{sub_tile * head_dim};
 
         // -- Page loop (runtime) -> sub-tile loop (host constant) --
-        // Hoist the loop-invariant block-table row base (strength reduction).
+        // Hoist the loop-invariant page-index row base (strength reduction).
         Var bt_row = b * pages_per_seq;
         $for (p, pages_per_seq) {
             // Logical -> physical indirection (block-uniform across the block).
-            Var phys = block_table.read(bt_row + p);
+            // The page index stores element offsets, so no stride math here.
+            Var page_offset = page_index.read(bt_row + p);
             // Base of head h's token slice in the physical page ([h][t][d]).
-            Var page_base = phys * elems_per_page + h * tokens_per_page * head_dim;
+            Var page_base = page_offset + h * tokens_per_page * head_dim;
 
             $for (st, sub_tiles_per_page) {
                 // All 32 threads cooperatively load the sub_tile-token K/V tile.

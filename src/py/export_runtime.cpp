@@ -804,7 +804,10 @@ void export_runtime(py::module &m) {
         .def("if_", &FunctionBuilder::if_, pyref)
         .def("switch_", &FunctionBuilder::switch_, pyref)
         .def("ray_query_", &FunctionBuilder::ray_query_, pyref)
-        .def("case_", &FunctionBuilder::case_, pyref)
+        .def("case_", py::overload_cast<const Expression *>(&FunctionBuilder::case_), pyref)
+        .def("case_group", [](FunctionBuilder &self, const luisa::vector<const Expression *> &labels) {
+            return self.case_(luisa::span{labels});
+        }, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")
         // .def("case_")

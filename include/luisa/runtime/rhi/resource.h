@@ -73,16 +73,6 @@ struct ShaderCreationInfo : public ResourceCreationInfo {
     }
 };
 
-struct TileShaderCreationInfo : public ShaderCreationInfo {
-    uint2 dispatch_size_xy;
-
-    [[nodiscard]] static TileShaderCreationInfo make_invalid() noexcept {
-        TileShaderCreationInfo info{};
-        info.invalidate();
-        return info;
-    }
-};
-
 struct SparseTextureCreationInfo : public ResourceCreationInfo {
     size_t tile_size_bytes;
     uint3 tile_size;
@@ -198,6 +188,12 @@ struct ShaderOption {
     ///   unsupported by an intersection-function path). It is intended for
     ///   validation and matched performance experiments.
     bool force_ray_query_pipeline{false};
+    /// Whether the generated shader is guaranteed not to sample
+    /// R10G10B10A2 textures through a bindless array. This is a
+    /// semantics-preserving specialization only when the caller has a
+    /// complete immutable resource proof; the default retains the generic
+    /// packed-texture path.
+    bool assume_no_packed_textures{false};
     /// \brief Whether the native driver may run its full optimization
     ///   pipeline while creating the shader.
     /// \details Disabling this option provides a bounded-compilation escape
@@ -220,26 +216,6 @@ struct ShaderOption {
     ///   LLVM HIP backend). This field is useful for interoperation with external callables.
     /// \sa ExternalCallable
     luisa::string native_include;
-};
-
-struct TileShaderOption : ShaderOption {
-    bool use_cooperative : 1 {false};
-    // Tensor-op fast path (see TileToKernelConfig::use_tensor): forwarded to
-    // tile_to_kernel on the non-native-tile fallback.  Default false — only
-    // the CUDA backend implements the TENSOR_* ops.
-    bool use_tensor : 1 {false};
-    // Dynamic batching: when enabled (min != 1 || max != 1), each thread
-    // group computes `block_size().z` batch items at once — one per z-thread —
-    // and the z axis of the dispatch carries the runtime batch count
-    // (batch_count must lie in [min_batching_size, max_batching_size]).
-    //   * min_batching_size / max_batching_size are >= 1 with min <= max;
-    //   * (1, 1) disables batching and adds zero lowering overhead;
-    //   * when enabled the z block size is chosen by the lowering heuristic as
-    //     clamp(ceil(target_threads / threads), 1,
-    //           min(min_batching_size, 64, max(1, 1024 / threads))), so
-    //     B_z <= min_batching_size and B_z <= 64 always hold.
-    uint32_t min_batching_size{1};
-    uint32_t max_batching_size{1};
 };
 
 class LUISA_RUNTIME_API Resource {
@@ -269,7 +245,6 @@ public:
         SPARSE_TEXTURE,
         SPARSE_BUFFER_HEAP,
         SPARSE_TEXTURE_HEAP,
-        TENSOR_GRAPH
     };
 
 private:
@@ -349,6 +324,7 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_scalarizer_shift = 6u;
         constexpr auto enable_ray_query_pipeline_shift = 7u;
         constexpr auto force_ray_query_pipeline_shift = 8u;
+        constexpr auto assume_no_packed_textures_shift = 9u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
@@ -357,7 +333,8 @@ struct hash<compute::ShaderOption> {
                                        (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
                                        (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift) |
                                        (static_cast<uint>(option.enable_ray_query_pipeline) << enable_ray_query_pipeline_shift) |
-                                       (static_cast<uint>(option.force_ray_query_pipeline) << force_ray_query_pipeline_shift),
+                                       (static_cast<uint>(option.force_ray_query_pipeline) << force_ray_query_pipeline_shift) |
+                                       (static_cast<uint>(option.assume_no_packed_textures) << assume_no_packed_textures_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         auto native_include_hash = hash_value(option.native_include, seed);

@@ -433,11 +433,32 @@ own sorting buffer without copying back. The next handler and the actual
 continuation receive this view without an intervening gather, refill, or
 relocation. Ordinary frame-writing stages cannot follow this suffix.
 
-The suffix is one scheduling unit with its target continuation, including
-producer capacity checks, refill eligibility, and logical tie priority.
-Accounting consumes the selected physical queue once. Different incoming
-boundaries keep distinct binding plans rather than incorrectly promoting
-incompatible colored operands to one continuation-wide field.
+Greedy scheduling compares the sum of all queued entries of a continuation,
+including its before-resume suffixes, with other logical continuations and
+independent stages. Producer capacity checks use that same aggregate count.
+Every selected physical member is snapshotted before any member resumes, so
+self-rescheduling cannot add new work to the current decision. Accounting
+still consumes each selected physical queue once; incompatible incoming
+bindings are not promoted to one continuation-wide field.
+
+Joint handler execution is separate from this logical priority rule. A handler
+may opt in by returning a nonempty `batching_identity()`; the default empty
+identity preserves separate boundary invocations. Equal identities promise
+that either prepared instance, its captured resources and hidden policy can
+process the disjoint union using the representative stage descriptor. The
+operation must not depend on predecessor identity or one call per boundary.
+For example, a sorting handler with identical key policy can permit one joint
+sort followed by one continuation launch instead of sorting separate subsets.
+
+The scheduler additionally checks the whole ordered before-resume suffix:
+target continuation, normalized schema/version/attributes, typed physical
+binding projections, reconstruction and resident/relocation certificates.
+Schema or handler-name equality alone is insufficient. Guarded or incomplete
+flat binding projections remain separate. Only compatible suffix-head runtime
+queues are aliased; compiler boundaries, source spills and independently
+scheduled semantic prefixes stay unchanged. Prepared aliases and their
+resources remain alive until scheduler destruction. Scratch sharing is a
+handler resource policy, not an implied scheduler operation.
 
 ## Built-in scheduling annotations
 

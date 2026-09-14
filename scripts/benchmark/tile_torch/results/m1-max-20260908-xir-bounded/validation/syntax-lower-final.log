@@ -1,0 +1,6 @@
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 504, col 69
+Warning: The variable 'scope' is copy-constructed from a const reference but is only used as const reference; consider making it a const reference (fix available) [performance-unnecessary-copy-initialization] at line 587, col 18
+Warning: Parameter 'options' is passed by value and only copied once; consider moving it to avoid unnecessary copies (fix available) [performance-unnecessary-value-param] at line 833, col 84
+Hint: Pass by value and use std::move (fix available) [modernize-pass-by-value] at line 833, col 36
+------------------------------------------------------------
+Total: 0 error(s), 3 warning(s)

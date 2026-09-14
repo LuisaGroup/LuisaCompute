@@ -1,0 +1,145 @@
+diff --git a/src/backends/simd/llvm/llvm_schedule_codegen.cpp b/src/backends/simd/llvm/llvm_schedule_codegen.cpp
+index 2e19cf787c407429b645a1f69385eb868b5b9e0d..26d4391deca9a08bfb83a7d5d2243e3cc11865e0 100644
+--- a/src/backends/simd/llvm/llvm_schedule_codegen.cpp
++++ b/src/backends/simd/llvm/llvm_schedule_codegen.cpp
+@@ -429,10 +429,19 @@ void apply_packet_wrapper_abi_attributes(
+         base_thread_index, tail_thread_offset,
+         "packet.tail.thread.index");
+     builder.CreateStore(tail_thread_index, thread_index_address);
+-    builder.CreateCall(
++    auto *tail_packet_call = builder.CreateCall(
+         packet_entry,
+         {argument_buffer, return_lanes, launch_config,
+          tail_lane_count});
++    // Keep the general masked body out of the batch wrapper's frame without
++    // changing the constant-width full-packet calls. This opt-in candidate
++    // requires an actual full-packet clone; otherwise the original body is
++    // still the full-packet implementation and must retain its inline policy.
++    if (full_packet_entry != nullptr &&
++        luisa::compute::detail::env_flag("LUISA_SIMD_ENABLE_OUTLINED_PACKET_TAIL") &&
++        !luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL")) {
++        tail_packet_call->addFnAttr(::llvm::Attribute::NoInline);
++    }
+     builder.CreateBr(partial_finish);
+ 
+     builder.SetInsertPoint(partial_finish);
+diff --git a/src/tests/unit/simd/test_llvm_schedule_codegen.cpp b/src/tests/unit/simd/test_llvm_schedule_codegen.cpp
+index 027ed617132397f9d4f31b2fb59919cd5ebb7a65..9a85a5e3f1923451fac918bcd6b9ff8339d75ece 100644
+--- a/src/tests/unit/simd/test_llvm_schedule_codegen.cpp
++++ b/src/tests/unit/simd/test_llvm_schedule_codegen.cpp
+@@ -33,6 +33,9 @@
+ #include <unistd.h>
+ #endif
+ 
++#include <llvm/IR/Attributes.h>
++#include <llvm/IR/Constants.h>
++#include <llvm/IR/Instructions.h>
+ #include <llvm/IR/LLVMContext.h>
+ #include <llvm/IR/Module.h>
+ #include <llvm/IR/Verifier.h>
+@@ -13082,6 +13085,97 @@ void bindless_uniform_gradient_probe(
+     return true;
+ }
+ 
++[[nodiscard]] bool run_outlined_packet_tail_codegen() {
++    // Inspect call-site attributes before optimization. The candidate must
++    // leave the original function and every full-packet call without NoInline,
++    // and retain the dynamic lane-count operand on exactly the real tail.
++    ScopedEnvironmentVariable enable_full{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
++    ScopedEnvironmentVariable disable_tail_narrowing{"LUISA_SIMD_DISABLE_LINEAR_1D_PACKET_TAIL_NARROWING", nullptr};
++    ScopedEnvironmentVariable disable_direct{"LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG", nullptr};
++    struct Policy {
++        const char *enable;
++        const char *disable;
++        bool full_packet;
++        bool outlined;
++    };
++    constexpr std::array policies{
++        Policy{nullptr, nullptr, true, false},
++        Policy{"0", nullptr, true, false},
++        Policy{"1", nullptr, false, false},
++        Policy{"1", nullptr, true, true},
++        Policy{"1", "1", true, false},
++        Policy{"true", "on", true, false},
++    };
++    for (auto width : {2u, 4u, 8u, 16u}) {
++        xir::Module source;
++        auto kernel = source.create_kernel();
++        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
++        auto output = kernel->create_resource_argument(Type::of<Buffer<uint32_t>>());
++        xir::XIRBuilder builder;
++        builder.set_insertion_point(kernel->create_body_block());
++        auto zero = source.create_constant_zero(Type::of<uint32_t>());
++        auto global = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT, {source.create_dispatch_id(), zero});
++        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, global, global});
++        builder.return_void();
++        auto schedule = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = width});
++        CHECK(schedule.succeeded());
++        for (auto inlined_batch : {false, true}) {
++            for (auto policy : policies) {
++                ScopedEnvironmentVariable enable_outline{"LUISA_SIMD_ENABLE_OUTLINED_PACKET_TAIL", policy.enable};
++                ScopedEnvironmentVariable disable_outline{"LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL", policy.disable};
++                ScopedEnvironmentVariable disable_full{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", policy.full_packet ? nullptr : "1"};
++                ::llvm::LLVMContext context;
++                ::llvm::Module module{"outlined_packet_tail", context};
++                auto codegen = lower_schedule_to_llvm(
++                    module, *schedule.function, width, "outlined_packet_tail", false,
++                    {32u, 1u, 1u}, true, true, false, 1u, true, true, inlined_batch, true);
++                CHECK(codegen.succeeded() && codegen.direct_control_flow);
++                CHECK(codegen.packet_batch_entry != nullptr && codegen.block_batch_entry != nullptr);
++                CHECK(codegen.full_packet_specialization_count == (policy.full_packet ? 1u : 0u));
++                auto *full_packet = module.getFunction("outlined_packet_tail.full_packet");
++                CHECK((full_packet != nullptr) == policy.full_packet);
++                auto tail_calls = size_t{0u};
++                auto full_calls = size_t{0u};
++                auto noinline_calls = size_t{0u};
++                for (auto &function : module) {
++                    CHECK(!function.hasFnAttribute(::llvm::Attribute::NoInline));
++                    for (auto &block : function) {
++                        for (auto &instruction : block) {
++                            auto *call = ::llvm::dyn_cast<::llvm::CallInst>(&instruction);
++                            if (call == nullptr) { continue; }
++                            auto noinline_call = call->getAttributes().hasFnAttr(::llvm::Attribute::NoInline);
++                            noinline_calls += noinline_call ? 1u : 0u;
++                            if (block.getName() == "packet.batch.tail.call") {
++                                tail_calls++;
++                                CHECK(call->getCalledFunction() == codegen.entry);
++                                CHECK(call->arg_size() == 4u);
++                                CHECK(call->getArgOperand(3u)->getName() == "packet.tail.lane.count");
++                                CHECK(!::llvm::isa<::llvm::ConstantInt>(call->getArgOperand(3u)));
++                                CHECK(noinline_call == policy.outlined);
++                                CHECK(!call->getAttributes().hasFnAttr(::llvm::Attribute::AlwaysInline));
++                            } else {
++                                CHECK(!noinline_call);
++                                if (call->getCalledFunction() == (full_packet != nullptr ? full_packet : codegen.entry)) {
++                                    full_calls++;
++                                    CHECK(call->arg_size() == (full_packet != nullptr ? 3u : 4u));
++                                    if (full_packet == nullptr) {
++                                        auto *active_lanes = ::llvm::dyn_cast<::llvm::ConstantInt>(call->getArgOperand(3u));
++                                        CHECK(active_lanes != nullptr && active_lanes->getZExtValue() == width);
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++                CHECK(tail_calls == 1u && full_calls > 0u);
++                CHECK(noinline_calls == (policy.outlined ? 1u : 0u));
++                CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
++            }
++        }
++    }
++    return true;
++}
++
+ [[nodiscard]] bool run_ast_packet_batch_entry() {
+     static constexpr auto width = 8u;
+     static constexpr auto count = 22u;
+@@ -16594,6 +16688,7 @@ int main() {
+         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
+         {"full-packet specialization and tail isolation", &run_full_packet_specialization},
+         {"full-packet specialization rejection bounds", &run_full_packet_specialization_rejections},
++        {"outlined packet tail call-site policy", &run_outlined_packet_tail_codegen},
+         {"AST cooperative block codegen",
+          &run_ast_cooperative_block_codegen},
+         {"AST block-batch runtime entry", &run_ast_block_batch_entry},

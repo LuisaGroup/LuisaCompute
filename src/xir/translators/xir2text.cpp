@@ -43,6 +43,8 @@
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/translators/xir2text.h>
 
@@ -1020,6 +1022,28 @@ private:
         s << "}";
     }
 
+    static void _emit_strided_mma_metadata(StringScratch &s, const StridedMmaMD *m) noexcept {
+        auto &&d = m->descriptor;
+        s << "strided_mma = {vectorization = " << to_string(d.vectorization)
+          << ", width = " << d.vector_width
+          << ", reassociation = " << static_cast<uint32_t>(d.allow_reassociation)
+          << ", k = " << luisa::format("{}", d.contraction_extent)
+          << ", lhs_k_stride = " << luisa::format("{}", d.lhs_contraction_stride)
+          << ", rhs_k_stride = " << luisa::format("{}", d.rhs_contraction_stride);
+        auto emit_array = [&](luisa::string_view name, const auto &values) noexcept {
+            s << ", " << name << " = [";
+            for (auto i = size_t{0u}; i < values.size(); i++) {
+                if (i != 0u) { s << ", "; }
+                s << luisa::format("{}", values[i]);
+            }
+            s << "]";
+        };
+        emit_array("output_extents", d.output_extents);
+        emit_array("lhs_output_strides", d.lhs_output_strides);
+        emit_array("rhs_output_strides", d.rhs_output_strides);
+        s << "}";
+    }
+
     template<typename T>
     static void _emit_metadata_list(StringScratch &s, const T &m) noexcept {
         s << "[";
@@ -1047,6 +1071,14 @@ private:
                 case DerivedMetadataTag::NO_INLINE:
                     s << "no_inline";
                     break;
+                case DerivedMetadataTag::STRIDED_MMA:
+                    _emit_strided_mma_metadata(s, static_cast<const StridedMmaMD *>(item));
+                    break;
+                case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                    auto &&d = static_cast<const ContiguousCopyMD *>(item)->descriptor;
+                    s << luisa::format("contiguous_copy = {{count = {}, width = {}}}", d.element_count, d.vector_width);
+                    break;
+                }
             }
             s << ", ";
         }
