@@ -62,7 +62,9 @@ struct OutputLayout {
     static constexpr auto read = prefix_product + Width;
     static constexpr auto invalid = read + Width;
     static constexpr auto read_first = invalid + Width;
-    static constexpr auto count_words = read_first + Width;
+    static constexpr auto uniform_read = read_first + Width;
+    static constexpr auto uniform_invalid = uniform_read + Width;
+    static constexpr auto count_words = uniform_invalid + Width;
 };
 
 [[nodiscard]] std::string take_error(::llvm::Error error) {
@@ -145,6 +147,8 @@ template<size_t Width>
         builder, values, sources, participants);
     auto read_first = collectives.read_first_active_lane(
         builder, values, participants);
+    auto uniform_read = collectives.read_lane(
+        builder, values, builder.CreateVectorSplat(Width, builder.CreateLoad(i32, source_pointer)), participants);
     CHECK(collectives.succeeded());
     CHECK(sum != nullptr && product != nullptr && minimum != nullptr);
     CHECK(maximum != nullptr && bit_and != nullptr && bit_or != nullptr);
@@ -155,6 +159,7 @@ template<size_t Width>
     CHECK(read.values != nullptr && read.invalid_lanes != nullptr);
     CHECK(read_first.values != nullptr &&
           read_first.invalid_lanes != nullptr);
+    CHECK(uniform_read.values != nullptr && uniform_read.invalid_lanes != nullptr);
 
     auto store = [&](::llvm::Value *value, uint32_t index) {
         if (value->getType()->isIntegerTy(1u)) {
@@ -192,6 +197,8 @@ template<size_t Width>
               Out::invalid + lane);
         store(builder.CreateExtractElement(read_first.values, lane),
               Out::read_first + lane);
+        store(builder.CreateExtractElement(uniform_read.values, lane), Out::uniform_read + lane);
+        store(builder.CreateExtractElement(uniform_read.invalid_lanes, lane), Out::uniform_invalid + lane);
     }
     builder.CreateRetVoid();
     return true;
@@ -218,6 +225,9 @@ template<size_t Width>
     auto expected_prefix_sum = Ref::prefix_sum(participants, values);
     auto expected_prefix_product = Ref::prefix_product(participants, values);
     auto expected_read = Ref::read_lane(participants, values, sources);
+    auto uniform_sources = sources;
+    uniform_sources.fill(sources.front());
+    auto expected_uniform = Ref::read_lane(participants, values, uniform_sources);
     auto expected_first = Ref::read_first_active_lane(participants, values);
     auto expected_ballot = Ref::active_bit_mask(participants, predicate);
     using Out = OutputLayout<Width>;
@@ -251,6 +261,8 @@ template<size_t Width>
               expected_read.invalid_lanes.test(lane));
         auto expected = participants.test(lane) ? *expected_first : 0u;
         CHECK(output[Out::read_first + lane] == expected);
+        CHECK(output[Out::uniform_read + lane] == expected_uniform.values[lane]);
+        CHECK(output[Out::uniform_invalid + lane] == expected_uniform.invalid_lanes.test(lane));
     }
     return true;
 }
@@ -323,8 +335,30 @@ template<size_t Width>
         OutputLayout<Width>::count_words, 0xdeadbeefu);
     function(values.data(), sources.data(), participant_bits,
              predicate_bits, output.data());
-    return verify_results(values, sources, participant_bits,
-                          predicate_bits, output);
+    CHECK(verify_results(values, sources, participant_bits, predicate_bits, output));
+    // One scalar source must preserve both value and invalid-lane results:
+    // empty masks, inactive source zero, non-prefix masks, upper boundary and
+    // UINT_MAX. The ordinary vector-source read remains the varying oracle.
+    constexpr auto full_mask = (uint32_t{1u} << Width) - 1u;
+    for (auto mask : {0u, full_mask, full_mask & 0xaaaau, full_mask & ~1u, 1u}) {
+        for (auto source : {0u, static_cast<uint32_t>(Width - 1u), static_cast<uint32_t>(Width), ~uint32_t{0u}}) {
+            sources.fill(source);
+            output.assign(OutputLayout<Width>::count_words, 0xdeadbeefu);
+            function(values.data(), sources.data(), mask, predicate_bits, output.data());
+            if (mask != 0u) {
+                CHECK(verify_results(values, sources, mask, predicate_bits, output));
+            } else {
+                // The scalar reduction oracle intentionally has no empty-set
+                // result; lane-read values and invalid flags do have one.
+                using Out = OutputLayout<Width>;
+                for (auto lane = size_t{0u}; lane < Width; lane++) {
+                    CHECK(output[Out::read + lane] == 0u && output[Out::invalid + lane] == 0u);
+                    CHECK(output[Out::uniform_read + lane] == 0u && output[Out::uniform_invalid + lane] == 0u);
+                }
+            }
+        }
+    }
+    return true;
 }
 
 }// namespace

@@ -214,6 +214,101 @@ void register_basic_uniformity_tests() {
 }
 
 void register_collective_uniformity_tests() {
+    "simd_warp_uniformity_tracks_loop_epoch_escape_and_derivatives"_test = [] {
+        for (auto variant : {0u, 1u, 2u, 3u}) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto entry = kernel->create_body_block();
+            auto header = kernel->create_basic_block();
+            auto latch = kernel->create_basic_block();
+            auto exit = kernel->create_basic_block();
+            auto type = Type::of<uint32_t>();
+            auto zero = module.create_constant_zero(type);
+            auto one = module.create_constant_one(type);
+            auto lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto storage = builder.alloca_local(type);
+            builder.br(header);
+            builder.set_insertion_point(header);
+            auto iteration = builder.phi(type, {{zero, entry}});
+            auto population = builder.call(type, ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+            auto derived = variant == 1u || variant == 3u ? builder.call(type, ArithmeticOp::BINARY_ADD, {population, one}) : nullptr;
+            if (variant == 3u) { builder.store(storage, derived); }
+            builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iteration, lane}), latch, exit);
+            builder.set_insertion_point(latch);
+            iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {iteration, one}), latch);
+            builder.br(header);
+            builder.set_insertion_point(exit);
+            auto single_incoming = variant == 2u ? builder.phi(type, {{population, header}}) : nullptr;
+            if (variant == 0u) { builder.store(storage, population); }
+            if (variant == 1u) { builder.store(storage, derived); }
+            if (variant == 2u) { builder.store(storage, single_incoming); }
+            builder.return_void();
+
+            WarpUniformityAnalysis analysis;
+            analysis.analyze(kernel);
+            // One syntactic incoming edge does not imply one dynamic epoch:
+            // each lane exits at a different header visit with a different sum.
+            if (variant == 0u) { expect(!analysis.is_uniform(population)); }
+            if (variant == 1u) {
+                expect(!analysis.is_uniform(derived));
+                expect(analysis.is_cohort_uniform(population));
+            }
+            if (variant == 2u) { expect(!analysis.is_uniform(single_incoming)); }
+            if (variant == 3u) {
+                // No escaped use: keep the useful one-scalar representation
+                // for the collective and arithmetic within the same epoch.
+                expect(analysis.is_cohort_uniform(population));
+                expect(analysis.is_cohort_uniform(derived));
+            }
+        }
+    };
+    "simd_warp_uniformity_rejects_inner_epoch_values_in_the_outer_loop"_test = [] {
+        Module module;
+        auto kernel = module.create_kernel();
+        auto entry = kernel->create_body_block();
+        auto outer_header = kernel->create_basic_block();
+        auto inner_entry = kernel->create_basic_block();
+        auto inner_header = kernel->create_basic_block();
+        auto inner_latch = kernel->create_basic_block();
+        auto outer_latch = kernel->create_basic_block();
+        auto exit = kernel->create_basic_block();
+        auto type = Type::of<uint32_t>();
+        auto zero = module.create_constant_zero(type);
+        auto one = module.create_constant_one(type);
+        auto lane = module.create_warp_lane_id();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto storage = builder.alloca_local(type);
+        builder.br(outer_header);
+        builder.set_insertion_point(outer_header);
+        auto outer_iteration = builder.phi(type, {{zero, entry}});
+        builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS_EQUAL, {outer_iteration, one}), inner_entry, exit);
+        builder.set_insertion_point(inner_entry);
+        builder.br(inner_header);
+        builder.set_insertion_point(inner_header);
+        auto inner_iteration = builder.phi(type, {{zero, inner_entry}});
+        auto population = builder.call(type, ThreadGroupOp::WARP_ACTIVE_SUM, {one});
+        builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {inner_iteration, lane}), inner_latch, outer_latch);
+        builder.set_insertion_point(inner_latch);
+        inner_iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {inner_iteration, one}), inner_latch);
+        builder.br(inner_header);
+        builder.set_insertion_point(outer_latch);
+        auto escaped_derived = builder.call(type, ArithmeticOp::BINARY_ADD, {population, one});
+        builder.store(storage, escaped_derived);
+        outer_iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {outer_iteration, one}), outer_latch);
+        builder.br(outer_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        WarpUniformityAnalysis analysis;
+        analysis.analyze(kernel);
+        // Membership in a common outer loop does not make inner-loop exit
+        // snapshots equal, and the derived expression must remain lane-wise.
+        expect(!analysis.is_uniform(population));
+        expect(!analysis.is_uniform(escaped_derived));
+    };
     "simd_warp_uniformity_understands_collective_results"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

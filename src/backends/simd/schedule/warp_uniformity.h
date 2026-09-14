@@ -8,6 +8,7 @@
 namespace luisa::compute::xir {
 class Function;
 class Instruction;
+struct NaturalLoop;
 class ThreadGroupInst;
 class Value;
 }// namespace luisa::compute::xir
@@ -32,12 +33,23 @@ private:
 
 private:
     [[nodiscard]] State _state(const xir::Value *value) const noexcept;
+    void _analyze(const xir::Function *function,
+                  std::span<const ValueClass> parameter_value_classes,
+                  std::span<const xir::NaturalLoop> natural_loops,
+                  bool supplied_natural_loops) noexcept;
 
 public:
     void clear() noexcept;
     void analyze(
         const xir::Function *function,
         std::span<const ValueClass> parameter_value_classes = {}) noexcept;
+    // Reuse the complete loop analysis of a preflighted plain, reducible CFG.
+    // The standalone overload discovers loops itself; an empty list here is
+    // valid only when the caller has established that the CFG is acyclic.
+    void analyze(
+        const xir::Function *function,
+        std::span<const ValueClass> parameter_value_classes,
+        std::span<const xir::NaturalLoop> natural_loops) noexcept;
 
     [[nodiscard]] ValueClass classify(
         const xir::Value *value) const noexcept;

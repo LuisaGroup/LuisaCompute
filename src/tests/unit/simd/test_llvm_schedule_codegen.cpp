@@ -16539,10 +16539,373 @@ template<typename T>
     return true;
 }
 
+[[nodiscard]] bool run_nested_cohort_aggregate_exit_values() {
+    auto all_correct = true;
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto kernel = module.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        auto type = Type::of<uint32_t>();
+        auto vector_type = Type::of<luisa::uint4>();
+        auto output = kernel->create_resource_argument(Type::buffer(vector_type));
+        auto entry_block = kernel->create_body_block();
+        auto outer_header = kernel->create_basic_block();
+        auto inner_entry = kernel->create_basic_block();
+        auto inner_header = kernel->create_basic_block();
+        auto inner_latch = kernel->create_basic_block();
+        auto outer_latch = kernel->create_basic_block();
+        auto exit = kernel->create_basic_block();
+        auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+        auto lane = module.create_warp_lane_id();
+        xir::XIRBuilder builder;
+        auto add = [&](xir::Value *a, xir::Value *b) { return builder.call(type, xir::ArithmeticOp::BINARY_ADD, {a, b}); };
+        auto mul = [&](xir::Value *a, xir::Value *b) { return builder.call(type, xir::ArithmeticOp::BINARY_MUL, {a, b}); };
+        builder.set_insertion_point(entry_block);
+        builder.br(outer_header);
+        builder.set_insertion_point(outer_header);
+        auto outer_iteration = builder.phi(type, {{constant(0u), entry_block}});
+        builder.cond_br(builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, {outer_iteration, constant(2u)}), inner_entry, exit);
+        builder.set_insertion_point(inner_entry);
+        auto limit = add(lane, outer_iteration);
+        builder.br(inner_header);
+        builder.set_insertion_point(inner_header);
+        auto inner_iteration = builder.phi(type, {{constant(0u), inner_entry}});
+        auto parity = builder.call(type, xir::ArithmeticOp::BINARY_MOD, {lane, constant(2u)});
+        auto predicate = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL, {parity, outer_iteration});
+        auto bit_mask = builder.call(vector_type, xir::ThreadGroupOp::WARP_ACTIVE_BIT_MASK, {predicate});
+        bit_mask->set_name("inner_epoch_uint4_mask");
+        auto payload = builder.call(vector_type, xir::ArithmeticOp::AGGREGATE,
+                                    {add(lane, constant(1u)), add(inner_iteration, constant(17u)), add(outer_iteration, constant(29u)),
+                                     add(mul(add(outer_iteration, constant(1u)), constant(100u)), add(mul(lane, constant(3u)), mul(inner_iteration, constant(5u))))});
+        auto first_payload = builder.call(vector_type, xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, {payload});
+        first_payload->set_name("inner_epoch_uint4_first_payload");
+        builder.cond_br(builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, {inner_iteration, limit}), inner_latch, outer_latch);
+        builder.set_insertion_point(inner_latch);
+        inner_iteration->add_incoming(add(inner_iteration, constant(1u)), inner_latch);
+        builder.br(inner_header);
+        builder.set_insertion_point(outer_latch);
+        // These stores are in the outer loop but outside the inner loop.
+        // Every lane must retain its own final inner-header snapshot, not
+        // the first active lane's snapshot after inner-loop reconvergence.
+        auto offset = add(mul(outer_iteration, constant(2u * width)), lane);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, offset, bit_mask});
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, add(offset, constant(width)), first_payload});
+        outer_iteration->add_incoming(add(outer_iteration, constant(1u)), outer_latch);
+        builder.br(outer_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+        CHECK(xir::xir_verify_module(&module).succeeded());
+
+        auto lowered = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = width});
+        CHECK(lowered.succeeded());
+        auto aggregate_results = 0u;
+        for (auto &value : lowered.function->values()) {
+            if (value.name == "inner_epoch_uint4_mask" || value.name == "inner_epoch_uint4_first_payload") {
+                // Preserve the four-component logical payload independently
+                // of its cohort/varying execution-lane representation.
+                CHECK(value.type == vector_type);
+                CHECK(value.type->is_vector() && value.type->dimension() == 4u);
+                aggregate_results++;
+            }
+        }
+        CHECK(aggregate_results == 2u);
+        for (auto enabled : {false, true}) {
+            ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_UNIFORM_READ_LANE", enabled ? nullptr : "1"};
+            auto compiled = compile_simd_kernel(kernel, width, "nested_cohort_aggregate_exit", false, true, true, false, 1u, false, false, true);
+            if (!compiled.succeeded()) {
+                for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                return false;
+            }
+            using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto reported_mask = false;
+            auto reported_payload = false;
+            auto reported_canary = false;
+            for (auto active = 0u; active <= width; active++) {
+                auto canary = luisa::make_uint4(0x731badf0u, 0xa9b2c3d4u, 0x17283940u, 0xfeed4321u);
+                std::vector<luisa::uint4> result(4u * width + 34u, canary);
+                alignas(16) std::array<SIMDHostBufferView, 1u> arguments{
+                    SIMDHostBufferView{result.data() + 17u, 4u * width * sizeof(luisa::uint4)}};
+                auto config = launch_1d(active, 32u);
+                entry(arguments.data(), nullptr, &config, active);
+                auto compare = [&](luisa::uint4 actual, luisa::uint4 expected, uint32_t destination, uint32_t outer, const char *stage, bool &reported) {
+                    for (auto component = 0u; component < 4u; component++) {
+                        if (actual[component] != expected[component]) {
+                            all_correct = false;
+                            if (!reported) {
+                                std::cerr << "nested cohort aggregate oracle: stage=" << stage << ", width=" << width
+                                          << ", enabled=" << enabled << ", active=" << active << ", lane=" << destination
+                                          << ", outer=" << outer << ", component=" << component
+                                          << ", actual=" << actual[component] << ", expected=" << expected[component]
+                                          << ", direct=" << compiled.direct_control_flow << '\n';
+                                reported = true;
+                            }
+                        }
+                    }
+                };
+                for (auto outer = 0u; outer < 2u; outer++) {
+                    for (auto destination = 0u; destination < width; destination++) {
+                        auto expected_mask = canary;
+                        auto expected_payload = canary;
+                        if (destination < active) {
+                            // Lane l exits inner epoch l+outer. Participants
+                            // are then [l, active), and read_first chooses l.
+                            auto bits = 0u;
+                            for (auto source = destination; source < active; source++) {
+                                if (source % 2u == outer) { bits |= 1u << source; }
+                            }
+                            expected_mask = luisa::make_uint4(bits, 0u, 0u, 0u);
+                            auto iteration = destination + outer;
+                            expected_payload = luisa::make_uint4(destination + 1u, iteration + 17u, outer + 29u,
+                                                                 100u * (outer + 1u) + 3u * destination + 5u * iteration);
+                        }
+                        auto offset = 17u + outer * 2u * width + destination;
+                        compare(result[offset], expected_mask, destination, outer, "active mask", reported_mask);
+                        compare(result[offset + width], expected_payload, destination, outer, "read-first payload", reported_payload);
+                    }
+                }
+                for (auto i = 0u; i < 17u; i++) {
+                    compare(result[i], canary, i, 0u, "prefix canary", reported_canary);
+                    compare(result[17u + 4u * width + i], canary, i, 0u, "suffix canary", reported_canary);
+                }
+            }
+        }
+    }
+    CHECK(all_correct);
+    return true;
+}
+
+[[nodiscard]] bool run_cohort_collective_exit_values() {
+    auto all_correct = true;
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        xir::Module module;
+        auto kernel = module.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        auto type = Type::of<uint32_t>();
+        auto output = kernel->create_resource_argument(Type::buffer(type));
+        auto entry_block = kernel->create_body_block();
+        auto first_header = kernel->create_basic_block();
+        auto first_latch = kernel->create_basic_block();
+        auto between = kernel->create_basic_block();
+        auto second_header = kernel->create_basic_block();
+        auto second_latch = kernel->create_basic_block();
+        auto exit = kernel->create_basic_block();
+        auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+        auto lane = module.create_warp_lane_id();
+        xir::XIRBuilder builder;
+        auto add = [&](xir::Value *a, xir::Value *b) { return builder.call(type, xir::ArithmeticOp::BINARY_ADD, {a, b}); };
+        builder.set_insertion_point(entry_block);
+        builder.br(first_header);
+        builder.set_insertion_point(first_header);
+        auto first_iteration = builder.phi(type, {{constant(0u), entry_block}});
+        auto population = builder.call(type, xir::ThreadGroupOp::WARP_ACTIVE_SUM, {constant(1u)});
+        population->set_name("first_loop_population");
+        builder.cond_br(builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, {first_iteration, lane}), first_latch, between);
+        builder.set_insertion_point(first_latch);
+        first_iteration->add_incoming(add(first_iteration, constant(1u)), first_latch);
+        builder.br(first_header);
+        builder.set_insertion_point(between);
+        // Observe the escaped collective directly, independently of the
+        // READ_LANE optimization and the second loop's recurrence metadata.
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, lane, population});
+        builder.br(second_header);
+        builder.set_insertion_point(second_header);
+        auto second_iteration = builder.phi(type, {{population, between}});
+        auto sum = builder.phi(type, {{constant(0u), between}});
+        second_iteration->set_name("mixed_epoch_start_iv");
+        builder.cond_br(builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, {second_iteration, constant(width + 1u)}), second_latch, exit);
+        builder.set_insertion_point(second_latch);
+        auto source = builder.call(type, xir::ArithmeticOp::BINARY_SUB, {second_iteration, constant(1u)});
+        auto payload = add(add(constant(100u), lane), builder.call(type, xir::ArithmeticOp::BINARY_MUL, {constant(10u), second_iteration}));
+        auto read = builder.call(type, xir::ThreadGroupOp::WARP_READ_LANE, {payload, source});
+        read->set_name("mixed_epoch_loop_read");
+        sum->add_incoming(add(sum, read), second_latch);
+        second_iteration->add_incoming(add(second_iteration, constant(1u)), second_latch);
+        builder.br(second_header);
+        builder.set_insertion_point(exit);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, add(lane, constant(width)), sum});
+        builder.return_void();
+        CHECK(xir::xir_verify_module(&module).succeeded());
+
+        for (auto enabled : {false, true}) {
+            ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_UNIFORM_READ_LANE", enabled ? nullptr : "1"};
+            auto compiled = compile_simd_kernel(kernel, width, "cohort_collective_exit", false, true, true, false, 1u, false, false, true);
+            if (!compiled.succeeded()) {
+                for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                return false;
+            }
+            using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            auto reported_exit = false;
+            auto reported_sum = false;
+            auto reported_canary = false;
+            for (auto active = 0u; active <= width; active++) {
+                constexpr auto canary = uint32_t{0x731badf0u};
+                std::vector<uint32_t> result(2u * width + 34u, canary);
+                std::vector<uint32_t> starts(width, 0u), sums(width, 0u);
+                for (auto destination = 0u; destination < active; destination++) {
+                    // At header epoch r, lanes [r, active) participate and
+                    // lane r exits. Its retained population is active-r.
+                    starts[destination] = active - destination;
+                }
+                // Independent SIMT-round oracle, not the disabled compiler's
+                // result: both source and destination must still participate.
+                for (auto round = 0u; round <= width; round++) {
+                    for (auto destination = 0u; destination < active; destination++) {
+                        auto iteration = starts[destination] + round;
+                        if (iteration >= width + 1u) { continue; }
+                        auto source_lane = iteration - 1u;
+                        if (source_lane < active && starts[source_lane] + round < width + 1u) {
+                            sums[destination] += 100u + source_lane + 10u * (starts[source_lane] + round);
+                        }
+                    }
+                }
+                alignas(16) std::array<SIMDHostBufferView, 1u> arguments{
+                    SIMDHostBufferView{result.data() + 17u, 2u * width * sizeof(uint32_t)}};
+                auto config = launch_1d(active, 32u);
+                entry(arguments.data(), nullptr, &config, active);
+                auto compare = [&](uint32_t actual, uint32_t expected, uint32_t destination, const char *stage, bool &reported) {
+                    if (actual != expected) {
+                        all_correct = false;
+                        if (!reported) {
+                            std::cerr << "cohort exit oracle: stage=" << stage << ", width=" << width
+                                      << ", enabled=" << enabled << ", active=" << active << ", lane=" << destination
+                                      << ", actual=" << actual << ", expected=" << expected
+                                      << ", direct=" << compiled.direct_control_flow << '\n';
+                            reported = true;
+                        }
+                    }
+                };
+                for (auto destination = 0u; destination < width; destination++) {
+                    compare(result[17u + destination], destination < active ? starts[destination] : canary, destination, "escaped population", reported_exit);
+                    compare(result[17u + width + destination], destination < active ? sums[destination] : canary, destination, "second loop sum", reported_sum);
+                }
+                for (auto i = 0u; i < 17u; i++) {
+                    compare(result[i], canary, i, "prefix canary", reported_canary);
+                    compare(result[17u + 2u * width + i], canary, i, "suffix canary", reported_canary);
+                }
+            }
+        }
+    }
+    CHECK(all_correct);
+    return true;
+}
+
+[[nodiscard]] bool run_uniform_read_lane_use_sites() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        for (auto variant : {0u, 1u, 2u}) {
+            // Uniform starts with fixed/varying bounds are equal within each
+            // loop cohort. Varying starts and post-exit indices are not.
+            Kernel1D kernel = [width, variant](BufferUInt flags, BufferUInt output) noexcept {
+                set_block_size(32u, 1u, 1u);
+                auto lane = warp_lane_id();
+                UInt seed = 100u * (lane + 1u);
+                $if (flags.read(lane) != 0u) { seed += 7u; };
+                UInt iteration = 0u;
+                UInt limit = width + 2u;
+                if (variant == 1u) { limit -= lane % 5u; }
+                if (variant == 2u) { iteration = lane % 3u; }
+                UInt sum = 0u;
+                $while (iteration < limit) {
+                    sum += warp_read_lane(seed + iteration, iteration);
+                    iteration += 1u;
+                };
+                output.write(lane, sum);
+                output.write(width + lane, warp_read_lane(seed + iteration, iteration % width));
+            };
+            std::vector<uint32_t> oracle;
+            for (auto enabled : {false, true}) {
+                ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_UNIFORM_READ_LANE", enabled ? nullptr : "1"};
+                auto compiled = compile_simd_kernel(kernel.function()->function(), width, "uniform_read_lane_use", false, true);
+                if (!compiled.succeeded()) {
+                    for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                    return false;
+                }
+                if (variant != 2u) {
+                    auto has_source_fact = compiled.llvm_ir.find("warp.source.uniform") != std::string::npos;
+                    auto has_broadcast = compiled.llvm_ir.find("warp.broadcast.read") != std::string::npos;
+                    if (has_source_fact != enabled || has_broadcast != enabled) {
+                        std::cerr << "uniform read-lane IR shape: width=" << width << ", variant=" << variant
+                                  << ", enabled=" << enabled << ", direct=" << compiled.direct_control_flow
+                                  << ", source_fact=" << has_source_fact << ", broadcast=" << has_broadcast
+                                  << ", schedule_blocks=" << compiled.schedule_block_count
+                                  << ", pre_jit_ir_bytes=" << compiled.llvm_ir.size() << '\n';
+                        // Preserve actual pre-JIT evidence on a shape failure,
+                        // without an unbounded generated-module log dump.
+                        auto ir = std::string_view{compiled.llvm_ir};
+                        constexpr auto prefix_limit = size_t{64u * 1024u};
+                        std::cerr << ir.substr(0u, prefix_limit);
+                        if (ir.size() > prefix_limit) {
+                            auto suffix_size = std::min(size_t{16u * 1024u}, ir.size() - prefix_limit);
+                            std::cerr << "\n[pre-JIT IR middle omitted: " << ir.size() - prefix_limit - suffix_size << " bytes]\n"
+                                      << ir.substr(ir.size() - suffix_size);
+                        }
+                    }
+                    CHECK((compiled.llvm_ir.find("warp.source.uniform") != std::string::npos) == enabled);
+                    CHECK((compiled.llvm_ir.find("warp.broadcast.read") != std::string::npos) == enabled);
+                }
+                using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+                auto entry = reinterpret_cast<Entry *>(compiled.entry);
+                CHECK(entry != nullptr);
+                auto visit = size_t{0u};
+                for (auto active = 0u; active <= width; active++) {
+                    for (auto pattern = 0u; pattern < 3u; pattern++) {
+                        std::vector<uint32_t> flags(width), result(2u * width + 34u, 731u);
+                        std::vector<uint32_t> starts(width), limits(width), seeds(width), sums(width, 0u);
+                        for (auto lane = 0u; lane < width; lane++) {
+                            flags[lane] = pattern == 2u || (pattern == 1u && (lane & 1u));
+                            starts[lane] = variant == 2u ? lane % 3u : 0u;
+                            limits[lane] = width + 2u - (variant == 1u ? lane % 5u : 0u);
+                            seeds[lane] = 100u * (lane + 1u) + (flags[lane] ? 7u : 0u);
+                        }
+                        // Independent SIMT epoch oracle. Source and
+                        // destination must both participate in this round;
+                        // loop exits reconverge only after all rounds finish.
+                        for (auto round = 0u; round < width + 2u; round++) {
+                            for (auto lane = 0u; lane < active; lane++) {
+                                auto index = starts[lane] + round;
+                                if (index < limits[lane] && index < active && starts[index] + round < limits[index]) {
+                                    sums[lane] += seeds[index] + starts[index] + round;
+                                }
+                            }
+                        }
+                        alignas(16) std::array<SIMDHostBufferView, 2u> arguments{
+                            SIMDHostBufferView{flags.data(), width * sizeof(uint32_t)},
+                            SIMDHostBufferView{result.data() + 17u, 2u * width * sizeof(uint32_t)}};
+                        auto config = launch_1d(active, 32u);
+                        entry(arguments.data(), nullptr, &config, active);
+                        for (auto lane = 0u; lane < width; lane++) {
+                            auto source = limits[lane] % width;
+                            auto exit_value = source < active ? seeds[source] + limits[source] : 0u;
+                            CHECK(result[17u + lane] == (lane < active ? sums[lane] : 731u));
+                            CHECK(result[17u + width + lane] == (lane < active ? exit_value : 731u));
+                            if (!enabled) {
+                                oracle.emplace_back(result[17u + lane]);
+                                oracle.emplace_back(result[17u + width + lane]);
+                            } else {
+                                CHECK(result[17u + lane] == oracle[visit++]);
+                                CHECK(result[17u + width + lane] == oracle[visit++]);
+                            }
+                        }
+                        for (auto i = 0u; i < 17u; i++) {
+                            CHECK(result[i] == 731u && result[17u + 2u * width + i] == 731u);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 template<typename T>
 [[nodiscard]] bool run_cohort_private_loop_accesses() {
     ScopedEnvironmentVariable effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", "1"};
-    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS", "1"};
+    // Exercise the production default; the explicit DISABLE arm below is
+    // still the independent lane-wise private-access oracle.
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS", nullptr};
     for (auto width : {2u, 4u, 8u, 16u}) {
         // Varying bounds retain equality inside the current loop cohort,
         // but not after exit. Cross-block handles and varying starts must
@@ -17342,6 +17705,9 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"nested cohort uint4 mask and read-first exit snapshots", &run_nested_cohort_aggregate_exit_values},
+        {"cohort collective exit values and subsequent recurrence", &run_cohort_collective_exit_values},
+        {"uniform read-lane source indices and loop epochs", &run_uniform_read_lane_use_sites},
         {"typed contiguous copy Schedule admission boundary", &run_contiguous_copy_codegen_boundary},
         {"typed contiguous copy exact bits, tails and active lanes", &run_contiguous_copy_bitwise_and_masks},
         {"typed strided MMA XIR admission boundary", &run_strided_mma_projection_boundary},

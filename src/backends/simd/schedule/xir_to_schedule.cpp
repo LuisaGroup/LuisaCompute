@@ -294,7 +294,7 @@ private:
 
     struct LoopRecord {
         const xir::NaturalLoop *source{nullptr};
-        const xir::PhiInst *cohort_uniform_induction{nullptr};
+        std::vector<const xir::PhiInst *> cohort_uniform_inductions{};
         const xir::ArithmeticInst *cohort_uniform_header_condition{nullptr};
         LoopId id{};
         size_t size{0u};
@@ -670,6 +670,56 @@ private:
             _block_ids.at(_definition->body_block()));
     }
 
+    [[nodiscard]] std::vector<const xir::PhiInst *> _find_cohort_uniform_inductions(
+        const xir::NaturalLoop &loop) const {
+        std::vector<const xir::PhiInst *> inductions;
+        if (loop.header == nullptr || loop.preheader == nullptr || loop.latches.size() != 1u ||
+            loop.exit_edges.size() != 1u || loop.exit_edges.front().first != loop.header) {
+            return inductions;
+        }
+        auto *latch = loop.latches.front();
+        for (auto *instruction : loop.header->instructions()) {
+            if (!instruction->isa<xir::PhiInst>()) { break; }
+            auto *phi = static_cast<const xir::PhiInst *>(instruction);
+            auto *type = phi->type();
+            if (type == nullptr || !type->is_scalar() || (!type->is_int() && !type->is_uint()) ||
+                type->is_int4() || type->size() > sizeof(uint64_t) || phi->incoming_count() != 2u) {
+                continue;
+            }
+            auto start = phi->incoming(0u);
+            auto recurrence = phi->incoming(1u);
+            if (start.block == latch) { std::swap(start, recurrence); }
+            if (start.block != loop.preheader || recurrence.block != latch || start.value == nullptr ||
+                start.value->type() != type || !_uniformity.is_uniform(start.value) ||
+                recurrence.value == nullptr || !recurrence.value->isa<xir::ArithmeticInst>()) {
+                continue;
+            }
+            auto *add = static_cast<const xir::ArithmeticInst *>(recurrence.value);
+            auto *update_block = const_cast<xir::BasicBlock *>(add->parent_block());
+            if (add->op() != xir::ArithmeticOp::BINARY_ADD || add->operand_count() != 2u || add->type() != type ||
+                !loop.contains(update_block) || !_dom_tree->dominates(update_block, latch)) {
+                continue;
+            }
+            auto *stride = add->operand(0u) == phi ? add->operand(1u) :
+                           add->operand(1u) == phi ? add->operand(0u) :
+                                                     nullptr;
+            if (stride == nullptr || stride->type() != type || !stride->isa<xir::Constant>()) { continue; }
+            // Equality needs a fixed nonzero bit-pattern step, not a positive
+            // mathematical stride or a no-wrap trip-count formula. Signed
+            // negative constants are equally valid for this local proof.
+            auto stride_bits = uint64_t{0u};
+            std::memcpy(&stride_bits, static_cast<const xir::Constant *>(stride)->data(), type->size());
+            if (stride_bits == 0u) { continue; }
+            // In one natural-loop epoch every continuing lane has applied
+            // the same recurrence to the same start. Varying exits only
+            // remove participants. Do not depend on the header predicate's
+            // spelling (e.g. `$while` uses `!condition`) or select only the
+            // first PHI, which may instead be a varying accumulator.
+            inductions.emplace_back(phi);
+        }
+        return inductions;
+    }
+
     void _create_loops(
         const luisa::vector<xir::NaturalLoop> &natural_loops) {
         _loops.reserve(natural_loops.size());
@@ -717,11 +767,6 @@ private:
                     }
                 }
             }
-            auto *cohort_uniform_induction =
-                bounds.is_valid() && bounds.stride_is_constant &&
-                        _uniformity.is_uniform(bounds.start_value) ?
-                    bounds.induction_phi :
-                    nullptr;
             if (_options.enable_counted_loop_uniformity && bounds.is_valid() &&
                 bounds.stride_is_constant && _uniformity.is_uniform(bounds.start_value) &&
                 _uniformity.is_uniform(bounds.bound_value)) {
@@ -757,7 +802,7 @@ private:
                 std::move(exits), std::nullopt, max_trip_count);
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
-                .cohort_uniform_induction = cohort_uniform_induction,
+                .cohort_uniform_inductions = _find_cohort_uniform_inductions(source_loop),
                 .cohort_uniform_header_condition =
                     early_exit_header_condition,
                 .id = id,
@@ -1141,7 +1186,8 @@ private:
         return std::any_of(
             _loops.cbegin(), _loops.cend(),
             [&](const LoopRecord &loop) noexcept {
-                return loop.cohort_uniform_induction == value &&
+                return std::find(loop.cohort_uniform_inductions.cbegin(), loop.cohort_uniform_inductions.cend(), value) !=
+                           loop.cohort_uniform_inductions.cend() &&
                        loop.source->contains(
                            const_cast<xir::BasicBlock *>(use_block));
             });
@@ -1537,6 +1583,14 @@ private:
                 } else if (step == LaneIndexStep::consecutive) {
                     instruction.lane_consecutive_operand_index = 1u;
                 }
+            } else if (instruction.opcode == Opcode::warp_collective &&
+                       instruction.source_op == static_cast<uint32_t>(xir::ThreadGroupOp::WARP_READ_LANE) &&
+                       source_instruction->operand_count() == 2u &&
+                       _lane_index_step(source_instruction->operand(1u), source_instruction->parent_block()) == LaneIndexStep::equal) {
+                // Equality belongs to this collective's current participant
+                // cohort. In particular, a loop induction may be equal here
+                // but different after lanes reconverge at distinct exits.
+                instruction.cohort_uniform_operand_index = 1u;
             } else if (_options.enable_cohort_private_access &&
                        instruction.opcode == Opcode::gep &&
                        source_instruction->operand_count() == 2u &&
@@ -1916,7 +1970,8 @@ public:
             const_cast<xir::Function *>(_source),
             {.account_for_infinite_paths = false});
         _uniformity.analyze(
-            _source, _options.parameter_value_classes);
+            _source, _options.parameter_value_classes,
+            {natural_loops.data(), natural_loops.size()});
 
         _create_function_and_blocks();
         _create_loops(natural_loops);

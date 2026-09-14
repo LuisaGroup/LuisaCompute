@@ -1,5 +1,6 @@
 #include "warp_uniformity.h"
 
+#include <algorithm>
 #include <deque>
 #include <vector>
 
@@ -14,6 +15,8 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/special_register.h>
+
+#include "../../../xir/passes/natural_loop.h"
 
 namespace luisa::compute::simd::schedule {
 
@@ -72,6 +75,21 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
 void WarpUniformityAnalysis::analyze(
     const xir::Function *function,
     std::span<const ValueClass> parameter_value_classes) noexcept {
+    _analyze(function, parameter_value_classes, {}, false);
+}
+
+void WarpUniformityAnalysis::analyze(
+    const xir::Function *function,
+    std::span<const ValueClass> parameter_value_classes,
+    std::span<const xir::NaturalLoop> natural_loops) noexcept {
+    _analyze(function, parameter_value_classes, natural_loops, true);
+}
+
+void WarpUniformityAnalysis::_analyze(
+    const xir::Function *function,
+    std::span<const ValueClass> parameter_value_classes,
+    std::span<const xir::NaturalLoop> natural_loops,
+    bool supplied_natural_loops) noexcept {
     clear();
     _function = function;
     if (function == nullptr || function->definition() == nullptr ||
@@ -99,6 +117,51 @@ void WarpUniformityAnalysis::analyze(
         block_indices.emplace(blocks[i], i);
     }
 
+    // NaturalLoop consumes a plain CFG. Standalone analysis is also used on
+    // incomplete/structured input: do not introduce a terminator assertion or
+    // pretend that an unavailable loop analysis proves no epoch crossings.
+    auto plain_cfg = true;
+    for (auto *block : blocks) {
+        if (!block->is_terminated()) {
+            plain_cfg = false;
+            break;
+        }
+        using Tag = xir::DerivedInstructionTag;
+        switch (block->terminator()->derived_instruction_tag()) {
+            case Tag::BRANCH:
+            case Tag::CONDITIONAL_BRANCH:
+            case Tag::INDEXED_BRANCH:
+            case Tag::RETURN:
+            case Tag::UNREACHABLE: break;
+            default: plain_cfg = false; break;
+        }
+        if (!plain_cfg) { break; }
+    }
+    luisa::vector<xir::NaturalLoop> discovered_loops;
+    if (plain_cfg && !supplied_natural_loops) {
+        auto *mutable_function = const_cast<xir::Function *>(function);
+        auto dom_tree = xir::compute_dom_tree(
+            mutable_function, {.compute_dominance_frontiers = false});
+        // Lowering rejects irreducible CFGs before calling the overload with
+        // supplied loops. Standalone analysis instead stays conservative if a
+        // reverse-postorder retreating edge is not a natural back-edge.
+        for (auto i = size_t{0u}; i < blocks.size(); i++) {
+            blocks[i]->traverse_successors(false, [&](const xir::BasicBlock *successor) noexcept {
+                if (auto iter = block_indices.find(successor);
+                    iter != block_indices.end() && iter->second <= i &&
+                    !dom_tree.dominates(const_cast<xir::BasicBlock *>(successor),
+                                        const_cast<xir::BasicBlock *>(blocks[i]))) {
+                    plain_cfg = false;
+                }
+            });
+        }
+        if (plain_cfg) {
+            discovered_loops = xir::discover_natural_loops(
+                mutable_function->definition(), dom_tree);
+            natural_loops = {discovered_loops.data(), discovered_loops.size()};
+        }
+    }
+
     std::vector<const xir::Instruction *> instructions;
     for (auto *block : blocks) {
         block->traverse_instructions(
@@ -106,6 +169,71 @@ void WarpUniformityAnalysis::analyze(
                 instructions.emplace_back(instruction);
             });
     }
+    std::unordered_map<const xir::Value *, size_t> instruction_indices;
+    instruction_indices.reserve(instructions.size());
+    for (auto i = size_t{0u}; i < instructions.size(); i++) {
+        instruction_indices.emplace(instructions[i], i);
+    }
+    std::vector<std::vector<size_t>> containing_loops(blocks.size());
+    if (plain_cfg) {
+        for (auto i = size_t{0u}; i < natural_loops.size(); i++) {
+            auto add_membership = [&](const xir::BasicBlock *block) noexcept {
+                if (auto iter = block_indices.find(block); iter != block_indices.end()) {
+                    containing_loops[iter->second].emplace_back(i);
+                }
+            };
+            add_membership(natural_loops[i].header);
+            for (auto *block : natural_loops[i].body_blocks) { add_membership(block); }
+        }
+    }
+    std::vector<uint8_t> escapes_loop_epoch(instructions.size(), plain_cfg ? uint8_t{0u} : uint8_t{1u});
+    auto contains = [&](size_t loop, const xir::BasicBlock *block) noexcept {
+        auto iter = block_indices.find(block);
+        if (iter == block_indices.end()) { return false; }
+        auto &&memberships = containing_loops[iter->second];
+        return std::binary_search(memberships.cbegin(), memberships.cend(), loop);
+    };
+    auto mark_escape = [&](const xir::Value *value, const xir::BasicBlock *use_block,
+                           const xir::BasicBlock *incoming_block, bool phi_use) noexcept {
+        auto iter = instruction_indices.find(value);
+        if (iter == instruction_indices.end() || escapes_loop_epoch[iter->second] != 0u) { return; }
+        auto definition = block_indices.find(instructions[iter->second]->parent_block());
+        if (definition == block_indices.end()) {
+            escapes_loop_epoch[iter->second] = 1u;
+            return;
+        }
+        for (auto loop : containing_loops[definition->second]) {
+            if (!contains(loop, use_block) || (phi_use && !contains(loop, incoming_block))) {
+                escapes_loop_epoch[iter->second] = 1u;
+                break;
+            }
+        }
+    };
+    if (plain_cfg) {
+        for (auto *instruction : instructions) {
+            if (instruction->isa<xir::PhiInst>()) {
+                auto *phi = static_cast<const xir::PhiInst *>(instruction);
+                for (auto i = size_t{0u}; i < phi->incoming_count(); i++) {
+                    auto incoming = phi->incoming(i);
+                    // An exit PHI consumes a snapshot across the edge even
+                    // when its incoming predecessor is still in the loop.
+                    mark_escape(incoming.value, phi->parent_block(), incoming.block, true);
+                }
+            } else {
+                for (auto *use : instruction->operand_uses()) {
+                    mark_escape(use->value(), instruction->parent_block(), nullptr, false);
+                }
+            }
+        }
+    }
+    auto normalize_state = [&](size_t index, State state) noexcept {
+        // Cohort equality belongs to one dynamic epoch. Different lanes may
+        // preserve different last values at exit. Keep truly warp-stable
+        // values scalar, and keep nonescaping cohort-local fast paths intact.
+        return escapes_loop_epoch[index] != 0u && state == State::cohort_uniform ?
+                   State::varying :
+                   state;
+    };
     auto argument_count = size_t{0u};
     for (auto *argument : function->arguments()) {
         static_cast<void>(argument);
@@ -332,7 +460,7 @@ void WarpUniformityAnalysis::analyze(
                 set_immediate(State::warp_uniform);
                 break;
         }
-        _states.emplace(instruction, rule.floor);
+        _states.emplace(instruction, normalize_state(instruction_index, rule.floor));
         for (auto *dependency : rule.dependencies) {
             dependents[dependency].emplace_back(instruction_index);
         }
@@ -349,7 +477,7 @@ void WarpUniformityAnalysis::analyze(
     auto degrade_value = [&](size_t index, State state) noexcept {
         auto *instruction = instructions[index];
         auto old_state = _states.at(instruction);
-        auto new_state = join_state(old_state, state);
+        auto new_state = normalize_state(index, join_state(old_state, state));
         if (new_state != old_state) {
             _states[instruction] = new_state;
             enqueue_value(index);
@@ -366,6 +494,7 @@ void WarpUniformityAnalysis::analyze(
         for (auto *dependency : rules[instruction_index].dependencies) {
             state = join_state(state, _state(dependency));
         }
+        state = normalize_state(instruction_index, state);
         _states[instructions[instruction_index]] = state;
         if (state != State::warp_uniform) {
             enqueue_value(instruction_index);
@@ -380,6 +509,7 @@ void WarpUniformityAnalysis::analyze(
     std::vector<std::vector<size_t>> successors(blocks.size());
     for (auto block_index = size_t{0u}; block_index < blocks.size();
          block_index++) {
+        if (!blocks[block_index]->is_terminated()) { continue; }
         blocks[block_index]->traverse_successors(
             false, [&](const xir::BasicBlock *successor) noexcept {
                 if (auto iter = block_indices.find(successor);
@@ -414,7 +544,9 @@ void WarpUniformityAnalysis::analyze(
     selector_blocks.reserve(blocks.size());
     for (auto block_index = size_t{0u}; block_index < blocks.size();
          block_index++) {
-        auto *terminator = blocks[block_index]->terminator();
+        auto *terminator = blocks[block_index]->is_terminated() ?
+                               blocks[block_index]->terminator() :
+                               nullptr;
         const xir::Value *selector = nullptr;
         if (terminator != nullptr) {
             using Tag = xir::DerivedInstructionTag;

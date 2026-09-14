@@ -289,7 +289,6 @@ SIMDCompiledKernel compile_simd_kernel(
         .enable_counted_loop_uniformity =
             !detail::env_flag("LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS"),
         .enable_cohort_private_access =
-            detail::env_flag("LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS") &&
             !detail::env_flag("LUISA_SIMD_DISABLE_COHORT_PRIVATE_ACCESS")};
     auto schedule_result = schedule::lower_xir_to_schedule(
         function, schedule_options);

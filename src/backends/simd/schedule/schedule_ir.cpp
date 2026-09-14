@@ -464,7 +464,8 @@ VerificationResult verify(const Function &function) {
             }
             if (instruction.cohort_uniform_operand_index) {
                 if (instruction.opcode != Opcode::resource_read &&
-                    instruction.opcode != Opcode::gep) {
+                    instruction.opcode != Opcode::gep &&
+                    instruction.opcode != Opcode::warp_collective) {
                     add_error(
                         result,
                         "instruction does not support a cohort-uniform operand annotation",
@@ -478,6 +479,12 @@ VerificationResult verify(const Function &function) {
                 } else if (instruction.opcode == Opcode::gep &&
                            *instruction.cohort_uniform_operand_index == 0u) {
                     add_error(result, "GEP cohort-uniform annotation must identify an index, not its base", block.id);
+                } else if (instruction.opcode == Opcode::warp_collective &&
+                           (instruction.operands.size() != 2u || *instruction.cohort_uniform_operand_index != 1u)) {
+                    // Keep Schedule independent of source-op enum headers.
+                    // The target emitter additionally validates the exact
+                    // collective operation before consuming the source fact.
+                    add_error(result, "warp cohort-uniform annotation must identify the source index of a two-operand collective", block.id);
                 }
             }
             if (instruction.lane_consecutive_operand_index) {
