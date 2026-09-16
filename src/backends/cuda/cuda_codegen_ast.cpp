@@ -1300,7 +1300,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
+            LUISA_NOT_IMPLEMENTED(
+                "Explicit-sampler texture sampling is not implemented in the "
+                "CUDA AST codegen yet.");
         case CallOp::ASYNC_COPY: {
             // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
             // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]

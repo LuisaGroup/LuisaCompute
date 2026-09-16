@@ -172,6 +172,13 @@ void test_sampler(Device &device) {
         result.write(static_cast<uint32_t>(size_query),
                      make_float4(cast<float>(size.x), cast<float>(size.y),
                                  0.0f, 0.0f));
+    };
+    // Explicit-sampler sampling is a separate kernel: the legacy CUDA AST
+    // codegen does not implement these ops (they would hit
+    // LUISA_NOT_IMPLEMENTED), while the fallback, DX, HIP, and Metal backends
+    // lower them natively.
+    Kernel1D check_explicit_sampler = [&](BindlessVar bindless,
+                                          BufferFloat4 result) noexcept {
         auto explicit_texture = bindless.tex2d(0u);
         auto zero2 = make_float2(0.0f);
         result.write(static_cast<uint32_t>(explicit_2d),
@@ -210,9 +217,14 @@ void test_sampler(Device &device) {
                          explicit_uvw, zero3, zero3, 0.0f,
                          SamplerFilter::POINT, SamplerAddress::REPEAT));
     };
+    const auto supports_explicit_sampler = device.backend_name() != "cuda";
     auto shader = device.compile(check_sampler);
-    stream << shader(heap, output).dispatch(1u)
-           << output.copy_to(luisa::span{actual})
+    stream << shader(heap, output).dispatch(1u);
+    if (supports_explicit_sampler) {
+        auto explicit_shader = device.compile(check_explicit_sampler);
+        stream << explicit_shader(heap, output).dispatch(1u);
+    }
+    stream << output.copy_to(luisa::span{actual})
            << synchronize();
 
     std::array<float4, output_count> expected{
@@ -234,6 +246,9 @@ void test_sampler(Device &device) {
 
     constexpr auto epsilon = 1.0e-5f;
     for (auto i = 0u; i < output_count; i++) {
+        if (!supports_explicit_sampler && i >= explicit_2d) {
+            continue;// explicit-sampler slots are not written on this backend
+        }
         auto error = max_error(actual[i], expected[i]);
         expect(static_cast<bool>(error <= epsilon))
             << "sampler result " << i << " must match the host oracle; max error " << error;

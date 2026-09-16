@@ -43,13 +43,16 @@
 
 namespace luisa::compute::cuda {
 namespace {
-[[nodiscard]] bool _xir_pass_enabled(const char *name) noexcept {
-    if (auto env = getenv(name)) { return std::string_view{env} == "1"; }
-    return false;
-}
-const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG");
-const bool LUISA_XIR_RESTRUCTURE_CFG = _xir_pass_enabled("LUISA_XIR_RESTRUCTURE_CFG");
-const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN");
+[[nodiscard]] bool _xir_pass_enabled(const char *name, bool default_value) noexcept {
+      if (auto env = getenv(name)) { return std::string_view{env} == "1"; }
+      return default_value;
+  }
+  // The structured CUDA XIR codegen requires normalized, restructured CFG:
+  // the XIR path is always taken for autodiff kernels, so these default on
+  // (set the env var to "0" to opt out explicitly).
+  const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG", true);
+  const bool LUISA_XIR_RESTRUCTURE_CFG = _xir_pass_enabled("LUISA_XIR_RESTRUCTURE_CFG", true);
+  const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN", false);
 }// namespace
 }// namespace luisa::compute::cuda
 
