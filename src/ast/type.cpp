@@ -485,8 +485,10 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->_tag = Type::Tag::STRUCTURE;
         match('<');
         auto alignment = read_number();
-        if (alignment != 1u && alignment != 4u &&
-            alignment != 8u && alignment != 16u) [[unlikely]] {
+        // Reflected host structs may carry any power-of-two alignment up to
+        // 16 (e.g. a struct with a bool2/byte2 member has alignment 2).
+        if (alignment == 0u || alignment > 16u ||
+            (alignment & (alignment - 1u)) != 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Invalid structure alignment {}.", alignment);
         }
         info->alignment = static_cast<uint16_t>(alignment);
@@ -813,8 +815,8 @@ const Type *Type::texture(const Type *elem, size_t dimension, luisa::span<const 
 }
 
 const Type *Type::structure(size_t alignment, luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
-    LUISA_ASSERT(alignment == 1 || alignment == 4u || alignment == 8u || alignment == 16u,
-                 "Invalid structure alignment {} (must be 1, 4, 8 or 16).",
+    LUISA_ASSERT(alignment != 0u && alignment <= 16u && (alignment & (alignment - 1u)) == 0u,
+                 "Invalid structure alignment {} (must be a power of two no greater than 16).",
                  alignment);
     LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
                  "Invalid attribute size (must be empty or same as members' size");
