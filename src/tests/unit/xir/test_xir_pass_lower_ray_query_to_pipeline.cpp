@@ -301,13 +301,17 @@ void register_tests() {
                 named_block_count += block->name().has_value() ? 1u : 0u;
                 block->traverse_instructions(
                     [&](Instruction *inst) noexcept {
-                        if (inst->isa<PhiInst>() && inst->name() &&
-                            *inst->name() == "surface_join_value") {
+                        if (inst->isa<PhiInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name == "surface_join_value") {
                             ++named_phi_count;
+                            }
                         }
-                        if (inst->isa<ReturnInst>() && inst->name() &&
-                            *inst->name() == "surface_join_exit") {
+                        if (inst->isa<ReturnInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name == "surface_join_exit") {
                             ++named_return_count;
+                            }
                         }
                     });
             });
@@ -483,9 +487,11 @@ void register_tests() {
             [&](BasicBlock *block) noexcept {
                 block->traverse_instructions(
                     [&](Instruction *inst) noexcept {
-                        if (inst->isa<AllocaInst>() && inst->name() &&
-                            *inst->name() == "surface_invocation_scratch") {
+                        if (inst->isa<AllocaInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name == "surface_invocation_scratch") {
                             ++localized_count;
+                            }
                         }
                     });
             });
@@ -610,10 +616,12 @@ void register_tests() {
             auto localized_count = 0u;
             handler->definition()->traverse_instructions(
                 [&](Instruction *inst) noexcept {
-                    if (inst->isa<AllocaInst>() && inst->name() &&
-                        *inst->name() ==
+                    if (inst->isa<AllocaInst>()) {
+                        auto inst_name = inst->name();
+                        if (inst_name && *inst_name ==
                             "cross_handler_invocation_scratch") {
                         ++localized_count;
+                        }
                     }
                 });
             expect(localized_count == 1u);
@@ -713,11 +721,13 @@ void register_tests() {
             ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
                 block->traverse_instructions(
                     [&](Instruction *inst) noexcept {
-                        if (inst->isa<AllocaInst>() && inst->name() &&
-                            *inst->name() ==
+                        if (inst->isa<AllocaInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name ==
                                 "surface_aggregate_scratch") {
                             localized =
                                 static_cast<AllocaInst *>(inst);
+                            }
                         }
                         if (inst->isa<GEPInst>() &&
                             inst->type() == Type::of<float>()) {
@@ -840,10 +850,12 @@ void register_tests() {
             ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
                 block->traverse_instructions(
                     [&](Instruction *inst) noexcept {
-                        if (inst->isa<AllocaInst>() && inst->name() &&
-                            *inst->name() ==
+                        if (inst->isa<AllocaInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name ==
                                 "interprocedural_component_scratch") {
                             localized = static_cast<AllocaInst *>(inst);
+                            }
                         }
                         if (inst->isa<CallInst>() &&
                             static_cast<CallInst *>(inst)->callee() == helper) {
@@ -1119,10 +1131,12 @@ void register_tests() {
                 ->definition()
                 ->traverse_instructions(
                     [&](Instruction *inst) noexcept {
-                        if (inst->isa<AllocaInst>() && inst->name() &&
-                            *inst->name() ==
+                        if (inst->isa<AllocaInst>()) {
+                            auto inst_name = inst->name();
+                            if (inst_name && *inst_name ==
                                 "capture_budget_local_scratch") {
                             localized_count++;
+                            }
                         }
                     });
             expect(localized_count == 1u);
