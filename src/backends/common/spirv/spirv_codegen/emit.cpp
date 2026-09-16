@@ -724,12 +724,13 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     new_access_chain.swizzle.clear();
     new_access_chain.component = spv::NoResult;
     new_access_chain.descHeapInfo.descHeapBaseTy = spv::NoResult;
-    new_access_chain.descHeapInfo.descHeapStorageClass = spv::StorageClass::Max;
-    new_access_chain.descHeapInfo.descHeapBaseArrayStride = 0;
+    new_access_chain.descHeapInfo.descHeapBaseOffset = spv::NoResult;
+    new_access_chain.descHeapInfo.descHeapIndexChain.clear();
+    new_access_chain.descHeapInfo.descTy = spv::NoResult;
+    new_access_chain.descHeapInfo.descStorageClass = spv::StorageClass::Max;
+    new_access_chain.descHeapInfo.descReadonly = false;
+    new_access_chain.descHeapInfo.descWriteonly = false;
     new_access_chain.descHeapInfo.descHeapInstId.clear();
-    new_access_chain.descHeapInfo.structRsrcTyOffsetCount = 0;
-    new_access_chain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
-    new_access_chain.descHeapInfo.structRemappedBase = spv::NoResult;
     if (nonuniform) {
         LUISA_ASSERT(!indices.empty(),
                      "A non-uniform SPIR-V access chain must have an index.");
