@@ -131,6 +131,8 @@ luisa_compute_add_example(example_image_processing compute/image_processing.cpp 
 luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
+# n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
+add_subdirectory(compute/tokenize)
 luisa_compute_add_example(example_multi_head_attention
         ml/multi_head_attention.cpp
         ml/attention_kernels.cpp

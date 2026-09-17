@@ -20,12 +20,24 @@
 //            carrying every request's grid; sub-dispatch r reads its row
 //            range through kernel_id() (see ngram_kernels.h).
 //
-// Options: --kernel naive|parallel --lib-size N --queries N --reps N
-//          --min-n N --max-n N --k N --block-size N --vocab N --seed N
+// Training modes (ngram_trainer.h):
+//   --kernel parallel_mle runs the retrieval benchmark with the MLE variant:
+//          the corpus is trained on device first (NgramTrainer) and the
+//          block proposes the most frequent continuation instead of the
+//          earliest one; the spot-check oracle is reference_retrieve_mle.
+//   --bench-train  switches to the training sub-mode: host index build and
+//          device counting throughput, parallel vs parallel_mle retrieval
+//          throughput on one identical query batch, draft-scoring
+//          throughput, and the CPU MLE reference for scale.
+//
+// Options: --kernel naive|parallel|hash|parallel_mle --lib-size N --queries N
+//          --reps N --min-n N --max-n N --k N --block-size N --vocab N --seed N
 //          --requests N  --req-queries N  --multi-mode seq|pipeline|fiber|multi|all
+//          --bench-train
 
 #include "ngram_library.h"
 #include "ngram_retriever.h"
+#include "ngram_trainer.h"
 #include "reference.h"
 
 #include <luisa/core/clock.h>
@@ -34,6 +46,7 @@
 #include <luisa/luisa-compute.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <random>
@@ -58,6 +71,7 @@ struct BenchOptions {
     uint32_t requests = 0u;       // 0 = legacy single-request benchmark
     uint32_t req_queries = 0u;    // rows per request (0 = use --queries)
     luisa::string multi_mode = "all";// seq | pipeline | fiber | multi | all
+    bool bench_train = false;        // --bench-train: training sub-mode
 };
 
 void parse_options(int argc, char *argv[], BenchOptions &opt) {
@@ -78,6 +92,8 @@ void parse_options(int argc, char *argv[], BenchOptions &opt) {
                 opt.variant = NgramKernelVariant::parallel;
             } else if (std::strcmp(v, "hash") == 0) {
                 opt.variant = NgramKernelVariant::hash;
+            } else if (std::strcmp(v, "parallel_mle") == 0) {
+                opt.variant = NgramKernelVariant::parallel_mle;
             } else {
                 LUISA_ERROR("unknown kernel '{}'", v);
             }
@@ -106,6 +122,8 @@ void parse_options(int argc, char *argv[], BenchOptions &opt) {
         } else if (std::strcmp(argv[i], "--multi-mode") == 0) {
             if (i + 1 >= argc) LUISA_ERROR("missing value for --multi-mode");
             opt.multi_mode = argv[++i];
+        } else if (std::strcmp(argv[i], "--bench-train") == 0) {
+            opt.bench_train = true;
         } else if (argv[i][0] == '-') {
             LUISA_ERROR("unknown benchmark option '{}'", argv[i]);
         }
@@ -139,6 +157,23 @@ void parse_options(int argc, char *argv[], BenchOptions &opt) {
     for (auto t : corpus) lib.vocab_size = std::max(lib.vocab_size, t + 1u);
     lib.finalize();
     return lib;
+}
+
+[[nodiscard]] const char *kernel_variant_name(NgramKernelVariant v) noexcept {
+    switch (v) {
+        case NgramKernelVariant::naive: return "naive";
+        case NgramKernelVariant::parallel: return "parallel";
+        case NgramKernelVariant::hash: return "hash";
+        case NgramKernelVariant::parallel_mle: return "parallel_mle";
+    }
+    return "unknown";
+}
+
+// parallel and parallel_mle dispatch one BLOCK of block_size threads per
+// query row; naive and hash dispatch one thread per row.
+[[nodiscard]] bool variant_uses_block_grid(NgramKernelVariant v) noexcept {
+    return v == NgramKernelVariant::parallel ||
+           v == NgramKernelVariant::parallel_mle;
 }
 
 // ---------- multi-request concurrency benchmark ----------
@@ -286,6 +321,8 @@ using MultiRep = void (*)(MultiRequestCtx &);
 // One correctness pass + timed reps of one strategy. Returns avg ms.
 [[nodiscard]] double run_multi_strategy(luisa::string_view name, MultiRep rep,
                                         MultiRequestCtx &c, const NgramLibrary &lib,
+                                        NgramKernelVariant variant,
+                                        const NgramCountMap *mle_counts,
                                         uint32_t reps) {
     // correctness first: one full pass, then spot-check against the oracle
     rep(c);
@@ -295,10 +332,13 @@ using MultiRep = void (*)(MultiRequestCtx &);
     for (auto i = 0u; i < c.counts.size() && checked < check_rows; ++i) {
         for (auto j = 0u; j < c.counts[i] && checked < check_rows; ++j, ++checked) {
             const uint32_t row = c.bases[i] + j;
-            auto expected = reference_retrieve(
-                luisa::span{lib.tokens},
-                luisa::span{c.flat}.subspan(row * c.stride, c.lens[row]),
-                c.min_n, c.max_n, c.k);
+            auto query = luisa::span{c.flat}.subspan(row * c.stride, c.lens[row]);
+            auto expected = variant == NgramKernelVariant::parallel_mle
+                                ? reference_retrieve_mle(luisa::span{lib.tokens},
+                                                         *mle_counts, query,
+                                                         c.min_n, c.max_n, c.k)
+                                : reference_retrieve(luisa::span{lib.tokens}, query,
+                                                     c.min_n, c.max_n, c.k);
             if (c.l_vec[i][j] != expected.size()) {
                 ++mismatches;
                 continue;
@@ -339,7 +379,9 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
                                 NgramLibrary &lib,
                                 const luisa::vector<uint32_t> &corpus,
                                 const char *backend,
-                                const BenchOptions &opt) {
+                                const BenchOptions &opt,
+                                const NgramCountIndex *count_index,
+                                const NgramCountMap *mle_counts) {
     const uint32_t num_requests = opt.requests;
     const uint32_t rows_per_req =
         opt.req_queries > 0u ? opt.req_queries : opt.num_queries;
@@ -363,7 +405,8 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
 
     NgramRetriever retriever{device, stream, lib,
                              opt.min_n, opt.max_n, opt.k,
-                             qb.stride, total_rows, opt.variant, opt.block_size};
+                             qb.stride, total_rows, opt.variant, opt.block_size,
+                             count_index};
     MultiRequestCtx c{
         retriever, stream,
         opt.min_n, opt.max_n, opt.k, qb.stride,
@@ -377,7 +420,7 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
     for (auto i = 0u; i < num_requests; ++i) {
         c.off_bufs.push_back(retriever.upload_request_offsets(stream, c.bases[i]));
         c.multi_sizes.emplace_back(
-            opt.variant == NgramKernelVariant::parallel
+            variant_uses_block_grid(opt.variant)
                 ? c.counts[i] * opt.block_size
                 : c.counts[i],
             1u, 1u);
@@ -388,9 +431,7 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
     c.multi_off_buf = retriever.upload_request_offsets(stream, luisa::span{c.bases});
     stream.synchronize();
 
-    const char *variant_name = "parallel";
-    if (opt.variant == NgramKernelVariant::naive) variant_name = "naive";
-    if (opt.variant == NgramKernelVariant::hash) variant_name = "hash";
+    const char *variant_name = kernel_variant_name(opt.variant);
     LUISA_INFO("multi-request benchmark: kernel={} requests={} rows/req~{} "
                "total_rows={} lib={} min_n={} max_n={} k={} reps={}",
                variant_name, num_requests, rows_per_req, total_rows,
@@ -408,7 +449,8 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
 
     const bool all = opt.multi_mode == "all";
     // 'seq' is always measured first: it is the speedup baseline.
-    const double seq_avg = run_multi_strategy("seq", rep_seq, c, lib, opt.reps);
+    const double seq_avg =
+        run_multi_strategy("seq", rep_seq, c, lib, opt.variant, mle_counts, opt.reps);
     struct Mode { luisa::string_view flag, name; MultiRep rep; };
     const Mode modes[] = {
         {"pipeline", "pipeline", rep_pipeline},
@@ -417,14 +459,265 @@ int run_multi_request_benchmark(luisa::compute::Device &device,
     };
     for (auto &m : modes) {
         if (!all && opt.multi_mode != m.flag) continue;
-        const double avg = run_multi_strategy(m.name, m.rep, c, lib, opt.reps);
+        const double avg =
+            run_multi_strategy(m.name, m.rep, c, lib, opt.variant, mle_counts, opt.reps);
         std::printf("    -> %s speedup vs seq: %.2fx\n",
                     luisa::to_string(m.name).c_str(), seq_avg / avg);
     }
     std::printf("==================================================================\n\n");
+    std::fflush(stdout);// flush before the backend's static teardown runs
 
     // leave no pending work on the per-request streams
     for (auto &s : c.req_streams) { s.synchronize(); }
+    return 0;
+}
+
+// ---------- training benchmark (--bench-train) ----------
+
+// Probe a trained count index on host for the n-token window at corpus
+// position p, replaying the exact probe sequence of the builders/kernels
+// (same as the host_probe_slot test helper). Returns the slot index or
+// ngram_invalid_id.
+[[nodiscard]] uint32_t host_probe_count_slot(const NgramCountIndex &index,
+                                             luisa::span<const uint32_t> corpus,
+                                             uint32_t p, uint32_t n) noexcept {
+    uint64_t key = detail::fnv1a64_tokens(corpus.data() + p, n);
+    if (key == 0ull) key = 1ull;// 0 is reserved for empty slots
+    const uint64_t mask = (uint64_t{1} << index.cap_log2) - 1ull;
+    uint64_t slot = (key * 0x9E3779B97F4A7C15ull) >> (64 - index.cap_log2);
+    for (;;) {
+        const uint64_t k = index.keys[slot];
+        if (k == 0ull) return ngram_invalid_id;
+        if (k == key) {
+            const uint32_t q = index.pos[slot];
+            bool same = true;
+            for (uint32_t j = 0; same && j < n; ++j) {
+                same = corpus[q + j] == corpus[p + j];
+            }
+            if (same) return static_cast<uint32_t>(slot);
+        }
+        slot = (slot + 1ull) & mask;
+    }
+}
+
+// Training sub-mode: host index build + device counting throughput, draft
+// scoring throughput, parallel vs parallel_mle retrieval throughput on one
+// identical query batch, and the CPU MLE reference for scale. Every device
+// product is spot-checked against the CPU oracle before timing; any mismatch
+// aborts the benchmark (same policy as the retrieval benchmark).
+int run_train_benchmark(luisa::compute::Device &device,
+                        luisa::compute::Stream &stream,
+                        NgramLibrary &lib,
+                        const luisa::vector<uint32_t> &corpus,
+                        const char *backend,
+                        const BenchOptions &opt,
+                        const NgramCountMap &oracle,
+                        double oracle_ms) {
+    const uint32_t lib_len = static_cast<uint32_t>(corpus.size());
+    LUISA_ASSERT(opt.max_n + 1u < lib_len, "corpus too small for max_n");
+    LUISA_INFO("train benchmark: lib={} tokens min_n={} max_n={} k={} queries={} reps={}",
+               lib_len, opt.min_n, opt.max_n, opt.k, opt.num_queries, opt.reps);
+
+    // ---- host index build timing (the trainer rebuilds the same index
+    // internally; this standalone pass just measures the host cost) ----
+    luisa::Clock clock;
+    clock.tic();
+    auto host_index = build_ngram_count_index(luisa::span{corpus}, opt.min_n, opt.max_n);
+    const double host_build_ms = clock.toc();
+
+    // ---- device trainer: builds + uploads the index, then counts on device ----
+    NgramTrainOptions train_opt;
+    train_opt.min_n = opt.min_n;
+    train_opt.max_n = opt.max_n;
+    NgramTrainer trainer{device, stream, lib, train_opt};
+    const NgramCountIndex &index = trainer.index();
+    trainer.download_counts();
+
+    // ---- correctness spot-check: device count table vs the CPU oracle ----
+    uint64_t device_total = 0;
+    uint64_t occupied = 0;
+    for (auto c : index.counts_host) {
+        device_total += c;
+        occupied += c != 0u ? 1u : 0u;
+    }
+    uint64_t oracle_total = 0;
+    for (auto &[key, value] : oracle) { oracle_total += value; }
+    uint32_t mismatches = 0;
+    if (occupied != oracle.size()) ++mismatches;
+    if (device_total != oracle_total) ++mismatches;
+    std::mt19937 rng{opt.seed ^ 0x27d4eb2du};
+    for (uint32_t s = 0; s < 64u; ++s) {
+        // sample prefix windows (n in [min_n, max_n], p + n < lib_len) and
+        // continuation windows (n == max_n + 1, p + max_n < lib_len)
+        const uint32_t n = opt.min_n + rng() % (opt.max_n + 2u - opt.min_n);
+        const uint32_t p_end = n <= opt.max_n ? lib_len - n : lib_len - opt.max_n;
+        const uint32_t p = rng() % p_end;
+        const uint32_t slot = host_probe_count_slot(index, luisa::span{corpus}, p, n);
+        const uint32_t got = slot == ngram_invalid_id ? 0u : index.counts_host[slot];
+        const uint32_t want = reference_count(oracle, luisa::span{corpus.data() + p, n});
+        if (got != want) ++mismatches;
+    }
+    if (mismatches != 0u) {
+        LUISA_ERROR("train benchmark aborted: {} device/oracle count mismatches", mismatches);
+    }
+    LUISA_INFO("spot-check: device count table matches the CPU oracle ({} occupied slots, {} total counts)",
+               occupied, device_total);
+
+    // ---- timed re-count: reset + dispatch + synchronize per rep ----
+    trainer.reset_counts();
+    trainer.dispatch_count();
+    stream.synchronize();// warmup
+    double count_best = 1e30, count_total = 0.0;
+    for (uint32_t r = 0; r < opt.reps; ++r) {
+        clock.tic();
+        trainer.reset_counts();
+        trainer.dispatch_count();
+        stream.synchronize();
+        const double ms = clock.toc();
+        count_best = std::min(count_best, ms);
+        count_total += ms;
+    }
+    const double count_avg = count_total / static_cast<double>(opt.reps);
+    const double count_mtokens =
+        static_cast<double>(lib_len) / (count_avg / 1000.0) / 1e6;
+
+    // ---- identical query batch for the retrieval comparison ----
+    auto qb = generate_query_batch(corpus, opt.num_queries, opt.max_n,
+                                   opt.seed ^ 0x5bd1e995u);
+
+    // One retrieval variant: correctness pass (vs the matching oracle), then
+    // timed dispatch+sync reps. Returns avg ms and fills the drafts vectors
+    // from the correctness pass (reused below as the scoring input).
+    struct VariantResult {
+        double best_ms = 0.0, avg_ms = 0.0, qps = 0.0;
+        luisa::vector<uint32_t> drafts, draft_lens;
+    };
+    auto bench_variant = [&](NgramKernelVariant variant,
+                             const NgramCountIndex *count_index,
+                             bool mle_oracle, const char *name) {
+        NgramRetriever retriever{device, stream, lib, opt.min_n, opt.max_n, opt.k,
+                                 qb.stride, opt.num_queries, variant, opt.block_size,
+                                 count_index};
+        retriever.upload_queries(luisa::span{qb.flat}, luisa::span{qb.lens});
+        retriever.dispatch_queries(opt.num_queries);
+        retriever.synchronize();
+        VariantResult res;
+        retriever.download_results(opt.num_queries, res.drafts, res.draft_lens);
+        uint32_t mism = 0;
+        const uint32_t check_n = std::min(opt.num_queries, 64u);
+        for (uint32_t q = 0; q < check_n; ++q) {
+            auto query = luisa::span{qb.flat}.subspan(q * qb.stride, qb.lens[q]);
+            auto expected =
+                mle_oracle
+                    ? reference_retrieve_mle(luisa::span{lib.tokens}, oracle, query,
+                                             opt.min_n, opt.max_n, opt.k)
+                    : reference_retrieve(luisa::span{lib.tokens}, query,
+                                         opt.min_n, opt.max_n, opt.k);
+            if (res.draft_lens[q] != expected.size()) {
+                ++mism;
+                continue;
+            }
+            for (size_t j = 0; j < expected.size(); ++j) {
+                if (res.drafts[q * opt.k + j] != expected[j]) ++mism;
+            }
+        }
+        if (mism != 0u) {
+            LUISA_ERROR("train benchmark aborted: {} device/reference mismatches in '{}' retrieval",
+                        mism, name);
+        }
+        for (uint32_t w = 0; w < 2u; ++w) {// warmup
+            retriever.dispatch_queries(opt.num_queries);
+            retriever.synchronize();
+        }
+        double best = 1e30, total = 0.0;
+        for (uint32_t r = 0; r < opt.reps; ++r) {
+            clock.tic();
+            retriever.dispatch_queries(opt.num_queries);
+            retriever.synchronize();
+            const double ms = clock.toc();
+            best = std::min(best, ms);
+            total += ms;
+        }
+        res.best_ms = best;
+        res.avg_ms = total / static_cast<double>(opt.reps);
+        res.qps = static_cast<double>(opt.num_queries) / (res.avg_ms / 1000.0);
+        return res;
+    };
+
+    auto par_res = bench_variant(NgramKernelVariant::parallel, nullptr,
+                                 false, "parallel");
+    auto mle_res = bench_variant(NgramKernelVariant::parallel_mle, &trainer.index(),
+                                 true, "parallel_mle");
+
+    // ---- draft scoring throughput on the parallel_mle drafts ----
+    trainer.upload_score_batch(luisa::span{qb.flat}, luisa::span{qb.lens}, qb.stride,
+                               luisa::span{mle_res.drafts},
+                               luisa::span{mle_res.draft_lens}, opt.k);
+    trainer.dispatch_score_batch(opt.num_queries);
+    stream.synchronize();
+    luisa::vector<float> scores;
+    trainer.download_score_batch(opt.num_queries, scores);
+    const uint32_t check_n = std::min(opt.num_queries, 64u);
+    uint32_t score_mism = 0;
+    for (uint32_t q = 0; q < check_n; ++q) {
+        auto query = luisa::span{qb.flat}.subspan(q * qb.stride, qb.lens[q]);
+        auto draft = luisa::span{mle_res.drafts}.subspan(q * opt.k, mle_res.draft_lens[q]);
+        const float expected = reference_draft_log2prob(
+            oracle, lib.vocab_size, query, draft, opt.max_n, train_opt.add_k);
+        const bool ok = (scores[q] == expected) |
+                        (std::abs(scores[q] - expected) <= 1e-4f);
+        if (!ok) ++score_mism;
+    }
+    if (score_mism != 0u) {
+        LUISA_ERROR("train benchmark aborted: {} draft-score mismatches vs the oracle",
+                    score_mism);
+    }
+    double score_best = 1e30, score_total = 0.0;
+    for (uint32_t r = 0; r < opt.reps; ++r) {
+        clock.tic();
+        trainer.dispatch_score_batch(opt.num_queries);
+        stream.synchronize();
+        const double ms = clock.toc();
+        score_best = std::min(score_best, ms);
+        score_total += ms;
+    }
+    const double score_avg = score_total / static_cast<double>(opt.reps);
+    const double score_qps = static_cast<double>(opt.num_queries) / (score_avg / 1000.0);
+
+    // ---- CPU MLE reference timing (subset, for scale) ----
+    const uint32_t cpu_n = std::min(opt.num_queries, 64u);
+    clock.tic();
+    for (uint32_t q = 0; q < cpu_n; ++q) {
+        auto query = luisa::span{qb.flat}.subspan(q * qb.stride, qb.lens[q]);
+        (void)reference_retrieve_mle(luisa::span{lib.tokens}, oracle, query,
+                                     opt.min_n, opt.max_n, opt.k);
+    }
+    const double cpu_us = clock.toc() * 1000.0 / static_cast<double>(cpu_n);
+
+    std::printf("\n===================== ngram train benchmark =====================\n");
+    std::printf(" backend        : %s\n", backend);
+    std::printf(" corpus         : %u tokens (vocab %u), min_n=%u max_n=%u k=%u\n",
+                lib_len, opt.vocab, opt.min_n, opt.max_n, opt.k);
+    std::printf(" count table    : %u slots (2^%u), %llu occupied\n",
+                1u << index.cap_log2, index.cap_log2,
+                static_cast<unsigned long long>(occupied));
+    std::printf(" ------------------------------------------------------------------\n");
+    std::printf(" cpu count oracle build   : %9.3f ms (%llu distinct n-grams)\n",
+                oracle_ms, static_cast<unsigned long long>(oracle.size()));
+    std::printf(" host index build         : %9.3f ms\n", host_build_ms);
+    std::printf(" device count (best/avg)  : %9.3f / %9.3f ms  (%9.1f Mtokens/s)\n",
+                count_best, count_avg, count_mtokens);
+    std::printf(" retrieve parallel  (q/s) : %9.0f  (%9.3f ms avg)\n",
+                par_res.qps, par_res.avg_ms);
+    std::printf(" retrieve par_mle   (q/s) : %9.0f  (%9.3f ms avg)\n",
+                mle_res.qps, mle_res.avg_ms);
+    std::printf(" mle/parallel throughput  : %9.2fx\n", mle_res.qps / par_res.qps);
+    std::printf(" draft scoring      (q/s) : %9.0f  (%9.3f ms avg, add_k=%.2f)\n",
+                score_qps, score_avg, static_cast<double>(train_opt.add_k));
+    std::printf(" cpu mle reference        : %9.3f us/query (%u queries)\n",
+                cpu_us, cpu_n);
+    std::printf("===================================================================\n\n");
+    std::fflush(stdout);// flush before the backend's static teardown runs
     return 0;
 }
 
@@ -442,10 +735,41 @@ int run_benchmark_impl(int argc, char *argv[]) {
     auto corpus = generate_corpus(opt.lib_size, opt.vocab, opt.seed);
     auto lib = make_benchmark_library(luisa::span{corpus});
 
+    // Training products shared by the parallel_mle retrieval paths and the
+    // --bench-train sub-mode: the CPU count oracle (built once, reused by
+    // every MLE spot-check) and the device trainer (trained in its ctor).
+    const bool needs_counts =
+        opt.bench_train || opt.variant == NgramKernelVariant::parallel_mle;
+    NgramCountMap mle_counts;
+    double oracle_ms = 0.0;
+    if (needs_counts) {
+        luisa::Clock clock;
+        clock.tic();
+        mle_counts = reference_count_ngrams(luisa::span{corpus}, opt.min_n, opt.max_n);
+        oracle_ms = clock.toc();
+        LUISA_INFO("CPU count oracle: {} distinct n-grams in {:.3f} ms",
+                   mle_counts.size(), oracle_ms);
+    }
+    luisa::unique_ptr<NgramTrainer> trainer;
+    if (opt.variant == NgramKernelVariant::parallel_mle && !opt.bench_train) {
+        NgramTrainOptions train_opt;
+        train_opt.min_n = opt.min_n;
+        train_opt.max_n = opt.max_n;
+        trainer = luisa::make_unique<NgramTrainer>(device, stream, lib, train_opt);
+    }
+
+    // training sub-mode: host index build + device count/score throughput
+    if (opt.bench_train) {
+        return run_train_benchmark(device, stream, lib, corpus, argv[1], opt,
+                                   mle_counts, oracle_ms);
+    }
+
     // multi-request mode: compare seq/pipeline/fiber/multi stage overlap
     if (opt.requests > 0u) {
-        return run_multi_request_benchmark(device, stream, lib, corpus,
-                                           argv[1], opt);
+        return run_multi_request_benchmark(
+            device, stream, lib, corpus, argv[1], opt,
+            trainer ? &trainer->index() : nullptr,
+            needs_counts ? &mle_counts : nullptr);
     }
 
     // queries: random suffixes from the corpus (length >= max_n)
@@ -464,16 +788,15 @@ int run_benchmark_impl(int argc, char *argv[]) {
                     queries_flat.begin() + q * max_query_len);
     }
 
-    const char *variant_name = "parallel";
-    if (opt.variant == NgramKernelVariant::naive) variant_name = "naive";
-    if (opt.variant == NgramKernelVariant::hash) variant_name = "hash";
+    const char *variant_name = kernel_variant_name(opt.variant);
     LUISA_INFO("benchmark: kernel={} block_size={} lib={} tokens queries={} "
                "min_n={} max_n={} k={} reps={}",
                variant_name, opt.block_size, opt.lib_size, opt.num_queries,
                opt.min_n, opt.max_n, opt.k, opt.reps);
 
     NgramRetriever retriever{device, stream, lib, opt.min_n, opt.max_n, opt.k,
-                             max_query_len, opt.num_queries, opt.variant, opt.block_size};
+                             max_query_len, opt.num_queries, opt.variant, opt.block_size,
+                             trainer ? &trainer->index() : nullptr};
 
     // ---- correctness spot-check before timing ----
     retriever.upload_queries(luisa::span{queries_flat}, luisa::span{query_lens});
@@ -484,9 +807,13 @@ int run_benchmark_impl(int argc, char *argv[]) {
     const uint32_t check_n = std::min(opt.num_queries, 64u);
     uint32_t mismatches = 0;
     for (uint32_t q = 0; q < check_n; ++q) {
-        auto expected = reference_retrieve(luisa::span{lib.tokens},
-                                           luisa::span{queries_flat}.subspan(q * max_query_len, query_lens[q]),
-                                           opt.min_n, opt.max_n, opt.k);
+        auto query = luisa::span{queries_flat}.subspan(q * max_query_len, query_lens[q]);
+        auto expected =
+            opt.variant == NgramKernelVariant::parallel_mle
+                ? reference_retrieve_mle(luisa::span{lib.tokens}, mle_counts, query,
+                                         opt.min_n, opt.max_n, opt.k)
+                : reference_retrieve(luisa::span{lib.tokens}, query,
+                                     opt.min_n, opt.max_n, opt.k);
         if (draft_lens[q] != expected.size()) {
             ++mismatches;
             continue;
@@ -525,9 +852,14 @@ int run_benchmark_impl(int argc, char *argv[]) {
     luisa::Clock cpu_clock;
     cpu_clock.tic();
     for (uint32_t q = 0; q < cpu_n; ++q) {
-        (void)reference_retrieve(luisa::span{lib.tokens},
-                                 luisa::span{queries_flat}.subspan(q * max_query_len, query_lens[q]),
-                                 opt.min_n, opt.max_n, opt.k);
+        auto query = luisa::span{queries_flat}.subspan(q * max_query_len, query_lens[q]);
+        if (opt.variant == NgramKernelVariant::parallel_mle) {
+            (void)reference_retrieve_mle(luisa::span{lib.tokens}, mle_counts, query,
+                                         opt.min_n, opt.max_n, opt.k);
+        } else {
+            (void)reference_retrieve(luisa::span{lib.tokens}, query,
+                                     opt.min_n, opt.max_n, opt.k);
+        }
     }
     const double cpu_ms = cpu_clock.toc();
     const double cpu_per_query_us = cpu_ms * 1000.0 / static_cast<double>(cpu_n);
@@ -548,6 +880,7 @@ int run_benchmark_impl(int argc, char *argv[]) {
                 cpu_per_query_us, cpu_n);
     std::printf(" device speedup vs cpu       : %9.1fx\n", cpu_per_query_us / per_query_us);
     std::printf("==================================================================\n\n");
+    std::fflush(stdout);// flush before the backend's static teardown runs
     return 0;
 }
 

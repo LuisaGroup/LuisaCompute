@@ -2,6 +2,7 @@
 
 #include "ngram_kernels.h"
 #include "ngram_library.h"
+#include "ngram_train_kernels.h"
 
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
@@ -20,13 +21,19 @@ class NgramRetriever {
 public:
     // Borrows `library` (which must outlive the retriever), creates its
     // device buffers, uploads them and compiles the kernel for `variant`.
+    // `count_index` is an optional trained NgramCountIndex (see
+    // ngram_trainer.h): REQUIRED for the parallel_mle variant (its buffers
+    // carry the continuation counts), and accepted by the hash variant to
+    // run K3 on the trained table instead of building a private one (the
+    // layouts are identical for the shared [min_n, max_n] range).
     NgramRetriever(luisa::compute::Device &device,
                    luisa::compute::Stream &stream,
                    NgramLibrary &library,
                    uint32_t min_n, uint32_t max_n, uint32_t k,
                    uint32_t max_query_len, size_t batch_capacity,
                    NgramKernelVariant variant = NgramKernelVariant::naive,
-                   uint32_t block_size = 512u);
+                   uint32_t block_size = 512u,
+                   const NgramCountIndex *count_index = nullptr);
 
     [[nodiscard]] const NgramLibrary &library() const noexcept { return _lib; }
     [[nodiscard]] NgramKernelVariant variant() const noexcept { return _variant; }
@@ -124,7 +131,9 @@ private:
     uint32_t _block_size;
     RetrieveShader _shader;
     RetrieveShaderHash _shader_hash;
+    RetrieveShaderMle _shader_mle;
     NgramHashIndex _hash_index;
+    const NgramCountIndex *_count_index = nullptr;// trained table (parallel_mle)
     luisa::compute::Buffer<uint32_t> _queries_buf;
     luisa::compute::Buffer<uint32_t> _qlens_buf;
     luisa::compute::Buffer<uint32_t> _drafts_buf;

@@ -13,11 +13,13 @@ NgramRetriever::NgramRetriever(luisa::compute::Device &device,
                                uint32_t min_n, uint32_t max_n, uint32_t k,
                                uint32_t max_query_len, size_t batch_capacity,
                                NgramKernelVariant variant,
-                               uint32_t block_size)
+                               uint32_t block_size,
+                               const NgramCountIndex *count_index)
     : _device(device), _stream(stream), _lib(library),
       _min_n(min_n), _max_n(max_n), _k(k),
       _query_stride(std::max(max_n, max_query_len)),
-      _capacity(batch_capacity), _variant(variant), _block_size(block_size) {
+      _capacity(batch_capacity), _variant(variant), _block_size(block_size),
+      _count_index(count_index) {
     LUISA_ASSERT(min_n >= 1u, "min_n must be >= 1");
     LUISA_ASSERT(min_n <= max_n, "min_n must be <= max_n");
     LUISA_ASSERT(k >= 1u, "k must be >= 1");
@@ -25,7 +27,8 @@ NgramRetriever::NgramRetriever(luisa::compute::Device &device,
     LUISA_ASSERT(_lib.size() > 0, "library must not be empty");
     LUISA_ASSERT(_lib.size() <= 0xFFFFFFFFu, "library exceeds uint32 indexing");
     LUISA_ASSERT(batch_capacity > 0, "batch capacity must be >= 1");
-    if (variant == NgramKernelVariant::parallel) {
+    if (variant == NgramKernelVariant::parallel ||
+        variant == NgramKernelVariant::parallel_mle) {
         LUISA_ASSERT(max_n <= ngram_max_suffix_tokens,
                      "max_n {} exceeds the parallel kernel suffix capacity {}",
                      max_n, ngram_max_suffix_tokens);
@@ -59,17 +62,36 @@ NgramRetriever::NgramRetriever(luisa::compute::Device &device,
             _shader = _device.compile(make_retrieve_parallel_kernel(_block_size));
             break;
         case NgramKernelVariant::hash: {
-            luisa::Clock clock;
-            clock.tic();
-            _hash_index = build_ngram_hash_index(luisa::span{_lib.tokens}, _min_n, _max_n);
-            const double build_ms = clock.toc();
-            _hash_index.keys_buf = _device.create_buffer<uint64_t>(_hash_index.keys.size());
-            _hash_index.pos_buf = _device.create_buffer<uint32_t>(_hash_index.pos.size());
-            _stream << _hash_index.keys_buf.view().copy_from(luisa::span{_hash_index.keys})
-                    << _hash_index.pos_buf.view().copy_from(luisa::span{_hash_index.pos});
-            LUISA_INFO("hash index: {} slots (2^{}), built in {:.2f} ms",
-                       _hash_index.keys.size(), _hash_index.cap_log2, build_ms);
+            if (count_index != nullptr) {
+                // trained count index: layout-compatible with the retrieval
+                // hash index over the shared [min_n, max_n] range (same keys,
+                // probe order and earliest positions), so K3 runs on it
+                // unchanged; its buffers are selected at dispatch time via
+                // _count_index (Buffer handles are move-only).
+                _hash_index.cap_log2 = count_index->cap_log2;
+                LUISA_INFO("hash retrieval on the trained count index: {} slots (2^{})",
+                           uint64_t{1} << count_index->cap_log2, count_index->cap_log2);
+            } else {
+                luisa::Clock clock;
+                clock.tic();
+                _hash_index = build_ngram_hash_index(luisa::span{_lib.tokens}, _min_n, _max_n);
+                const double build_ms = clock.toc();
+                _hash_index.keys_buf = _device.create_buffer<uint64_t>(_hash_index.keys.size());
+                _hash_index.pos_buf = _device.create_buffer<uint32_t>(_hash_index.pos.size());
+                _stream << _hash_index.keys_buf.view().copy_from(luisa::span{_hash_index.keys})
+                        << _hash_index.pos_buf.view().copy_from(luisa::span{_hash_index.pos});
+                LUISA_INFO("hash index: {} slots (2^{}), built in {:.2f} ms",
+                           _hash_index.keys.size(), _hash_index.cap_log2, build_ms);
+            }
             _shader_hash = _device.compile(make_retrieve_hash_kernel(_hash_index.cap_log2));
+            break;
+        }
+        case NgramKernelVariant::parallel_mle: {
+            LUISA_ASSERT(count_index != nullptr,
+                         "parallel_mle requires a trained NgramCountIndex "
+                         "(see NgramTrainer)");
+            _shader_mle = _device.compile(
+                make_retrieve_parallel_mle_kernel(_block_size, count_index->cap_log2));
             break;
         }
     }
@@ -112,14 +134,28 @@ void NgramRetriever::dispatch_queries(size_t num_queries) {
                                _min_n, _max_n, _k, _req_off_buf)
                            .dispatch(static_cast<uint32_t>(num_queries) * _block_size);
             break;
-        case NgramKernelVariant::hash:
+        case NgramKernelVariant::hash: {
+            const auto &keys_buf = _count_index != nullptr ? _count_index->keys_buf
+                                                           : _hash_index.keys_buf;
+            const auto &pos_buf = _count_index != nullptr ? _count_index->pos_buf
+                                                          : _hash_index.pos_buf;
             _stream << _shader_hash(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
                                     _queries_buf, _qlens_buf, _query_stride,
                                     _drafts_buf, _draft_lens_buf,
                                     _min_n, _max_n, _k,
-                                    _hash_index.keys_buf, _hash_index.pos_buf,
+                                    keys_buf, pos_buf,
                                     _req_off_buf)
                            .dispatch(static_cast<uint32_t>(num_queries));
+            break;
+        }
+        case NgramKernelVariant::parallel_mle:
+            _stream << _shader_mle(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                                   _queries_buf, _qlens_buf, _query_stride,
+                                   _drafts_buf, _draft_lens_buf,
+                                   _min_n, _max_n, _k,
+                                   _count_index->keys_buf, _count_index->pos_buf,
+                                   _count_index->counts_buf, _req_off_buf)
+                           .dispatch(static_cast<uint32_t>(num_queries) * _block_size);
             break;
     }
 }
@@ -211,14 +247,28 @@ void NgramRetriever::dispatch_request(luisa::compute::Stream &stream,
                               _min_n, _max_n, _k, off_buf)
                           .dispatch(row_count * _block_size);
             break;
-        case NgramKernelVariant::hash:
+        case NgramKernelVariant::hash: {
+            const auto &keys_buf = _count_index != nullptr ? _count_index->keys_buf
+                                                           : _hash_index.keys_buf;
+            const auto &pos_buf = _count_index != nullptr ? _count_index->pos_buf
+                                                          : _hash_index.pos_buf;
             stream << _shader_hash(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
                                    _queries_buf, _qlens_buf, _query_stride,
                                    _drafts_buf, _draft_lens_buf,
                                    _min_n, _max_n, _k,
-                                   _hash_index.keys_buf, _hash_index.pos_buf,
+                                   keys_buf, pos_buf,
                                    off_buf)
                           .dispatch(row_count);
+            break;
+        }
+        case NgramKernelVariant::parallel_mle:
+            stream << _shader_mle(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                                  _queries_buf, _qlens_buf, _query_stride,
+                                  _drafts_buf, _draft_lens_buf,
+                                  _min_n, _max_n, _k,
+                                  _count_index->keys_buf, _count_index->pos_buf,
+                                  _count_index->counts_buf, off_buf)
+                          .dispatch(row_count * _block_size);
             break;
     }
 }
@@ -247,13 +297,27 @@ void NgramRetriever::dispatch_requests_multi(
                                _min_n, _max_n, _k, off_buf)
                            .dispatch(dispatch_sizes);
             break;
-        case NgramKernelVariant::hash:
+        case NgramKernelVariant::hash: {
+            const auto &keys_buf = _count_index != nullptr ? _count_index->keys_buf
+                                                           : _hash_index.keys_buf;
+            const auto &pos_buf = _count_index != nullptr ? _count_index->pos_buf
+                                                          : _hash_index.pos_buf;
             _stream << _shader_hash(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
                                     _queries_buf, _qlens_buf, _query_stride,
                                     _drafts_buf, _draft_lens_buf,
                                     _min_n, _max_n, _k,
-                                    _hash_index.keys_buf, _hash_index.pos_buf,
+                                    keys_buf, pos_buf,
                                     off_buf)
+                           .dispatch(dispatch_sizes);
+            break;
+        }
+        case NgramKernelVariant::parallel_mle:
+            _stream << _shader_mle(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                                   _queries_buf, _qlens_buf, _query_stride,
+                                   _drafts_buf, _draft_lens_buf,
+                                   _min_n, _max_n, _k,
+                                   _count_index->keys_buf, _count_index->pos_buf,
+                                   _count_index->counts_buf, off_buf)
                            .dispatch(dispatch_sizes);
             break;
     }

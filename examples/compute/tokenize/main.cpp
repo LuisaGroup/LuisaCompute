@@ -1,4 +1,4 @@
-// N-gram tokenize + retrieve example.
+// N-gram tokenize + retrieve + train example.
 //
 // Ports vLLM's ngram speculative-decoding "prompt lookup" proposer
 // (vllm/v1/spec_decode/ngram_proposer.py) to a LuisaCompute DSL kernel.
@@ -9,18 +9,27 @@
 // extracting the k tokens that follow it — runs ENTIRELY in a DSL kernel;
 // the host only does I/O, buffer management and dispatch.
 //
+// Training ("training = counting") builds an n-gram count table over the
+// same flat corpus with the retriever's own window rule, adds learned
+// draft-confidence scores and an MLE-continuation retrieval variant
+// (parallel_mle), and -- optionally, in LM mode -- the classic
+// <s>/</s>/<UNK> + smoothing + perplexity language model. See
+// ngram_trainer.h / ngram_train_kernels.h.
+//
 // Usage:
-//   tokenizer <backend>                     run the small demo
+//   tokenizer <backend>                     run the small retrieval demo
+//   tokenizer <backend> --train             run the training demo (LM mirror)
 //   tokenizer <backend> --test              run the function test suite
 //   tokenizer <backend> --benchmark [opts]  run the performance benchmark
 //     benchmark options:
-//       --kernel naive|parallel|hash  kernel variant (default: parallel)
+//       --kernel naive|parallel|hash|parallel_mle  kernel variant (default: parallel)
 //       --lib-size N                  corpus size in tokens (default: 4194304)
 //       --queries N                   query batch size (default: 1024)
 //       --reps N                      timed repetitions (default: 20)
 //       --min-n N --max-n N --k N     retrieval parameters (2 / 4 / 5)
 //       --block-size N                threads per query block, parallel kernel
 //       --vocab N --seed N            corpus generator knobs
+//       --bench-train                 time the training stages instead
 
 #include "ngram_library.h"
 #include "ngram_retriever.h"
@@ -34,9 +43,10 @@
 #include <cstdio>
 #include <cstring>
 
-// Implemented in test_tokenize.cpp / benchmark_tokenize.cpp.
+// Implemented in test_tokenize.cpp / benchmark_tokenize.cpp / train_demo.cpp.
 int run_tests(int argc, char *argv[]);
 int run_benchmark(int argc, char *argv[]);
+int run_train_demo(int argc, char *argv[]);
 
 namespace {
 
@@ -116,21 +126,24 @@ int run_demo(int argc, char *argv[]) {
 void print_usage(const char *exe) {
     std::fprintf(stderr,
                  "Usage:\n"
-                 "  %s <backend>                     demo\n"
+                 "  %s <backend>                     retrieval demo\n"
+                 "  %s <backend> --train             training demo (LM mirror)\n"
                  "  %s <backend> --test              function tests\n"
                  "  %s <backend> --benchmark [opts]  benchmark\n"
-                 "    --kernel naive|parallel|hash  kernel variant (default: parallel)\n"
+                 "    --kernel naive|parallel|hash|parallel_mle\n"
+                 "                                  kernel variant (default: parallel)\n"
                  "    --lib-size N                  corpus tokens (default: 4194304)\n"
                  "    --queries N                   query batch (default: 1024)\n"
                  "    --reps N                      timed repetitions (default: 20)\n"
                  "    --min-n N --max-n N --k N     retrieval parameters (2 / 4 / 5)\n"
                  "    --block-size N                threads per query, parallel kernel\n"
                  "    --vocab N --seed N            corpus generator knobs\n"
+                 "    --bench-train                 time the training stages\n"
                  "  benchmark multi-request concurrency (stages of N requests):\n"
                  "    --requests N                  request count (0 = off, default)\n"
                  "    --req-queries N               queries per request (default: --queries)\n"
                  "    --multi-mode seq|pipeline|fiber|multi|all  (default: all)\n",
-                 exe, exe, exe);
+                 exe, exe, exe, exe);
 }
 
 }// namespace
@@ -143,6 +156,9 @@ int main(int argc, char *argv[]) {
     for (int i = 2; i < argc; ++i) {
         if (std::strcmp(argv[i], "--test") == 0) {
             return run_tests(argc, argv);
+        }
+        if (std::strcmp(argv[i], "--train") == 0) {
+            return run_train_demo(argc, argv);
         }
         if (std::strcmp(argv[i], "--benchmark") == 0) {
             return run_benchmark(argc, argv);

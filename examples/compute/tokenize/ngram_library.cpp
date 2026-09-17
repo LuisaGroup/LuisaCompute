@@ -32,23 +32,10 @@ void NgramLibrary::finalize() {
     _finalized = true;
 }
 
-namespace {
-
-// FNV-1a 64 over the raw little-endian bytes of n uint32 tokens. The device
-// kernel reproduces this hash exactly.
-[[nodiscard]] uint64_t fnv1a64_tokens(const uint32_t *tokens, uint32_t n) noexcept {
-    uint64_t h = 14695981039346656037ull;
-    for (uint32_t i = 0; i < n; ++i) {
-        uint64_t w = tokens[i];
-        for (auto b = 0; b < 4; ++b) {
-            h ^= (w >> (b * 8)) & 0xFFu;
-            h *= 1099511628211ull;
-        }
-    }
-    return h;
+uint32_t NgramLibrary::find_token(luisa::string_view word) const noexcept {
+    auto it = _vocab.find(NgramTokenizer::normalize(word));
+    return it == _vocab.end() ? ngram_invalid_id : it->second;
 }
-
-}// namespace
 
 NgramHashIndex build_ngram_hash_index(luisa::span<const uint32_t> corpus,
                                       uint32_t min_n, uint32_t max_n) {
@@ -76,7 +63,7 @@ NgramHashIndex build_ngram_hash_index(luisa::span<const uint32_t> corpus,
         if (n >= lib_len) break;
         const uint32_t p_end = lib_len - n;// positions must keep p + n < lib_len
         for (uint32_t p = 0; p < p_end; ++p) {
-            uint64_t key = fnv1a64_tokens(corpus.data() + p, n);
+            uint64_t key = detail::fnv1a64_tokens(corpus.data() + p, n);
             if (key == 0ull) key = 1ull;// reserve 0 for empty slots
             uint64_t slot = (key * 0x9E3779B97F4A7C15ull) >> (64 - cap_log2);
             for (;;) {
@@ -99,6 +86,78 @@ NgramHashIndex build_ngram_hash_index(luisa::span<const uint32_t> corpus,
                 }
                 slot = (slot + 1ull) & mask;
             }
+        }
+    }
+    return index;
+}
+
+NgramCountIndex build_ngram_count_index(luisa::span<const uint32_t> corpus,
+                                        uint32_t min_n, uint32_t max_n) {
+    const uint32_t lib_len = static_cast<uint32_t>(corpus.size());
+    LUISA_ASSERT(min_n >= 1u && min_n <= max_n, "invalid n-gram range");
+    LUISA_ASSERT(lib_len > 0, "corpus must not be empty");
+ // per position p with p + n < lib_len: the length-n retrievable prefix
+ // window; plus, at every position with p + max_n < lib_len, the
+ // length-(max_n+1) continuation window (its last token may be the
+ // corpus's final token). Each window is indexed exactly once.
+ uint64_t entries_max = 0;
+ for (uint32_t n = min_n; n <= max_n; ++n) {
+ if (n < lib_len) entries_max += lib_len - n;
+ }
+ if (max_n < lib_len) entries_max += lib_len - max_n;
+    LUISA_ASSERT(entries_max > 0, "corpus too small for n-gram range");
+    // keep the load factor <= 1/2 so every probe chain reaches an empty slot
+    uint32_t cap_log2 = 1;
+    while ((uint64_t{1} << cap_log2) < entries_max * 2) ++cap_log2;
+    LUISA_ASSERT(cap_log2 < 64u, "table too large");
+    const uint64_t cap = uint64_t{1} << cap_log2;
+    const uint64_t mask = cap - 1;
+
+    NgramCountIndex index;
+    index.cap_log2 = cap_log2;
+    index.keys.assign(cap, 0ull);
+    index.pos.assign(cap, 0u);
+
+    // Insert the window of `len` tokens at position p (earliest position wins,
+    // FNV collisions disambiguated by content verification -- identical probe
+    // sequence to the device kernels).
+    auto insert = [&](uint32_t p, uint32_t len) {
+        uint64_t key = detail::fnv1a64_tokens(corpus.data() + p, len);
+        if (key == 0ull) key = 1ull; // reserve 0 for empty slots
+        uint64_t slot = (key * 0x9E3779B97F4A7C15ull) >> (64 - cap_log2);
+        for (;;) {
+            const uint64_t k = index.keys[slot];
+            if (k == 0ull) { // empty slot: insert
+                index.keys[slot] = key;
+                index.pos[slot] = p;
+                break;
+            }
+            if (k == key) {
+                const uint32_t q = index.pos[slot];
+                bool same = true;
+                for (uint32_t j = 0; same && j < len; ++j) {
+                    same = corpus[q + j] == corpus[p + j];
+                }
+                if (same) break; // already stored (and earlier)
+            }
+            slot = (slot + 1ull) & mask;
+        }
+    };
+
+    for (uint32_t n = min_n; n <= max_n; ++n) {
+        if (n >= lib_len) break;
+        const uint32_t p_end = lib_len - n; // positions keep p + n < lib_len
+        for (uint32_t p = 0; p < p_end; ++p) {
+            insert(p, n);// retrievable prefix window
+        }
+    }
+    // continuation windows of length max_n + 1: p + max_n < lib_len (the
+    // continuation token exists; the window may end exactly at the corpus
+    // end, i.e. p + (max_n + 1) == lib_len is allowed)
+    if (max_n < lib_len) {
+        const uint32_t p_end = lib_len - max_n;
+        for (uint32_t p = 0; p < p_end; ++p) {
+            insert(p, max_n + 1u);
         }
     }
     return index;

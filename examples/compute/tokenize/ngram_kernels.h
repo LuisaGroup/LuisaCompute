@@ -28,6 +28,10 @@ enum class NgramKernelVariant : uint32_t {
     naive = 0,   // K1: one thread per query, intentionally simple/slow
     parallel = 1,// K2: one block per query, strided scan + shared reduction
     hash = 2,    // K3 (optional): host-built n-gram hash index lookup
+    parallel_mle = 3,// K6 (optional, additive): K2 + trained count table;
+                     // among the matches of the winning length the block
+                     // proposes the MOST FREQUENT continuation (MLE argmax,
+                     // earliest position on ties). See ngram_train_kernels.h.
 };
 
 // Shared kernel signature (all variants). Kernel prototype args use the
