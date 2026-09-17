@@ -6,6 +6,8 @@
 #include <luisa/vstl/common.h>
 #include <luisa/core/first_fit.h>
 #include "../common/default_binary_io.h"
+#include "../common/command_reorder_switch.h"
+#include <luisa/backends/ext/command_reorder_ext.h>
 #include "vk_allocator.h"
 #include "sparse_residency_registry.h"
 #include <luisa/backends/ext/vk_config_ext.h>
@@ -73,6 +75,22 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
             luisa::make_shared<std::atomic_size_t>(0u)};
     size_t _native_image_state_acquisitions_since_sweep{};
     detail::SparseResidencyRegistry _sparse_residency_registry;
+    // Runtime command-reorder control. It lives as long as the device does, so
+    // `extension()` hands out its address without registering a factory.
+    class CommandReorderExtImpl final : public CommandReorderExt {
+        Device *_device;
+
+    public:
+        explicit CommandReorderExtImpl(Device *device) noexcept : _device{device} {}
+        [[nodiscard]] bool command_reorder_enabled() const noexcept override {
+            return _device->command_reorder_enabled();
+        }
+        void set_command_reorder_enabled(bool enabled) noexcept override {
+            _device->_command_reorder.set_enabled(enabled);
+        }
+    };
+    CommandReorderSwitch _command_reorder;
+    CommandReorderExtImpl _command_reorder_ext{this};
     std::mutex _ext_mtx;
     vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::unordered_set<Stream *> _streams;
@@ -233,6 +251,16 @@ public:
     auto &copy_queue_mtx() { return *_copy_queue_lock; }
     auto &sparse_queue_mtx() { return *_sparse_queue_lock; }
     VulkanDeviceConfigExt *config_ext() const { return _config_ext.get(); }
+    // Command-reorder switch sampled when a batch starts (see
+    // CommandReorderSwitch for the precedence of config extension, runtime
+    // override and LUISA_DISABLE_COMMAND_REORDER). Streams forward it to their
+    // CommandReorderVisitor once per batch.
+    [[nodiscard]] bool command_reorder_enabled() const noexcept {
+        return _command_reorder.enabled();
+    }
+    [[nodiscard]] CommandReorderSwitch &command_reorder_switch() noexcept {
+        return _command_reorder;
+    }
     auto binary_io() const { return _binary_io; }
     auto sampler_set() const { return _sampler_set; }
     auto bdls_buffer_set() const { return _bdls_buffer_set; }

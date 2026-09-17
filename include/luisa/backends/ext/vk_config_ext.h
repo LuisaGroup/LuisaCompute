@@ -94,6 +94,16 @@ public:
     [[nodiscard]] virtual uint32_t min_api_version() const noexcept {
         return 0u;
     }
+    // Command reordering merges consecutive commands whose resource accesses
+    // do not alias into one barrier-free layer, so several small dispatches
+    // can overlap on the GPU instead of being serialized by a pipeline
+    // barrier per command. Return false to submit the batch in strict order
+    // instead (a barrier boundary between every pair of commands), which is
+    // what LUISA_DISABLE_COMMAND_REORDER=1 forces process-wide. The backend
+    // queries this once per batch, so an override may change at runtime.
+    [[nodiscard]] virtual bool enable_command_reorder() const noexcept {
+        return true;
+    }
     [[nodiscard]] virtual bool enable_raytracing_feature() const noexcept {
         return true;
     }

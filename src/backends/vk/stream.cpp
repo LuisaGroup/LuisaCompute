@@ -2412,6 +2412,10 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     planned_argument_buffer_layout.status()));
         }
     };
+    // Reordering is decided once per batch: the visitor assigns each command to
+    // a barrier-free layer, or, when the switch is off, keeps strict submission
+    // order so this batch can be A/B compared against a reordered one.
+    _stream.reorder.set_enabled(device()->command_reorder_enabled());
     for (auto &&command : cmds) {
         if (command->tag() == Command::Tag::EShaderDispatchCommand) {
             auto c = static_cast<ShaderDispatchCommand const *>(command.get());
@@ -2456,6 +2460,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     const auto uniform_buffer_size =
         planned_argument_buffer_layout.size();
     auto cmd_lists = _stream.reorder.command_lists();
+    // Layer accounting is what decides how many barrier boundaries the batch is
+    // recorded with, so make it visible when debugging reorder behaviour.
+    size_t used_layers = 0u;
+    for (auto *head : cmd_lists) {
+        if (head != nullptr) used_layers++;
+    }
+    LUISA_VERBOSE("Vulkan command reorder: {} commands -> {} layers (reorder {}).",
+                  cmds.size(), used_layers,
+                  _stream.reorder.enabled() ? "on" : "off");
     auto clear_reorder = vstd::scope_exit([&] {
         _stream.reorder.clear();
     });

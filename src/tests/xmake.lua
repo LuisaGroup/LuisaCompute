@@ -72,6 +72,9 @@ end)
 test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindless.cpp", false, function()
     add_includedirs("../backends/common")
 end)
+test_proj("test_command_reorder_ranges", "unit/ext/test_command_reorder_ranges.cpp", false, function()
+    add_includedirs("../backends/common")
+end)
 test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
 if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
     test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
@@ -249,6 +252,12 @@ test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", fa
     add_deps("lc-tile")
     add_includedirs("$(projectdir)/examples")
 end)
+-- A/B benchmark for the vk/dx command-reordering pass; run with
+-- `xmake run benchmark_command_reorder vk` (or dx).
+test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp")
+-- Host-side counterpart measuring pure submission cost (GPU-idle kernels);
+-- run with `xmake run benchmark_command_reorder_host vk` (or dx).
+test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp")
 -- Backend selection is explicit at runtime. xmake does not build the SIMD or
 -- Metal4 plugins yet; no dependency on their CMake-only target names is added.
 test_proj("test_tile_xir_ranking", "unit/tile/bridge/test_xir_ranking.cpp", false, function()
@@ -336,6 +345,7 @@ test_proj("test_direct_texture_sampling", "unit/runtime/test_direct_texture_samp
 test_proj("test_metal_codegen_regressions", "unit/runtime/test_metal_codegen_regressions.cpp")
 test_proj("test_mipmap", "unit/runtime/test_mipmap.cpp")
 test_proj("test_motion_instance_keyframes", "unit/runtime/test_motion_instance_keyframes.cpp")
+test_proj("test_multi_dispatch", "unit/runtime/test_multi_dispatch.cpp")
 test_proj("test_pinned_mem", "unit/runtime/test_pinned_mem.cpp")
 test_proj("test_printer", "unit/runtime/test_printer.cpp")
 test_proj("test_printer_custom_callback", "unit/runtime/test_printer_custom_callback.cpp")

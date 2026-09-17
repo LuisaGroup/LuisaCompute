@@ -378,6 +378,13 @@ luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp  
 target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
 luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reorder_bindless.cpp LABELS "unit;unit_ext")
 target_include_directories(test_command_reorder_bindless PRIVATE ../backends/common)
+luisa_compute_add_test(test_command_reorder_ranges unit/ext/test_command_reorder_ranges.cpp LABELS "unit;unit_ext")
+target_include_directories(test_command_reorder_ranges PRIVATE ../backends/common)
+# A/B benchmark for the vk/dx command-reordering pass (needs a GPU device, so it
+# is not CTest-registered): benchmark_command_reorder <dx|vk> [dispatches] [threads] [iters] [rounds]
+luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
+# Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
+luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
 # Kernels are compiled from the DSL on a paired cuda device and imported into
@@ -991,6 +998,7 @@ if (TARGET luisa-compute-backend-metal4)
 endif ()
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
 luisa_compute_add_test(test_motion_instance_keyframes unit/runtime/test_motion_instance_keyframes.cpp LABELS "unit;unit_runtime")
+luisa_compute_add_test(test_multi_dispatch unit/runtime/test_multi_dispatch.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp)
 luisa_compute_add_test(test_printer             unit/runtime/test_printer.cpp)
 luisa_compute_add_test(test_printer_custom_callback unit/runtime/test_printer_custom_callback.cpp)

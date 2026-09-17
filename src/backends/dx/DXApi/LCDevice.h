@@ -3,6 +3,7 @@
 #include <luisa/runtime/device.h>
 #include <DXRuntime/Device.h>
 #include <DXRuntime/UpdateTileTracker.h>
+#include <luisa/backends/ext/command_reorder_ext.h>
 namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
@@ -24,6 +25,21 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
             }
         }
     };
+    // Runtime command-reorder control, implemented over the native device's
+    // switch. It lives as long as the device does, so `extension()` can hand out
+    // its address without registering a factory.
+    class CommandReorderExtImpl final : public CommandReorderExt {
+        LCDevice *_device;
+
+    public:
+        explicit CommandReorderExtImpl(LCDevice *device) noexcept : _device{device} {}
+        [[nodiscard]] bool command_reorder_enabled() const noexcept override {
+            return _device->native_device.command_reorder_enabled();
+        }
+        void set_command_reorder_enabled(bool enabled) noexcept override {
+            _device->native_device.command_reorder_switch().set_enabled(enabled);
+        }
+    } _command_reorder_ext{this};
 
 public:
     Device native_device;

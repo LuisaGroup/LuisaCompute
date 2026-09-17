@@ -4,6 +4,8 @@
 #include <luisa/core/stl/hash.h>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <utility>
 #include <luisa/vstl/common.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/raster_cmd.h>
@@ -129,11 +131,6 @@ public:
         }
         [[nodiscard]] bool operator!=(Range const &r) const noexcept { return !operator==(r); }
     };
-    struct RangeHash {
-        size_t operator()(Range const &r) const {
-            return hash64(&r, sizeof(Range), hash64_default_seed);
-        }
-    };
     struct ResourceView {
         int64_t read_layer = -1;
         int64_t write_layer = -1;
@@ -143,67 +140,123 @@ public:
         ResourceType type;
     };
     struct RangeHandle : public ResourceHandle {
-        using Map = vstd::ArenaHashMap<ArenaRef, Range, ResourceView, RangeHash>;
     private:
         ResourceView max_view;
         Range read_range{Range::empty()};
         Range write_range{Range::empty()};
-        Map views;
-        static constexpr uint GIVEUP_SIZE = 16;
+        // Disjoint intervals sorted by `min`, each carrying the highest
+        // read/write layer recorded for any access merged into it. Insertions
+        // clip colliding intervals at the new range's boundaries: the pieces
+        // outside keep their intervals and layers, the inside is replaced by
+        // the new range carrying the absorbed maximum layers. That keeps
+        // tracking precise for arbitrarily many disjoint ranges and
+        // near-optimal for overlapping ones. The previous design kept a
+        // bounded hash map of exact ranges and collapsed to a single union
+        // view once it overflowed, so any later access touching a previously
+        // recorded region was conservatively serialized (a false hazard) and
+        // range tracking silently degraded for batches touching more than 16
+        // distinct ranges of one resource.
+        vstd::vector<std::pair<Range, ResourceView>> views;
+
+        // First interval that can collide with `range`: the intervals are
+        // sorted and disjoint, so interval `i + 1` starts at or after
+        // interval `i`'s end and a binary search on `max` suffices.
+        [[nodiscard]] size_t _lower_bound(const Range &range) const noexcept {
+            size_t lo = 0u, hi = views.size();
+            while (lo < hi) {
+                auto mid = lo + (hi - lo) / 2u;
+                if (views[mid].first.max <= range.min) {
+                    lo = mid + 1u;
+                } else {
+                    hi = mid;
+                }
+            }
+            return lo;
+        }
+        // Insert the interval for one access, clipping the colliding window.
+        // `read_layer` and `write_layer` are this access's own contributions;
+        // the colliding intervals contribute their stored layers on top. Every
+        // recorded access stays covered by an interval whose layers bound the
+        // access's own from above (sound), and pieces of old intervals outside
+        // the new range keep their exact layers (precise).
+        void _emplace_layer(const Range &range, int64_t read_layer, int64_t write_layer) {
+            auto lo = _lower_bound(range);
+            auto hi = lo;
+            while (hi < views.size() && views[hi].first.collide(range)) {
+                auto &&view = views[hi].second;
+                read_layer = std::max(read_layer, view.read_layer);
+                write_layer = std::max(write_layer, view.write_layer);
+                hi++;
+            }
+            if (hi == lo) {
+                views.insert(views.begin() + lo,
+                             {range, ResourceView{read_layer, write_layer}});
+                return;
+            }
+            // Copy the boundary entries before mutating the vector, drop the
+            // colliding window, and insert the replacement entries (1-3 of
+            // them) at its position: the window can be shorter than the
+            // replacement (one interval clipped on both sides becomes three
+            // entries), so direct index assignment would write out of bounds.
+            auto first = views[lo];
+            auto last = views[hi - 1u];
+            views.erase(views.begin() + lo, views.begin() + hi);
+            auto pos = views.begin() + lo;
+            if (first.first.min < range.min) {
+                pos = views.insert(pos,
+                                   std::pair{Range::from_offset_size(first.first.min, range.min - first.first.min),
+                                             first.second}) +
+                    1;
+            }
+            pos = views.insert(pos, std::pair{range, ResourceView{read_layer, write_layer}}) + 1;
+            if (range.max < last.first.max) {
+                views.insert(pos,
+                             std::pair{Range::from_offset_size(range.max, last.first.max - range.max),
+                                       last.second});
+            }
+        }
 
     public:
-        RangeHandle(
-            ArenaRef &&pool) : views(GIVEUP_SIZE, std::move(pool)) {}
-        auto get_max_write_layer(Range const &range) {
-            int64_t layer = -1;
+        RangeHandle() noexcept {}
+        [[nodiscard]] auto get_max_write_layer(Range const &range) const noexcept {
             if (!range.collide(write_range))
-                return layer;
-            for (auto &&r : views) {
-                if (r.first.collide(range)) {
-                    layer = std::max<int64_t>(layer, r.second.write_layer);
-                    if (layer >= max_view.write_layer) {
-                        return layer;
-                    }
-                }
-            }
-            return layer;
-        }
-        auto get_max_read_layer(Range const &range) {
+                return int64_t{-1};
             int64_t layer = -1;
-            if (!range.collide(read_range))
-                return layer;
-            for (auto &&r : views) {
-                if (r.first.collide(range)) {
-                    layer = std::max<int64_t>(layer, r.second.read_layer);
-                    if (layer >= max_view.read_layer) {
-                        return layer;
-                    }
+            for (auto i = _lower_bound(range); i < views.size(); i++) {
+                auto &&[iv, view] = views[i];
+                // Sorted: no interval at or after this one collides, and every
+                // iterated one does.
+                if (iv.min >= range.max) {
+                    break;
+                }
+                layer = std::max<int64_t>(layer, view.write_layer);
+                if (layer >= max_view.write_layer) {
+                    break;
                 }
             }
             return layer;
         }
-        void clear_views() {
-            views.clear();
-            auto ite = views.try_emplace(read_range);
-            auto &value = ite.first.value();
-            value.read_layer = max_view.read_layer;
-            value.write_layer = max_view.write_layer;
-        };
+        [[nodiscard]] auto get_max_read_layer(Range const &range) const noexcept {
+            if (!range.collide(read_range))
+                return int64_t{-1};
+            int64_t layer = -1;
+            for (auto i = _lower_bound(range); i < views.size(); i++) {
+                auto &&[iv, view] = views[i];
+                if (iv.min >= range.max) {
+                    break;
+                }
+                layer = std::max<int64_t>(layer, view.read_layer);
+                if (layer >= max_view.read_layer) {
+                    break;
+                }
+            }
+            return layer;
+        }
         void emplace_read_layer(Range const &range, int64_t layer) {
             read_range.min = std::min(read_range.min, range.min);
             read_range.max = std::max(read_range.max, range.max);
             max_view.read_layer = std::max(layer, max_view.read_layer);
-            if (views.size() >= GIVEUP_SIZE) {
-                clear_views();
-            } else {
-                auto ite = views.try_emplace(range);
-                auto &read_layer = ite.first.value().read_layer;
-                if (ite.second) {
-                    read_layer = layer;
-                } else {
-                    read_layer = std::max<int64_t>(read_layer, layer);
-                }
-            }
+            _emplace_layer(range, layer, -1);
         }
         void emplace_write_layer(Range const &range, int64_t layer) {
             read_range.min = std::min(read_range.min, range.min);
@@ -212,20 +265,7 @@ public:
             write_range.max = std::max(write_range.max, range.max);
             max_view.read_layer = std::max(layer, max_view.read_layer);
             max_view.write_layer = std::max(layer, max_view.write_layer);
-            if (views.size() >= GIVEUP_SIZE) {
-                clear_views();
-            } else {
-                auto ite = views.try_emplace(range);
-                auto &read_layer = ite.first.value().read_layer;
-                auto &write_layer = ite.first.value().write_layer;
-                if (ite.second) {
-                    read_layer = layer;
-                    write_layer = layer;
-                } else {
-                    read_layer = std::max<int64_t>(read_layer, layer);
-                    write_layer = std::max<int64_t>(write_layer, layer);
-                }
-            }
+            _emplace_layer(range, layer, layer);
         }
     };
     struct NoRangeHandle : public ResourceHandle {
@@ -286,6 +326,13 @@ private:
     vstd::vector<CommandLink *> _cmd_list_tails;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
+    // Reordering switch (see set_enabled()). When it is off, add_command()
+    // ignores the hazard-derived layer and appends the command to a fresh
+    // layer of its own, so the emitted layer lists degenerate into the
+    // original submission order with a barrier boundary between every pair of
+    // commands. This is the pre-reorder behaviour the backends fall back to.
+    bool _enabled{true};
+    int64_t _seq_layer{0};
     int64_t _dispatch_layer;
     bool _use_accel_in_pass;
     bool _write_accel_in_pass;
@@ -312,7 +359,7 @@ private:
             if (try_result.second) {
                 auto mem = _arena.allocate(sizeof(RangeHandle), alignof(RangeHandle));
                 value = reinterpret_cast<RangeHandle *>(mem.handle + mem.offset);
-                new (value) RangeHandle{ArenaRef{_arena}};
+                new (value) RangeHandle{};
                 value->handle = canonical_handle;
                 value->type = target_type;
             }
@@ -383,6 +430,9 @@ private:
     // still execute in source order. This only pins intra-layer ordering;
     // layer assignment (and thus the number of layers) is unaffected.
     void add_command(Command const *cmd, int64_t layer) {
+        if (!_enabled) {
+            layer = _seq_layer++;
+        }
         if (static_cast<int64_t>(_cmd_lists.size()) <= layer) {
             _cmd_lists.resize(layer + 1);
             _cmd_list_tails.resize(layer + 1);
@@ -909,8 +959,15 @@ public:
     }
     void clear() noexcept {
         auto destroy_map = []<typename T>(T &t) noexcept {
+            // Handle objects are placement-constructed in the arena and
+            // RangeHandle additionally owns a heap interval vector, so run
+            // their destructors before the arena is reset.
+            for (auto &&i : t) {
+                std::destroy_at(i.second);
+            }
             t.~T();
         };
+        _seq_layer = 0;
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
@@ -932,10 +989,22 @@ public:
         new (&_no_range_resmap) decltype(_no_range_resmap)(64, ArenaRef{_arena});
         new (&_bindless_map) decltype(_bindless_map)(64, ArenaRef{_arena});
     }
-    ~CommandReorderVisitor() noexcept {}
+    // clear() also runs the destructors of the placement-constructed resource
+    // handles (RangeHandle owns a heap interval vector), so destruction must
+    // go through it instead of only releasing the arena.
+    ~CommandReorderVisitor() noexcept {
+        clear();
+    }
     [[nodiscard]] auto command_lists() const noexcept {
         return luisa::span{_cmd_lists};
     }
+    // Enable or disable reordering. It must be set before any command is
+    // visited for the current batch (clear() resets the sequence counter but
+    // keeps the flag, so backends assign it once per batch). When disabled,
+    // command_lists() yields exactly one command per layer in submission
+    // order, i.e. the batch is executed without any reordering.
+    void set_enabled(bool enabled) noexcept { _enabled = enabled; }
+    [[nodiscard]] bool enabled() const noexcept { return _enabled; }
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override {

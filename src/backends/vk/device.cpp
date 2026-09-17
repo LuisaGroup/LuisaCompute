@@ -655,6 +655,10 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         _binary_io = configs->binary_io;
         _inqueue_limit = configs->inqueue_buffer_limit;
     }
+    // The config extension seeds the runtime command-reorder switch. It can
+    // still be flipped later through CommandReorderExt, and
+    // LUISA_DISABLE_COMMAND_REORDER=1 wins over both.
+    _command_reorder.seed(_config_ext ? _config_ext->enable_command_reorder() : true);
     // Honor a compile-time minimum API version (xmake option
     // lc_vk_min_api_version) and an explicit config-extension override. The
     // runtime override wins over the compile-time define.
@@ -3770,6 +3774,9 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     return r;
 }
 DeviceExtension *Device::extension(vstd::string_view name) noexcept {
+    if (name == CommandReorderExt::name) {
+        return &_command_reorder_ext;
+    }
     auto ite = _exts.find(name);
     if (ite == _exts.end()) return nullptr;
     auto &v = ite->second;

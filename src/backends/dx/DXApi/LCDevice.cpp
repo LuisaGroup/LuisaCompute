@@ -658,6 +658,9 @@ void DxRasterExt::destroy_depth_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }
 DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
+    if (name == CommandReorderExt::name) {
+        return &_command_reorder_ext;
+    }
     auto ite = exts.find(name);
     if (ite == exts.end()) return nullptr;
     auto &v = ite->second;

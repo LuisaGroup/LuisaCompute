@@ -8,6 +8,7 @@
 #include <luisa/runtime/device.h>
 #include <DXRuntime/DxPtr.h>
 #include "../../common/default_binary_io.h"
+#include "../../common/command_reorder_switch.h"
 #include <luisa/backends/ext/dx_config_ext.h>
 #include <Resource/FeatureCheck.h>
 
@@ -108,5 +109,18 @@ public:
     void wait_fence(ID3D12Fence *fence, uint64 fenceIndex);
     static hlsl::ShaderCompiler *compiler();
     uint wave_size() const;
+    // Command-reorder switch sampled when a batch starts (see
+    // CommandReorderSwitch for the precedence of the device settings extension,
+    // the runtime CommandReorderExt override and LUISA_DISABLE_COMMAND_REORDER).
+    // LCCmdBuffer forwards it to its CommandReorderVisitor once per batch.
+    [[nodiscard]] bool command_reorder_enabled() const noexcept {
+        return _command_reorder.enabled();
+    }
+    [[nodiscard]] luisa::compute::CommandReorderSwitch &command_reorder_switch() noexcept {
+        return _command_reorder;
+    }
+
+private:
+    luisa::compute::CommandReorderSwitch _command_reorder;
 };
 }// namespace lc::dx

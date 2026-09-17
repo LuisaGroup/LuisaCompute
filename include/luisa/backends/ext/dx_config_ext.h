@@ -57,6 +57,15 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
     virtual bool UseEnhancedBarrier() const noexcept { return false; }
     virtual bool UseExperimental() const noexcept { return false; }
 
+    // Command reordering merges consecutive commands whose resource accesses do
+    // not alias into one barrier-free layer, so several small dispatches can
+    // overlap on the GPU instead of being serialized by a barrier per command.
+    // Return false to submit the batch in strict order instead (a barrier
+    // boundary between every pair of commands), which is what
+    // LUISA_DISABLE_COMMAND_REORDER=1 forces process-wide. The backend queries
+    // this once per batch, so an override may change at runtime.
+    [[nodiscard]] virtual bool EnableCommandReorder() const noexcept { return true; }
+
     // Return a custom Agility SDK version (0 = use default / D3D12_PREVIEW_SDK_VERSION)
     [[nodiscard]] virtual uint32_t GetSDKVersion() const noexcept { return 0u; }
 

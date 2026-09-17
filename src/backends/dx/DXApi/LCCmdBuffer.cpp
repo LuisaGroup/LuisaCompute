@@ -1305,6 +1305,10 @@ void LCCmdBuffer::Execute(
         visitor.bd = &cmd_builder;
         pp_visitor.bd = &cmd_builder;
         reorder.clear();
+        // Reordering is decided once per batch: the visitor groups resource-safe
+        // commands into barrier-free layers, or, when the switch is off, keeps
+        // strict submission order so batches can be A/B compared in one process.
+        reorder.set_enabled(device->command_reorder_enabled());
         size_t uniform_size = 0;
         auto add_size = [&](auto const &c, Argument const &a) {
             if (a.tag != Argument::Tag::UNIFORM) [[likely]]
@@ -1360,6 +1364,15 @@ void LCCmdBuffer::Execute(
             visitor.arg_buffer = {};
         }
         auto cmdLists = reorder.command_lists();
+    // Layer accounting decides how many barrier boundaries the batch is recorded
+    // with, so make it visible when debugging reorder behaviour.
+    size_t used_layers = 0u;
+    for (auto *head : cmdLists) {
+        if (head != nullptr) used_layers++;
+    }
+    LUISA_VERBOSE("DirectX command reorder: {} commands -> {} layers (reorder {}).",
+                  commands.size(), used_layers,
+                  reorder.enabled() ? "on" : "off");
         ID3D12DescriptorHeap *h[2] = {
             device->global_heap->GetHeap(),
             device->sampler_heap->GetHeap()};

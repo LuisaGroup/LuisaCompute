@@ -118,6 +118,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             use_experimental = device_settings->UseExperimental();
         }
     }
+    // The settings extension seeds the runtime command-reorder switch. It can
+    // still be flipped later through CommandReorderExt, and
+    // LUISA_DISABLE_COMMAND_REORDER=1 wins over both.
+    _command_reorder.seed(device_settings ? device_settings->EnableCommandReorder() : true);
 #ifndef LC_NO_HLSL_BUILTIN
     if (!device_settings || device_settings->LoadDXC()) {
         std::lock_guard lck(g_dxc_mutex);

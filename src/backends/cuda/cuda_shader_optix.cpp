@@ -408,13 +408,26 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             auto ptr = allocate_argument(sizeof(b));
             std::memcpy(ptr, &b, sizeof(b));
         }
-        // dispatch size and kernel id
-        auto ptr = allocate_argument(sizeof(uint4));
-        if (!command->is_indirect()) {
-            auto ds_and_kid = make_uint4(command->dispatch_size(), 0u);
-            std::memcpy(ptr, &ds_and_kid, sizeof(ds_and_kid));
-        }
+        // dispatch size and kernel id: the last 16 bytes of the
+        // argument buffer, updated before every direct launch
+        auto ls_kid_offset = static_cast<size_t>(allocate_argument(sizeof(uint4)) - argument_buffer->address());
+        auto write_ls_kid = [argument_buffer, ls_kid_offset](uint3 dispatch_size, uint32_t kernel_id) noexcept {
+            auto ds_and_kid = make_uint4(dispatch_size, kernel_id);
+            std::memcpy(argument_buffer->address() + ls_kid_offset,
+                        &ds_and_kid, sizeof(ds_and_kid));
+        };
         auto cuda_stream = encoder.stream()->handle();
+        // launch params are read from the argument buffer at execution time,
+        // so for batched dispatches the shared slot must be updated in stream
+        // order rather than overwritten from the host between async launches
+        auto launch_multi = [&](uint3 dispatch_size, uint32_t kernel_id, CUdeviceptr device_argument_buffer) noexcept {
+            write_ls_kid(dispatch_size, kernel_id);
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+                device_argument_buffer + ls_kid_offset,
+                argument_buffer->address() + ls_kid_offset,
+                sizeof(uint4), cuda_stream));
+            _do_launch(cuda_stream, device_argument_buffer, dispatch_size);
+        };
         if (argument_buffer->is_pooled()) [[likely]] {
             // for (direct) dispatches, if the argument buffer
             // is pooled, we can use the device pointer directly
@@ -428,11 +441,17 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else if (command->is_multiple_dispatch()) {
+                auto kernel_id = 0u;
                 for (auto s : command->dispatch_sizes()) {
-                    if (any(s == make_uint3(0u))) { continue; }
-                    _do_launch(cuda_stream, device_argument_buffer, s);
+                    if (any(s == make_uint3(0u))) {
+                        ++kernel_id;
+                        continue;
+                    }
+                    launch_multi(s, kernel_id, device_argument_buffer);
+                    ++kernel_id;
                 }
             } else {
+                write_ls_kid(command->dispatch_size(), 0u);
                 auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
             }
@@ -440,6 +459,9 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemAllocAsync(
                 &device_argument_buffer, _argument_buffer_size, cuda_stream));
+            if (!command->is_indirect() && !command->is_multiple_dispatch()) {
+                write_ls_kid(command->dispatch_size(), 0u);
+            }
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 device_argument_buffer, argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
@@ -450,9 +472,14 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else if (command->is_multiple_dispatch()) {
+                auto kernel_id = 0u;
                 for (auto s : command->dispatch_sizes()) {
-                    if (any(s == make_uint3(0u))) { continue; }
-                    _do_launch(cuda_stream, device_argument_buffer, s);
+                    if (any(s == make_uint3(0u))) {
+                        ++kernel_id;
+                        continue;
+                    }
+                    launch_multi(s, kernel_id, device_argument_buffer);
+                    ++kernel_id;
                 }
             } else {
                 auto s = command->dispatch_size();
