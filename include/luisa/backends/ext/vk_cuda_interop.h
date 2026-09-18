@@ -136,6 +136,13 @@ public:
     [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept { return _argument_usages; }
     // The reorder budget counts threads, so report the exact dispatch size.
     [[nodiscard]] uint3 max_dispatch_size() const noexcept override { return _dispatch_size; }
+    // The reorder pass tracks the module's accesses through its declared
+    // argument usages: a declared READ is a read-only contract (dispatches
+    // sharing the range merge into one barrier-free layer), a declared
+    // WRITE is exclusive over its range. This holds for raw (hand-written)
+    // function handles too - a kernel that writes through a pointer it
+    // declared READ violates its declaration and must not be launched
+    // with it.
     [[nodiscard]] bool requires_resource_state_isolation() const noexcept override { return true; }
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         traverse(*this, visitor);

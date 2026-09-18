@@ -313,10 +313,12 @@ using Reorder = CommandReorderVisitor<FakeReorderFuncTable, true>;
 class IsolatedBindlessCustomCommand final : public CustomDispatchCommand {
 private:
     Argument::BindlessArray _argument;
+    Usage _usage;
 
 public:
-    explicit IsolatedBindlessCustomCommand(uint64_t handle) noexcept
-        : _argument{handle} {}
+    explicit IsolatedBindlessCustomCommand(uint64_t handle,
+                                           Usage usage = Usage::READ) noexcept
+        : _argument{handle}, _usage{usage} {}
 
     [[nodiscard]] uint64_t custom_cmd_uuid() const noexcept override {
         return static_cast<uint64_t>(
@@ -338,12 +340,12 @@ public:
 
     void traverse_arguments(
         MutableArgumentVisitor &visitor) noexcept override {
-        visitor.visit(_argument, Usage::READ);
+        visitor.visit(_argument, _usage);
     }
 
     void traverse_arguments(
         ArgumentVisitor &visitor) const noexcept override {
-        visitor.visit(_argument, Usage::READ);
+        visitor.visit(_argument, _usage);
     }
 };
 
@@ -358,7 +360,10 @@ int main() {
         expect(direct_read_then_bindless(Usage::READ) == 1u);
     };
 
-    "isolated_native_bindless_state_has_its_own_resource_layer"_test = [] {
+    "isolated_custom_read_shares_layer_with_abstract_reads"_test = [] {
+        // A declared READ is a read-only contract: an isolated custom
+        // command reading a bindless array whose snapshot resource was
+        // already read merges into the same layer, before and after.
         constexpr auto texture = 14u;
         constexpr auto heap = 24u;
         auto state = std::make_shared<FakeReorderState>();
@@ -371,7 +376,38 @@ int main() {
         TextureDownloadCommand before{
             texture, PixelStorage::BYTE4, 0u,
             make_uint3(1u), before_data.data()};
-        IsolatedBindlessCustomCommand native{heap};
+        IsolatedBindlessCustomCommand native{heap, Usage::READ};
+        TextureDownloadCommand after{
+            texture, PixelStorage::BYTE4, 0u,
+            make_uint3(1u), after_data.data()};
+
+        before.accept(reorder);
+        native.accept(reorder);
+        after.accept(reorder);
+
+        expect(command_layer(reorder, &before) == 0u);
+        expect(command_layer(reorder, &native) == 0u)
+            << "a declared READ must merge with compatible reads";
+        expect(command_layer(reorder, &after) == 0u);
+    };
+
+    "isolated_custom_write_keeps_exclusive_layer"_test = [] {
+        // A declared WRITE stays exclusive over its snapshot resources: an
+        // isolated custom command writing through a bindless array takes
+        // its own layer between the surrounding reads.
+        constexpr auto texture = 14u;
+        constexpr auto heap = 24u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        std::array<std::byte, 4u> before_data{};
+        std::array<std::byte, 4u> after_data{};
+        TextureDownloadCommand before{
+            texture, PixelStorage::BYTE4, 0u,
+            make_uint3(1u), before_data.data()};
+        IsolatedBindlessCustomCommand native{heap, Usage::WRITE};
         TextureDownloadCommand after{
             texture, PixelStorage::BYTE4, 0u,
             make_uint3(1u), after_data.data()};
@@ -382,9 +418,9 @@ int main() {
 
         expect(command_layer(reorder, &before) == 0u);
         expect(command_layer(reorder, &native) == 1u)
-            << "an exact native state must not merge with a prior read";
+            << "a declared WRITE must not merge with a prior read (WAR)";
         expect(command_layer(reorder, &after) == 2u)
-            << "a following abstract read must start after the native state";
+            << "a following read must start after the write (RAW)";
     };
 
     "direct_read_waits_for_prior_bindless_write_snapshot"_test = [] {

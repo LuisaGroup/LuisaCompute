@@ -246,6 +246,106 @@ void test_dispatch_commands_use_same_tracking() {
     expect(eq(rotating.command_lists().size(), 4u));
 }
 
+// A custom dispatch command standing in for CudaKernelLaunchCommand: it
+// requests resource state isolation and declares per-argument usages. The
+// reorder pass tracks those declarations directly - a declared READ is a
+// read-only contract that can share a layer across dispatches, a declared
+// WRITE is exclusive over its range - with no opt-in beyond the declaration.
+class FakeCustomDispatchCommand final : public CustomDispatchCommand {
+private:
+    luisa::vector<Argument> _arguments;
+    luisa::vector<Usage> _usages;
+
+public:
+    FakeCustomDispatchCommand(luisa::vector<Argument> arguments,
+                              luisa::vector<Usage> usages) noexcept
+        : _arguments{std::move(arguments)},
+          _usages{std::move(usages)} {}
+    [[nodiscard]] uint64_t custom_cmd_uuid() const noexcept override {
+        return static_cast<uint64_t>(CustomCommandUUID::CUSTOM_DISPATCH);
+    }
+    [[nodiscard]] StreamTag stream_tag() const noexcept override {
+        return StreamTag::COMPUTE;
+    }
+    [[nodiscard]] uint3 max_dispatch_size() const noexcept override {
+        return make_uint3(1u);
+    }
+    [[nodiscard]] bool requires_resource_state_isolation() const noexcept override {
+        return true;
+    }
+    void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
+        for (auto i = 0u; i < _arguments.size(); ++i) {
+            visitor.visit(_arguments[i].buffer, _usages[i]);
+        }
+    }
+    void traverse_arguments(MutableArgumentVisitor &visitor) noexcept override {
+        for (auto i = 0u; i < _arguments.size(); ++i) {
+            visitor.visit(_arguments[i].buffer, _usages[i]);
+        }
+    }
+};
+
+void test_custom_dispatch_declared_usages() {
+    // The mode-0 batch shape: every dispatch reads the whole shared input
+    // buffer and writes its own disjoint output sub-range.
+    constexpr uint64_t input = 3u;
+    constexpr uint64_t output = 5u;
+    constexpr size_t range_size = 16u;
+    constexpr size_t input_size = 8u * range_size;
+    auto make_dispatch = [&](size_t output_offset) {
+        luisa::vector<Argument> arguments(2u);
+        arguments[0].tag = Argument::Tag::BUFFER;
+        arguments[0].buffer = {input, 0u, input_size};
+        arguments[1].tag = Argument::Tag::BUFFER;
+        arguments[1].buffer = {output, output_offset, range_size};
+        luisa::vector<Usage> usages{Usage::READ, Usage::WRITE};
+        return FakeCustomDispatchCommand{
+            std::move(arguments), std::move(usages)};
+    };
+    {
+        // Isolation does not upgrade declared-READ arguments: the shared
+        // input stays a read, the disjoint output writes do not collide,
+        // and all dispatches merge into one layer.
+        Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+        luisa::vector<std::unique_ptr<Command>> storage;
+        for (auto i = 0u; i < 8u; i++) {
+            auto cmd = std::make_unique<FakeCustomDispatchCommand>(
+                make_dispatch(i * range_size));
+            cmd->accept(reorder);
+            storage.emplace_back(std::move(cmd));
+        }
+        expect(eq(reorder.command_lists().size(), 1u));
+    }
+    {
+        // Write tracking is unchanged: dispatches writing the SAME output
+        // range still serialize per range chain.
+        Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+        luisa::vector<std::unique_ptr<Command>> storage;
+        for (auto i = 0u; i < 4u; i++) {
+            auto cmd = std::make_unique<FakeCustomDispatchCommand>(
+                make_dispatch(0u));
+            cmd->accept(reorder);
+            storage.emplace_back(std::move(cmd));
+        }
+        expect(eq(reorder.command_lists().size(), 4u));
+    }
+    {
+        // RAW: a declared read still orders after a prior write of the same
+        // range (the upload writes the input in layer 0, the dispatch
+        // reading it must land in layer 1).
+        Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+        luisa::vector<std::unique_ptr<Command>> storage;
+        std::array<std::byte, input_size> data{};
+        BufferUploadCommand upload{input, 0u, input_size, data.data()};
+        upload.accept(reorder);
+        auto first = std::make_unique<FakeCustomDispatchCommand>(
+            make_dispatch(0u));
+        first->accept(reorder);
+        storage.emplace_back(std::move(first));
+        expect(eq(reorder.command_lists().size(), 2u));
+    }
+}
+
 void test_disabled_switch_keeps_submission_order() {
     Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
     reorder.set_enabled(false);
@@ -572,6 +672,7 @@ static auto test_command_reorder_ranges_registration = [] {
     "cold range keeps its own layer"_test = [] { test_cold_range_keeps_its_own_layer(); };
     "disjoint after merge keeps precision"_test = [] { test_disjoint_after_merge_keeps_precision(); };
     "dispatch commands use same tracking"_test = [] { test_dispatch_commands_use_same_tracking(); };
+ "custom dispatch declared usages"_test = [] { test_custom_dispatch_declared_usages(); };
     "disabled switch keeps submission order"_test = [] { test_disabled_switch_keeps_submission_order(); };
     "oracle random sequences"_test = [] { test_oracle_random_sequences(); };
     "double clear and reuse"_test = [] { test_double_clear_and_reuse(); };

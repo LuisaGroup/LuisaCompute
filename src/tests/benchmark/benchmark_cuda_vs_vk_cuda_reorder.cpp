@@ -54,22 +54,27 @@
 //   mode 1 (rotate out, shared in): dispatch j writes sub-range (j % 16), i.e.
 //     genuine write-after-write chains, ideal layer count ceil(dispatches / 16).
 //   mode 2 / 3: same as 0 / 1, except that dispatch j reads its own input
-//     sub-range instead of the shared one. This is the control that isolates the
-//     effect of VkCudaInterop's fail-closed state isolation (see the note below):
-//     with per-dispatch inputs the imported CUDA launches stop colliding with
-//     each other and can merge into one layer as well.
+//     sub-range instead of the shared one. This is the control that isolates
+//     the input-sharing effect (see the note below): with per-dispatch inputs
+//     the input side cannot merge layers either way, so all modes behave the
+//     same.
 //
 // A note on the vk + CUDA route and reordering
 // -------------------------------------------
-// `CudaKernelLaunchCommand::requires_resource_state_isolation()` is true: the
-// backend cannot know what an opaque CUDA module touches (it gets raw device
-// addresses), so the reorder pass marks EVERY resource argument of an imported
-// kernel - including one declared READ - as an exclusive access over its range.
-// Consequence in mode 0/1: all dispatches share the read-only input buffer, so
-// each of them "writes" the same range and the batch is pushed back to one layer
-// per command, exactly the serialized shape reordering was meant to avoid. Mode
-// 2/3 removes that collision; the gap between the mode 0 and the mode 2 numbers
-// is what that fail-closed isolation costs.
+// `CudaKernelLaunchCommand` requests resource state isolation, but the
+// reorder pass tracks every argument with its DECLARED usage - the
+// declaration itself is the contract: a declared READ is trusted to be
+// read-only (concurrent reads of one range do not race, so dispatches that
+// share a read-only input merge into a single barrier-free layer), and a
+// declared WRITE is an exclusive access over its range, so RAW/WAW/WAR
+// chains serialize exactly as they do for native dispatches. This holds for
+// raw (hand-written) function handles too: a kernel that writes through a
+// pointer it declared READ violates its declaration and must not be
+// launched with it. The vk stream's ResourceBarrier has always recorded
+// these launches by declared usage (kComputeRead vs kComputeUAV), so the
+// reorder layer assignment is consistent with the actual barrier contract.
+// Mode 2/3 (private inputs) removes the input-side sharing, which is what
+// isolates the effect of the declared-usages rule.
 //
 // Examples:
 //   xmake run benchmark_cuda_vs_vk_cuda_reorder vk
@@ -95,16 +100,19 @@
 // 16 dispatches x 256 threads x 4096 iterations, medians in ms):
 //
 //                      A cuda     B vk+cuda    C vk+cuda    D vk native   A/C
-//   mode 0, shared in  3.972      4.007        3.957        0.541         1.00x
-//   mode 2, private in 3.969      4.010        0.318        0.535        12.48x
-//   mode 0, iters=1    0.213      0.173        0.111        0.076         1.91x
-//   mode 2, iters=1    0.179      0.163        0.069        0.074         2.58x
+//   mode 0, shared in  3.973      4.003        0.318        0.537        12.49x
+//   mode 2, private in 3.977      4.003        0.321        0.538        12.41x
+//   mode 0, iters=1    0.191      0.162        0.067        0.069         2.80x
+//   mode 2, iters=1    0.202      0.167        0.071        0.070         2.86x
 //
-// i.e. the reordered vk+CUDA route only wins once the dispatches stop sharing a
-// resource range (see the isolation note above); the verbose layer counts confirm
-// it directly - mode 0 logs "16 commands -> 16 layers (reorder on)" for the CUDA
-// launches and "16 commands -> 1 layers" for the native ones, mode 2 logs "-> 1
-// layers" for both.
+// i.e. with arguments tracked by their declared usages the reordered vk+CUDA
+// route wins in every mode, shared input or not; the verbose layer counts
+// confirm it directly - both mode 0 and mode 2 log "16 commands -> 1 layers
+// (reorder on)" for the imported CUDA launches and for the native ones. Mode 1
+// with 64 dispatches (genuine write-after-write chains) logs "64 commands ->
+// 4 layers" for both routes, matching the 16 rotating ranges, and still
+// validates bit-exactly against the strictly ordered reference - declared
+// READ merging does not weaken write tracking.
 //
 // Correctness
 // -----------
@@ -506,9 +514,10 @@ int main(int argc, char *argv[]) {
             "(VkCudaInterop::create_cuda_kernel).");
         return 1;
     }
-    // Imported CUDA kernel with the read/write intent baked into the signature:
-    // the reorder pass needs it to keep the shared input buffer non-exclusive and
-    // the per-dispatch output ranges exclusive, exactly like the DSL does.
+    // Imported CUDA kernel with the read/write intent baked into the
+    // signature: the reorder pass tracks the shared input buffer as the
+    // declared read and the per-dispatch output ranges as declared writes,
+    // exactly like the DSL does, so the batch can merge into one layer.
     auto vk_cuda_kernel = vk_cuda_shader.kernel<
         vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ>,
         vk_cuda_interop::CudaArg<Buffer<float4>, Usage::WRITE>,
@@ -558,22 +567,14 @@ int main(int argc, char *argv[]) {
                opt.mode, mode_name(opt.mode),
                opt.dispatches, opt.threads, opt.iters,
                opt.dispatches * opt.threads, kBlockSize);
-    // What the reorder pass can do with that shape. The CUDA-launch groups are
-    // capped by the fail-closed state isolation of imported kernels: with a
-    // shared input range every dispatch "writes" that range, so the layers cannot
-    // merge at all; with private inputs the two routes are expected to behave the
-    // same way. Rerun with verbose=1 to see the actual layer counts.
-    if ((opt.mode & kPrivateInput) != 0u) {
-        LUISA_INFO("Expected layers (reorder on): native vk ~{}, imported CUDA launch ~{}.",
-                   (opt.mode & kOutputRotate) != 0u ? (opt.dispatches + kRotateRanges - 1u) / kRotateRanges : 1u,
-                   (opt.mode & kOutputRotate) != 0u ? (opt.dispatches + kRotateRanges - 1u) / kRotateRanges : 1u);
-    } else {
-        LUISA_INFO("Expected layers (reorder on): native vk ~{}, imported CUDA launch {} "
-                   "(one per command: resource state isolation makes every kernel 'write' "
-                   "the shared input range).",
-                   (opt.mode & kOutputRotate) != 0u ? (opt.dispatches + kRotateRanges - 1u) / kRotateRanges : 1u,
-                   opt.dispatches);
-    }
+    // What the reorder pass can do with that shape: the declared-usages
+    // rule tracks the shared read-only input as a read for every launch
+    // route, so both the imported-CUDA and the native batches are expected
+    // to merge the same way (declared writes still serialize per range
+    // chain). Rerun with verbose=1 to see the actual layer counts.
+    LUISA_INFO("Expected layers (reorder on): native vk ~{}, imported CUDA launch ~{}.",
+               (opt.mode & kOutputRotate) != 0u ? (opt.dispatches + kRotateRanges - 1u) / kRotateRanges : 1u,
+               (opt.mode & kOutputRotate) != 0u ? (opt.dispatches + kRotateRanges - 1u) / kRotateRanges : 1u);
 
     // ---- correctness reference -----------------------------------------------------
     // Strictly ordered reference from the route that cannot reorder anything.
@@ -704,17 +705,15 @@ int main(int argc, char *argv[]) {
             LUISA_WARNING(
                 "  1) reordering changed nothing inside this route (B {:.3f} ms vs C {:.3f} "
                 "ms, {:.2f}x): the batch still runs as one layer per command, so C is back "
-                "in the same strictly serialized regime as A. This is the fail-closed rule "
-                "of imported kernels, not a barrier-cost accident - "
-                "CudaKernelLaunchCommand::requires_resource_state_isolation() is true, so "
-                "the reorder pass marks EVERY argument of every dispatch (including the one "
-                "declared READ) as an exclusive access over its range. With the shared "
-                "input range of mode {} all {} dispatches therefore 'write' the same range "
-                "and cannot share a layer. Rerun with mode {} (private input ranges, same "
-                "device work): the CUDA launches merge the way the native ones do and C "
-                "drops below A. Verbose runs show the counts directly.",
+                "in the same strictly serialized regime as A. A declared READ is a "
+                "read-only contract that must NOT serialize the {} dispatches over the "
+                "shared input of mode {} - check that command reordering is actually "
+                "enabled (verbose run: look for 'N commands -> M layers'), and that the "
+                "launches declare their usages (read()/write() or CudaArg) instead of "
+                "defaulting every argument to READ_WRITE. Rerun with mode {} (private "
+                "input ranges, same device work) to isolate the effect.",
                 b_batch.median, c_batch.median, b_batch.median / c_batch.median,
-                opt.mode, opt.dispatches, opt.mode ^ kPrivateInput);
+                opt.dispatches, opt.mode, opt.mode ^ kPrivateInput);
         } else {
             LUISA_WARNING(
                 "  1) reordering did help inside this route (B {:.3f} ms -> C {:.3f} ms, "

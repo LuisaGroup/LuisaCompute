@@ -787,38 +787,36 @@ private:
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
-        auto isolate_resource_states =
-            command->requires_resource_state_isolation();
-
+        // Every argument is tracked with its declared usage - the same
+        // contract a native dispatch gets from the shader's compiled
+        // usages. A declared READ is a read-only contract: concurrent
+        // reads of one range do not race, so dispatches that share a
+        // read-only argument (e.g. one input buffer) merge into a single
+        // barrier-free layer even when the command requests resource
+        // state isolation. A declared WRITE (or READ_WRITE) is an
+        // exclusive access over its range, so RAW/WAW/WAR chains still
+        // serialize exactly as they do for native dispatches. Isolation
+        // does not upgrade declared-READ arguments to writes: the
+        // declaration itself is the contract (see
+        // CustomDispatchCommand::requires_resource_state_isolation).
         auto f = [&]<typename T>(T const &t, Usage usage) {
             if constexpr (std::is_same_v<T, Argument::Buffer>) {
                 add_dispatch_handle(
                     t.handle,
                     ResourceType::Buffer,
                     buffer_range(t.offset, t.size),
-                    isolate_resource_states ||
-                        ((uint)usage & (uint)Usage::WRITE) != 0);
+                    ((uint)usage & (uint)Usage::WRITE) != 0);
             } else if constexpr (std::is_same_v<T, Argument::Texture>) {
-                if (isolate_resource_states) {
-                    add_dispatch_handle(
-                        t.handle,
-                        ResourceType::Texture,
-                        base_mip_range(t.level),
-                        true);
-                } else {
-                    add_texture_dispatch_handles(t.handle, t.level, usage);
-                }
-
+                add_texture_dispatch_handles(t.handle, t.level, usage);
             } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
                 add_bindless_dispatch_handles(
                     t.handle,
                     (static_cast<uint>(usage) &
                      static_cast<uint>(Usage::WRITE)) != 0u,
-                    isolate_resource_states);
+                    false);
             } else {
                 _use_accel_in_pass = true;
                 auto is_write =
-                    isolate_resource_states ||
                     (static_cast<uint>(usage) &
                      static_cast<uint>(Usage::WRITE)) != 0u;
                 _write_accel_in_pass |= is_write;
