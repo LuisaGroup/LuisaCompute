@@ -139,10 +139,55 @@ luisa_compute_add_example(example_multi_head_attention
         ml/attention_host_data.cpp
         ml/attention_cpu_reference.cpp
         ml/attention_runner.cpp
-        ml/paged_attention.cpp
-        MIRROR_AS_TEST)
+          ml/paged_attention.cpp
+          MIRROR_AS_TEST)
 
-# coroutine (headless)
+ # tensor: new Tile DSL port of backup_old_tile/examples/tensor (kernel suite
+ # + training demos). Headless; links luisa-compute-tile for tile::compile.
+ luisa_compute_add_example(example_tensor
+         tensor/main.cpp
+         tensor/tensor_kernels.cpp
+         tensor/kernel_elementwise_add.cpp
+         tensor/kernel_pipelined_matmul.cpp
+         tensor/kernel_rms_norm.cpp
+         tensor/kernel_tile_fill.cpp
+         tensor/kernel_tile_transpose.cpp
+         tensor/kernel_tile_clamp.cpp
+         tensor/kernel_tile_reduce.cpp
+         tensor/kernel_tile_scan.cpp
+         tensor/kernel_tile_min_abs.cpp
+         tensor/kernel_tile_sync.cpp
+         tensor/kernel_tile_warp_reduce.cpp
+         tensor/kernel_softmax.cpp
+         tensor/kernel_exp.cpp
+         tensor/kernel_log.cpp
+         tensor/kernel_sqrt.cpp
+         tensor/kernel_tanh.cpp
+         tensor/kernel_sigmoid.cpp
+         tensor/kernel_relu.cpp
+         tensor/kernel_leaky_relu.cpp
+         tensor/kernel_gelu.cpp
+         tensor/kernel_identity.cpp
+         tensor/kernel_reciprocal.cpp
+         tensor/kernel_neg.cpp
+         tensor/kernel_cast.cpp
+         tensor/kernel_pow.cpp
+         tensor/kernel_dtypes.cpp
+         tensor/poly_fit.cpp
+         tensor/poly_fit_kernels.cpp
+         tensor/linear_regression.cpp
+         tensor/linear_regression_kernels.cpp
+         tensor/mlp.cpp
+         tensor/mnist.cpp
+         tensor/cnn_inference.cpp
+         tensor/cnn_kernels.cpp
+         tensor/rnn.cpp
+         tensor/tensor_basics.cpp)
+ if (TARGET luisa-compute-tile)
+  target_link_libraries(example_tensor PRIVATE luisa-compute-tile luisa-compute-runtime luisa-compute-dsl luisa-compute-vstl)
+ endif ()
+
+ # coroutine (headless)
 luisa_compute_add_example(example_coro_external_stage_debug
         coro/external_stage_debug.cpp)
 luisa_compute_add_example(example_coro_external_stage_neural_sdf

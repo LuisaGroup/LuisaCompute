@@ -62,8 +62,19 @@ example_proj("example_image_process", "gui/image_process/main.cpp", true, functi
     end
 end)
 
-    -- compute
-    example_proj("example_helloworld", "compute/helloworld.cpp", false)
+      -- compute
+      example_proj("example_helloworld", "compute/helloworld.cpp", false)
+      -- tensor: new Tile DSL port of backup_old_tile/examples/tensor (kernel
+      -- suite + training demos). Headless; needs lc-tile for tile::compile.
+      example_proj("example_tensor", "tensor/main.cpp", false, function()
+          add_deps("lc-tile")
+          add_files("tensor/tensor_kernels.cpp", "tensor/kernel_*.cpp",
+                    "tensor/poly_fit.cpp", "tensor/poly_fit_kernels.cpp",
+                    "tensor/linear_regression.cpp", "tensor/linear_regression_kernels.cpp",
+                    "tensor/mlp.cpp", "tensor/mnist.cpp",
+                    "tensor/cnn_inference.cpp", "tensor/cnn_kernels.cpp",
+                    "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
+      end)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
