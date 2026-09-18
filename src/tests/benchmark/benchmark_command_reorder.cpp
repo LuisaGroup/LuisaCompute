@@ -291,8 +291,9 @@ int main(int argc, char *argv[]) {
         }
         output.write(tid, acc + reduction);
     };
-    // The shader cache round-trip is broken in this machine's release build
-    // (pre-existing: a fresh cache entry crashes on read-back), so bypass it.
+    // Cache bypassed so a measurement run never touches the shader cache on disk
+    // (a cache hit reads a file inside Device::compile). The round-trip itself is
+    // covered by test_vk_cuda_kernel_launch, which compiles with the cache on.
     auto shader = device.compile(heavy, ShaderOption{.enable_cache = false});
 
     LUISA_INFO("Batch shape: mode {} ({}), {} dispatches x {} threads x {} iterations "

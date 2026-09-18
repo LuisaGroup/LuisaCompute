@@ -1234,20 +1234,17 @@ private:
         auto path = std::filesystem::path{name};
         return path.is_absolute() ? path : dir / path.filename();
     }
-    [[nodiscard]] static luisa::unique_ptr<BinaryStream> open(luisa::string_view name, const std::filesystem::path &dir) {
-        auto path = resolve(dir, name);
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(path, ec)) { return {}; }
-        if (auto *file = std::fopen(path.string().c_str(), "rb")) [[likely]] {
-                          auto length = luisa::detail::get_c_file_length(file);
-            if (length == 0u) [[unlikely]] {
-                std::fclose(file);
-                return {};
-            }
-            return luisa::make_unique<BinaryFileStream>(file, length);
-        }
-        return {};
-    }
+      [[nodiscard]] static luisa::unique_ptr<BinaryStream> open(luisa::string_view name, const std::filesystem::path &dir) {
+          auto path = resolve(dir, name);
+          std::error_code ec;
+          if (!std::filesystem::is_regular_file(path, ec)) { return {}; }
+          // Let BinaryFileStream open the file itself: the FILE* must be created and
+          // consumed by the same CRT instance (luisa-core), see the note at the top
+          // of luisa/core/binary_file_stream.h.
+          auto stream = luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
+          if (!stream->valid() || stream->length() == 0u) [[unlikely]] { return {}; }
+          return stream;
+      }
     [[nodiscard]] luisa::filesystem::path store(const std::filesystem::path &dir, luisa::string_view name, luisa::span<std::byte const> data) const {
         auto path = resolve(dir, name);
         write_bytes(path, data);

@@ -286,6 +286,32 @@ public:
     }
 
     ~ContextImpl() noexcept {
+        // Backend plugins are deliberately left mapped: release() hands the handle
+        // to the OS loader instead of freeing it.
+        //
+        // Loading a GPU backend does more than make create/destroy reachable - it
+        // lets the backend and the driver it pulls in (nvcuda.dll for the cuda
+        // backend) register process-detach and thread-notification state that points
+        // back into the module image. FreeLibrary leaves those references dangling,
+        // and the next time the loader walks them - LdrShutdownProcess during
+        // ExitProcess - it branches into an address that belongs to no mapped module
+        // any more. On Windows that showed up as an execute access violation
+        // (0xC0000005 with param[0] == 8 and the ip outside every loaded module)
+        // after the program had already finished all of its work, in every process
+        // that had created a cuda device; keeping the plugins loaded makes it go
+        // away (test_cuda_graph went from 0xC0000005 to a clean exit).
+        //
+        // Plugin images are process-lifetime resources anyway: the per-device state
+        // is torn down by the device destructors, and the mappings are reclaimed
+        // with the process. Repeated Context create/destroy cycles only bump the
+        // loader's module reference count.
+        for (auto &&[backend_name, backend_module] : loaded_backends) {
+            static_cast<void>(backend_name);
+            if (backend_module) {
+                static_cast<void>(backend_module->module.release());
+            }
+        }
+        static_cast<void>(validation_layer.module.release());
         DynamicModule::remove_search_path(runtime_directory);
     }
 };

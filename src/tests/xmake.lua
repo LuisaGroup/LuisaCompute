@@ -258,6 +258,14 @@ test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp"
 -- Host-side counterpart measuring pure submission cost (GPU-idle kernels);
 -- run with `xmake run benchmark_command_reorder_host vk` (or dx).
 test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp")
+-- cuda-backend dispatch vs. CUDA kernels launched through the Vulkan runtime
+-- (VK_NV_cuda_kernel_launch) with the reorder pass on/off; run with
+-- `xmake run benchmark_cuda_vs_vk_cuda_reorder vk`. It needs both the vk and the
+-- cuda backend plus the vk-side CUDA interop, so it is only built when the
+-- matching options are on.
+if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") and has_config("lc_vk_backend") then
+ test_proj("benchmark_cuda_vs_vk_cuda_reorder", "benchmark/benchmark_cuda_vs_vk_cuda_reorder.cpp")
+end
 -- Backend selection is explicit at runtime. xmake does not build the SIMD or
 -- Metal4 plugins yet; no dependency on their CMake-only target names is added.
 test_proj("test_tile_xir_ranking", "unit/tile/bridge/test_xir_ranking.cpp", false, function()

@@ -390,7 +390,14 @@ get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE
 # Kernels are compiled from the DSL on a paired cuda device and imported into
 # the VK extension, so the cuda backend is required.
 if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
-    luisa_compute_add_test(test_vk_cuda_kernel_launch integration/runtime/test_vk_cuda_kernel_launch.cpp)
+ luisa_compute_add_test(test_vk_cuda_kernel_launch integration/runtime/test_vk_cuda_kernel_launch.cpp)
+endif ()
+# cuda-backend dispatch vs. CUDA kernels launched through the Vulkan runtime
+# (VK_NV_cuda_kernel_launch) with the reorder pass on/off. Needs the vk backend,
+# the cuda backend and the vk-side CUDA interop; run it manually with
+# `benchmark_cuda_vs_vk_cuda_reorder vk` (it is not CTest-registered).
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_VULKAN)
+ luisa_compute_add_test(benchmark_cuda_vs_vk_cuda_reorder benchmark/benchmark_cuda_vs_vk_cuda_reorder.cpp)
 endif ()
 luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.cpp  LABELS "unit;unit_ext")
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
@@ -916,6 +923,8 @@ luisa_compute_add_test(test_polymorphic            unit/dsl/test_polymorphic.cpp
 luisa_compute_add_test(test_dsl_autodiff           unit/dsl/test_autodiff.cpp)
 luisa_compute_add_test(test_async_copy              unit/dsl/test_async_copy.cpp)
 luisa_compute_add_test(test_async_copy_cuda        unit/runtime/test_async_copy_cuda.cpp)
+# shader-cache round trip (compile -> cache write -> recompile from cache); needs a GPU device
+luisa_compute_add_test(test_shader_cache_round_trip unit/runtime/test_shader_cache_round_trip.cpp)
 luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---

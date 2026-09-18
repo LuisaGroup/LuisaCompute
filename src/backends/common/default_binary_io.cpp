@@ -33,20 +33,27 @@ public:
 };
 
 class LockedBinaryFileStream : public BinaryStream {
-
 private:
     BinaryFileStream _stream;
     DefaultBinaryIO const *_binary_io;
     DefaultBinaryIO::MapIndex _idx;
 
 public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
-        : _stream{file, length},
+    // The path constructor opens the file *inside luisa-core*, and every later
+    // fread/fclose happens there too. That matters because each of these modules
+    // statically links its own MSVC CRT: a FILE* created in a backend is only an
+    // index into that backend's descriptor table, so handing one over to core makes
+    // core seek/read a descriptor it does not own. The UCRT rejects it with an
+    // invalid-parameter fastfail (0xC0000409, hit by any shader-cache read that
+    // actually found an entry) and reports a bogus length in release builds.
+    LockedBinaryFileStream(DefaultBinaryIO const *binary_io, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
+        : _stream{path},
           _binary_io{binary_io},
           _idx{idx} {}
     ~LockedBinaryFileStream() noexcept override {
         _binary_io->_unlock(_idx, false);
     }
+    [[nodiscard]] bool valid() const noexcept { return _stream.valid(); }
     [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
     [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }
     void read(luisa::span<std::byte> dst) noexcept override {
@@ -56,19 +63,14 @@ public:
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
     auto idx = _lock(file_path, false);
-    auto file = std::fopen(file_path.c_str(), "rb");
-    if (file) {
-        auto length = luisa::detail::get_c_file_length(file);
-        if (length == 0) [[unlikely]] {
-            _unlock(idx, false);
-            return nullptr;
-        }
-        return luisa::make_unique<LockedBinaryFileStream>(this, file, length, file_path, std::move(idx));
-    } else {
-        _unlock(idx, false);
-        LUISA_VERBOSE("Read file {} failed.", file_path);
-        return nullptr;
-    }
+    // The stream opens the file itself, and its destructor releases the read lock,
+    // so returning early below unwinds everything the previous code did by hand.
+    auto stream = luisa::make_unique<LockedBinaryFileStream>(this, file_path, std::move(idx));
+    // The stream opens the file itself, and its destructor releases the read lock,
+    // so returning early below unwinds everything the previous code did by hand.
+    // BinaryFileStream's constructor already reports a failed open.
+    if (!stream->valid() || stream->length() == 0u) [[unlikely]] { return nullptr; }
+    return stream;
 }
 
 DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool is_write) const noexcept {
