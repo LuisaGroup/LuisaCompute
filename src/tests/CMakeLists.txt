@@ -1395,7 +1395,8 @@ endif ()
 
 # --- integration/runtime: DX-only tests ---
 if (LUISA_COMPUTE_ENABLE_DX)
-    luisa_compute_add_test(test_raster         integration/runtime/test_raster.cpp)
+      luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp)
+      luisa_compute_add_test(test_imgui_raster_offline integration/runtime/test_imgui_raster_offline.cpp)
     luisa_compute_add_test(test_memory_compact integration/runtime/test_memory_compact.cpp)
     # test_work_graph disabled: work_graph headers not yet available
     # luisa_compute_add_test(test_work_graph      integration/runtime/test_work_graph.cpp     ARGS dx)

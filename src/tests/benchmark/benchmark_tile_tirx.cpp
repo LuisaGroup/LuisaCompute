@@ -591,8 +591,8 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto c = device.create_buffer<float>(output.size());
     std::optional<Buffer<float>> d;
     if (paired) { d = device.create_buffer<float>(output.size()); }
-    stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data())
-           << labels.copy_from(host_labels.data()) << c.copy_from(output.data())
+    stream << a.copy_from(luisa::span{host_a}) << b.copy_from(luisa::span{host_b})
+           << labels.copy_from(luisa::span{host_labels}) << c.copy_from(luisa::span{output})
            << synchronize();
     auto upload_ms = milliseconds(start);
     auto submit = [&](uint64_t repetitions) {
@@ -633,7 +633,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     luisa::test::MetalBenchmarkTiming device_timing{true};
     device_timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(sample_count));
     start = Clock::now();
-    stream << c.copy_to(output.data()) << synchronize();
+    stream << c.copy_to(luisa::span{output}) << synchronize();
     if (paired) {
         luisa::vector<float> derivative(output.size());
         stream << d->copy_to(derivative.data()) << synchronize();

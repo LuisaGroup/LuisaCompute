@@ -47,8 +47,8 @@ void run_pow(lc::Device &device, lc::Stream &stream) {
         hA[i] = static_cast<float>(i % 16u + 1u) * 0.25f;// > 0
         hB[i] = static_cast<float>(i % 8u + 1u) * 0.5f;
     }
-    stream << bufA.copy_from(hA.data()) << bufB.copy_from(hB.data()) << lc::synchronize();
-    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(hC.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << lc::synchronize();
+    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(luisa::span{hC}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hC[i] - std::pow(hA[i], hB[i]))));

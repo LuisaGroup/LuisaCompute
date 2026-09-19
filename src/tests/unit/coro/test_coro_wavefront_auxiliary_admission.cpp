@@ -62,10 +62,10 @@ public:
         _host = {};
         premature_preparations = empty_reclaims = 0u;
         drain_counts.clear();
-        stream << _counts.copy_from(_zeros.data());
+        stream << _counts.copy_from(luisa::span{_zeros});
     }
     void enqueue_count_readback(Stream &stream) noexcept override {
-        stream << _counts.copy_to(_host.data());
+        stream << _counts.copy_to(luisa::span{_host});
     }
     [[nodiscard]] uint host_count() const noexcept override { return _host[0]; }
 
@@ -140,9 +140,9 @@ int main(int argc, char *argv[]) {
                     auto visits = device.create_buffer<uint>(2u);
                     for (auto repeat = 0u; repeat < 2u; ++repeat) {
                         std::array<uint, 2u> actual{};
-                        stream << visits.copy_from(actual.data());
+                        stream << visits.copy_from(luisa::span{actual});
                         stream << scheduler(visits).dispatch(2u);
-                        stream << visits.copy_to(actual.data()) << synchronize();
+                        stream << visits.copy_to(luisa::span{actual}) << synchronize();
                         expect(eq(actual[0], 3u));
                         expect(eq(actual[1], 3u));
                         expect(eq(pool->host_count(), 0u));
@@ -192,9 +192,9 @@ int main(int argc, char *argv[]) {
             scheduler.register_auxiliary_work(pool);
             auto visits = device.create_buffer<uint>(4u);
             std::array<uint, 4u> actual{};
-            stream << visits.copy_from(actual.data());
+            stream << visits.copy_from(luisa::span{actual});
             stream << scheduler(visits).dispatch(4u);
-            stream << visits.copy_to(actual.data()) << synchronize();
+            stream << visits.copy_to(luisa::span{actual}) << synchronize();
             for (auto value : actual) { expect(value == 1u); }
             expect(pool->host_count() == 0u);
             expect(pool->premature_preparations == 0u);

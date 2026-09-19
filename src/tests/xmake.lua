@@ -696,6 +696,7 @@ end
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then
     test_proj("test_raster", "integration/runtime/test_raster.cpp", true)
+    test_proj("test_imgui_raster_offline", "integration/runtime/test_imgui_raster_offline.cpp", false)
     test_proj("test_memory_compact", "integration/runtime/test_memory_compact.cpp", false, function()
         if has_config("lc_vk_backend") then
             add_deps("lc-volk")

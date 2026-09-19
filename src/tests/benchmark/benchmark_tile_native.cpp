@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
     auto a = device.create_buffer<float>(host_a.size());
     auto b = device.create_buffer<float>(host_b.size());
     auto c = device.create_buffer<float>(output.size());
-    stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data()) << c.copy_from(output.data()) << synchronize();
+    stream << a.copy_from(luisa::span{host_a}) << b.copy_from(luisa::span{host_b}) << c.copy_from(luisa::span{output}) << synchronize();
     auto upload_ms = elapsed(start);
     auto submit = [&](uint64_t repetitions) {
         CommandList commands;
@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
     for (auto i = 0; i < count; i++) { latency.emplace_back(1000.0 * batch(1)); }
     luisa::test::MetalBenchmarkTiming device_timing{true};
     device_timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(count));
-    stream << c.copy_to(output.data()) << synchronize();
+    stream << c.copy_to(luisa::span{output}) << synchronize();
     std::ofstream file{argv[8], std::ios::binary};
     file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
     file.close();

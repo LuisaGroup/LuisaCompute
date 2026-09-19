@@ -879,8 +879,8 @@ void test_control_flow_corners(Device &device) {
     luisa::vector<float> host(64);
     luisa::vector<float> host_result(1, 0.0f);
     stream << shader(buf, result).dispatch(64)
-           << buf.copy_to(luisa::span{host})
-           << result.copy_to(luisa::span{host_result})
+             << buf.copy_to(luisa::span{host})
+             << result.copy_to(luisa::span{host_result})
            << synchronize();
 
     LUISA_INFO("Control-flow corner result: {:f}", host_result[0]);

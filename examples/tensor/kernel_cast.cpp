@@ -41,8 +41,8 @@ void run_cast(lc::Device &device, lc::Stream &stream) {
     for (auto i = 0u; i < kN; ++i) {
         hA[i] = static_cast<int32_t>(i) - 32;
     }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hB[i] - static_cast<float>(hA[i]))));

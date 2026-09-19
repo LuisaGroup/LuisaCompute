@@ -40,8 +40,8 @@ void run_neg(lc::Device &device, lc::Stream &stream) {
     for (auto i = 0u; i < kN; ++i) {
         hA[i] = static_cast<float>(static_cast<int>(i) - 32) * 0.25f;
     }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hB[i] - (-hA[i]))));

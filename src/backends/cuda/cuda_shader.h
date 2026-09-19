@@ -43,8 +43,18 @@ public:
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
     [[nodiscard]] auto printer() const noexcept { return _printer.get(); }
+    // True when the shader owns a launch-time printer (its kernel takes an
+    // extra LCPrintBuffer slot and the normal launch registers a download
+    // callback for it). CUDA-graph capture of dispatches refuses such shaders
+    // rather than duplicating that staging, since a captured launch would
+    // never fire the callback.
+    [[nodiscard]] bool requires_printing() const noexcept { return _printer != nullptr; }
     [[nodiscard]] virtual void *handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_graph_compatible() const noexcept { return false; }
+    // Non-RTTI type tag: true only for CUDAShaderNative (static_cast to the
+    // derived type is then safe; the graph capture code cannot dynamic_cast
+    // because the core is built with RTTI disabled).
+    [[nodiscard]] virtual bool is_native() const noexcept { return false; }
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;

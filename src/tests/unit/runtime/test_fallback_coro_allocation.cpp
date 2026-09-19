@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
         std::vector<uint2> actual(dispatch_count);
         for (auto seed : {7u, 91u, 7u}) {
             stream << shader(output, seed).dispatch(dispatch_count)
-                   << output.copy_to(actual.data()) << synchronize();
+                   << output.copy_to(luisa::span{actual}) << synchronize();
             for (auto id = 0u; id < actual.size(); ++id) {
                 uint sum = 0u;
                 for (auto i = 0u; i < count; ++i) { sum += (id * 3u + i) ^ seed; }

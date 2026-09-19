@@ -60,7 +60,15 @@
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/raster/raster_shader.h>
+#include <luisa/runtime/raster/raster_scene.h>
+#include <luisa/runtime/raster/raster_state.h>
+#include <luisa/runtime/raster/vertex_attribute.h>
+#include <luisa/runtime/raster/app_data.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/dsl/raster/raster_kernel.h>
+#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/gui/imgui_window.h>
 
 namespace luisa::compute::detail {
@@ -159,6 +167,61 @@ LUISA_STRUCT(luisa::compute::detail::GUIVertex, px, py, pz, clip_idx, uv, packed
     }
 };
 
+namespace luisa::compute::detail {
+/// Vertex layout for the rasterization mesh. The member order matches the
+/// leading AppData attribute slots (position/normal/tangent/color) consumed by
+/// the raster vertex stage, and every slot is a 16-byte float4 so the
+/// corresponding `MeshFormat` declares four RGBA32F attributes with no packing
+/// ambiguity. A `GUIVertex` is repacked into this layout once per frame.
+struct alignas(16u) GUIMeshVertex {
+    float4 position;// px, py (screen pixels, top-left origin), unused, unused
+    float4 normal;  // clip_min.x, clip_min.y, clip_max.x, clip_max.y
+    float4 tangent; // uv.x, uv.y, tex_id (as float), unused
+    float4 color;   // per-vertex linear RGBA (not premultiplied)
+};
+static_assert(sizeof(GUIMeshVertex) == 64u);
+
+/// Vertex-to-pixel varying for the rasterization renderer. Member 0 is the
+/// mandatory float4 clip-space position (emitted with w == 1 so every varying
+/// interpolates linearly/affine in pixel space). `screen` carries the same
+/// top-left pixel coordinate as an ordinary interpolated varying so the pixel
+/// stage can apply the scissor rectangle without depending on the
+/// backend-specific SV_Position convention; the scissor and texture id are
+/// constant across a command's triangles so interpolating them is exact.
+struct GUIVarying {
+    float4 position;
+    float2 uv;
+    float4 color;
+    float2 clip_min;
+    float2 clip_max;
+    float tex_id;
+    float2 screen;
+};
+}// namespace luisa::compute::detail
+
+LUISA_STRUCT(luisa::compute::detail::GUIMeshVertex, position, normal, tangent, color) {
+    [[nodiscard]] auto pixel() const noexcept {
+        return position.xy();
+    }
+    [[nodiscard]] auto clip_min() const noexcept {
+        return normal.xy();
+    }
+    [[nodiscard]] auto clip_max() const noexcept {
+        return make_float2(normal.z, normal.w);
+    }
+    [[nodiscard]] auto tex_uv() const noexcept {
+        return tangent.xy();
+    }
+    [[nodiscard]] auto tex_id() const noexcept {
+        return tangent.z;
+    }
+    [[nodiscard]] auto rgba() const noexcept {
+        return color;
+    }
+};
+
+LUISA_STRUCT(luisa::compute::detail::GUIVarying, position, uv, color, clip_min, clip_max, tex_id, screen) {};
+
 namespace luisa::compute {
 
 class ImGuiWindow::Impl {
@@ -237,6 +300,38 @@ private:
     Buffer<Vertex> _vertex_buffer;
     Buffer<Triangle> _triangle_buffer;
     Buffer<float4> _clip_buffer;
+
+    // Hardware rasterization renderer: replaces the per-frame acceleration
+    // structure / mesh build and the per-pixel ray-marched depth peeling of the
+    // path above with indexed-free triangle draws (no BVH, no ray query). A
+    // `RasterKernel` is compiled once against the fixed GUIMeshVertex layout;
+    // the ray-tracing resources stay so the renderer falls back to the legacy
+    // path on backends without a working JIT raster pipeline (Vulkan's raster
+    // path is AOT-only, see VkRasterExt::create_raster_shader). GUI triangles
+    // are emitted in ImGui's back-to-front submission order and composited with
+    // hardware premultiplied-alpha blending (dst = src + dst * (1 - src.a)),
+    // reproducing the ray path's accumulation without reading the render target
+    // inside the pixel stage. The vertex stage emits clip-space positions with
+    // w == 1 (affine varyings); the scissor rectangle is applied through an
+    // interpolated pixel-coordinate varying because the DSL has no
+    // fragment-coordinate builtin and the SV_Position convention differs per
+    // backend.
+    RasterShader<float2 /* framebuffer size */,
+                 float /* Y flip (+1 or -1) */,
+                 BindlessArray /* textures */>
+        _raster_shader;
+    MeshFormat _mesh_format;
+    bool _rasterization_enabled{false};
+    // +1 or -1: maps ImGui's top-left screen origin to the rasterizer's NDC
+    // convention (which framebuffer row a top-left pixel lands on). DX needs
+    // +1; Vulkan needs -1 (overridable with LUISA_GUI_RASTER_FLIP).
+    float _raster_y_flip{1.0f};
+    // a single de-indexed vertex buffer reused every frame (grown to a
+    // power-of-two capacity); no index buffer is required.
+    Buffer<detail::GUIMeshVertex> _raster_vertex_buffer;
+    // persistent host scratch reused across frames to avoid per-frame
+    // allocations of the staging vector.
+    luisa::vector<detail::GUIMeshVertex> _raster_vertices;
 
 private:
     template<typename F>
@@ -407,6 +502,12 @@ public:
                 _dpi_override = std::clamp(value, 1.0f, 8.0f);
             }
         }
+        // rasterizer NDC-Y convention override for the rasterization renderer
+        // (see _raster_y_flip).
+        if (auto env = std::getenv("LUISA_GUI_RASTER_FLIP"); env != nullptr && *env != '\0') {
+            auto value = std::strtof(env, nullptr);
+            _raster_y_flip = value < 0.0f ? -1.0f : 1.0f;
+        }
 
         // initialize GLFW
         static std::once_flag once_flag;
@@ -541,6 +642,70 @@ public:
                 fb.write(tid, make_float4(sum, 1.f));
             };
         });
+
+        // Compile the rasterization renderer once, when the backend supports a
+        // JIT raster pipeline (DX). Vulkan's raster path is AOT-only (its
+        // create_raster_shader asserts compile_only) and the CPU backend has no
+        // raster extension, so both fall back to the ray-tracing path above.
+        // LUISA_GUI_RASTER=0 forces the legacy ray-tracing path.
+        auto raster_requested = config.rasterization;
+        if (auto env = std::getenv("LUISA_GUI_RASTER"); env != nullptr && *env != '\0') {
+            raster_requested = env[0] != '0';
+        }
+        _rasterization_enabled = _device.extension<RasterExt>() != nullptr &&
+                                 raster_requested &&
+                                 _device.backend_name() != luisa::string_view{"vk"} &&
+                                 _device.backend_name() != luisa::string_view{"cpu"};
+        if (_rasterization_enabled) {
+            // One RGBA32F attribute per AppData slot the vertex stage reads.
+            VertexAttribute raster_attributes[]{
+                {VertexAttributeType::Position, PixelFormat::RGBA32F},
+                {VertexAttributeType::Normal, PixelFormat::RGBA32F},
+                {VertexAttributeType::Tangent, PixelFormat::RGBA32F},
+                {VertexAttributeType::Color, PixelFormat::RGBA32F},
+            };
+            _mesh_format.emplace_vertex_stream(raster_attributes);
+            RasterStageKernel raster_vert = [](Var<detail::GUIMeshVertex> v,
+                                               Float2 fb_size,
+                                               Float y_flip) noexcept {
+                Var<detail::GUIVarying> o;
+                // Map the packed top-left pixel position to clip space with
+                // w == 1 so the rasterizer maps it back to the same pixel and
+                // every varying interpolates linearly. y_flip selects the NDC
+                // y convention.
+                auto p = v->pixel();
+                auto ndc_x = p.x / fb_size.x * 2.f - 1.f;
+                auto ndc_y = y_flip * (1.f - p.y / fb_size.y * 2.f);
+                o.position = make_float4(ndc_x, ndc_y, 0.f, 1.f);
+                o.uv = v->tex_uv();
+                o.color = v->rgba();
+                o.clip_min = v->clip_min();
+                o.clip_max = v->clip_max();
+                o.tex_id = v->tex_id();
+                o.screen = p;
+                return o;
+            };
+            RasterStageKernel raster_pixel = [](Var<detail::GUIVarying> i,
+                                                BindlessVar texture_array) noexcept {
+                // The interpolated `screen` (top-left pixel center) is clipped
+                // against the command's scissor rectangle. SV_Position is not
+                // used because its pixel-center convention differs per backend.
+                $if (any(i.screen < i.clip_min - .5f) | any(i.screen > i.clip_max - .5f)) {
+                    raster_discard();
+                };
+                auto c = i.color;
+                auto tex_id = i.tex_id.cast<uint>();
+                $if (tex_id != 0u) {
+                    c *= texture_array->tex2d(tex_id).sample(i.uv);
+                };
+                // Premultiplied output; the blend state composites it over the
+                // framebuffer.
+                return make_float4(c.xyz() * c.w, c.w);
+            };
+            RasterKernel<decltype(raster_vert), decltype(raster_pixel)> raster_kernel{raster_vert, raster_pixel};
+            _raster_shader = _device.compile(raster_kernel, _mesh_format);
+            _rasterization_enabled = static_cast<bool>(_raster_shader);
+        }
 
         // TODO: install user GLFW callbacks?
 
@@ -757,6 +922,120 @@ private:
                 << _accel.build(AccelBuildRequest::FORCE_BUILD);
     }
 
+    /// Screen-space rasterization state: no depth test/write and
+    /// premultiplied-alpha "over" blending (dst = src + dst * (1 - src.a)), so
+    /// the triangles composite over the application-drawn background and over
+    /// each other in ImGui's back-to-front submission order.
+    [[nodiscard]] static RasterState _raster_state() noexcept {
+        return RasterState{
+            .fill_mode = FillMode::Solid,
+            .cull_mode = CullMode::None,
+            .blend_state = BlendState{
+                .enable_blend = true,
+                .op = BlendOp::Add,
+                .prim_op = BlendWeight::One,
+                .img_op = BlendWeight::OneMinusPrimAlpha},
+            .depth_state = DepthState{},
+            .stencil_state = StencilState{},
+            .topology = TopologyType::Triangle,
+            .front_counter_clockwise = false,
+            .depth_clip = false};
+    }
+
+    /// Repack the ImGui draw data into the raster mesh layout: a de-indexed
+    /// triangle list kept in submission order (the back-to-front order the
+    /// blend relies on). Returns false when the frame has no triangles.
+    bool _build_raster_mesh(ImDrawData *draw_data) noexcept {
+        auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
+        auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
+        auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) * clip_scale;
+        auto transform = [clip_offset, clip_scale](ImVec2 p) noexcept {
+            return (make_float2(p.x, p.y) - clip_offset) * clip_scale;
+        };
+        _raster_vertices.clear();
+        if (any(clip_size <= 0.f)) { return false; }
+        _raster_vertices.reserve(64_k);
+        for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
+            auto cmd_list = draw_data->CmdLists[i];
+            for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
+                auto cmd = &cmd_list->CmdBuffer[j];
+                // user callback
+                if (auto callback = cmd->UserCallback) {
+                    // we ignore ImDrawCallback_ResetRenderState since we don't
+                    // have any state to reset
+                    if (callback != ImDrawCallback_ResetRenderState) {
+                        callback(cmd_list, cmd);
+                    }
+                    continue;
+                }
+                // render command
+                auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
+                auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
+                if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
+                auto tex_id = [this, cmd] {
+                    auto t = cmd->GetTexID();
+                    if (t != 0u && !_active_textures.contains(t)) {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Using an unregistered texture (id = {}). "
+                            "Replaced with a null texture.",
+                            t);
+                        return 0u;
+                    }
+                    return static_cast<uint>(t);
+                }();
+                auto make_vertex = [&](ImDrawVert v) noexcept {
+                    auto p = transform(v.pos);
+                    auto col = v.col;
+                    auto r = static_cast<float>(col & 0xffu) / 255.f;
+                    auto g = static_cast<float>((col >> 8u) & 0xffu) / 255.f;
+                    auto b = static_cast<float>((col >> 16u) & 0xffu) / 255.f;
+                    auto a = static_cast<float>((col >> 24u) & 0xffu) / 255.f;
+                    auto mf = detail::GUIMeshVertex{};
+                    mf.position = make_float4(p.x, p.y, 0.f, 0.f);
+                    mf.normal = make_float4(clip_min.x, clip_min.y, clip_max.x, clip_max.y);
+                    mf.tangent = make_float4(v.uv.x, v.uv.y, static_cast<float>(tex_id), 0.f);
+                    mf.color = make_float4(r, g, b, a);
+                    return mf;
+                };
+                for (auto t = 0u; t < cmd->ElemCount; t += 3u) {
+                    auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
+                    auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
+                    auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
+                    _raster_vertices.emplace_back(make_vertex(cmd_list->VtxBuffer[i0]));
+                    _raster_vertices.emplace_back(make_vertex(cmd_list->VtxBuffer[i1]));
+                    _raster_vertices.emplace_back(make_vertex(cmd_list->VtxBuffer[i2]));
+                }
+            }
+        }
+        return !_raster_vertices.empty();
+    }
+
+    /// Upload the frame's raster mesh and issue a single draw. The mesh is a
+    /// de-indexed triangle list, so the raster path neither builds a BVH nor
+    /// allocates an index buffer. The full-framebuffer viewport keeps the
+    /// pixel-stage coordinate reconstruction consistent; the per-command scissor
+    /// rectangle is applied inside the pixel stage.
+    void _draw_raster(Image<float> &fb) noexcept {
+        auto capacity = std::max(next_pow2(_raster_vertices.size()), 64_k);
+        if (!_raster_vertex_buffer || _raster_vertex_buffer.size() < capacity) {
+            _stream.synchronize();
+            _raster_vertex_buffer = _device.create_buffer<detail::GUIMeshVertex>(capacity);
+        }
+        auto fb_size = fb.size();
+        auto fb_size2 = make_float2(fb_size);
+        auto vertex_view = VertexBufferView{_raster_vertex_buffer};
+        auto meshes = luisa::vector<RasterMesh>{};
+        meshes.emplace_back(luisa::span<VertexBufferView const>{&vertex_view, 1u},
+                            static_cast<uint>(_raster_vertices.size()), 1u, 0u);
+        if (_texture_array.dirty()) { _stream << _texture_array.update(); }
+        _stream << _raster_vertex_buffer.view(0u, _raster_vertices.size())
+                                                  .copy_from(luisa::span{_raster_vertices.data(), _raster_vertices.size()})
+                << _raster_shader(fb_size2, _raster_y_flip, _texture_array)
+                       .draw(std::move(meshes), _mesh_format,
+                             Viewport{0u, 0u, fb_size.x, fb_size.y},
+                             _raster_state(), nullptr, fb);
+    }
+
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
 
         auto vp = draw_data->OwnerViewport;
@@ -772,95 +1051,109 @@ private:
             _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
         }
         // render imgui draw data to framebuffer
+        auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) *
+                         make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
+        if (all(clip_size > 0.f)) {
+            if (_rasterization_enabled) {
+                if (_build_raster_mesh(draw_data)) { _draw_raster(fb); }
+            } else {
+                _draw_raytraced(fb, draw_data);
+            }
+        }
+        _stream << sc.present(fb);
+    }
+
+    /// Legacy ray-tracing renderer: rebuilds the acceleration structure and the
+    /// mesh every frame and depth-peels with per-pixel rays. Kept as the
+    /// fallback for backends without a working JIT raster pipeline.
+    void _draw_raytraced(Image<float> &fb, ImDrawData *draw_data) noexcept {
         auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
         auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
         auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) * clip_scale;
         auto transform = [clip_offset, clip_scale](ImVec2 p) noexcept {
             return (make_float2(p.x, p.y) - clip_offset) * clip_scale;
         };
-        if (all(clip_size > 0.f)) {
-            _vertices.clear();
-            _triangles.clear();
-            _clip_rects.clear();
-            _vertices.reserve(64_k);
-            _triangles.reserve(64_k);
-            _clip_rects.reserve(64u);
-            auto accum_clip_min = make_float2(std::numeric_limits<float>::max());
-            auto accum_clip_max = make_float2(-std::numeric_limits<float>::max());
-            for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
-                auto cmd_list = draw_data->CmdLists[i];
-                for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
-                    auto cmd = &cmd_list->CmdBuffer[j];
-                    // user callback
-                    if (auto callback = cmd->UserCallback) {
-                        // we ignore ImDrawCallback_ResetRenderState
-                        // since we don't have any state to reset
-                        if (callback != ImDrawCallback_ResetRenderState) {
-                            callback(cmd_list, cmd);
-                        }
-                        continue;
+        _vertices.clear();
+        _triangles.clear();
+        _clip_rects.clear();
+        _vertices.reserve(64_k);
+        _triangles.reserve(64_k);
+        _clip_rects.reserve(64u);
+        auto accum_clip_min = make_float2(std::numeric_limits<float>::max());
+        auto accum_clip_max = make_float2(-std::numeric_limits<float>::max());
+        for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
+            auto cmd_list = draw_data->CmdLists[i];
+            for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
+                auto cmd = &cmd_list->CmdBuffer[j];
+                // user callback
+                if (auto callback = cmd->UserCallback) {
+                    // we ignore ImDrawCallback_ResetRenderState
+                    // since we don't have any state to reset
+                    if (callback != ImDrawCallback_ResetRenderState) {
+                        callback(cmd_list, cmd);
                     }
-                    // render command
-                    auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
-                    auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
-                    if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
-                    // process the command
-                    auto clip_idx = static_cast<uint>(_clip_rects.size());
-                    _clip_rects.emplace_back(make_float4(clip_min, clip_max));
-                    auto tex_id = [this, cmd] {
-                        auto t = cmd->GetTexID();
-                        if (t != 0u && !_active_textures.contains(t)) {
-                            LUISA_WARNING_WITH_LOCATION(
-                                "Using an unregistered texture (id = {}). "
-                                "Replaced with a null texture.",
-                                t);
-                            return 0u;
-                        }
-                        return static_cast<uint>(t);
-                    }();
-                    accum_clip_min = min(accum_clip_min, clip_min);
-                    accum_clip_max = max(accum_clip_max, clip_max);
-                    // triangles
-                    for (auto t = 0u; t < cmd->ElemCount; t += 3u) {
-                        auto o = static_cast<uint>(_triangles.size());
-                        auto make_vertex = [&](ImDrawVert v) noexcept {
-                            auto p = transform(v.pos);
-                            // from back to front
-                            auto z = (draw_data->TotalIdxCount / 3u - 1u - o) * depth_peeling_step;
-                            return Vertex{.px = p.x,
-                                          .py = p.y,
-                                          .pz = static_cast<float>(z),
-                                          .clip_idx = clip_idx,
-                                          .uv = make_float2(v.uv.x, v.uv.y),
-                                          .packed_color = v.col,
-                                          .tex_id = tex_id};
-                        };
-                        auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
-                        auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
-                        auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
-                        auto v0 = cmd_list->VtxBuffer[i0];
-                        auto v1 = cmd_list->VtxBuffer[i1];
-                        auto v2 = cmd_list->VtxBuffer[i2];
-                        _triangles.emplace_back(Triangle{o * 3u + 0u, o * 3u + 1u, o * 3u + 2u});
-                        _vertices.emplace_back(make_vertex(v0));
-                        _vertices.emplace_back(make_vertex(v1));
-                        _vertices.emplace_back(make_vertex(v2));
+                    continue;
+                }
+                // render command
+                auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
+                auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
+                if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
+                // process the command
+                auto clip_idx = static_cast<uint>(_clip_rects.size());
+                _clip_rects.emplace_back(make_float4(clip_min, clip_max));
+                auto tex_id = [this, cmd] {
+                    auto t = cmd->GetTexID();
+                    if (t != 0u && !_active_textures.contains(t)) {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Using an unregistered texture (id = {}). "
+                            "Replaced with a null texture.",
+                            t);
+                        return 0u;
                     }
+                    return static_cast<uint>(t);
+                }();
+                accum_clip_min = min(accum_clip_min, clip_min);
+                accum_clip_max = max(accum_clip_max, clip_max);
+                // triangles
+                for (auto t = 0u; t < cmd->ElemCount; t += 3u) {
+                    auto o = static_cast<uint>(_triangles.size());
+                    auto make_vertex = [&](ImDrawVert v) noexcept {
+                        auto p = transform(v.pos);
+                        // from back to front
+                        auto z = (draw_data->TotalIdxCount / 3u - 1u - o) * depth_peeling_step;
+                        return Vertex{.px = p.x,
+                                      .py = p.y,
+                                      .pz = static_cast<float>(z),
+                                      .clip_idx = clip_idx,
+                                      .uv = make_float2(v.uv.x, v.uv.y),
+                                      .packed_color = v.col,
+                                      .tex_id = tex_id};
+                    };
+                    auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
+                    auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
+                    auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
+                    auto v0 = cmd_list->VtxBuffer[i0];
+                    auto v1 = cmd_list->VtxBuffer[i1];
+                    auto v2 = cmd_list->VtxBuffer[i2];
+                    _triangles.emplace_back(Triangle{o * 3u + 0u, o * 3u + 1u, o * 3u + 2u});
+                    _vertices.emplace_back(make_vertex(v0));
+                    _vertices.emplace_back(make_vertex(v1));
+                    _vertices.emplace_back(make_vertex(v2));
                 }
             }
-            if (!_triangles.empty() && all(accum_clip_max > accum_clip_min)) {
-                _build_accel();
-                auto clip_min_floor = make_uint2(floor(accum_clip_min));
-                auto clip_max_ceil = make_uint2(ceil(accum_clip_max));
-                if (_texture_array.dirty()) { _stream << _texture_array.update(); }
-                _stream << _render_shader(fb, clip_min_floor, _accel,
-                                          _triangle_buffer, _vertex_buffer,
-                                          _texture_array, _clip_buffer)
-                               .dispatch(clip_max_ceil - clip_min_floor);
-            }
         }
-        _stream << sc.present(fb);
+        if (!_triangles.empty() && all(accum_clip_max > accum_clip_min)) {
+            _build_accel();
+            auto clip_min_floor = make_uint2(floor(accum_clip_min));
+            auto clip_max_ceil = make_uint2(ceil(accum_clip_max));
+            if (_texture_array.dirty()) { _stream << _texture_array.update(); }
+            _stream << _render_shader(fb, clip_min_floor, _accel,
+                                      _triangle_buffer, _vertex_buffer,
+                                      _texture_array, _clip_buffer)
+                           .dispatch(clip_max_ceil - clip_min_floor);
+        }
     }
+
 
     void _render() noexcept {
         auto &io = ImGui::GetIO();

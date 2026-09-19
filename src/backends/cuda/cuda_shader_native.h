@@ -31,7 +31,8 @@ public:
                      const char *entry, const CUDAShaderMetadata &metadata,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
-    [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
+          [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
+      [[nodiscard]] bool is_native() const noexcept override { return true; }
     [[nodiscard]] void *handle() const noexcept override { return _function; }
     [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
     [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }

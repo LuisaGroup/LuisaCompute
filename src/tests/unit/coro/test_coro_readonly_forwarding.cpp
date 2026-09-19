@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
                     make_float4x4(scale), make_float4x4(2.0f * scale),
                     make_float4x4(3.0f * scale), make_float4x4(4.0f * scale)};
                 stream << scheduler(output, parameters).dispatch(count)
-                       << output.copy_to(actual.data()) << synchronize();
+                       << output.copy_to(luisa::span{actual}) << synchronize();
                 for (uint i = 0u; i < count; ++i) {
                     expect(actual[i] == static_cast<float>(i) + 30.0f * scale);
                 }

@@ -58,8 +58,8 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
         for (auto i = size_t{0}; i < a.size(); i++) { a[i] = std::sin(static_cast<float>(i) * .371f + .13f + repeat) * 1.375f; }
         for (auto i = size_t{0}; i < b.size(); i++) { b[i] = std::cos(static_cast<float>(i) * .213f + .47f - repeat) * .875f; }
         std::fill(c.begin() + pad, c.end() - pad, std::numeric_limits<float>::quiet_NaN());
-        stream << av.copy_from(a.data()) << bv.copy_from(b.data()) << cb.copy_from(c.data())
-               << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+        stream << av.copy_from(luisa::span{a}) << bv.copy_from(luisa::span{b}) << cb.copy_from(luisa::span{c})
+               << shader(av, bv, cv).dispatch() << cb.copy_to(luisa::span{c}) << synchronize();
         expect(check(cfg, a, b, span{c}.subspan(pad, cfg.m * cfg.n)))
             << "transpose A/B=" << cfg.transpose_a << "/" << cfg.transpose_b;
         expect(std::all_of(c.begin(), c.begin() + pad, [](float x) { return x == guard; }));
@@ -69,7 +69,7 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
     auto moved = std::move(shader);
     expect(!shader && static_cast<bool>(moved));
     shader = std::move(moved);
-    stream << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+    stream << shader(av, bv, cv).dispatch() << cb.copy_to(luisa::span{c}) << synchronize();
     expect(check(cfg, a, b, span{c}.subspan(pad, cfg.m * cfg.n)));
 
     // Aliasing is range-based, not a blanket ban on sharing a Buffer. This
@@ -78,7 +78,7 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
     auto sa = storage.view(0, a.size());
     auto sb = storage.view(a.size(), b.size());
     auto sc = storage.view(a.size() + b.size(), cfg.m * cfg.n);
-    stream << sa.copy_from(a.data()) << sb.copy_from(b.data())
+    stream << sa.copy_from(luisa::span{a}) << sb.copy_from(luisa::span{b})
            << shader(sa, sb, sc).dispatch() << sc.copy_to(c.data() + pad) << synchronize();
     expect(check(cfg, a, b, span{c}.subspan(pad, cfg.m * cfg.n)));
 
@@ -199,8 +199,8 @@ int main(int argc, char *argv[]) {
             zh[i] = std::cos(i * .73f);
         }
         auto stream = device.create_stream(StreamTag::COMPUTE);
-        stream << a.copy_from(ah.data()) << z.copy_from(zh.data())
-               << shader(z, a, c, a).dispatch() << c.copy_to(ch.data()) << synchronize();
+        stream << a.copy_from(luisa::span{ah}) << z.copy_from(luisa::span{zh})
+               << shader(z, a, c, a).dispatch() << c.copy_to(luisa::span{ch}) << synchronize();
         for (auto i = 0u; i < 97u; i++) { expect(std::abs(ch[i] - (zh[i] + 2.0f * ah[i])) < 1e-6f); }
     };
     "tile_tirx_runtime_default_reduction_uses_collective"_test = [&] {
@@ -224,8 +224,8 @@ int main(int argc, char *argv[]) {
         auto input = device.create_buffer<float>(values.size());
         auto output = device.create_buffer<float>(actual.size());
         auto stream = device.create_stream(StreamTag::COMPUTE);
-        stream << input.copy_from(values.data()) << shader(input, output).dispatch()
-               << output.copy_to(actual.data()) << synchronize();
+        stream << input.copy_from(luisa::span{values}) << shader(input, output).dispatch()
+               << output.copy_to(luisa::span{actual}) << synchronize();
         for (auto value : actual) { expect(eq(value, columns * .25f)); }
     };
     "tile_tirx_runtime_local_fold_overrides_global_fast_math"_test = [&] {
@@ -243,8 +243,8 @@ int main(int argc, char *argv[]) {
         auto input = device.create_buffer<float>(values.size());
         auto output = device.create_buffer<float>(actual.size());
         auto stream = device.create_stream(StreamTag::COMPUTE);
-        stream << input.copy_from(values.data()) << shader(input, output).dispatch()
-               << output.copy_to(actual.data()) << synchronize();
+        stream << input.copy_from(luisa::span{values}) << shader(input, output).dispatch()
+               << output.copy_to(luisa::span{actual}) << synchronize();
         for (auto row = int64_t{0}; row < rows; row++) {
             auto expected = cases::reference(span<const float>{values}.subspan(row * width, width), 3.0f);
             for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {

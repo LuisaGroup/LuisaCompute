@@ -1748,7 +1748,7 @@ ASTConsumer::~ASTConsumer() {
             if (device) {
                 auto raster_ext = device->extension<RasterExt>();
                 if (raster_ext)
-                    raster_ext->create_raster_shader(luisa::compute::Function{db.vertex_builder.get()}, luisa::compute::Function{db.pixel_builder.get()}, option);
+                    raster_ext->create_raster_shader(luisa::compute::MeshFormat{}, luisa::compute::Function{db.vertex_builder.get()}, luisa::compute::Function{db.pixel_builder.get()}, option);
             }
         } else {
             clangcxx_log_error("Kernel not defined.");

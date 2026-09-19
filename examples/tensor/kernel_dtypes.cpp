@@ -82,8 +82,8 @@ void run_dtype_copy_f16(lc::Device &device, lc::Stream &stream) {
     auto bufB = device.create_buffer<luisa::half>(kN);
     luisa::vector<luisa::half> hA(kN), hB(kN);
     for (auto i = 0u; i < kN; ++i) { hA[i] = luisa::half{static_cast<float>(i) * 0.25f}; }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(static_cast<float>(hB[i]) - static_cast<float>(hA[i]))));
@@ -98,8 +98,8 @@ void run_dtype_copy_f32(lc::Device &device, lc::Stream &stream) {
     auto bufB = device.create_buffer<float>(kN);
     luisa::vector<float> hA(kN), hB(kN);
     for (auto i = 0u; i < kN; ++i) { hA[i] = static_cast<float>(i) * 0.5f - 16.0f; }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hB[i] - hA[i])));
@@ -114,8 +114,8 @@ void run_dtype_copy_i32(lc::Device &device, lc::Stream &stream) {
     auto bufB = device.create_buffer<int32_t>(kN);
     luisa::vector<int32_t> hA(kN), hB(kN);
     for (auto i = 0u; i < kN; ++i) { hA[i] = static_cast<int32_t>(i) - 32; }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0;
     for (auto i = 0u; i < kN; ++i) { err = std::max(err, std::abs(hB[i] - hA[i])); }
     check("dtype_copy_i32", static_cast<double>(err), 0.5);
@@ -135,8 +135,8 @@ void run_dtype_copy_i8(lc::Device &device, lc::Stream &stream) {
     auto bufB = device.create_buffer<int8_t>(kN);
     luisa::vector<int8_t> hA(kN), hB(kN);
     for (auto i = 0u; i < kN; ++i) { hA[i] = static_cast<int8_t>((i % 31u) - 15u); }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, std::abs(static_cast<int>(hB[i]) - static_cast<int>(hA[i])));
@@ -155,8 +155,8 @@ void run_dtype_add_f32(lc::Device &device, lc::Stream &stream) {
         hA[i] = static_cast<float>(i) * 0.5f;
         hB[i] = static_cast<float>(i) * 0.25f + 1.0f;
     }
-    stream << bufA.copy_from(hA.data()) << bufB.copy_from(hB.data()) << lc::synchronize();
-    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(hC.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << lc::synchronize();
+    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(luisa::span{hC}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hC[i] - (hA[i] + hB[i]))));
@@ -175,8 +175,8 @@ void run_dtype_add_i32(lc::Device &device, lc::Stream &stream) {
         hA[i] = static_cast<int32_t>(i);
         hB[i] = -static_cast<int32_t>(i);
     }
-    stream << bufA.copy_from(hA.data()) << bufB.copy_from(hB.data()) << lc::synchronize();
-    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(hC.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << bufB.copy_from(luisa::span{hB}) << lc::synchronize();
+    stream << shader(bufA, bufB, bufC).dispatch() << bufC.copy_to(luisa::span{hC}) << lc::synchronize();
     auto err = 0;
     for (auto i = 0u; i < kN; ++i) { err = std::max(err, std::abs(hC[i] - (hA[i] + hB[i]))); }
     check("dtype_add_i32", static_cast<double>(err), 0.5);
@@ -189,8 +189,8 @@ void run_dtype_neg_f32(lc::Device &device, lc::Stream &stream) {
     auto bufB = device.create_buffer<float>(kN);
     luisa::vector<float> hA(kN), hB(kN);
     for (auto i = 0u; i < kN; ++i) { hA[i] = static_cast<float>(i) * 0.5f - 16.0f; }
-    stream << bufA.copy_from(hA.data()) << lc::synchronize();
-    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(hB.data()) << lc::synchronize();
+    stream << bufA.copy_from(luisa::span{hA}) << lc::synchronize();
+    stream << shader(bufA, bufB).dispatch() << bufB.copy_to(luisa::span{hB}) << lc::synchronize();
     auto err = 0.0;
     for (auto i = 0u; i < kN; ++i) {
         err = std::max(err, static_cast<double>(std::abs(hB[i] - (-hA[i]))));

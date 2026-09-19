@@ -738,8 +738,8 @@ void reduction_fold_policies(Device &device) {
             auto input = device.create_buffer<float>(values.size());
             auto output = device.create_buffer<float>(actual.size());
             auto stream = device.create_stream(StreamTag::COMPUTE);
-            stream << input.copy_from(values.data()) << shader(input, output).dispatch()
-                   << output.copy_to(actual.data()) << synchronize();
+            stream << input.copy_from(luisa::span{values}) << shader(input, output).dispatch()
+                   << output.copy_to(luisa::span{actual}) << synchronize();
             for (auto r = int64_t{0}; r < rows; r++) {
                 auto expected = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
                 for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
@@ -788,8 +788,8 @@ void gemm(Device &device, test::tile_xir::Gemm cfg, bool compare_tirx) {
             }
         }
         std::fill(c.begin() + pad, c.end() - pad, std::numeric_limits<float>::quiet_NaN());
-        stream << av.copy_from(a.data()) << bv.copy_from(b.data()) << cb.copy_from(c.data())
-               << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+        stream << av.copy_from(luisa::span{a}) << bv.copy_from(luisa::span{b}) << cb.copy_from(luisa::span{c})
+               << shader(av, bv, cv).dispatch() << cb.copy_to(luisa::span{c}) << synchronize();
         expect(close(span{c}.subspan(pad, expected.size()), expected));
         expect(std::all_of(c.begin(), c.begin() + pad, [](float x) { return x == guard; }));
         expect(std::all_of(c.end() - pad, c.end(), [](float x) { return x == guard; }));
@@ -797,7 +797,7 @@ void gemm(Device &device, test::tile_xir::Gemm cfg, bool compare_tirx) {
     auto moved = std::move(shader);
     expect(!shader && static_cast<bool>(moved));
     shader = std::move(moved);
-    stream << shader(av, bv, cv).dispatch() << cb.copy_to(c.data()) << synchronize();
+    stream << shader(av, bv, cv).dispatch() << cb.copy_to(luisa::span{c}) << synchronize();
     expect(close(span{c}.subspan(pad, expected.size()), expected));
 #ifdef LUISA_TEST_TILE_XIR_TIRX
     if (compare_tirx) {
@@ -854,7 +854,7 @@ void rows(Device &device, int64_t width, bool softmax) {
     }
     auto ab = device.create_buffer<float>(a.size()), bb = device.create_buffer<float>(b.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    stream << ab.copy_from(a.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
+    stream << ab.copy_from(luisa::span{a}) << shader(ab, bb).dispatch() << bb.copy_to(luisa::span{b}) << synchronize();
     if (!close(b, expected)) {
         for (size_t i = 0u; i < b.size(); i++) {
             if (!std::isfinite(b[i]) || std::abs(b[i] - expected[i]) > 2e-5 + 2e-5 * std::abs(expected[i])) {
@@ -912,8 +912,8 @@ void recurrence(Device &device, int64_t iterations, bool pipelined) {
     }
     auto ab = device.create_buffer<float>(input.size()), bb = device.create_buffer<float>(output.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    stream << ab.copy_from(input.data()) << shader(ab, bb).dispatch()
-           << bb.copy_to(output.data()) << ab.copy_to(overwritten.data()) << synchronize();
+    stream << ab.copy_from(luisa::span{input}) << shader(ab, bb).dispatch()
+           << bb.copy_to(luisa::span{output}) << ab.copy_to(luisa::span{overwritten}) << synchronize();
     expect(close(output, expected)) << "iterations=" << iterations << " pipelined=" << pipelined
                                     << " actual=" << output[0] << "," << output[1] << "," << output[2]
                                     << " expected=" << expected[0] << "," << expected[1] << "," << expected[2];
@@ -953,7 +953,7 @@ void clipped_origin(Device &device, bool overflow, bool fused = false) {
     }
     auto ab = device.create_buffer<float>(2), bb = device.create_buffer<float>(3 * width);
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    stream << ab.copy_from(a.data()) << bb.copy_from(b.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
+    stream << ab.copy_from(luisa::span{a}) << bb.copy_from(luisa::span{b}) << shader(ab, bb).dispatch() << bb.copy_to(luisa::span{b}) << synchronize();
     expect(close(b, expected));
 }
 
@@ -1020,8 +1020,8 @@ void indexed_snapshots(Device &device, int64_t width, int64_t iterations, bool p
     auto ab = device.create_buffer<float>(input.size() + pad), cb = device.create_buffer<float>(actual.size());
     auto av = ab.view(pad, input.size()), cv = cb.view(pad, expected.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    stream << av.copy_from(input.data()) << cb.copy_from(actual.data()) << shader(av, av, cv).dispatch()
-           << cb.copy_to(actual.data()) << av.copy_to(overwritten.data()) << synchronize();
+    stream << av.copy_from(luisa::span{input}) << cb.copy_from(luisa::span{actual}) << shader(av, av, cv).dispatch()
+           << cb.copy_to(luisa::span{actual}) << av.copy_to(luisa::span{overwritten}) << synchronize();
     expect(close(span{actual}.subspan(pad, expected.size()), expected)) << "width=" << width << " iterations=" << iterations << " pipeline=" << pipelined;
     expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
     expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
@@ -1047,7 +1047,7 @@ void indexed_bounds(Device &device, int64_t width) {
     for (auto i = int64_t{0}; i < width; i++) { expected[i + 1] = input[i] = static_cast<float>(i + 1) * .25f; }
     auto ab = device.create_buffer<float>(input.size()), cb = device.create_buffer<float>(actual.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    stream << ab.copy_from(input.data()) << shader(ab, cb).dispatch() << cb.copy_to(actual.data()) << synchronize();
+    stream << ab.copy_from(luisa::span{input}) << shader(ab, cb).dispatch() << cb.copy_to(luisa::span{actual}) << synchronize();
     expect(close(actual, expected)) << "width=" << width;
 }
 

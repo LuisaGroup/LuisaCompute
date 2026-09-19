@@ -31,6 +31,16 @@
 //      sin/cos/exp/... slightly differently, so only a relative tolerance is
 //      checked there.
 //
+//   E  cuda backend, CUDA graph, submitted as one graph launch .... candidate
+//      Group A's exact batch (same CUDA module, same arguments, same buffers)
+//      captured once into a CUDA graph (CudaGraphExt) and replayed with a
+//      single cuGraphLaunch per iteration. Graph build (capture + instantiate)
+//      is an expensive one-off host cost, so the report measures it separately
+//      from the per-batch host-submit and the per-batch device (wall) time.
+//      The interesting comparisons are E vs. A on the replay path (what one
+//      graph launch buys over N cuLaunchKernel submissions) and E vs. C/D (the
+//      reorder routes against the graph route).
+//
 // Batch shape is the one from benchmark_command_reorder.cpp: `dispatches`
 // independent dispatches, each reading the whole of one shared read-only input
 // buffer and writing its own `threads`-wide sub-range of one output buffer
@@ -96,6 +106,16 @@
 // (measured before the wait), which tells a device-side ordering effect apart from
 // a host-side one.
 //
+// The CUDA-graph group (E) is special: its batch is fixed by the capture, so a
+// replay's "submit" is one cuGraphLaunch and its "batch" is the whole graph
+// running on the GPU. Because building the graph (stream capture + instantiate)
+// is an expensive one-off host cost, it is timed on its own, reported once
+// ("one-off host build"), and never included in the per-round submit/batch
+// numbers. The build is amortised by comparing per-replay savings against it
+// (the "replays to pay back the build" line). If CudaGraphExt is unavailable or
+// the capture cannot represent the batch, group E is skipped and its rows are
+// simply omitted.
+//
 // Reference outcome (RTX 5070 Ti Laptop, driver 596.13, CUDA 13.2, release build,
 // 16 dispatches x 256 threads x 4096 iterations, medians in ms):
 //
@@ -104,6 +124,19 @@
 //   mode 2, private in 3.977      4.003        0.321        0.538        12.41x
 //   mode 0, iters=1    0.191      0.162        0.067        0.069         2.80x
 //   mode 2, iters=1    0.202      0.167        0.071        0.070         2.86x
+//
+// E (one cuGraphLaunch per replay of A's batch) is not in the table above (that
+// table predates it), but its behaviour is fixed by the two routes it sits
+// between. On the host it collapses A's per-dispatch submit (~0.12-0.24 ms here)
+// to a single launch (~0.013 ms, ~9x less), independent of device work. On the
+// device it is A with the launch latency removed: when the batch is launch-bound
+// (iters=1) E's wall time drops below A's, and when it is device-bound
+// (iters=4096) E's wall time equals A's - a CUDA graph replays the recorded
+// launches in stream order, it does NOT reorder or overlap them, so E never
+// beats the reordered vk route (C) on device time. The capture + instantiate
+// build is a sub-millisecond one-off and pays back within a couple of replays
+// once the host time dominates. The graph replay is checked bit-exact against
+// the strictly ordered reference.
 //
 // i.e. with arguments tracked by their declared usages the reordered vk+CUDA
 // route wins in every mode, shared input or not; the verbose layer counts
@@ -144,6 +177,7 @@
 #include "ut/ut.hpp"// boost.ut cfg used by test_device.h
 #include "test_device.h"
 #include <luisa/backends/ext/command_reorder_ext.h>
+#include <luisa/backends/ext/cuda/cuda_graph_ext.h>
 #include <luisa/backends/ext/vk_cuda_interop.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -161,6 +195,7 @@
 #include <cstring>
 #include <iomanip>
 #include <numeric>
+#include <optional>
 #include <sstream>
 using namespace luisa;
 using namespace luisa::compute;
@@ -282,6 +317,33 @@ template<typename Builder>
 /// Append `more` to `samples`.
 inline void append_samples(luisa::vector<double> &samples, const luisa::vector<double> &more) {
     samples.insert(samples.end(), more.begin(), more.end());
+}
+
+/// Submit `rounds` replays of an instantiated CUDA graph. `ext->launch` is a
+/// single cuGraphLaunch (the host-side cost of one graph submission), and the
+/// device executes the whole captured batch as one unit, so the split between
+/// `submit` and `batch - submit` is exactly "one launch on the CPU" versus
+/// "everything the GPU does" - the same split `measure_group` draws for the
+/// record-and-submit-per-command routes.
+template<typename Launch>
+[[nodiscard]] GroupTiming measure_graph(Stream &stream, Launch &&launch_exec,
+                                        size_t rounds, size_t warmup_rounds = 0u) {
+    for (auto w = size_t{0}; w < warmup_rounds; w++) {
+        launch_exec();
+        stream << synchronize();
+    }
+    GroupTiming timing;
+    timing.batch.reserve(rounds);
+    timing.submit.reserve(rounds);
+    for (auto r = size_t{0}; r < rounds; r++) {
+        Clock clock;
+        launch_exec();
+        auto submit = clock.toc();
+        stream << synchronize();
+        timing.batch.emplace_back(clock.toc());
+        timing.submit.emplace_back(submit);
+    }
+    return timing;
 }
 
 [[nodiscard]] luisa::vector<float4> download(Stream &stream, const Buffer<float4> &dst) {
@@ -470,6 +532,14 @@ int main(int argc, char *argv[]) {
                       "which overrides the runtime switch: groups B and C would measure the "
                       "same serialized baseline.");
     }
+    // The CUDA-graph route (group E) captures group A's batch on the cuda
+    // device. The extension is cuda-only; if it is missing the graph group is
+    // skipped rather than failing the whole comparison.
+    auto *graph_ext = cuda_device.extension<CudaGraphExt>();
+    if (graph_ext == nullptr) {
+        LUISA_WARNING("CudaGraphExt is not available on the cuda device: the CUDA-graph "
+                      "route (group E) is skipped.");
+    }
 
     // ---- buffers ------------------------------------------------------------------
     // Input: read-only and shared by every dispatch of the batch, so it never
@@ -582,6 +652,42 @@ int main(int argc, char *argv[]) {
     cuda_stream << build_cuda_batch().commit() << synchronize();
     auto reference = download(cuda_stream, cuda_dst);
 
+    // ---- CUDA graph (route E) ------------------------------------------------------
+    // Group A's exact batch, captured once into a CUDA graph on the cuda
+    // device. Capture + instantiation is an expensive one-off host cost (it
+    // is measured and reported separately, and never inside a timed round),
+    // but every replay afterwards is a single cuGraphLaunch for the whole
+    // batch - that is the trade-off this group quantifies: host time of the
+    // build and of each replay versus the device time, against the
+    // per-command submission of groups A/C/D.
+    std::optional<CudaGraphInstance> graph;
+    std::optional<CudaGraphExecInstance> graph_exec;
+    double graph_build_ms{0.0};
+    if (graph_ext != nullptr) {
+        Clock build_clock;
+        auto captured = graph_ext->create_graph(build_cuda_batch());
+        if (captured.handle().handle != CudaGraphExt::invalid_handle) {
+            auto instantiated = graph_ext->instantiate(captured.handle().handle);
+            if (instantiated.handle().handle != CudaGraphExt::invalid_handle) {
+                graph.emplace(std::move(captured));
+                graph_exec.emplace(std::move(instantiated));
+            }
+        }
+        graph_build_ms = build_clock.toc();
+        if (!graph_exec) {
+            graph.reset();
+            graph_ext = nullptr;// disable route E
+            LUISA_WARNING("Capturing / instantiating the CUDA graph failed "
+                          "(dispatches of non-native shaders cannot be captured); "
+                          "the CUDA-graph route (group E) is skipped.");
+        } else {
+            LUISA_INFO("CUDA graph built: capture + instantiate on host = {:.3f} ms "
+                       "(one-off, excluded from the timed rounds; {} dispatch nodes).",
+                       graph_build_ms, opt.dispatches);
+        }
+    }
+    const auto graph_exec_handle = graph_exec ? graph_exec->handle().handle : CudaGraphExt::invalid_handle;
+
     // ---- measurement ----------------------------------------------------------------
     // Warm every group up once (the first submission of a shader also touches
     // driver-side pipeline/module setup, which must not be attributed to a group),
@@ -596,11 +702,17 @@ int main(int argc, char *argv[]) {
     reorder_ext->set_command_reorder_enabled(true);
     static_cast<void>(measure_group(stream, build_vk_cuda_batch, 0u, kWarmupRounds));
     static_cast<void>(measure_group(stream, build_vk_native_batch, 0u, kWarmupRounds));
+    const auto have_graph = graph_exec.has_value();
+    auto launch_graph = [&] { graph_ext->launch(graph_exec_handle, cuda_stream.handle()); };
+    if (have_graph) {
+        static_cast<void>(measure_graph(cuda_stream, launch_graph, 0u, kWarmupRounds));
+    }
 
     GroupTiming a;
     GroupTiming b;
     GroupTiming c;
     GroupTiming d;
+    GroupTiming e;
     for (auto round = size_t{0}; round < opt.rounds; round++) {
         auto a_now = measure_group(cuda_stream, build_cuda_batch, 1u);
         reorder_ext->set_command_reorder_enabled(false);
@@ -608,6 +720,7 @@ int main(int argc, char *argv[]) {
         reorder_ext->set_command_reorder_enabled(true);
         auto c_now = measure_group(stream, build_vk_cuda_batch, 1u);
         auto d_now = measure_group(stream, build_vk_native_batch, 1u);
+        auto e_now = have_graph ? measure_graph(cuda_stream, launch_graph, 1u) : GroupTiming{};
         append_samples(a.batch, a_now.batch);
         append_samples(a.submit, a_now.submit);
         append_samples(b.batch, b_now.batch);
@@ -616,10 +729,14 @@ int main(int argc, char *argv[]) {
         append_samples(c.submit, c_now.submit);
         append_samples(d.batch, d_now.batch);
         append_samples(d.submit, d_now.submit);
+        append_samples(e.batch, e_now.batch);
+        append_samples(e.submit, e_now.submit);
         LUISA_INFO("round {}: A(cuda) {:.3f} ms | B(vk+cuda, off) {:.3f} ms | "
-                   "C(vk+cuda, on) {:.3f} ms | D(vk native, on) {:.3f} ms",
+                   "C(vk+cuda, on) {:.3f} ms | D(vk native, on) {:.3f} ms | "
+                   "E(cuda graph) {:.3f} ms",
                    round + 1, a_now.batch.front(), b_now.batch.front(),
-                   c_now.batch.front(), d_now.batch.front());
+                   c_now.batch.front(), d_now.batch.front(),
+                   have_graph ? e_now.batch.front() : 0.0);
     }
 
     // ---- validation ------------------------------------------------------------------
@@ -656,41 +773,83 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    auto reordered_matches = bitwise_equal(luisa::span<const float4>{vk_cuda_reordered}, reference_span);
-    auto serialized_matches = bitwise_equal(luisa::span<const float4>{vk_cuda_serialized}, reference_span);
-    auto native_deviation = max_relative_deviation(luisa::span<const float4>{vk_native}, reference_span);
+      auto reordered_matches = bitwise_equal(luisa::span<const float4>{vk_cuda_reordered}, reference_span);
+      auto serialized_matches = bitwise_equal(luisa::span<const float4>{vk_cuda_serialized}, reference_span);
+      auto native_deviation = max_relative_deviation(luisa::span<const float4>{vk_native}, reference_span);
+      // The graph replays group A's exact commands from the exact same buffers,
+      // so its output must be bit-identical to the reference as well.
+      luisa::vector<float4> graph_result;
+      auto graph_matches = true;
+      if (have_graph) {
+          launch_graph();
+          cuda_stream << synchronize();
+          graph_result = download(cuda_stream, cuda_dst);
+          graph_matches = bitwise_equal(luisa::span<const float4>{graph_result}, reference_span);
+      }
 
-    // ---- report ------------------------------------------------------------------------
-    auto a_batch = summarize(a.batch);
-    auto b_batch = summarize(b.batch);
-    auto c_batch = summarize(c.batch);
-    auto d_batch = summarize(d.batch);
-    LUISA_INFO("===========================================================================");
-    LUISA_INFO("{:<38}{:>10}{:>10}{:>10}{:>10} |{:>10}{:>10}{:>10}{:>10}",
-               "batch (ms) / host submit (ms)", "min", "median", "mean", "max",
-               "min", "median", "mean", "max");
-    print_row({"A cuda backend (no reorder)", a_batch, summarize(a.submit)});
-    print_row({"B vk+cuda kernel, reorder OFF", b_batch, summarize(b.submit)});
-    print_row({"C vk+cuda kernel, reorder ON", c_batch, summarize(c.submit)});
-    print_row({"D vk native kernel, reorder ON", d_batch, summarize(d.submit)});
-    LUISA_INFO("===========================================================================");
-    LUISA_INFO("Reorder effect inside the vk+CUDA route (B/C): {:.2f}x", b_batch.median / c_batch.median);
-    LUISA_INFO("vs. the cuda backend (A/C)                 : {:.2f}x", a_batch.median / c_batch.median);
-    LUISA_INFO("vk+CUDA route vs native vk route (D/C)     : {:.2f}x", d_batch.median / c_batch.median);
+
+  // ---- report ------------------------------------------------------------------------
+  auto a_batch = summarize(a.batch);
+  auto b_batch = summarize(b.batch);
+  auto c_batch = summarize(c.batch);
+  auto d_batch = summarize(d.batch);
+  LUISA_INFO("===========================================================================");
+  LUISA_INFO("{:<38}{:>10}{:>10}{:>10}{:>10} |{:>10}{:>10}{:>10}{:>10}",
+             "batch (ms) / host submit (ms)", "min", "median", "mean", "max",
+             "min", "median", "mean", "max");
+  print_row({"A cuda backend (no reorder)", a_batch, summarize(a.submit)});
+  print_row({"B vk+cuda kernel, reorder OFF", b_batch, summarize(b.submit)});
+  print_row({"C vk+cuda kernel, reorder ON", c_batch, summarize(c.submit)});
+  print_row({"D vk native kernel, reorder ON", d_batch, summarize(d.submit)});
+  if (have_graph) {
+      print_row({"E cuda graph (one graph launch)", summarize(e.batch), summarize(e.submit)});
+  }
+  LUISA_INFO("===========================================================================");
+  LUISA_INFO("Reorder effect inside the vk+CUDA route (B/C): {:.2f}x", b_batch.median / c_batch.median);
+  LUISA_INFO("vs. the cuda backend (A/C) : {:.2f}x", a_batch.median / c_batch.median);
+  LUISA_INFO("vk+CUDA route vs native vk route (D/C) : {:.2f}x", d_batch.median / c_batch.median);
+  if (have_graph) {
+      auto e_batch = summarize(e.batch);
+      auto e_submit = summarize(e.submit);
+      auto a_submit = summarize(a.submit);
+      LUISA_INFO("CUDA graph route (E): one-off host build (capture + instantiate) = {:.3f} ms.",
+                 graph_build_ms);
+      LUISA_INFO("Graph replay vs. naive cuda stream, batch wall time (A/E) : {:.2f}x",
+                 a_batch.median / e_batch.median);
+      LUISA_INFO("Graph replay vs. naive cuda stream, host submit time (A/E): {:.2f}x",
+                 a_submit.median / e_submit.median);
+      LUISA_INFO("Graph replay vs. reordered vk+CUDA (C/E)                  : {:.2f}x",
+                 c_batch.median / e_batch.median);
+      // The graph's win is on the host: it replaces the per-dispatch submit cost
+      // of route A with one cuGraphLaunch. Amortise the one-off build against
+      // that per-replay host saving; when the batch is device-bound the wall
+      // times match (A/E ~ 1.0x above) and only the host time is saved.
+      auto host_saving = a_submit.median - e_submit.median;
+      LUISA_INFO("Graph build amortised against host-submit saving: {:.3f} ms one-off vs "
+                 "{:.3f} ms saved per replay vs A (~{:.0f} replays to pay back the build).",
+                 graph_build_ms, host_saving,
+                 host_saving > 1e-6
+                     ? graph_build_ms / host_saving
+                     : std::numeric_limits<double>::infinity());
+  }
     LUISA_INFO("Checks: vk+CUDA reordered == cuda reference = {}, strictly ordered == "
                "reference = {}, outputs finite = {}, one distinct sub-range per dispatch "
                "= {}, vk native max relative deviation = {:.3e} (< {:.1e} required).",
                reordered_matches, serialized_matches, all_finite, distinct_ranges,
                native_deviation, kNativeTolerance);
+    if (have_graph) {
+        LUISA_INFO("CUDA graph (E) replay == cuda reference (bit-exact): {}.", graph_matches);
+    }
 
     auto failed = false;
     if (!reordered_matches || !serialized_matches || !all_finite || !distinct_ranges ||
-        native_deviation > kNativeTolerance) {
+        native_deviation > kNativeTolerance || !graph_matches) {
         LUISA_ERROR_WITH_LOCATION(
             "Comparison validation FAILED: both Vulkan CUDA-launch groups must reproduce "
             "the strictly ordered cuda-backend result exactly, produce finite outputs and "
             "write one distinct sub-range per dispatch; the Vulkan-compiled group must stay "
-            "within the numerical tolerance.");
+            "within the numerical tolerance; the CUDA-graph replay (if built) must match the "
+            "reference bit for bit.");
         failed = true;
     }
     // "Faster" has to mean something: a 1-2% spread between two routes that both

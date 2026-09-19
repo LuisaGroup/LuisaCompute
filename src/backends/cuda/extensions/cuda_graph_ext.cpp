@@ -2,6 +2,8 @@
 #include "../cuda_device.h"
 #include "../cuda_stream.h"
 #include "../cuda_buffer.h"
+#include "../cuda_bindless_array.h"
+#include "../cuda_shader.h"
 #include "../cuda_error.h"
 #include <cuda.h>
 
@@ -157,7 +159,6 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             luisa::vector<CudaGraphHostCopyData> &host_copies;
             size_t download_index{0u};
             bool ok{true};
-
             GraphCaptureVisitor(CUstream stream, luisa::vector<CudaGraphHostCopyData> &host_copies) noexcept
                 : stream{stream}, host_copies{host_copies} {}
 
@@ -202,7 +203,133 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             }
 
             void visit(BufferToTextureCopyCommand *) noexcept override {}
-            void visit(ShaderDispatchCommand *) noexcept override {}
+
+            /// Rebuild the by-value `Params` struct argument exactly like
+            /// `CUDAShaderNative::_launch` does (16-byte-aligned slots, buffer
+            /// arguments stored as their `CUDABuffer::Binding`, uniforms copied
+            /// verbatim, trailing launch-size-and-kernel-id slot), then replay
+            /// the very same `cuLaunchKernel` on the capturing stream. CUDA
+            /// records the launch as a kernel node of the graph-in-progress,
+            /// so the captured kernel reads byte-identical arguments to a live
+            /// dispatch. Any dispatch the normal path would treat specially
+            /// (printing, bound arguments, indirect or multiple dispatch, a
+            /// non-native shader, Accel arguments) is refused instead of
+            /// approximated, so a captured graph is never subtly different
+            /// from the ordinary submission path.
+            void visit(ShaderDispatchCommand *dispatch) noexcept override {
+                if (!ok) { return; }
+                auto *shader = reinterpret_cast<const CUDAShader *>(dispatch->handle());
+                if (shader == nullptr ||
+                    !shader->is_native() ||
+                    !shader->is_graph_compatible() ||
+                    shader->requires_printing() ||
+                    shader->bound_argument_count() != 0u ||
+                    dispatch->is_indirect() ||
+                    dispatch->is_multiple_dispatch()) [[unlikely]] {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "CudaGraphExt: capturing a dispatch of a shader that is not "
+                        "a plain single-launch native CUDA kernel (printing, bound "
+                        "arguments, indirect or multiple dispatch). Refusing the "
+                        "capture - a graph created from it could not reproduce the "
+                        "ordinary launch semantics.");
+                    ok = false;
+                    return;
+                }
+                auto dispatch_size = dispatch->dispatch_size();
+                if (any(dispatch_size == make_uint3(0u))) [[unlikely]] {
+                    // The normal path ignores empty launches; silently turning
+                    // one into a missing graph node would change what the
+                    // command list captures, so refuse instead.
+                    LUISA_WARNING_WITH_LOCATION(
+                        "CudaGraphExt: empty (zero-sized) dispatch cannot be "
+                        "captured into a graph. Refusing the capture.");
+                    ok = false;
+                    return;
+                }
+                auto func = static_cast<CUfunction>(shader->handle());
+                auto block_size = shader->block_size();
+                // Same alignment rule as _launch's allocate_argument().
+                static constexpr auto cuda_shader_native_alignment = 16u;
+                auto argument_buffer_offset = size_t{0u};
+                auto allocate_argument = [&argument_buffer_offset](size_t bytes) noexcept {
+                    auto offset = (argument_buffer_offset + cuda_shader_native_alignment - 1u) / cuda_shader_native_alignment * cuda_shader_native_alignment;
+                    argument_buffer_offset = offset + bytes;
+                    return offset;
+                };
+                luisa::vector<std::byte> argument_buffer;
+                auto store = [&](size_t offset, const void *src, size_t bytes) noexcept {
+                    if (argument_buffer.size() < offset + bytes) {
+                        argument_buffer.resize(offset + bytes);
+                    }
+                    std::memcpy(argument_buffer.data() + offset, src, bytes);
+                };
+                for (auto &&arg : dispatch->arguments()) {
+                    using Tag = ShaderDispatchCommand::Argument::Tag;
+                    switch (arg.tag) {
+                        case Tag::BUFFER: {
+                            auto offset = allocate_argument(sizeof(CUDABuffer::Binding));
+                            auto *buffer = reinterpret_cast<const CUDABuffer *>(arg.buffer.handle);
+                            auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
+                            store(offset, &binding, sizeof(binding));
+                            break;
+                        }
+                        case Tag::TEXTURE: {
+                            auto offset = allocate_argument(sizeof(CUDATexture::Binding));
+                            auto *texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
+                            auto binding = texture->binding(arg.texture.level);
+                            store(offset, &binding, sizeof(binding));
+                            break;
+                        }
+                        case Tag::UNIFORM: {
+                            auto uniform = dispatch->uniform(arg.uniform);
+                            auto offset = allocate_argument(uniform.size_bytes());
+                            store(offset, uniform.data(), uniform.size_bytes());
+                            break;
+                        }
+                        case Tag::BINDLESS_ARRAY: {
+                            auto offset = allocate_argument(sizeof(CUDABindlessArray::Binding));
+                            auto *array = reinterpret_cast<const CUDABindlessArray *>(arg.bindless_array.handle);
+                            auto binding = array->binding();
+                            store(offset, &binding, sizeof(binding));
+                            break;
+                        }
+                        case Tag::ACCEL: {
+                            // OptiX traversable handles must not be baked into
+                            // a CUDA graph (they may be rebuilt between launches).
+                            LUISA_WARNING_WITH_LOCATION(
+                                "CudaGraphExt: capturing a dispatch with an Accel "
+                                "argument is refused (traversable handles must not "
+                                "be baked into a CUDA graph).");
+                            ok = false;
+                            return;
+                        }
+                    }
+                }
+                // The trailing launch-size-and-kernel-id slot (uint4), exactly
+                // like _launch: kernel id 0 for a single dispatch.
+                auto launch_size_offset = allocate_argument(sizeof(uint4));
+                auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
+                store(launch_size_offset, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
+                // The launch configuration _launch computes for this dispatch.
+                auto blocks = (dispatch_size + block_size - 1u) / block_size;
+                // Launch on the capturing stream with the identical argument
+                // encoding: CUDA records it as a kernel node.
+                void *kernel_args = static_cast<void *>(argument_buffer.data());
+                if (auto err = cuLaunchKernel(
+                        func,
+                        blocks.x, blocks.y, blocks.z,
+                        block_size.x, block_size.y, block_size.z,
+                        0u, stream,
+                        &kernel_args, nullptr); err != CUDA_SUCCESS) {
+                    const char *err_name = nullptr;
+                    cuGetErrorName(err, &err_name);
+                    LUISA_WARNING_WITH_LOCATION(
+                        "CudaGraphExt: cuLaunchKernel on the capture stream failed: {}",
+                        err_name ? err_name : "unknown");
+                    ok = false;
+                }
+            }
+
             void visit(TextureUploadCommand *) noexcept override {}
             void visit(TextureDownloadCommand *) noexcept override {}
             void visit(TextureCopyCommand *) noexcept override {}
@@ -312,9 +439,9 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
     });
 }
 
-void CudaGraphExtImpl::launch(GraphExecHandle exec, uint64_t stream_handle) noexcept {
-    if (exec == invalid_handle) { return; }
-    _device->with_handle([&] {
+  void CudaGraphExtImpl::launch(GraphExecHandle exec, uint64_t stream_handle) noexcept {
+      if (exec == invalid_handle) { return; }
+      _device->with_handle([&] {
         auto ret = cuGraphLaunch(reinterpret_cast<CUgraphExec>(exec), to_cu_stream(stream_handle));
         if (ret != CUDA_SUCCESS) {
             const char *err_name = nullptr;

@@ -148,7 +148,7 @@ evaluate_normalized_vectors_through_callable(
     auto stream = device.create_stream();
     stream << input.copy_from(inputs)
            << shader(output, input, seed).dispatch(inputs.size())
-           << output.copy_to(values.data())
+           << output.copy_to(luisa::span{values})
            << synchronize();
     return values;
 }
@@ -254,7 +254,7 @@ evaluate_normalized_vectors_through_callable(
     luisa::vector<uint32_t> values(reuse_count);
     auto stream = device.create_stream();
     stream << shader(output, seed).dispatch(1u)
-           << output.copy_to(values.data())
+           << output.copy_to(luisa::span{values})
            << synchronize();
     return CompileResult{
         .artifact_size = artifact_size,

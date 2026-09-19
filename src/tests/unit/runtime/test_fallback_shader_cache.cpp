@@ -167,7 +167,7 @@ run_boolean_comparison_kernel(const char *program_path) noexcept {
     auto stream = device.create_stream();
     std::array<uint4, 4u> result{};
     stream << shader(output).dispatch(4u)
-           << output.copy_to(result.data())
+           << output.copy_to(luisa::span{result})
            << synchronize();
     return result;
 }
@@ -187,7 +187,7 @@ run_assume_kernel(const char *program_path) noexcept {
     auto stream = device.create_stream();
     std::array<uint, 4u> result{};
     stream << shader(output).dispatch(4u)
-           << output.copy_to(result.data())
+           << output.copy_to(luisa::span{result})
            << synchronize();
     return result;
 }
@@ -231,9 +231,9 @@ run_minimal_codegen_vector_kernel(const char *program_path) noexcept {
         }
     }
     std::array<float4, 4u> result{};
-    stream << input.copy_from(values.data())
+    stream << input.copy_from(luisa::span{values})
            << shader(input, output).dispatch(4u)
-           << output.copy_to(result.data())
+           << output.copy_to(luisa::span{result})
            << synchronize();
     return result;
 }

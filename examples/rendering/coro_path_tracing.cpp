@@ -523,7 +523,7 @@ int main(int argc, char *argv[]) {
 
         // Read back final image and save
         luisa::vector<std::array<uint8_t, 4u>> host_image(total_cells);
-        stream << ldr_image.copy_to(host_image.data())
+        stream << ldr_image.copy_to(luisa::span{host_image})
                << synchronize();
 
         LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000.0);
