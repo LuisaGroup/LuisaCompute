@@ -428,6 +428,20 @@ private:
     }
 
 private:
+    /// Whether this backend can host the JIT raster pipeline that `_raster_shader`
+    /// needs. Two conditions must hold: the device must expose the raster
+    /// extension at all (CUDA, HIP and the fallback backend expose none), and the
+    /// extension must be JIT-capable (Vulkan exposes one, but its
+    /// `create_raster_shader` is AOT-only -- VkRasterExt asserts `compile_only`).
+    /// Backends failing this test keep the legacy ray-tracing renderer and never
+    /// touch a raster resource.
+    [[nodiscard]] static bool _rasterization_possible(Device &device) noexcept {
+        if (device.extension<RasterExt>() == nullptr) { return false; }
+        auto backend = device.backend_name();
+        return backend != luisa::string_view{"vk"} &&
+               backend != luisa::string_view{"cpu"};
+    }
+
     void _rebuild_swapchain_if_changed(GLFWwindow *window, Swapchain &sc, Image<float> &fb) noexcept {
         auto fw = 0, fh = 0;
         glfwGetFramebufferSize(window, &fw, &fh);
@@ -450,12 +464,13 @@ private:
                 .back_buffer_count = _config.back_buffers};
             sc = _device.create_swapchain(_stream, sc_options);
             // The framebuffer is the color target of the hardware raster renderer
-            // whenever raster mode is enabled, so render-target support is always
-            // requested, independent of the backend. Creating it without the flag
-            // makes the backend unable to bind it as an RTV (on DX the device is
-            // removed with DXGI_ERROR_INVALID_CALL when the raster pipeline is
-            // created).
-            fb = _device.create_image<float>(sc.backend_storage(), size, 1u, false, true);
+            // only while raster mode is active, so render-target support is
+            // requested only then: creating it without the flag would make the
+            // backend unable to bind it as an RTV (on DX the device is removed
+            // with DXGI_ERROR_INVALID_CALL when the raster pipeline is created),
+            // while asking for the flag on a backend that renders through the
+            // ray-tracing path is a raster request that backend may not support.
+            fb = _device.create_image<float>(sc.backend_storage(), size, 1u, false, _rasterization_enabled);
         }
     }
     void _on_imgui_create_window(ImGuiViewport *vp) noexcept {
@@ -508,12 +523,26 @@ public:
                 _dpi_override = std::clamp(value, 1.0f, 8.0f);
             }
         }
-        // rasterizer NDC-Y convention override for the rasterization renderer
-        // (see _raster_y_flip).
-        if (auto env = std::getenv("LUISA_GUI_RASTER_FLIP"); env != nullptr && *env != '\0') {
-            auto value = std::strtof(env, nullptr);
-            _raster_y_flip = value < 0.0f ? -1.0f : 1.0f;
+        // Decide the renderer *before* creating any device resource, so that a
+        // backend without a usable raster pipeline neither gets a raster render
+        // target (see _rebuild_swapchain_if_changed) nor a raster pipeline.
+        // LUISA_GUI_RASTER=0 forces the legacy ray-tracing path.
+        auto raster_requested = config.rasterization;
+        if (auto env = std::getenv("LUISA_GUI_RASTER"); env != nullptr && *env != '\0') {
+            raster_requested = env[0] != '0';
         }
+        _rasterization_enabled = raster_requested && _rasterization_possible(_device);
+        if (_rasterization_enabled) {
+            // rasterizer NDC-Y convention override for the rasterization renderer
+            // (see _raster_y_flip); only meaningful while raster mode is active.
+            if (auto env = std::getenv("LUISA_GUI_RASTER_FLIP"); env != nullptr && *env != '\0') {
+                auto value = std::strtof(env, nullptr);
+                _raster_y_flip = value < 0.0f ? -1.0f : 1.0f;
+            }
+        }
+        LUISA_INFO("GUI hardware rasterization {} on backend '{}'.",
+                   _rasterization_enabled ? "enabled" : "disabled",
+                   _device.backend_name());
 
         // initialize GLFW
         static std::once_flag once_flag;
@@ -649,19 +678,11 @@ public:
             };
         });
 
-        // Compile the rasterization renderer once, when the backend supports a
-        // JIT raster pipeline (DX). Vulkan's raster path is AOT-only (its
-        // create_raster_shader asserts compile_only) and the CPU backend has no
-        // raster extension, so both fall back to the ray-tracing path above.
-        // LUISA_GUI_RASTER=0 forces the legacy ray-tracing path.
-        auto raster_requested = config.rasterization;
-        if (auto env = std::getenv("LUISA_GUI_RASTER"); env != nullptr && *env != '\0') {
-            raster_requested = env[0] != '0';
-        }
-        _rasterization_enabled = _device.extension<RasterExt>() != nullptr &&
-                                 raster_requested &&
-                                 _device.backend_name() != luisa::string_view{"vk"} &&
-                                 _device.backend_name() != luisa::string_view{"cpu"};
+        // Compile the rasterization renderer. The backend was already checked to
+        // provide a JIT-capable raster pipeline (see _rasterization_possible), so
+        // no raster extension is touched on backends that lack one; if the
+        // pipeline cannot be created after all, the flag is cleared and the
+        // ray-tracing path above takes over.
         if (_rasterization_enabled) {
             // One RGBA32F attribute per AppData slot the vertex stage reads.
             VertexAttribute raster_attributes[]{
@@ -711,6 +732,12 @@ public:
             RasterKernel<decltype(raster_vert), decltype(raster_pixel)> raster_kernel{raster_vert, raster_pixel};
             _raster_shader = _device.compile(raster_kernel, _mesh_format);
             _rasterization_enabled = static_cast<bool>(_raster_shader);
+            if (!_rasterization_enabled) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to create the GUI raster pipeline on backend '{}'; "
+                    "falling back to the ray-tracing path.",
+                    _device.backend_name());
+            }
         }
 
         // TODO: install user GLFW callbacks?

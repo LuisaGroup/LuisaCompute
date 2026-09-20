@@ -13,7 +13,7 @@ DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, RasterExt *ras
       _size(size), _raster_ext{raster_ext}, _format(format) {
 }
 DepthBuffer Device::create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept {
-    return _create<DepthBuffer>(extension<RasterExt>(), depth_format, size);
+    return _create<DepthBuffer>(detail::require_raster_ext(*this, "Creating a depth buffer"), depth_format, size);
 }
 
 DepthBuffer::DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFormat format, uint2 size) noexcept

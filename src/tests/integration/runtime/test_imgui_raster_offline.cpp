@@ -1,9 +1,11 @@
 // Offline validation of the ImGuiWindow rasterization mesh layout and shaders,
 // without a swapchain (DX present is unavailable in this environment). Mirrors
 // the GUIMeshVertex / GUIVarying packing and the vertex/pixel stages in
-// src/gui/imgui_window.cpp.
+// src/gui/imgui_window.cpp. Backends without the raster extension are skipped,
+// exactly as ImGuiWindow falls back to ray tracing there.
 #include "ut/ut.hpp"
 #include "test_device.h"
+#include <luisa/core/logging.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/bindless_array.h>
@@ -53,6 +55,19 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     constexpr uint w = 64u, h = 64u;
 
+    // Only backends that expose the raster extension can run this test. The
+    // mirrored ImGuiWindow raster pipeline is unreachable without it (the window
+    // falls back to ray tracing, see _rasterization_possible in
+    // src/gui/imgui_window.cpp) and the raster entry points fail closed, so skip
+    // here as well instead of requesting a pipeline the backend cannot create.
+    if (device.extension<RasterExt>() == nullptr) {
+        LUISA_INFO("Backend '{}' does not provide '{}'; "
+                   "skipping the ImGui raster offline test.",
+                   device.backend_name(), RasterExt::name);
+        return 0;
+    }
+    auto is_vk = device.backend_name() == luisa::string_view{"vk"};
+
     MeshFormat mf;
     const VertexAttribute attrs[]{
         {VertexAttributeType::Position, PixelFormat::RGBA32F},
@@ -88,7 +103,6 @@ int main(int argc, char *argv[]) {
         return make_float4(c.xyz() * c.w, c.w);
     };
     RasterKernel<decltype(vert), decltype(pixel)> kernel{vert, pixel};
-    auto is_vk = device.backend_name() == luisa::string_view{"vk"};
     auto shader = [&] {
         if (is_vk) {
             device.compile_to(kernel, mf, "imgui_raster_offline");
