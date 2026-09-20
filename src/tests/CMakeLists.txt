@@ -1405,6 +1405,7 @@ endif ()
   # --- integration/runtime: CUDA-only tests ---
   if (LUISA_COMPUTE_ENABLE_CUDA)
       luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
+      luisa_compute_add_test(test_cuda_graph_dag integration/runtime/test_cuda_graph_dag.cpp)
       luisa_compute_add_test(test_tile_cuda_ptx
               unit/tile/test_tile_cuda_ptx.cpp
               LABELS "integration;integration_tile_cuda" ARGS cuda)

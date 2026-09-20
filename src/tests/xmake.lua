@@ -651,6 +651,7 @@ end
           add_includedirs("../backends/cuda")
       end)
       test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+      test_proj("test_cuda_graph_dag", "integration/runtime/test_cuda_graph_dag.cpp")
     -- The optional TIRx bridge is compiled into lc-tile when
     -- lc_tile_tirx_bridge is enabled. Without it this executable verifies the
     -- CUDA backend fails closed for tile TIRX requests; with it, the same

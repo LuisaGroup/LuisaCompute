@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/backends/ext/cuda/cuda_graph_ext.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/spin_mutex.h>
@@ -16,19 +17,33 @@ struct CudaGraphHostCopyData {
     size_t size;
 };
 
+/// Owning wrapper for the pinned host memory staged by graph upload/download
+/// commands. Shared (via shared_ptr) between a graph and the executable
+/// graphs built from it, so the staging buffers - and the payload copies
+/// that point into them - outlive whichever side is destroyed first.
+struct PinnedHostBlock {
+    void *ptr{};
+    explicit PinnedHostBlock(void *p) noexcept : ptr{p} {}
+    PinnedHostBlock(PinnedHostBlock const &) = delete;
+    PinnedHostBlock &operator=(PinnedHostBlock const &) = delete;
+    ~PinnedHostBlock() {
+        if (ptr != nullptr) { cuMemFreeHost(ptr); }
+    }
+};
+
 class CudaGraphExtImpl final : public CudaGraphExt {
 
     CUDADevice *_device;
 
     struct GraphData {
         luisa::vector<CUgraphNode> nodes;
-        luisa::vector<void *> host_allocations;// pinned memory kept alive for graph lifetime
+        luisa::vector<luisa::shared_ptr<PinnedHostBlock>> host_allocations;
         luisa::vector<CudaGraphHostCopyData> host_copies;
     };
 
     struct ExecData {
         uint64_t graph_handle;
-        luisa::vector<void *> host_allocations;// pinned memory kept alive for updated executable graphs
+        luisa::vector<luisa::shared_ptr<PinnedHostBlock>> host_allocations;
         luisa::vector<CudaGraphHostCopyData> host_copies;
     };
 
