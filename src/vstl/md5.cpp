@@ -1,6 +1,18 @@
 #include <luisa/vstl/md5.h>
 #include <luisa/core/platform.h>
 #include <luisa/vstl/string_utility.h>
+
+/* Little-endian detection for the fast load/store paths. MD5 blocks and
+   the final digest are defined to be little-endian, so on little-endian
+   hosts the byte shuffling in decode/encode can be skipped entirely. */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+#define VSTD_MD5_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#elif defined(_M_X64) || defined(_M_IX86)
+#define VSTD_MD5_LITTLE_ENDIAN 1
+#else
+#define VSTD_MD5_LITTLE_ENDIAN 0
+#endif
+
 namespace vstd {
 namespace detail {
 
@@ -29,8 +41,15 @@ public:
     static constexpr uint32_t s43 = 15;
     static constexpr uint32_t s44 = 21;
 
+    /* Longest message (in bytes) handled by the one-shot fast path:
+       two padded blocks at most (112 = 64 + 56). */
+    static constexpr size_t ONESHOT_MAX_LEN = 112;
+
     /* MD5_Impl basic transformation. Transforms state based on block. */
     void transform(const uint8_t block[64]);
+
+    /* Same transformation working on a caller-provided state. */
+    static void transform_state(uint32_t state[4], const uint8_t block[64]);
 
     /* Encodes input (usigned long) into output (uint8_t). */
     static void encode(const uint32_t *input, uint8_t *output, size_t length);
@@ -214,10 +233,26 @@ void MD5_Impl::init(const uint8_t *input, size_t len) {
  * @param {block} the message block.
  */
 void MD5_Impl::transform(const uint8_t block[64]) {
+    transform_state(state, block);
+}
+
+/**
+ * @MD5_Impl basic transformation on a caller-provided state.
+ *
+ * @param {state} the state (ABCD) to transform in place.
+ *
+ * @param {block} the message block.
+ */
+void MD5_Impl::transform_state(uint32_t state[4], const uint8_t block[64]) {
 
     uint32_t a = state[0], b = state[1], c = state[2], d = state[3], x[16];
 
+#if VSTD_MD5_LITTLE_ENDIAN
+    /* The block is already a sequence of little-endian 32-bit words. */
+    memcpy(x, block, 64);
+#else
     decode(block, x, 64);
+#endif
 
     /* Round 1 */
     FF(a, b, c, d, x[0], s11, 0xd76aa478);
@@ -309,12 +344,17 @@ void MD5_Impl::transform(const uint8_t block[64]) {
 */
 void MD5_Impl::encode(const uint32_t *input, uint8_t *output, size_t length) {
 
+#if VSTD_MD5_LITTLE_ENDIAN
+    /* Output words are already in the target byte order. */
+    memcpy(output, input, length);
+#else
     for (size_t i = 0, j = 0; j < length; ++i, j += 4) {
         output[j] = (uint8_t)(input[i] & 0xff);
         output[j + 1] = (uint8_t)((input[i] >> 8) & 0xff);
         output[j + 2] = (uint8_t)((input[i] >> 16) & 0xff);
         output[j + 3] = (uint8_t)((input[i] >> 24) & 0xff);
     }
+#endif
 }
 
 /**
@@ -334,6 +374,43 @@ void MD5_Impl::decode(const uint8_t *input, uint32_t *output, size_t length) {
 }
 
 /**
+ * @One-shot md5 for short messages. Builds the padded block(s) directly
+ * on the stack (message bytes + 0x80 + zeros + 64-bit little-endian bit
+ * length), transforms them from the initial state and encodes the result,
+ * bypassing the streaming context setup and finalize. Only valid for
+ * messages of at most ONESHOT_MAX_LEN bytes.
+ *
+ * @param {message} the message (message.size() <= ONESHOT_MAX_LEN).
+ *
+ * @param {digest} the 16-byte message-digest output.
+ */
+static void md5_oneshot(span<uint8_t const> message, uint8_t *digest) {
+
+    uint32_t st[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};
+    uint8_t blocks[128] = {};
+    size_t const len = message.size();
+
+    memcpy(blocks, message.data(), len);
+    blocks[len] = 0x80;
+
+    /* Append the bit length as a 64-bit little-endian integer at byte 56
+       of the last block; padding longer than 55 bytes spills over into a
+       second block. */
+    uint64_t const bits = (uint64_t)len << 3;
+    uint8_t *const len_ptr = blocks + (len <= 55 ? 56 : 120);
+    for (uint32_t i = 0; i < 8; ++i) {
+        len_ptr[i] = (uint8_t)(bits >> (i << 3));
+    }
+
+    MD5_Impl::transform_state(st, blocks);
+    if (len > 55) {
+        MD5_Impl::transform_state(st, blocks + 64);
+    }
+
+    MD5_Impl::encode(st, digest, MD5_SIZE);
+}
+
+/**
  * @Convert digest to string value.
  *
  * @return the hex string of digest.
@@ -349,33 +426,67 @@ void MD5_Impl::decode(const uint8_t *input, uint32_t *output, size_t length) {
 #undef HH
 #undef II
 #undef ROTATELEFT
+#undef VSTD_MD5_LITTLE_ENDIAN
 
 }// namespace detail
 std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const &str) {
     using namespace detail;
     std::array<uint8_t, MD5_SIZE> arr{};
-    MD5_Impl md5({reinterpret_cast<uint8_t const *>(str.data()), str.size()}, arr.data());
-    md5.GetDigest();
+    if (str.size() <= MD5_Impl::ONESHOT_MAX_LEN) {
+        md5_oneshot({reinterpret_cast<uint8_t const *>(str.data()), str.size()}, arr.data());
+    } else {
+        MD5_Impl md5({reinterpret_cast<uint8_t const *>(str.data()), str.size()}, arr.data());
+        md5.GetDigest();
+    }
     return arr;
 }
 std::array<uint8_t, MD5_SIZE> GetMD5FromArray(span<uint8_t const> data) {
     using namespace detail;
     std::array<uint8_t, MD5_SIZE> arr{};
-    MD5_Impl md5(data, arr.data());
-    md5.GetDigest();
+    if (data.size() <= MD5_Impl::ONESHOT_MAX_LEN) {
+        md5_oneshot(data, arr.data());
+    } else {
+        MD5_Impl md5(data, arr.data());
+        md5.GetDigest();
+    }
     return arr;
 }
+// NOTE: do not route these through a delegating MD5(span) constructor —
+// doing so made clang inline the one-shot path into one thunk but not the
+// other, leaving the string_view entry ~15 ns slower for identical work.
+// Keep each entry point's branch explicit (same shape as the two free
+// functions above).
 MD5::MD5(string const &str)
-    : MD5(span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
+    : data{} {
+    using namespace detail;
+    span<uint8_t const> bin{reinterpret_cast<uint8_t const *>(str.data()), str.size()};
+    if (bin.size() <= MD5_Impl::ONESHOT_MAX_LEN) {
+        md5_oneshot(bin, reinterpret_cast<uint8_t *>(&data));
+    } else {
+        MD5_Impl md5(bin, reinterpret_cast<uint8_t *>(&data));
+        md5.GetDigest();
+    }
 }
 MD5::MD5(std::string_view str)
-    : MD5(span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
+    : data{} {
+    using namespace detail;
+    span<uint8_t const> bin{reinterpret_cast<uint8_t const *>(str.data()), str.size()};
+    if (bin.size() <= MD5_Impl::ONESHOT_MAX_LEN) {
+        md5_oneshot(bin, reinterpret_cast<uint8_t *>(&data));
+    } else {
+        MD5_Impl md5(bin, reinterpret_cast<uint8_t *>(&data));
+        md5.GetDigest();
+    }
 }
 MD5::MD5(span<uint8_t const> bin)
     : data{} {
     using namespace detail;
-    MD5_Impl md5(bin, reinterpret_cast<uint8_t *>(&data));
-    md5.GetDigest();
+    if (bin.size() <= MD5_Impl::ONESHOT_MAX_LEN) {
+        md5_oneshot(bin, reinterpret_cast<uint8_t *>(&data));
+    } else {
+        MD5_Impl md5(bin, reinterpret_cast<uint8_t *>(&data));
+        md5.GetDigest();
+    }
 }
 MD5::MD5(MD5Data const &data)
     : data(data) {

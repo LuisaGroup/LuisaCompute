@@ -577,8 +577,13 @@ public:
     }
     //////////////////Construct & Destruct
     HashMap(size_t capacity) noexcept : pool(capacity) {
+        // Match the initial table size to TryResize()'s growth rule
+        // (((size + 1) * 4 + 2) / 3): a plain pow2 round-up of the hint may
+        // sit below the 3/4 load threshold, forcing a full rehash of nearly
+        // all elements right before the last inserts. Reserving for 4/3 of
+        // the hinted element count guarantees `capacity` inserts fit.
         if (capacity < 16) capacity = 16;
-        capacity = GetPow2Size(capacity);
+        capacity = GetPow2Size((capacity * 4 + 2) / 3);
         nodeArray = reinterpret_cast<LinkNode **>(Allocator().Malloc(sizeof(LinkNode *) * capacity * 2));
         std::memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
         mCapacity = capacity;
@@ -655,7 +660,9 @@ public:
 
     void reserve(size_t capacity) noexcept {
         TryInit();
-        size_t newCapacity = GetPow2Size(capacity);
+        // Same 4/3 rule as the capacity-hint constructor: reserve() should
+        // guarantee `capacity` inserts without a rehash.
+        size_t newCapacity = GetPow2Size((capacity * 4 + 2) / 3);
         Resize(newCapacity);
     }
     template<typename Key>
