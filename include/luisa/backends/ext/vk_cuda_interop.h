@@ -143,7 +143,6 @@ public:
     // function handles too - a kernel that writes through a pointer it
     // declared READ violates its declaration and must not be launched
     // with it.
-    [[nodiscard]] bool requires_resource_state_isolation() const noexcept override { return true; }
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         traverse(*this, visitor);
     }

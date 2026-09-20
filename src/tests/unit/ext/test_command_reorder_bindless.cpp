@@ -333,11 +333,6 @@ public:
         return make_uint3(1u);
     }
 
-    [[nodiscard]] bool
-    requires_resource_state_isolation() const noexcept override {
-        return true;
-    }
-
     void traverse_arguments(
         MutableArgumentVisitor &visitor) noexcept override {
         visitor.visit(_argument, _usage);

@@ -42,7 +42,6 @@ int main() {
         // command-reorder budget's units.
         expect(luisa::all(cmd->max_dispatch_size() == uint3{512u, 2u, 1u}));
         expect(cmd->shared_mem_bytes() == 1024u);
-        expect(cmd->requires_resource_state_isolation());
         expect(cmd->arguments().empty());
     };
 

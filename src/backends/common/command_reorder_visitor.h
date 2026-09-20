@@ -792,13 +792,10 @@ private:
         // usages. A declared READ is a read-only contract: concurrent
         // reads of one range do not race, so dispatches that share a
         // read-only argument (e.g. one input buffer) merge into a single
-        // barrier-free layer even when the command requests resource
-        // state isolation. A declared WRITE (or READ_WRITE) is an
+        // barrier-free layer. A declared WRITE (or READ_WRITE) is an
         // exclusive access over its range, so RAW/WAW/WAR chains still
-        // serialize exactly as they do for native dispatches. Isolation
-        // does not upgrade declared-READ arguments to writes: the
-        // declaration itself is the contract (see
-        // CustomDispatchCommand::requires_resource_state_isolation).
+        // serialize exactly as they do for native dispatches. The
+        // declaration itself is the contract.
         auto f = [&]<typename T>(T const &t, Usage usage) {
             if constexpr (std::is_same_v<T, Argument::Buffer>) {
                 add_dispatch_handle(

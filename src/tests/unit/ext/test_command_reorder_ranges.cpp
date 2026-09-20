@@ -247,10 +247,10 @@ void test_dispatch_commands_use_same_tracking() {
 }
 
 // A custom dispatch command standing in for CudaKernelLaunchCommand: it
-// requests resource state isolation and declares per-argument usages. The
-// reorder pass tracks those declarations directly - a declared READ is a
-// read-only contract that can share a layer across dispatches, a declared
-// WRITE is exclusive over its range - with no opt-in beyond the declaration.
+// declares per-argument usages. The reorder pass tracks those declarations
+// directly - a declared READ is a read-only contract that can share a layer
+// across dispatches, a declared WRITE is exclusive over its range - with no
+// opt-in beyond the declaration.
 class FakeCustomDispatchCommand final : public CustomDispatchCommand {
 private:
     luisa::vector<Argument> _arguments;
@@ -269,9 +269,6 @@ public:
     }
     [[nodiscard]] uint3 max_dispatch_size() const noexcept override {
         return make_uint3(1u);
-    }
-    [[nodiscard]] bool requires_resource_state_isolation() const noexcept override {
-        return true;
     }
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         for (auto i = 0u; i < _arguments.size(); ++i) {
@@ -303,7 +300,7 @@ void test_custom_dispatch_declared_usages() {
             std::move(arguments), std::move(usages)};
     };
     {
-        // Isolation does not upgrade declared-READ arguments: the shared
+        // Declared-READ arguments are not upgraded to writes: the shared
         // input stays a read, the disjoint output writes do not collide,
         // and all dispatches merge into one layer.
         Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};

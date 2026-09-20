@@ -1456,13 +1456,21 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 }
 
-CUDADevice::Handle::~Handle() noexcept {
-    if (_optix_context) {
-        LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+    CUDADevice::Handle::~Handle() noexcept {
+        if (_optix_context) {
+            LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+        }
+        // ContextGuard leaves this context bound to the calling thread (that is
+        // what keeps consecutive submissions from switching contexts), so drop it
+        // here: releasing a context that is still bound would leave this thread
+        // pointing at a deinitialized context.
+        CUcontext bound = nullptr;
+        if (cuCtxGetCurrent(&bound) == CUDA_SUCCESS && bound == _context) {
+            LUISA_CHECK_CUDA(cuCtxSetCurrent(nullptr));
+        }
+        LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
+        LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
     }
-    LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
-    LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
-}
 
 std::string_view CUDADevice::Handle::name() const noexcept {
     static constexpr auto device_name_length = 1024u;

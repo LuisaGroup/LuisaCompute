@@ -34,23 +34,62 @@ class CUDAEventManager;
  */
 class CUDADevice final : public DeviceInterface {
 
+    /**
+     * @brief Binds this device's CUDA context to the calling thread for the
+     * duration of a call, without switching contexts between consecutive calls.
+     *
+     * A `cuCtxPushCurrent` / `cuCtxPopCurrent` pair around every single call -
+     * which is what this guard used to do - is not free on the CUDA driver: a
+     * context switch acts as a submission boundary and closes the driver's
+     * current submission batch. Two kernels launched on two different streams
+     * with a switch in between therefore end up in two batches, and the driver
+     * executes those batches one after the other. That throws away the entire
+     * point of spreading a batch of independent commands over several streams:
+     * on an RTX 4060 with driver 595.71, 16 launches of the same kernel on 16
+     * (non-blocking) CUDA streams take ~14.8 ms with a push/pop around every
+     * launch and ~1.0 ms without one. See group F of
+     * benchmark_cuda_vs_vk_cuda_reorder and its section 4.5.
+     *
+     * This guard therefore only switches when the calling thread is not already
+     * running on this context, and it decides with `cuCtxGetCurrent`, which is
+     * cheap and - unlike a context switch - not a submission boundary. Querying
+     * on every call also means that a context change made behind our back (say,
+     * interop code popping the context) is always noticed and never ignored.
+     *
+     * A thread that was running on a *different* context gets that context back
+     * on destruction, exactly like the old push/pop did. A thread that had *no*
+     * context keeps this one, and that is deliberate: it is what lets
+     * back-to-back submissions of this device (typically one per CUDA stream)
+     * run without a switch in between, and it matches the usual "bind the
+     * engine's context once per thread" pattern. The binding is dropped again
+     * when the device is destroyed.
+     */
     class ContextGuard {
 
     private:
-        CUcontext _ctx;
+        CUcontext _ctx{};
+        CUcontext _previous{};
+        bool _restore_previous{false};
 
     public:
         explicit ContextGuard(CUcontext ctx) noexcept : _ctx{ctx} {
-            LUISA_CHECK_CUDA(cuCtxPushCurrent(_ctx));
+            CUcontext current = nullptr;
+            LUISA_CHECK_CUDA(cuCtxGetCurrent(&current));
+            if (current == _ctx) { return; }// already bound: no switch at all
+            LUISA_CHECK_CUDA(cuCtxSetCurrent(_ctx));
+            _previous = current;
+            _restore_previous = current != nullptr;
         }
         ~ContextGuard() noexcept {
-            CUcontext ctx = nullptr;
-            LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
-            if (ctx != _ctx) [[unlikely]] {
+            if (!_restore_previous) { return; }
+            CUcontext current = nullptr;
+            LUISA_CHECK_CUDA(cuCtxGetCurrent(&current));
+            if (current != _ctx) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION(
                     "Invalid CUDA context {} (expected {}).",
-                    fmt::ptr(ctx), fmt::ptr(_ctx));
+                    fmt::ptr(current), fmt::ptr(_ctx));
             }
+            LUISA_CHECK_CUDA(cuCtxSetCurrent(_previous));
         }
     };
 

@@ -912,22 +912,17 @@ public:
     virtual void traverse_arguments(MutableArgumentVisitor &visitor) noexcept = 0;
     virtual void traverse_arguments(ArgumentVisitor &visitor) const noexcept = 0;
 
- // Custom dispatches whose per-argument resource usages are declared
- // through traverse_arguments may request an isolated reorder layer.
- // The command-reorder pass tracks every argument with its declared
- // usage: a declared READ is a read-only contract, so dispatches sharing
- // a read-only argument range can merge into one barrier-free layer
- // (concurrent reads do not race), and a declared WRITE is an exclusive
- // access over its range, keeping RAW/WAW/WAR ordering. A command whose
- // arguments cannot honor their declarations (e.g. a hand-written
- // kernel that writes through a pointer it declared READ) must not be
- // submitted with those declarations - the declaration itself is the
- // contract the reorder pass relies on, for isolated and non-isolated
- // commands alike.
- [[nodiscard]] virtual bool
- requires_resource_state_isolation() const noexcept {
- return false;
- }
+ // Custom dispatches declare their per-argument resource usages
+ // through traverse_arguments. The command-reorder pass tracks every
+ // argument with its declared usage: a declared READ is a read-only
+ // contract, so dispatches sharing a read-only argument range can merge
+ // into one barrier-free layer (concurrent reads do not race), and a
+ // declared WRITE is an exclusive access over its range, keeping
+ // RAW/WAW/WAR ordering. A command whose arguments cannot honor their
+ // declarations (e.g. a hand-written kernel that writes through a
+ // pointer it declared READ) must not be submitted with those
+ // declarations - the declaration itself is the contract the reorder
+ // pass relies on.
 
     // For backend reorder
     [[nodiscard]] virtual uint3 max_dispatch_size() const noexcept { return uint3{65535u * 32u}; }

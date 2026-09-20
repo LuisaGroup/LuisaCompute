@@ -922,9 +922,10 @@ luisa_compute_add_test(test_8bit                   unit/dsl/test_8bit.cpp)
 luisa_compute_add_test(test_polymorphic            unit/dsl/test_polymorphic.cpp)
 luisa_compute_add_test(test_dsl_autodiff           unit/dsl/test_autodiff.cpp)
 luisa_compute_add_test(test_async_copy              unit/dsl/test_async_copy.cpp)
-luisa_compute_add_test(test_async_copy_cuda        unit/runtime/test_async_copy_cuda.cpp)
-# shader-cache round trip (compile -> cache write -> recompile from cache); needs a GPU device
-luisa_compute_add_test(test_shader_cache_round_trip unit/runtime/test_shader_cache_round_trip.cpp)
+luisa_compute_add_test(test_async_copy_cuda           unit/runtime/test_async_copy_cuda.cpp)
+# Shader-cache coverage: unit/runtime/test_fallback_shader_cache.cpp (reuse across devices),
+# unit/runtime/test_hip_shader_cache.cpp and unit/runtime/test_vk_shader_cache.cpp
+# (backend artifact/PSO reuse). All three inject a BinaryIO via DeviceConfig.
 luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---

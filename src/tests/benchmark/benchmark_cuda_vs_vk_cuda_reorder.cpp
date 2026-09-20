@@ -33,13 +33,67 @@
 //
 //   E  cuda backend, CUDA graph, submitted as one graph launch .... candidate
 //      Group A's exact batch (same CUDA module, same arguments, same buffers)
-//      captured once into a CUDA graph (CudaGraphExt) and replayed with a
-//      single cuGraphLaunch per iteration. Graph build (capture + instantiate)
-//      is an expensive one-off host cost, so the report measures it separately
-//      from the per-batch host-submit and the per-batch device (wall) time.
-//      The interesting comparisons are E vs. A on the replay path (what one
-//      graph launch buys over N cuLaunchKernel submissions) and E vs. C/D (the
-//      reorder routes against the graph route).
+//      built once into a CUDA graph (CudaGraphExt) and replayed with a single
+//      cuGraphLaunch per iteration. Building the graph (dependency analysis +
+//      cuGraphAddKernelNode + cuGraphInstantiate) is an expensive one-off host
+//      cost - instantiation alone runs into milliseconds on some drivers - so it
+//      is CHARGED TO THE GRAPH GROUP'S HOST SUBMIT instead of being reported out
+//      of band: the submit column of E carries build / rounds on top of the
+//      per-replay cuGraphLaunch, i.e. exactly what a caller amortising one graph
+//      over `rounds` batches pays. The un-charged replay cost is printed too, so
+//      the "replays to pay back the build" line stays like-for-like.
+// The interesting comparisons are E vs. A on the replay path (what one
+// graph launch buys over N cuLaunchKernel submissions) and E vs. C/D (the
+// reorder routes against the graph route).
+//
+// F  cuda backend, batch split over several streams ............ the hand-rolled
+//                                                  alternative (needs K ~ N)
+// Group A's exact batch, arguments and buffers once more, but the dispatches
+// are dealt round-robin over `streams` dedicated CUDA streams (each from
+// device.create_stream(), so each owns its own CUstream) instead of all being
+// queued on one. This is the "just use more streams" answer to the same
+// problem: nothing analyses dependencies, the caller merely asserts that the
+// batch is independent (mode 0/2 guarantees it) and hands K queues to the
+// device. Every stream still serialises its own share, so the achievable
+// overlap is bounded by the stream count instead of by the hazard graph, and
+// nothing at all is gained once two dispatches of the batch must be ordered.
+// It is therefore compared against the two routes that DO resolve ordering,
+// the reorder pass (C) and the CUDA graph (E).
+//
+// MEASURED RESULT (with the fix described below in place): F now behaves exactly
+// as the name promises - the batch overlaps, and how much it overlaps is decided
+// by K alone. Mode 0, 16 dispatches, 7 rounds (ms): A 6.31, B 6.52, C 0.558,
+// D 0.475, E(graph) 0.584, F 1.67 at K = 4 (A/F = 3.8x); F 0.536 at K = 16, i.e.
+// one stream per dispatch (A/F = 11.8x, C/F = 1.01x, E/F = 1.09x) - so one
+// stream per dispatch puts F level with the two routes that DO analyse
+// dependencies. Fewer streams degrade F as ceil(N/K): K = 2/4/8/16 take
+// 3.20/1.62/0.86/0.54 ms on that batch, which is exactly "each stream serialises
+// its own share, streams run side by side". Mode 1 (genuine WAW chains) is still
+// a race, because F has no way to detect a hazard at all.
+//
+// WHY THE NUMBERS USED TO BE FLAT, AND WHAT CHANGED. Before the fix F was as fast
+// as A whatever K was, i.e. the streams never overlapped: this backend wrapped
+// every single submission in a CUcontext switch (CUDADevice::with_handle's
+// ContextGuard did cuCtxPushCurrent/cuCtxPopCurrent around each dispatch, see
+// src/backends/cuda/cuda_device.h). On this driver a context switch between two
+// launches closes the driver's submission batch, and the resulting per-stream
+// batches are then executed strictly one after another, so K streams were just K
+// serial batches. A standalone driver-API probe (same kernel, 16 launches on 16
+// non-blocking CUstreams) pins it down: nothing between launches = 1.0 ms, a
+// push/pop (or even a redundant cuCtxSetCurrent) around every launch = 13-15 ms,
+// a cuCtxGetCurrent around every launch = 1.0 ms, one push/pop around the whole
+// batch = 1.0 ms. ContextGuard now queries the current context (cheap, and unlike
+// a set it is not a submission boundary) and only switches when the calling
+// thread is not already running on ours, which keeps back-to-back submissions
+// switch-free; a thread that had a *different* context still gets it back. The
+// probe is what justified the change, and F is what keeps it honest.
+// Caveat: the order of commands on different streams is undefined, so in
+// mode 1 (rotating writes - genuine write-after-write chains between
+// dispatches) the multi-stream batch is not a valid execution of the batch at
+// all, it is a race: whichever dispatch finishes last wins its sub-range. The
+// bit-exactness check is hence only applied to the hazard-free modes; in mode
+// 1 the group is timed, but its output is reported as (deliberately) unchecked
+// - and unlike the reorder pass, F has no mechanism to even detect that.
 //
 // Batch shape is the one from benchmark_command_reorder.cpp: `dispatches`
 // independent dispatches, each reading the whole of one shared read-only input
@@ -52,9 +106,11 @@
 //
 // Usage
 // -----
-//   benchmark_cuda_vs_vk_cuda_reorder vk [mode] [dispatches] [threads] [iters] [rounds] [verbose]
+// benchmark_cuda_vs_vk_cuda_reorder vk [mode] [dispatches] [threads] [iters] [rounds] [verbose] [streams]
 //
-// Defaults: mode=0, dispatches=16, threads=256, iters=4096, rounds=5, verbose=0.
+// Defaults: mode=0, dispatches=16, threads=256, iters=4096, rounds=5, verbose=0,
+// streams=4 (the number of CUDA streams group F deals the batch over; 1 stream
+// degenerates to group A plus the cost of the round-robin recording).
 // The first argument must be "vk" (the route under test); the cuda device used
 // for compiling/importing is created automatically from the same context.
 //
@@ -71,7 +127,7 @@
 //
 // A note on the vk + CUDA route and reordering
 // -------------------------------------------
-// `CudaKernelLaunchCommand` requests resource state isolation, but the
+// `CudaKernelLaunchCommand` declares per-argument usages, and the
 // reorder pass tracks every argument with its DECLARED usage - the
 // declaration itself is the contract: a declared READ is trusted to be
 // read-only (concurrent reads of one range do not race, so dispatches that
@@ -90,11 +146,15 @@
 //   xmake run benchmark_cuda_vs_vk_cuda_reorder vk
 //   xmake run benchmark_cuda_vs_vk_cuda_reorder vk 0 64 256 4096 7
 //   xmake run benchmark_cuda_vs_vk_cuda_reorder vk 2   # private inputs
+//   xmake run benchmark_cuda_vs_vk_cuda_reorder vk 0 16 256 4096 7 0 16
+// ^ group F with one CUDA stream per dispatch: the most favourable
+//   multi-stream shape the batch admits (no stream serialises two dispatches),
+//   i.e. the number to quote when arguing that more streams alone suffice.
 //   xmake run benchmark_cuda_vs_vk_cuda_reorder vk 0 16 256 1 9 1
-//     ^ iters=1 removes almost all device work, so what is left is launch and
-//       submission overhead only; verbose=1 makes the Vulkan backend log
-//       "command reorder: N commands -> M layers (reorder on)" for every batch,
-//       which is the first thing to look at when C does not beat A.
+// ^ iters=1 removes almost all device work, so what is left is launch and
+//   submission overhead only; verbose=1 makes the Vulkan backend log
+//   "command reorder: N commands -> M layers (reorder on)" for every batch,
+//   which is the first thing to look at when C does not beat A.
 //
 // Reading the result
 // ------------------
@@ -104,17 +164,33 @@
 // alternate every round so that clock ramping and thermal drift hit them equally.
 // The "submit" column is the host-side cost of recording + queueing the batch
 // (measured before the wait), which tells a device-side ordering effect apart from
-// a host-side one.
+// a host-side one. For the CUDA-graph group (E) it also carries the amortised
+// share of the one-off graph build, see below. For the multi-stream group (F) it
+// is the cost of recording all `streams` command lists and handing them to their
+// streams - which is exactly what group A pays, just split over K lists.
 //
-// The CUDA-graph group (E) is special: its batch is fixed by the capture, so a
+// The CUDA-graph group (E) is special: its batch is fixed by the graph, so a
 // replay's "submit" is one cuGraphLaunch and its "batch" is the whole graph
-// running on the GPU. Because building the graph (stream capture + instantiate)
-// is an expensive one-off host cost, it is timed on its own, reported once
-// ("one-off host build"), and never included in the per-round submit/batch
-// numbers. The build is amortised by comparing per-replay savings against it
-// (the "replays to pay back the build" line). If CudaGraphExt is unavailable or
-// the capture cannot represent the batch, group E is skipped and its rows are
-// simply omitted.
+// running on the GPU. Building the graph (dependency analysis + node creation +
+// instantiate) is an expensive one-off host cost, so it is measured on its own
+// and CHARGED TO THE GROUP ITSELF: E's submit samples get build / rounds added,
+// which is the per-batch host cost of a caller that builds the graph once and
+// replays it `rounds` times. The report also prints the un-charged replay cost,
+// the total host time of the route (build + all replays), and the amortisation of
+// the build against the per-replay host saving versus A. If CudaGraphExt is
+// unavailable or the batch cannot be represented as a graph, group E is skipped
+// and its rows are simply omitted.
+//
+// How to read the multi-stream group (F): it is the same batch as A, so it must
+// not be read as "a better A" but as "what a caller gets when it parallelises the
+// batch by hand". The stream count, not the hazard graph, bounds the overlap - F
+// spreads the batch over K queues and can only hope each queue's share is long
+// enough to keep the device busy - so unlike the reorder pass and the CUDA graph
+// it can neither merge the batch to one layer nor resolve a real hazard: in mode 1
+// (rotating writes) its K streams would simply race over the shared sub-ranges,
+// which is why its output is only verified in the hazard-free modes. Getting F
+// close to C therefore takes K in the order of the dispatch count, whatever that
+// costs in stream management - the point the group exists to make.
 //
 // Reference outcome (RTX 5070 Ti Laptop, driver 596.13, CUDA 13.2, release build,
 // 16 dispatches x 256 threads x 4096 iterations, medians in ms):
@@ -126,17 +202,25 @@
 //   mode 2, iters=1    0.202      0.167        0.071        0.070         2.86x
 //
 // E (one cuGraphLaunch per replay of A's batch) is not in the table above (that
-// table predates it), but its behaviour is fixed by the two routes it sits
-// between. On the host it collapses A's per-dispatch submit (~0.12-0.24 ms here)
-// to a single launch (~0.013 ms, ~9x less), independent of device work. On the
-// device it is A with the launch latency removed: when the batch is launch-bound
-// (iters=1) E's wall time drops below A's, and when it is device-bound
-// (iters=4096) E's wall time equals A's - a CUDA graph replays the recorded
-// launches in stream order, it does NOT reorder or overlap them, so E never
-// beats the reordered vk route (C) on device time. The capture + instantiate
-// build is a sub-millisecond one-off and pays back within a couple of replays
-// once the host time dominates. The graph replay is checked bit-exact against
-// the strictly ordered reference.
+// table predates it). Its graph is built as an explicit DAG whose edges are only
+// the real RAW/WAW/WAR dependencies (see CudaGraphExtImpl::_create_graph), so on
+// the device it behaves like the reordered vk routes - the independent dispatches
+// of the batch overlap - and its wall time tracks C/D rather than A. (The older
+// claim that "a CUDA graph replays the recorded launches in stream order and never
+// overlaps them" describes stream capture, which this backend does not use.) On
+// the host a replay is one cuGraphLaunch, and the one-off build (dependency
+// analysis + instantiate; ~0.15-0.3 ms for 16 nodes, up to ~1 ms for 64 on this
+// machine, milliseconds on slower drivers) is charged to the graph group's submit
+// column as build / rounds. The graph replay is checked bit-exact against the
+// strictly ordered reference.
+//
+// F (K CUDA streams, round-robin) is not in the table either. Since each stream
+// serialises its own share, one dispatch per stream is the best it can ever do,
+// and the batch overlaps only as much as K allows; it runs on the same batch,
+// arguments and buffers as A, so A/F is "what a hand-rolled stream split buys over
+// one stream" and C/F, E/F are "how much of the reorder/graph win is left to the
+// caller's own bookkeeping". Its output is verified bit-exact in the hazard-free
+// modes only (see the mode-1 caveat above).
 //
 // i.e. with arguments tracked by their declared usages the reordered vk+CUDA
 // route wins in every mode, shared input or not; the verbose layer counts
@@ -160,9 +244,9 @@
 //   benchmark_command_reorder.cpp does: every run compiles from scratch, so no
 //   on-disk cache traffic can perturb the measured groups, and a cache entry written
 //   by a differently configured build is out of the picture. The cache round trip
-//   itself is covered by test_shader_cache_round_trip (and, for the imported
-//   CUDA kernels specifically, by test_vk_cuda_kernel_launch - both compile with the
-//   cache on).
+// itself is covered by test_vk_shader_cache / test_fallback_shader_cache (and, for the
+// imported CUDA kernels specifically, by test_vk_cuda_kernel_launch - all of them
+// compile with the cache on).
 // * The two routes do not run on identical memory: A uses cudaMalloc'd buffers,
 //   B/C/D use Vulkan buffers imported into CUDA (VkCudaInterop::create_buffer),
 //   which is required for vkCmdCudaLaunchKernelNV to pass raw device addresses.
@@ -219,6 +303,16 @@ constexpr size_t kOutputRotate = 1u;
 /// instead of one shared read-only range.
 constexpr size_t kPrivateInput = 2u;
 
+/// Number of CUDA streams the multi-stream group (F) deals the batch over when
+/// the `streams` argument is not given. Four is a realistic "hand-rolled
+/// parallelism" number; raise it (up to `dispatches` = one stream per dispatch,
+/// the most favourable shape this route admits) to see how far more streams
+/// alone get.
+constexpr size_t kMultiStreams = 4u;
+/// Ceiling on the stream count: each CUDA stream costs a stream object, an
+/// upload/download pool and a callback thread, so the sweep is bounded.
+constexpr size_t kMaxStreams = 64u;
+
 [[nodiscard]] luisa::string_view mode_name(size_t mode) {
     static constexpr std::array<luisa::string_view, 4> kNames{
         "disjoint outputs + shared input",
@@ -234,6 +328,8 @@ struct Options {
     size_t threads{256u};
     size_t iters{4096u};
     size_t rounds{5u};
+    /// Streams the multi-stream group (F) splits the batch over.
+    size_t streams{kMultiStreams};
 };
 
 [[nodiscard]] size_t parse_uint(const char *text, const char *name, size_t minimum) {
@@ -284,6 +380,29 @@ template<typename Emit>
     return list;
 }
 
+/// Emit the same batch as `build_batch`, but deal the dispatches round-robin
+/// over `streams` command lists (dispatch j goes to list j % streams). The
+/// per-dispatch `emit` lambda is shared with `build_batch`, so the two
+/// expressions of the batch - one list on one stream, K lists on K streams -
+/// are guaranteed to contain exactly the same commands.
+template<typename Emit>
+[[nodiscard]] luisa::vector<CommandList> build_batch_multi(const Options &opt,
+                                                          const Buffer<float> &src,
+                                                          size_t streams,
+                                                          Emit &&emit) {
+    LUISA_ASSERT(streams > 0u, "the multi-stream batch needs at least one stream.");
+    luisa::vector<CommandList> lists;
+    lists.resize(streams);
+    auto per_stream = (opt.dispatches + streams - 1u) / streams;
+    for (auto &list : lists) { list.reserve(per_stream, 0u); }
+    for (auto j = size_t{0}; j < opt.dispatches; j++) {
+        auto dst_range = (opt.mode & kOutputRotate) != 0u ? j % kRotateRanges : j;
+        auto in_view = (opt.mode & kPrivateInput) != 0u ? src.view().subview(j * opt.threads, opt.threads) : src.view();
+        emit(lists[j % streams], in_view, dst_range, j);
+    }
+    return lists;
+}
+
 /// Batch wall-clock samples (submission + wait) and the host-side part of each
 /// batch (recording + queueing, measured before the wait).
 struct GroupTiming {
@@ -308,6 +427,51 @@ template<typename Builder>
         stream << build_batch().commit();
         auto submit = clock.toc();
         stream << synchronize();
+        timing.batch.emplace_back(clock.toc());
+        timing.submit.emplace_back(submit);
+    }
+    return timing;
+}
+
+/// Submit `rounds` batches split over several CUDA streams: every stream gets its
+/// own command list from `build_lists`, all of them are recorded and committed
+/// before any wait, and the batch is over when the last stream has drained. The
+/// split between `submit` and `batch - submit` is therefore "record + queue K
+/// lists" versus "wait for all K queues", the same split `measure_group` draws on
+/// one stream.
+template<typename Builder>
+[[nodiscard]] GroupTiming measure_multi_stream(luisa::span<Stream *const> streams,
+                                               Builder &&build_lists,
+                                               size_t rounds, size_t warmup_rounds = 0u) {
+    LUISA_ASSERT(!streams.empty(), "the multi-stream group needs at least one stream.");
+    auto submit_all_batches = [&](luisa::vector<CommandList> &lists) {
+        LUISA_ASSERT(lists.size() == streams.size(),
+                     "one command list per stream is required.");
+        for (auto i = size_t{0}; i < streams.size(); i++) {
+            *streams[i] << lists[i].commit();
+        }
+    };
+    auto drain_all_streams = [&] {
+        // Waiting stream by stream is enough: each wait is independent and the
+        // last one to finish is what bounds the batch.
+        for (auto i = size_t{0}; i < streams.size(); i++) {
+            *streams[i] << synchronize();
+        }
+    };
+    for (auto w = size_t{0}; w < warmup_rounds; w++) {
+        auto lists = build_lists();
+        submit_all_batches(lists);
+        drain_all_streams();
+    }
+    GroupTiming timing;
+    timing.batch.reserve(rounds);
+    timing.submit.reserve(rounds);
+    for (auto r = size_t{0}; r < rounds; r++) {
+        Clock clock;
+        auto lists = build_lists();
+        submit_all_batches(lists);
+        auto submit = clock.toc();
+        drain_all_streams();
         timing.batch.emplace_back(clock.toc());
         timing.submit.emplace_back(submit);
     }
@@ -441,7 +605,7 @@ int main(int argc, char *argv[]) {
     // builds of this TU family.
     if (argc < 2 || argv[1] == nullptr || std::strcmp(argv[1], "vk") != 0) {
         LUISA_ERROR_WITH_LOCATION(
-            "Usage: {} vk [mode] [dispatches] [threads] [iters] [rounds] [verbose] "
+            "Usage: {} vk [mode] [dispatches] [threads] [iters] [rounds] [verbose] [streams] "
             "(this benchmark always needs the vk backend plus the cuda backend).",
             argc > 0 ? argv[0] : "benchmark_cuda_vs_vk_cuda_reorder");
         return 1;
@@ -463,6 +627,9 @@ int main(int argc, char *argv[]) {
         opt.rounds = parse_positive(argv[6], "rounds");
     }
     auto verbose = argc > 7 ? parse_positive(argv[7], "verbose") != 0u : false;
+    if (argc > 8) {
+        opt.streams = parse_positive(argv[8], "streams");
+    }
     LUISA_ASSERT(opt.mode <= 3u,
                  "mode bit 0: 0 = disjoint outputs, 1 = outputs rotated over 16 sub-ranges; "
                  "mode bit 1: 0 = one shared read-only input, 1 = per-dispatch input ranges.");
@@ -470,6 +637,9 @@ int main(int argc, char *argv[]) {
                  "dispatches must be <= 1024 to bound buffer memory and batch size.");
     LUISA_ASSERT(opt.threads % kBlockSize == 0u,
                  "threads must be a multiple of the kernel block size ({}).", kBlockSize);
+    LUISA_ASSERT(opt.streams <= kMaxStreams,
+                 "streams must be <= {} (each stream costs a stream object and a callback thread).",
+                 kMaxStreams);
 
     if (verbose) {
         log_level_verbose();
@@ -519,10 +689,22 @@ int main(int argc, char *argv[]) {
     }
     auto stream = device.create_stream();
     auto cuda_stream = cuda_device.create_stream();
+    // Group F: `opt.streams` dedicated CUDA streams to deal the same batch over.
+    // Each one is a full device stream of its own (its own CUstream, created
+    // exactly like cuda_stream above), so the group measures what a caller that
+    // parallelises the batch by hand actually gets out of the backend.
+    luisa::vector<Stream> multi_streams;
+    multi_streams.reserve(opt.streams);
+    for (auto i = size_t{0}; i < opt.streams; i++) {
+        multi_streams.emplace_back(cuda_device.create_stream());
+    }
+    luisa::vector<Stream *> multi_stream_ptrs;
+    multi_stream_ptrs.reserve(multi_streams.size());
+    for (auto &s : multi_streams) { multi_stream_ptrs.emplace_back(&s); }
     LUISA_INFO("Routes: A = {} backend device #{}; B/C/D = {} backend device #{} "
-               "(same physical adapter).",
+               "(same physical adapter); F = A's batch dealt over {} cuda streams.",
                cuda_device.backend_name(), cuda_index,
-               device.backend_name(), 0u);
+               device.backend_name(), 0u, opt.streams);
 
     // Probe the runtime switch: a process-wide override would silently turn C
     // into a second copy of B.
@@ -613,6 +795,20 @@ int main(int argc, char *argv[]) {
                         .dispatch(threads);
         });
     };
+    // Route F: the same cuda batch, dealt round-robin over `streams` cuda streams.
+    // Nothing analyses dependencies here - the caller asserts that the batch is
+    // independent (true for the hazard-free modes) and each stream only has to
+    // keep its own share in order.
+    auto build_cuda_multi_batch = [&]() {
+        return build_batch_multi(opt, cuda_src, opt.streams,
+                                 [&](CommandList &list, const BufferView<float> &in_view,
+                                     size_t dst_range, size_t j) {
+                                     auto dst_view = cuda_dst.view().subview(dst_range * opt.threads, opt.threads);
+                                     list << cuda_shader(in_view, dst_view, iters,
+                                                         static_cast<uint32_t>(j))
+                                                 .dispatch(threads);
+                                 });
+    };
     // Route B/C: imported CUDA kernel launched inside the Vulkan command buffer.
     auto build_vk_cuda_batch = [&]() {
         return build_batch(opt, vk_src, [&](CommandList &list, const BufferView<float> &in_view, size_t dst_range, size_t j) {
@@ -681,8 +877,9 @@ int main(int argc, char *argv[]) {
                           "(dispatches of non-native shaders cannot be captured); "
                           "the CUDA-graph route (group E) is skipped.");
         } else {
-            LUISA_INFO("CUDA graph built: capture + instantiate on host = {:.3f} ms "
-                       "(one-off, excluded from the timed rounds; {} dispatch nodes).",
+            LUISA_INFO("CUDA graph built: dependency analysis + instantiate on host = {:.3f} ms "
+                       "(one-off, charged to the graph group's host submit as build / rounds; "
+                       "{} dispatch nodes).",
                        graph_build_ms, opt.dispatches);
         }
     }
@@ -691,12 +888,14 @@ int main(int argc, char *argv[]) {
     // ---- measurement ----------------------------------------------------------------
     // Warm every group up once (the first submission of a shader also touches
     // driver-side pipeline/module setup, which must not be attributed to a group),
-    // then alternate the four groups every round so that clock ramping and thermal
+    // then alternate all groups every round so that clock ramping and thermal
     // drift hit them equally.
     constexpr auto kWarmupRounds = 2u;
     // The warm-up samples are discarded: they only exist to move first-submission
     // work out of the measured groups.
     static_cast<void>(measure_group(cuda_stream, build_cuda_batch, 0u, kWarmupRounds));
+    static_cast<void>(measure_multi_stream(multi_stream_ptrs, build_cuda_multi_batch,
+                                          0u, kWarmupRounds));
     reorder_ext->set_command_reorder_enabled(false);
     static_cast<void>(measure_group(stream, build_vk_cuda_batch, 0u, kWarmupRounds));
     reorder_ext->set_command_reorder_enabled(true);
@@ -713,8 +912,10 @@ int main(int argc, char *argv[]) {
     GroupTiming c;
     GroupTiming d;
     GroupTiming e;
+    GroupTiming f;
     for (auto round = size_t{0}; round < opt.rounds; round++) {
         auto a_now = measure_group(cuda_stream, build_cuda_batch, 1u);
+        auto f_now = measure_multi_stream(multi_stream_ptrs, build_cuda_multi_batch, 1u);
         reorder_ext->set_command_reorder_enabled(false);
         auto b_now = measure_group(stream, build_vk_cuda_batch, 1u);
         reorder_ext->set_command_reorder_enabled(true);
@@ -731,29 +932,79 @@ int main(int argc, char *argv[]) {
         append_samples(d.submit, d_now.submit);
         append_samples(e.batch, e_now.batch);
         append_samples(e.submit, e_now.submit);
+        append_samples(f.batch, f_now.batch);
+        append_samples(f.submit, f_now.submit);
         LUISA_INFO("round {}: A(cuda) {:.3f} ms | B(vk+cuda, off) {:.3f} ms | "
                    "C(vk+cuda, on) {:.3f} ms | D(vk native, on) {:.3f} ms | "
-                   "E(cuda graph) {:.3f} ms",
+                   "E(cuda graph) {:.3f} ms | F(cuda, {} streams) {:.3f} ms",
                    round + 1, a_now.batch.front(), b_now.batch.front(),
                    c_now.batch.front(), d_now.batch.front(),
-                   have_graph ? e_now.batch.front() : 0.0);
+                   have_graph ? e_now.batch.front() : 0.0,
+                   opt.streams, f_now.batch.front());
+    }
+
+    // ---- charge the one-off graph build to the graph route's host time ----------------
+    // Building the graph (dependency analysis + cuGraphAddKernelNode + instantiate) is
+    // an expensive one-off host cost that every replay depends on - cuGraphInstantiate
+    // alone costs milliseconds on some driver versions. Reporting the replay path
+    // without it would flatter the graph route, so group E's host submit carries its
+    // share of the build on top of the per-replay cuGraphLaunch: build / rounds for
+    // every measured batch. That is what a caller who amortises one graph over
+    // `rounds` batches actually pays. The un-charged replay cost is kept aside for the
+    // "replays to pay back the build" line below so that comparison stays like-for-like.
+    auto e_replay_submit = e.submit;
+    if (have_graph && !e.submit.empty()) {
+        auto build_per_replay = graph_build_ms / static_cast<double>(e.submit.size());
+        for (auto &&sample : e.submit) { sample += build_per_replay; }
     }
 
     // ---- validation ------------------------------------------------------------------
     // B and C run on the same imported module as A, so bit-exactness is required;
     // it is also what proves the merged layers did not race.
+    //
+    // Every route of this benchmark produces the same values, so comparing against
+    // whatever the previous route left in the destination buffer would pass even if a
+    // route executed nothing at all. The destination is therefore cleared before
+    // every validation batch: a route that does not run now leaves zeros behind and
+    // fails its check instead of silently passing on someone else's output.
+    luisa::vector<float4> zero_dst(dst_size, float4{0.f, 0.f, 0.f, 0.f});
+    auto clear_vk_dst = [&] { stream << vk_dst.copy_from(luisa::span{zero_dst}) << synchronize(); };
+    auto clear_cuda_dst = [&] { cuda_stream << cuda_dst.copy_from(luisa::span{zero_dst}) << synchronize(); };
     reorder_ext->set_command_reorder_enabled(true);
+    clear_vk_dst();
     stream << build_vk_cuda_batch().commit() << synchronize();
     auto vk_cuda_reordered = download(stream, vk_dst);
     reorder_ext->set_command_reorder_enabled(false);
+    clear_vk_dst();
     stream << build_vk_cuda_batch().commit() << synchronize();
     auto vk_cuda_serialized = download(stream, vk_dst);
     reorder_ext->set_command_reorder_enabled(true);
+    clear_vk_dst();
     stream << build_vk_native_batch().commit() << synchronize();
     auto vk_native = download(stream, vk_dst);
     reorder_ext->set_command_reorder_enabled(true);
 
     auto reference_span = luisa::span<const float4>{reference};
+    // Group F: the multi-stream batch must reproduce the same reference bit for bit
+    // wherever the batch really is independent. In mode 1 the rotating writes are
+    // genuine write-after-write chains between dispatches, and separate CUDA streams
+    // give no ordering between them at all, so the "batch" is a race by construction
+    // there: the group is timed, but the check is skipped and said so out loud
+    // instead of being papered over.
+    auto multistream_check_applies = (opt.mode & kOutputRotate) == 0u;
+    luisa::vector<float4> multistream_result;
+    auto multistream_matches = true;
+    {
+        clear_cuda_dst();
+        auto lists = build_cuda_multi_batch();
+        for (auto i = size_t{0}; i < multi_stream_ptrs.size(); i++) {
+            *multi_stream_ptrs[i] << lists[i].commit();
+        }
+        for (auto *s : multi_stream_ptrs) { *s << synchronize(); }
+        multistream_result = download(cuda_stream, cuda_dst);
+        multistream_matches = multistream_check_applies &&
+                              bitwise_equal(luisa::span<const float4>{multistream_result}, reference_span);
+    }
     auto all_finite = std::all_of(
         vk_cuda_reordered.begin(), vk_cuda_reordered.end(), [](float4 v) {
             return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
@@ -781,6 +1032,7 @@ int main(int argc, char *argv[]) {
       luisa::vector<float4> graph_result;
       auto graph_matches = true;
       if (have_graph) {
+          clear_cuda_dst();
           launch_graph();
           cuda_stream << synchronize();
           graph_result = download(cuda_stream, cuda_dst);
@@ -793,6 +1045,9 @@ int main(int argc, char *argv[]) {
   auto b_batch = summarize(b.batch);
   auto c_batch = summarize(c.batch);
   auto d_batch = summarize(d.batch);
+  auto a_submit = summarize(a.submit);
+  auto f_batch = summarize(f.batch);
+  auto f_submit = summarize(f.submit);
   LUISA_INFO("===========================================================================");
   LUISA_INFO("{:<38}{:>10}{:>10}{:>10}{:>10} |{:>10}{:>10}{:>10}{:>10}",
              "batch (ms) / host submit (ms)", "min", "median", "mean", "max",
@@ -802,30 +1057,65 @@ int main(int argc, char *argv[]) {
   print_row({"C vk+cuda kernel, reorder ON", c_batch, summarize(c.submit)});
   print_row({"D vk native kernel, reorder ON", d_batch, summarize(d.submit)});
   if (have_graph) {
-      print_row({"E cuda graph (one graph launch)", summarize(e.batch), summarize(e.submit)});
+      print_row({"E cuda graph (host incl. build)", summarize(e.batch), summarize(e.submit)});
   }
+  // Group F is the only route whose name depends on the run: name it after the
+  // stream count it was given so a sweep of `streams` values stays readable.
+  auto f_name = luisa::format("F {} cuda streams (no reorder)", opt.streams);
+  print_row({f_name, f_batch, f_submit});
   LUISA_INFO("===========================================================================");
   LUISA_INFO("Reorder effect inside the vk+CUDA route (B/C): {:.2f}x", b_batch.median / c_batch.median);
   LUISA_INFO("vs. the cuda backend (A/C) : {:.2f}x", a_batch.median / c_batch.median);
   LUISA_INFO("vk+CUDA route vs native vk route (D/C) : {:.2f}x", d_batch.median / c_batch.median);
+  // Group F is the multi-stream answer to the same problem: it is the same batch as
+  // A, so A/F reads "what splitting the batch by hand buys over one stream", and
+  // C/F and E/F read "how much of the reorder/graph win is left to the caller's own
+  // bookkeeping". Its submit column is the cost of recording and queueing the same
+  // number of commands, just into K lists instead of one.
+  LUISA_INFO("Multi-stream cuda, {} streams vs. single stream (A/F) : {:.2f}x  "
+             "(A {:.3f} ms vs F {:.3f} ms)",
+             opt.streams, a_batch.median / f_batch.median, a_batch.median, f_batch.median);
+  LUISA_INFO("Multi-stream cuda, {} streams vs. reordered vk+CUDA (C/F) : {:.2f}x  "
+             "(C {:.3f} ms vs F {:.3f} ms)",
+             opt.streams, c_batch.median / f_batch.median, c_batch.median, f_batch.median);
+  LUISA_INFO("Multi-stream cuda host submit vs. one stream (A/F) : {:.2f}x  "
+             "({:.3f} ms vs {:.3f} ms for the same {} commands).",
+             a_submit.median / f_submit.median, a_submit.median, f_submit.median,
+             opt.dispatches);
   if (have_graph) {
       auto e_batch = summarize(e.batch);
       auto e_submit = summarize(e.submit);
-      auto a_submit = summarize(a.submit);
-      LUISA_INFO("CUDA graph route (E): one-off host build (capture + instantiate) = {:.3f} ms.",
-                 graph_build_ms);
+      auto e_replay_submit_stats = summarize(e_replay_submit);
+      auto e_replay_total = std::accumulate(e_replay_submit.begin(), e_replay_submit.end(), 0.0);
+      LUISA_INFO("CUDA graph route (E): one-off host build (dependency analysis + instantiate) "
+                 "= {:.3f} ms, charged to the submit column above as {:.3f} ms per replay "
+                 "({} measured replays).",
+                 graph_build_ms, graph_build_ms / static_cast<double>(e_replay_submit.size()),
+                 e_replay_submit.size());
+      LUISA_INFO("Graph route total host time over the measured batch: {:.3f} ms "
+                 "(build {:.3f} + {} replays {:.3f}) = {:.3f} ms per replay incl. build.",
+                 graph_build_ms + e_replay_total, graph_build_ms, e_replay_submit.size(),
+                 e_replay_total,
+                 (graph_build_ms + e_replay_total) / static_cast<double>(e_replay_submit.size()));
       LUISA_INFO("Graph replay vs. naive cuda stream, batch wall time (A/E) : {:.2f}x",
                  a_batch.median / e_batch.median);
-      LUISA_INFO("Graph replay vs. naive cuda stream, host submit time (A/E): {:.2f}x",
-                 a_submit.median / e_submit.median);
+      LUISA_INFO("Graph replay vs. naive cuda stream, host submit incl. build (A/E): {:.2f}x  "
+                 "({:.3f} ms vs {:.3f} ms)",
+                 a_submit.median / e_submit.median, a_submit.median, e_submit.median);
+      LUISA_INFO("Graph replay vs. naive cuda stream, host submit of the replay alone (A/E): {:.2f}x",
+                 a_submit.median / e_replay_submit_stats.median);
       LUISA_INFO("Graph replay vs. reordered vk+CUDA (C/E)                  : {:.2f}x",
                  c_batch.median / e_batch.median);
+      LUISA_INFO("Graph replay vs. multi-stream cuda (E/F) over {} streams     : {:.2f}x  "
+                 "(E {:.3f} ms vs F {:.3f} ms)",
+                 opt.streams, e_batch.median / f_batch.median, e_batch.median, f_batch.median);
       // The graph's win is on the host: it replaces the per-dispatch submit cost
       // of route A with one cuGraphLaunch. Amortise the one-off build against
-      // that per-replay host saving; when the batch is device-bound the wall
-      // times match (A/E ~ 1.0x above) and only the host time is saved.
-      auto host_saving = a_submit.median - e_submit.median;
-      LUISA_INFO("Graph build amortised against host-submit saving: {:.3f} ms one-off vs "
+      // that per-replay host saving, measured WITHOUT the build charge so both
+      // sides are like-for-like; when the batch is device-bound the wall times
+      // match (A/E ~ 1.0x above) and only the host time is saved.
+      auto host_saving = a_submit.median - e_replay_submit_stats.median;
+      LUISA_INFO("Graph build amortised against the replay's host saving: {:.3f} ms one-off vs "
                  "{:.3f} ms saved per replay vs A (~{:.0f} replays to pay back the build).",
                  graph_build_ms, host_saving,
                  host_saving > 1e-6
@@ -840,16 +1130,29 @@ int main(int argc, char *argv[]) {
     if (have_graph) {
         LUISA_INFO("CUDA graph (E) replay == cuda reference (bit-exact): {}.", graph_matches);
     }
+    if (multistream_check_applies) {
+        LUISA_INFO("CUDA multi-stream (F) batch over {} streams == cuda reference "
+                   "(bit-exact): {}.",
+                   opt.streams, multistream_matches);
+    } else {
+        LUISA_INFO("CUDA multi-stream (F) batch output NOT checked: mode {} contains genuine "
+                   "write-after-write chains between dispatches, and separate CUDA streams "
+                   "impose no order between them - the multi-stream batch is a race there, "
+                   "which is exactly the point this group is here to show.",
+                   opt.mode);
+    }
 
     auto failed = false;
     if (!reordered_matches || !serialized_matches || !all_finite || !distinct_ranges ||
-        native_deviation > kNativeTolerance || !graph_matches) {
+        native_deviation > kNativeTolerance || !graph_matches ||
+        (multistream_check_applies && !multistream_matches)) {
         LUISA_ERROR_WITH_LOCATION(
             "Comparison validation FAILED: both Vulkan CUDA-launch groups must reproduce "
             "the strictly ordered cuda-backend result exactly, produce finite outputs and "
             "write one distinct sub-range per dispatch; the Vulkan-compiled group must stay "
             "within the numerical tolerance; the CUDA-graph replay (if built) must match the "
-            "reference bit for bit.");
+            "reference bit for bit; and the multi-stream batch must match it too wherever "
+            "the batch is hazard-free (modes 0/2).");
         failed = true;
     }
     // "Faster" has to mean something: a 1-2% spread between two routes that both
@@ -916,6 +1219,18 @@ int main(int argc, char *argv[]) {
                    a_batch.median / c_batch.median, a_batch.median, c_batch.median,
                    b_batch.median / c_batch.median, d_batch.median / c_batch.median);
     }
+    // Where the multi-stream route stands, independent of the A/C verdict: it is a
+    // caller-side answer to the same problem, so its distance from the reorder route
+    // is the number that matters (both run the identical batch, with no barrier
+    // structure in between - only the stream split differs).
+    LUISA_INFO("Multi-stream summary ({} streams over {} dispatches): F {:.3f} ms/batch = "
+               "{:.3f} ms per dispatch, {:.2f}x the reorder route (C {:.3f} ms/batch = "
+               "{:.3f} ms per dispatch) and A {:.3f} ms per dispatch.",
+               opt.streams, opt.dispatches, f_batch.median,
+               f_batch.median / static_cast<double>(opt.dispatches),
+               f_batch.median / c_batch.median,
+               c_batch.median, c_batch.median / static_cast<double>(opt.dispatches),
+               a_batch.median / static_cast<double>(opt.dispatches));
     // The verdict is printed above; the resources go through their normal
     // destructors, which is also what keeps this benchmark honest about the
     // teardown paths (Context/device/stream destruction plus the imported CUDA
