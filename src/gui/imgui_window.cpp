@@ -449,7 +449,13 @@ private:
                 .wants_vsync = _config.vsync,
                 .back_buffer_count = _config.back_buffers};
             sc = _device.create_swapchain(_stream, sc_options);
-            fb = _device.create_image<float>(sc.backend_storage(), size);
+            // The framebuffer is the color target of the hardware raster renderer
+            // whenever raster mode is enabled, so render-target support is always
+            // requested, independent of the backend. Creating it without the flag
+            // makes the backend unable to bind it as an RTV (on DX the device is
+            // removed with DXGI_ERROR_INVALID_CALL when the raster pipeline is
+            // created).
+            fb = _device.create_image<float>(sc.backend_storage(), size, 1u, false, true);
         }
     }
     void _on_imgui_create_window(ImGuiViewport *vp) noexcept {
