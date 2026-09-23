@@ -77,6 +77,13 @@ end)
       end)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
+    -- software two-level LBVH (Blas/Tlas) built and traversed by hand in kernels,
+    -- cross-checked against the Luisa RTX acceleration structures.
+    -- The LBVH itself lives in compute/lbvh/ (common layout, shared storage and
+    -- build stages, blas, tlas, facade); the target builds them together.
+    example_proj("example_software_lbvh", "compute/software_lbvh.cpp", false, function()
+        add_files("compute/lbvh/*.cpp")
+    end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)

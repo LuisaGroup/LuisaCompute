@@ -131,6 +131,19 @@ luisa_compute_add_example(example_image_processing compute/image_processing.cpp 
 luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
+# software two-level LBVH (Blas/Tlas), built and traversed by hand in kernels and
+# cross-checked against the Luisa RTX acceleration structures. Headless and
+# deterministic, and it validates its own BVH and sampled hits, so it also builds
+# as the mirrored test_software_lbvh target (needs an RTX-capable backend).
+# The LBVH itself lives in compute/lbvh/ (common layout, shared storage + build
+# stages, blas, tlas, facade); the target builds them together.
+luisa_compute_add_example(example_software_lbvh
+        compute/software_lbvh.cpp
+        compute/lbvh/lbvh_storage.cpp
+        compute/lbvh/blas.cpp
+        compute/lbvh/tlas.cpp
+        compute/lbvh/software_lbvh.cpp
+        MIRROR_AS_TEST)
 # n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
 add_subdirectory(compute/tokenize)
 luisa_compute_add_example(example_multi_head_attention
