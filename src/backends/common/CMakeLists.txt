@@ -353,6 +353,15 @@ endif ()
 
 add_subdirectory(hlsl)
 
+# The software ray-tracing fallback (src/backends/common/rtx): built whenever a
+# backend that can be asked to fall back (or that has no hardware ray tracing) is
+# enabled.  It is backend-independent, so it does not depend on which one it is.
+if (LUISA_COMPUTE_ENABLE_CUDA OR
+        LUISA_COMPUTE_ENABLE_DX OR
+        LUISA_COMPUTE_ENABLE_VULKAN)
+    add_subdirectory(rtx)
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_VULKAN)
     add_subdirectory(spirv)
 endif ()

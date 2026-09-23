@@ -16,6 +16,13 @@ end
 	    target:add("headerfiles", path.normalize(path.join(os.scriptdir(), "../common/default_binary_io.h")))
 	    target:add("syslinks", "D3D12", "dcomp")
 	    target:add("defines", "LUISA_DX_SDK")
+	    -- The software ray-tracing fallback (src/backends/common/rtx): the library
+	    -- that answers create_mesh / create_accel when the user asked for it or when
+	    -- the device reports no DXR support (see
+	    -- include/luisa/backends/ext/dx_config_ext.h and DXApi/LCDevice.cpp).
+	    -- `src/backends/common/xmake.lua` builds it whenever a backend that can
+	    -- fall back is enabled.
+	    target:add("deps", "luisa-fallback-rtx")
 	    if has_config("lc_enable_win_pix") then
 	        target:add("linkdirs", target:targetdir())
 	        target:add("links", "WinPixEventRuntime")

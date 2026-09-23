@@ -4,6 +4,7 @@
 #include <DXRuntime/Device.h>
 #include <DXRuntime/UpdateTileTracker.h>
 #include <luisa/backends/ext/command_reorder_ext.h>
+#include "../../common/rtx/fallback_rtx.h"
 namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
@@ -41,8 +42,52 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
         }
     } _command_reorder_ext{this};
 
+    // ---- software (fallback) ray tracing --------------------------------
+    // `_use_fallback_rtx` is decided once, in the constructor: the user may
+    // force the fallback through `DirectXDeviceConfigExt::use_fallback_rtx()`,
+    // and a device that reports no DXR support (or has no ID3D12Device5) has no
+    // hardware path at all.  `_fallback_rtx` is created lazily on the first
+    // acceleration-structure request, so a device that does not use the fallback
+    // never allocates anything for it.  Everything below is inert when
+    // `_use_fallback_rtx` is false: no allocation, no dispatch and no change to
+    // the generated shaders or the descriptors.
+    bool _use_fallback_rtx{false};
+
+public:
+    // The hardware path needs the ID3D12Device5 interfaces every
+    // acceleration-structure call goes through, and a device whose DXR tier the
+    // backend's own `BottomAccel` / `TopAccel` accept (tier 1.1 or better; a
+    // lower tier makes them refuse to build).  Anything else falls back to the
+    // software BVH.
+    [[nodiscard]] bool hardware_raytracing_available() const noexcept {
+        return native_device.device != nullptr &&
+               native_device.feature_check.raytracing_supported();
+    }
+    // Whether this device answers ray tracing with the software fallback.
+    [[nodiscard]] bool use_fallback_rtx() const noexcept { return _use_fallback_rtx; }
+    // The fallback device, or `nullptr` when the hardware path is in use.  It is
+    // created on first use (see the comment above).
+    [[nodiscard]] lc::fallback_rtx::FallbackRtxDevice *fallback_rtx() noexcept;
+    // Whether `handle` belongs to the fallback, i.e. whether an
+    // acceleration-structure command must be routed here instead of into
+    // `BottomAccel` / `TopAccel`.
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_accel(handle);
+    }
+
+public:
 public:
     Device native_device;
+    // Declared *after* `native_device`, and therefore destroyed before it: the
+    // fallback owns buffers and shaders of that device, so it must not outlive
+    // it.
+    mutable std::mutex _fallback_rtx_mutex;
+    mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
     std::mutex ext_mtx;
     vstd::unordered_map<vstd::string, Ext> exts;
     //std::numeric_limits<size_t>::max();

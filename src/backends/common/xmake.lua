@@ -2,6 +2,15 @@ if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     includes("hlsl")
 end
 
+-- The software ray-tracing fallback (src/backends/common/rtx) is what a backend
+-- without hardware ray tracing - or one the user asked to run in fallback mode -
+-- builds its acceleration structures with, so it is built whenever at least one
+-- of those backends is.
+if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or
+   has_config("lc_vk_backend") then
+    includes("rtx")
+end
+
 -- Both SPIR-V code generators are Vulkan-only. Key their targets on the
 -- backend as well as the codegen option so a DX-only/test configuration cannot
 -- create dangling dependencies on lc-spirv or lc-spirv-llvm.

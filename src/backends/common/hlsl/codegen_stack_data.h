@@ -51,6 +51,13 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool enable_debug_info : 1 = false;
     bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    // Software (fallback) ray tracing: the `accel` argument is bound to two
+    // `StructuredBuffer<uint4>` views instead of a RaytracingAccelerationStructure
+    // plus a `_MeshInst` buffer, and the tracing / instance intrinsics call into
+    // builtin/fallback_rtx_header.bytes.  Off by default, and inert when off: no
+    // other part of the generated source depends on it
+    // (DeviceConfigExt::use_fallback_rtx()).
+    bool fallback_rtx : 1 = false;
     // Out-of-range access detection with abort semantics (manual multiple
     // return). Host-debug builds only (`#ifndef NDEBUG`), DX (non-SPIR-V)
     // compute path only. When enabled, the generated source defines

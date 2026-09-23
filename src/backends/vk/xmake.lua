@@ -107,6 +107,13 @@ on_load(function(target)
         raise("The Vulkan backend needs a native SPIR-V codegen route " ..
               "when DXC compatibility is disabled.")
     end
+    -- The software ray-tracing fallback (src/backends/common/rtx): the library
+    -- that answers `create_mesh` / `create_accel` when the user asked for the
+    -- fallback through `VulkanDeviceConfigExt::use_fallback_rtx()` or when the
+    -- physical device has no hardware ray-tracing path (see device.cpp).
+    -- `src/backends/common/xmake.lua` builds it whenever a backend that can
+    -- fall back is enabled.
+    target:add("deps", "luisa-fallback-rtx")
     local generated_dir = path.join(target:autogendir(), "vk_builtin")
     target:add("includedirs", generated_dir)
     target:add("files", path.join(

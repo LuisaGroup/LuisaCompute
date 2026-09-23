@@ -1432,11 +1432,29 @@ if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE
         target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1)
         target_link_libraries(test_external_device PRIVATE D3D12 dxgi)
     endif ()
-    if (LUISA_COMPUTE_ENABLE_VULKAN)
-        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1)
-        target_link_libraries(test_external_device PRIVATE luisa-compute-ext-volk)
-    endif ()
-endif ()
+      if (LUISA_COMPUTE_ENABLE_VULKAN)
+          target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1)
+          target_link_libraries(test_external_device PRIVATE luisa-compute-ext-volk)
+      endif ()
+  endif ()
+  # --- integration/runtime: hardware vs software (fallback) ray tracing ---
+  # Builds one scene on two devices - one with the backend's native acceleration
+  # structures, one with the luisa-fallback-rtx software BVH - and requires the
+  # two to agree.
+  if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
+      luisa_compute_add_test(test_fallback_rtx integration/runtime/test_fallback_rtx.cpp)
+      if (LUISA_COMPUTE_ENABLE_CUDA)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_CUDA=1)
+      endif ()
+      if (LUISA_COMPUTE_ENABLE_DX)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_DX=1)
+          target_link_libraries(test_fallback_rtx PRIVATE D3D12 dxgi)
+      endif ()
+      if (LUISA_COMPUTE_ENABLE_VULKAN)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_VK=1)
+          target_link_libraries(test_fallback_rtx PRIVATE luisa-compute-ext-volk)
+      endif ()
+  endif ()
 
 # --- integration/xir: standalone tests ---
 luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")

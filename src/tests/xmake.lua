@@ -687,12 +687,32 @@ if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("l
             add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1")
             add_syslinks("dxgi", "d3d12")
         end
-        if has_config("lc_vk_backend") then
-            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1")
-            add_deps("lc-volk")
-        end
-    end)
-end
+          if has_config("lc_vk_backend") then
+              add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1")
+              add_deps("lc-volk")
+          end
+      end)
+  end
+  -- integration/runtime: hardware vs software (fallback) ray tracing.
+  -- Builds the same scene on two devices - one with the backend's native
+  -- acceleration structures, one with the luisa-fallback-rtx software BVH - and
+  -- requires the two to agree. Requires a physical device; invoked manually with
+  -- a backend argument.
+  if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+      test_proj("test_fallback_rtx", "integration/runtime/test_fallback_rtx.cpp", false, function()
+          if has_config("lc_cuda_backend") then
+              add_defines("LUISA_TEST_FALLBACK_RTX_HAS_CUDA=1")
+          end
+          if has_config("lc_dx_backend") then
+              add_defines("LUISA_TEST_FALLBACK_RTX_HAS_DX=1")
+              add_syslinks("dxgi", "d3d12")
+          end
+          if has_config("lc_vk_backend") then
+              add_defines("LUISA_TEST_FALLBACK_RTX_HAS_VK=1")
+              add_deps("lc-volk")
+          end
+      end)
+  end
 
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then

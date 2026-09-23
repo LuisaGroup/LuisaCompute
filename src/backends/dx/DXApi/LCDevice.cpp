@@ -47,6 +47,32 @@ static constexpr uint kTensorShaderModel = 69u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       native_device(Context{_ctx_impl}, settings) {
+    // Decide once whether ray tracing is answered by the software fallback: the
+    // user may force it through the DeviceConfigExt, and a device that reports no
+    // DXR support (or has no ID3D12Device5, which every acceleration-structure
+    // call goes through) has no hardware path at all.
+    _use_fallback_rtx = [this] {
+        // The extension was moved into the native device by its constructor.
+        if (native_device.device_settings != nullptr) {
+            if (native_device.device_settings->use_fallback_rtx()) {
+                return true;
+            }
+        }
+        // `LUISA_DX_FALLBACK_RTX=1` forces the fallback for testing (some
+        // examples create their device without a DeviceConfigExt); the supported
+        // surface stays `DirectXDeviceConfigExt::use_fallback_rtx()`.
+        if (auto env = std::getenv("LUISA_DX_FALLBACK_RTX")) {
+            return luisa::string_view{env} == "1";
+        }
+        return !hardware_raytracing_available();
+    }();
+    if (_use_fallback_rtx) {
+        LUISA_INFO("DirectX ray tracing uses the software fallback "
+                   "(DXR tier {}, ID3D12Device5 {}).",
+                   static_cast<uint>(native_device.feature_check.raytracing_tier()),
+                   native_device.device != nullptr ? "present" : "absent");
+    }
+
     // no ext when headless
     bool headless = settings && settings->headless;
     if (!headless) {
@@ -155,7 +181,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         RasterExt::name,
 #endif
         [](LCDevice *device) -> DeviceExtension * {
-            return new DxRasterExt(device->native_device);
+            return new DxRasterExt(device->native_device, device->use_fallback_rtx());
         },
         [](DeviceExtension *ext) {
             delete static_cast<DxRasterExt *>(ext);
@@ -291,6 +317,9 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag stream_tag) noexcept {
             }
             LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
+    // The queue routes every acceleration-structure command of a fallback
+    // handle back into this device (see LCCmdBuffer::execute).
+    res->lc_device = this;
     info.handle = resource_to_handle(res);
     info.native_handle = res->queue.queue();
     return info;
@@ -361,7 +390,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx);
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
         if (kernel.use_cooperative_operations() || code.use_8bit) {
@@ -390,7 +419,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         info.compile_ok = ok;
         if (!ok) {
             LUISA_WARNING("AOT compile failed for shader '{}'; bytecode file not written.",
-                           option.name);
+                          option.name);
         }
 
     } else {
@@ -495,7 +524,20 @@ void LCDevice::wait_event(uint64 handle, uint64 stream_handle, uint64_t fence) n
 void LCDevice::synchronize_event(uint64 handle, uint64_t fence) noexcept {
     reinterpret_cast<LCEvent *>(handle)->sync(fence);
 }
+lc::fallback_rtx::FallbackRtxDevice *LCDevice::fallback_rtx() noexcept {
+    if (!_use_fallback_rtx) { return nullptr; }
+    std::scoped_lock lock{_fallback_rtx_mutex};
+    if (_fallback_rtx == nullptr) {
+        _fallback_rtx = luisa::make_unique<lc::fallback_rtx::FallbackRtxDevice>(this);
+    }
+    return _fallback_rtx.get();
+}
 ResourceCreationInfo LCDevice::create_procedural_primitive(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR("The software ray-tracing fallback "
+                    "(DirectXDeviceConfigExt::use_fallback_rtx()) has no "
+                    "procedural primitives.");
+    }
     return create_mesh(option);
 }
 void LCDevice::destroy_procedural_primitive(uint64 handle) noexcept {
@@ -503,16 +545,33 @@ void LCDevice::destroy_procedural_primitive(uint64 handle) noexcept {
 }
 ResourceCreationInfo LCDevice::create_mesh(const AccelOption &option) noexcept {
     ResourceCreationInfo info{};
+    if (_use_fallback_rtx) {
+        // The fallback hands out the handle of its own bottom-level structure, so
+        // the handle of a fallback `Mesh` *is* the handle of a fallback BLAS and
+        // `owns_fallback_blas()` later tells the two apart.
+        info.handle = fallback_rtx()->create_blas(option);
+        info.native_handle = nullptr;
+        return info;
+    }
     auto res = new BottomAccel(&native_device, option);
     info.handle = resource_to_handle(res);
     info.native_handle = nullptr;
     return info;
 }
 void LCDevice::destroy_mesh(uint64 handle) noexcept {
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_blas(handle);
+        return;
+    }
     delete reinterpret_cast<BottomAccel *>(handle);
 }
 ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept {
     ResourceCreationInfo info{};
+    if (_use_fallback_rtx) {
+        info.handle = fallback_rtx()->create_accel(option);
+        info.native_handle = nullptr;
+        return info;
+    }
     auto res = new TopAccel(
         &native_device,
         option);
@@ -522,6 +581,10 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
     return info;
 }
 void LCDevice::destroy_accel(uint64 handle) noexcept {
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_accel(handle);
+        return;
+    }
     delete reinterpret_cast<TopAccel *>(handle);
 }
 SwapchainCreationInfo LCDevice::create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept {
@@ -570,7 +633,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _fallback_rtx);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());

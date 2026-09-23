@@ -163,7 +163,15 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "StructuredBuffer<uint>"sv;
         } break;
         case Type::Tag::ACCEL: {
-            str << "RaytracingAccelerationStructure"sv;
+            if (opt->fallback_rtx) {
+                // Software ray tracing: an `accel` argument is a view of the
+                // fallback acceleration buffer, which is a stream of uint4
+                // (fallback_rtx_layout.h).  The instance buffer is declared
+                // next to it by CodegenProperties.
+                str << "StructuredBuffer<uint4>"sv;
+            } else {
+                str << "RaytracingAccelerationStructure"sv;
+            }
         } break;
         case Type::Tag::CUSTOM: {
             str << '_' << type.description();

@@ -65,6 +65,12 @@ namespace {
          .use_tex3d_bindless = use_tex3d_bindless,
          .has_constant_ubo_payload = has_constant_ubo_payload,
          .acceleration_structure_available = device->enable_raytracing(),
+         // Keep the persisted-property check in step with the pipeline
+         // layout of this device: with the software fallback the
+         // acceleration-structure slot is a storage buffer, so a program
+         // that is reloaded here must be planned the same way it was
+         // created.
+         .fallback_rtx = device->use_fallback_rtx(),
          .sampled_image_update_after_bind_enabled = device->enable_bindless(),
          .storage_buffer_update_after_bind_enabled = device->enable_bindless()},
         detail::descriptor_interface_limits_from(

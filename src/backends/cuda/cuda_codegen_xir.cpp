@@ -25,9 +25,11 @@
 
 namespace luisa::compute::cuda {
 
-CUDACodegenXIR::CUDACodegenXIR(StringScratch &scratch, bool allow_indirect) noexcept
+CUDACodegenXIR::CUDACodegenXIR(StringScratch &scratch, bool allow_indirect,
+                               bool fallback_rtx) noexcept
     : _scratch{scratch},
       _allow_indirect_dispatch{allow_indirect},
+      _fallback_rtx{fallback_rtx},
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
@@ -78,15 +80,37 @@ void CUDACodegenXIR::_analyze_instruction_usage(const xir::Function *f, Instruct
                 case xir::DerivedInstructionTag::RESOURCE_QUERY: {
                     auto is_ray_trace = false;
                     switch (static_cast<const xir::ResourceQueryInst *>(inst)->op()) {
-                        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: [[fallthrough]];
+                        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: {
+                            analysis.requires_raytracing_closest = true;
+                            is_ray_trace = true;
+                            // the software fallback traverses its own buffers and
+                            // needs no OptiX header
+                            this->_requires_optix |= !_fallback_rtx;
+                            break;
+                        }
+                        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: {
+                            analysis.requires_raytracing_any = true;
+                            is_ray_trace = true;
+                            this->_requires_optix |= !_fallback_rtx;
+                            break;
+                        }
                         case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: {
+                            if (_fallback_rtx) {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Motion blur is not supported by the CUDA software "
+                                    "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+                            }
                             this->_requires_optix = true;
                             analysis.requires_raytracing_closest = true;
                             is_ray_trace = true;
                             break;
                         }
-                        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: [[fallthrough]];
                         case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR: {
+                            if (_fallback_rtx) {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Motion blur is not supported by the CUDA software "
+                                    "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+                            }
                             this->_requires_optix = true;
                             analysis.requires_raytracing_any = true;
                             is_ray_trace = true;
@@ -96,6 +120,13 @@ void CUDACodegenXIR::_analyze_instruction_usage(const xir::Function *f, Instruct
                         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: [[fallthrough]];
                         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: [[fallthrough]];
                         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: {
+                            if (_fallback_rtx) {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Ray queries are not supported by the CUDA software "
+                                    "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).  "
+                                    "Use Accel::intersect() / Accel::intersect_any(), or disable "
+                                    "the fallback.");
+                            }
                             this->_requires_optix = true;
                             analysis.requires_raytracing_query = true;
                             is_ray_trace = true;
@@ -111,6 +142,11 @@ void CUDACodegenXIR::_analyze_instruction_usage(const xir::Function *f, Instruct
                     break;
                 }
                 case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                    if (_fallback_rtx) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Ray queries are not supported by the CUDA software "
+                            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+                    }
                     this->_requires_optix = true;
                     analysis.requires_raytracing_query = true;
                     auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(inst);
@@ -1621,11 +1657,11 @@ void CUDACodegenXIR::_emit_resource_query_inst(const xir::ResourceQueryInst *ins
         case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED("BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER"); break;
         case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS: _scratch << "lc_buffer_address"; break;
         case xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS: _scratch << "lc_bindless_buffer_address"; break;
-        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_instance_user_id"; break;
-        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << "lc_accel_instance_visibility_mask"; break;
-        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
-        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_instance_transform" : "lc_accel_instance_transform"); break;
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_instance_user_id" : "lc_accel_instance_user_id"); break;
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << (_fallback_rtx ? "lc_fallback_instance_visibility" : "lc_accel_instance_visibility"); break;
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: _scratch << (_fallback_rtx ? "lc_fallback_trace_closest" : "lc_accel_trace_closest"); break;
+        case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: _scratch << (_fallback_rtx ? "lc_fallback_trace_any" : "lc_accel_trace_any"); break;
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_instance_motion_matrix"; break;
@@ -1754,10 +1790,10 @@ void CUDACodegenXIR::_emit_resource_write_inst(const xir::ResourceWriteInst *ins
         case xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE: _scratch << "lc_bindless_buffer_write"; break;
         case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE: _scratch << "lc_bindless_byte_buffer_write"; break;
         case xir::ResourceWriteOp::DEVICE_ADDRESS_WRITE: _scratch << "([](lc_ulong p, auto v) noexcept { *reinterpret_cast<decltype(v) *>(p) = v; })"; break;
-        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
-        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK: _scratch << "lc_accel_set_instance_visibility"; break;
-        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
-        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_transform" : "lc_accel_set_instance_transform"); break;
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_visibility" : "lc_accel_set_instance_visibility"); break;
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_opacity" : "lc_accel_set_instance_opacity"); break;
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_user_id" : "lc_accel_set_instance_user_id"); break;
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_set_instance_motion_matrix"; break;
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: _scratch << "lc_accel_set_instance_motion_srt"; break;
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: _scratch << "lc_indirect_set_dispatch_kernel"; break;
@@ -2093,6 +2129,15 @@ void CUDACodegenXIR::emit(const xir::Module *module,
                      "CUDA codegen: kernel function not found in post order traversal.");
         return analysis;
     }();
+
+    // The software fallback implements triangles only; curves have to be
+    // rejected here, before a line is emitted, instead of calling into a
+    // traversal that cannot intersect them.
+    if (_fallback_rtx && analysis.required_curve_bases.any()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Curves are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
 
     // generate macro definitions and header
     if (_requires_optix) {

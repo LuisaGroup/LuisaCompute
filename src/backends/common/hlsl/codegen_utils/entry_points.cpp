@@ -74,7 +74,16 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
 }
 
 namespace detail {
-size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg) {
+[[nodiscard]] bool uses_accel_intrinsics(CallOpSet const &ops) noexcept {
+    return ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
+           ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
+           ops.test(CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY);
+}
+size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
     if (is_spirv) {
         // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
@@ -94,7 +103,17 @@ groupshared uint _vk_wg_copy_buf[4096];
 )";
     }
     size_t immutable_size = builder.size();
-    if (ops.uses_raytracing()) {
+    if (fallback_rtx) {
+        // Software ray tracing: the traversal of builtin/fallback_rtx_header.bytes
+        // replaces both the inline-query header (there is no `RayQuery` and no
+        // `RaytracingAccelerationStructure` on a device without hardware ray
+        // tracing) and the instance-accessor header.  It is added only when the
+        // shader actually traces or reads an instance, and only in fallback
+        // mode, so a shader of a hardware device is byte-for-byte unchanged.
+        if (ops.uses_raytracing() || uses_accel_intrinsics(ops)) {
+            builder << CodegenUtility::ReadInternalHLSLFile("fallback_rtx_header");
+        }
+    } else if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");
     }
     if (ops.test(CallOp::DETERMINANT)) {
@@ -135,13 +154,7 @@ groupshared uint _vk_wg_copy_buf[4096];
     if (useBindless) {
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common");
     }
-    if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
-        ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
-        ops.test(CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
+    if (!fallback_rtx && uses_accel_intrinsics(ops)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header");
     }
     if (ops.test(CallOp::COPYSIGN)) {
@@ -167,9 +180,10 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
+    opt->fallback_rtx = fallback_rtx;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
@@ -215,7 +229,7 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
         finalResult << "#define _LC_OOB_CHECK 1\n";
         finalResult << CodegenUtility::ReadInternalHLSLFile("oob_runtime");
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
@@ -253,18 +267,52 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     }
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer || enable_debug_info, true);
     if (isSpirV) {
+        // Software (fallback) ray tracing: the acceleration view of a fallback
+        // `accel` argument addresses the shared acceleration buffer with absolute
+        // uint4 handles, so the traversal also needs the absolute uint4 offset of
+        // that tree's region ("accelBase", fallback_rtx_header.bytes).  It travels
+        // in the push-constant block, right after the fixed dispatch block the
+        // command encoder writes first (`IndirectDispatchPushConstants`, 32 bytes):
+        // one 32-bit word per `accel` argument, in kernel-argument order - the same
+        // offset and order `Device::_create_shader_hlsl` sizes the block for and the
+        // command encoder writes them to (stream.cpp).  A device whose fallback is
+        // off adds nothing, so its push-constant block stays exactly as it was.
+        auto fallback_accel_base_count = 0u;
+        if (opt->fallback_rtx) {
+            for (auto &&arg : kernel.arguments()) {
+                fallback_accel_base_count += arg.type()->is_accel() ? 1u : 0u;
+            }
+        }
+        auto emit_fallback_accel_bases = [&](luisa::string_view prefix) {
+            for (auto &&arg : kernel.arguments()) {
+                if (!arg.type()->is_accel()) { continue; }
+                varData << prefix;
+                GetVariableName(kernel, arg, varData);
+                varData << "Base;\n"sv;
+            }
+        };
         if (opt->noRegister) {
             varData << R"(
 	struct _CBType{
 	uint4 v;
-	};
+)"sv;
+            if (fallback_accel_base_count != 0u) {
+                varData << "	uint4 _lc_fallback_dispatch_tail;\n"sv;
+                emit_fallback_accel_bases("	uint "sv);
+            }
+            varData << R"(	};
 	[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c;
 	)"sv;
         } else {
             varData << R"(
 struct _CBType{
 uint4 v;
-};
+)"sv;
+            if (fallback_accel_base_count != 0u) {
+                varData << "uint4 _lc_fallback_dispatch_tail;\n"sv;
+                emit_fallback_accel_bases("uint "sv);
+            }
+            varData << R"(};
 [[vk::push_constant]] ConstantBuffer<_CBType> dsp_c:register(b0);
 )"sv;
         }
@@ -315,9 +363,10 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
+    opt->fallback_rtx = fallback_rtx;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
@@ -337,7 +386,7 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx);
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
     finalResult << native_code << "\n//"sv;
@@ -413,9 +462,11 @@ CodegenResult CodegenUtility::RasterCodegen(
     bool isSpirV,
     bool noRegister,
     bool enable_debug_info,
-    bool enable_fast_math) {
+    bool enable_fast_math,
+    bool fallback_rtx) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
+    opt->fallback_rtx = fallback_rtx;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
     // CodegenStackData::ThreadLocalSpirv() = false;
@@ -437,7 +488,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     }
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations());
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations(), fallback_rtx);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';

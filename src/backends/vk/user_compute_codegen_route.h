@@ -10,9 +10,13 @@ namespace lc::vk::detail {
 // Native XIR-to-SPIR-V is the normal Vulkan user-compute path. These are the
 // explicitly unsupported AST features that still require the compatibility
 // HLSL path; internal Vulkan builtins are outside this routing contract.
+// The numbering is a persisted contract (a reason bit may be encoded in a
+// shader-artifact decision), so bits are never renumbered: 1u << 2u was free and
+// is taken by FALLBACK_RTX.
 enum class UserComputeHlslFallbackReason : uint32_t {
     NATIVE_INCLUDE = 1u << 0u,
     PRINTING = 1u << 1u,
+    FALLBACK_RTX = 1u << 2u,
     ASYNC_COPY = 1u << 3u,
     MOTION_BLUR = 1u << 4u,
 };
@@ -24,6 +28,14 @@ struct UserComputeCodegenRequirements {
     bool printing{};
     bool async_copy{};
     bool motion_blur{};
+    // The device answers ray tracing with the software fallback
+    // (`VulkanDeviceConfigExt::use_fallback_rtx()` or a physical device without
+    // hardware ray tracing) *and* this kernel traces rays. The traversal of a
+    // fallback acceleration structure lives in the shared HLSL text
+    // (src/backends/common/hlsl/builtin/fallback_rtx_header.bytes), which only
+    // the compatibility HLSL-to-SPIR-V route compiles: the native XIR-to-SPIR-V
+    // route can only emit the hardware OpRayQuery/trace operations.
+    bool fallback_rtx{};
 };
 
 struct UserComputeCodegenRoute {
@@ -86,6 +98,8 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::NATIVE_INCLUDE);
     add(requirements.printing,
         UserComputeHlslFallbackReason::PRINTING);
+    add(requirements.fallback_rtx,
+        UserComputeHlslFallbackReason::FALLBACK_RTX);
     add(requirements.async_copy,
         UserComputeHlslFallbackReason::ASYNC_COPY);
     add(requirements.motion_blur,
@@ -102,6 +116,8 @@ user_compute_hlsl_fallback_reason_name(
             return "native include"sv;
         case UserComputeHlslFallbackReason::PRINTING:
             return "printing"sv;
+        case UserComputeHlslFallbackReason::FALLBACK_RTX:
+            return "software (fallback) ray tracing"sv;
         case UserComputeHlslFallbackReason::ASYNC_COPY:
             return "async copy"sv;
         case UserComputeHlslFallbackReason::MOTION_BLUR:

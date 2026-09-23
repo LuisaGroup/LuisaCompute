@@ -235,21 +235,56 @@ void CUDACommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(AccelBuildCommand *command) noexcept {
+    // Software fallback: `command->handle()` was handed out by the fallback
+    // device, so its build kernels are spliced into this stream at exactly this
+    // position instead of building an OptiX IAS.
+    if (_stream->device()->owns_fallback_accel(command->handle())) {
+        auto list = _stream->device()->fallback_rtx()->build_accel(
+            command->handle(), command->instance_count(),
+            command->modifications(), command->update_instance_buffer_only());
+        for (auto &&cmd : list.steal_commands()) { cmd->accept(*this); }
+        return;
+    }
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
     accel->build(*this, command);
 }
 
 void CUDACommandEncoder::visit(MeshBuildCommand *command) noexcept {
+    // Software fallback: build the bottom-level structure of this mesh from the
+    // very same buffers the hardware geometry would have been configured from.
+    if (_stream->device()->owns_fallback_blas(command->handle())) {
+        lc::fallback_rtx::FallbackRtxDevice::MeshGeometry geometry{
+            .vertex_buffer = command->vertex_buffer(),
+            .vertex_buffer_offset = command->vertex_buffer_offset(),
+            .vertex_stride = command->vertex_stride(),
+            .vertex_buffer_size = command->vertex_buffer_size(),
+            .triangle_buffer = command->triangle_buffer(),
+            .triangle_buffer_offset = command->triangle_buffer_offset(),
+            .triangle_buffer_size = command->triangle_buffer_size()};
+        auto list = _stream->device()->fallback_rtx()->build_blas(command->handle(), geometry);
+        for (auto &&cmd : list.steal_commands()) { cmd->accept(*this); }
+        return;
+    }
     auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());
     mesh->build(*this, command);
 }
 
 void CUDACommandEncoder::visit(CurveBuildCommand *command) noexcept {
+    if (_stream->device()->use_fallback_rtx()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Curves are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto curve = reinterpret_cast<CUDACurve *>(command->handle());
     curve->build(*this, command);
 }
 
 void CUDACommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
+    if (_stream->device()->use_fallback_rtx()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Procedural primitives are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto primitive = reinterpret_cast<CUDAProceduralPrimitive *>(command->handle());
     primitive->build(*this, command);
 }
@@ -280,6 +315,11 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
+    if (_stream->device()->use_fallback_rtx()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Motion instances are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto motion_instance = reinterpret_cast<CUDAMotionInstance *>(command->handle());
     motion_instance->build(*this, command);
 }

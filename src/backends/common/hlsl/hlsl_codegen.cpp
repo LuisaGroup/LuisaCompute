@@ -671,9 +671,10 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     }
     // Detect assignment to cooperative vector element: v[i] = x → v.Set(x, i)
     auto lhs_access = state->lhs()->tag() == Expression::Tag::ACCESS ?
-                          static_cast<AccessExpr const *>(state->lhs()) : nullptr;
+                          static_cast<AccessExpr const *>(state->lhs()) :
+                          nullptr;
     bool lhs_is_coopvec_element = lhs_access &&
-        lhs_access->range()->type()->is_cooperative_vector();
+                                  lhs_access->range()->type()->is_cooperative_vector();
     if (lhs_is_coopvec_element) {
         // Generate: range.Set(rhs, index)
         lhs_access->range()->accept(*this);
@@ -721,6 +722,18 @@ void StringStateVisitor::visit(const ForStmt *state) {
     }
 }
 void StringStateVisitor::visit(const RayQueryStmt *stmt) {
+    // Ray queries (inline or the RayQuery object form) are not implemented by
+    // the software ray-tracing fallback: it has no candidate/committed-hit
+    // machinery to drive this loop.  Report it instead of emitting a loop over
+    // a resource the fallback never declares.
+    if (util->opt->fallback_rtx) {
+        LUISA_ERROR("RayQuery (RAY_TRACING_QUERY_*) is not available on the "
+                    "software ray-tracing fallback "
+                    "(DeviceConfigExt::use_fallback_rtx()).  The fallback answers "
+                    "closest-hit and any-hit tracing only; run on a device with "
+                    "hardware ray tracing and leave use_fallback_rtx() false, or "
+                    "rewrite the shader with Accel::intersect()/intersect_any().");
+    }
     str << "{\n"sv;
     str << "while("sv;
     stmt->query()->accept(*this);
@@ -786,7 +799,6 @@ void StringStateVisitor::VisitFunction(Function func) {
     }
     func.body()->accept(*this);
 }
-
 
 StringStateVisitor::Scope::Scope(StringStateVisitor *self)
     : self(self) {

@@ -115,12 +115,24 @@ Shader::Shader(
          .use_buffer_bindless = use_buffer_bindless,
          .use_tex2d_bindless = use_tex2d_bindless,
          .use_tex3d_bindless = use_tex3d_bindless,
-         .has_constant_ubo_payload = !constant_ubo_data.empty()});
+         .has_constant_ubo_payload = !constant_ubo_data.empty(),
+         .fallback_rtx = device->use_fallback_rtx()});
     LUISA_ASSERT(
         runtime_interface_plan,
-        "Vulkan shader runtime descriptor interface is invalid: {}.",
+        "Vulkan shader runtime descriptor interface is invalid: {} (device "
+        "descriptor plan: {}). counts: argument_buffer {}, constant_ubo {}, "
+        "resource {}, indirect {}, printer {}, local {} (descriptor plan {}).",
         detail::shader_interface_error_name(
-            runtime_interface_plan.error));
+            runtime_interface_plan.error),
+        detail::descriptor_interface_error_name(
+            runtime_interface_plan.descriptor_interface.error),
+        runtime_interface_plan.argument_buffer_binding_count,
+        runtime_interface_plan.constant_ubo_binding_count,
+        runtime_interface_plan.resource_binding_count,
+        runtime_interface_plan.indirect_binding_count,
+        runtime_interface_plan.printer_binding_count,
+        runtime_interface_plan.local_binding_count,
+        runtime_interface_plan.descriptor_interface.local_binding_count);
     auto interface_plan = detail::plan_descriptor_interface(
         {.properties = binds,
          .stage_mask = interface_stage_mask,
@@ -130,6 +142,11 @@ Shader::Shader(
          .use_tex3d_bindless = use_tex3d_bindless,
          .has_constant_ubo_payload = !constant_ubo_data.empty(),
          .acceleration_structure_available = device->enable_raytracing(),
+         // A device that runs the software fallback has no
+         // VkAccelerationStructureKHR at all: the shader's acceleration-
+         // structure slot is the fallback's acceleration buffer, i.e. a
+         // storage buffer (src/backends/common/rtx/fallback_rtx.h).
+         .fallback_rtx = device->use_fallback_rtx(),
          .sampled_image_update_after_bind_enabled = device->enable_bindless(),
          .storage_buffer_update_after_bind_enabled = device->enable_bindless()},
         detail::descriptor_interface_limits_from(
@@ -225,7 +242,10 @@ Shader::Shader(
                 v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
                 break;
             case hlsl::ShaderVariableType::SPIRVAccel:
-                v.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+                v.descriptorType =
+                    device->use_fallback_rtx() ?
+                        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER :
+                        VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
                 break;
             case hlsl::ShaderVariableType::SamplerHeap:
                 v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;

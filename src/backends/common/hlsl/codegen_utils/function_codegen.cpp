@@ -92,6 +92,13 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                     }
                     GetTemplateName();
                     data << ' ' << varName << "Inst,"sv;
+                    if (opt->fallback_rtx) {
+                        // Software ray tracing: the tree's region base is part of
+                        // the acceleration view's frame of reference, so a
+                        // callable takes it as a plain parameter and forwards it
+                        // to whatever it calls (fallback_rtx_header.bytes).
+                        data << "uint "sv << varName << "Base,"sv;
+                    }
                 } else {
                     GetTypeName(i.type(), usage);
                     data << ' ';
@@ -144,7 +151,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         args.back()->accept(vis);
     };
     auto PrintTypedBindlessBufferIndex = [&](Expression const *array,
-                                              Expression const *slot) {
+                                             Expression const *slot) {
         str << "_TYPED_BUFFER_INDEX(";
         array->accept(vis);
         str << ',';
@@ -152,8 +159,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         str << ')';
     };
     auto PrintTypedBindlessBufferOffset = [&](Expression const *array,
-                                               Expression const *slot,
-                                               Expression const *offset) {
+                                              Expression const *slot,
+                                              Expression const *offset) {
         str << "(_TYPED_BUFFER_BIAS(";
         array->accept(vis);
         str << ',';
@@ -192,6 +199,41 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     };
     auto PrintValidationBound = [&](Expression const *resource) {
         PrintValidationBoundTo(resource, str);
+    };
+    // Software ray tracing: the fallback entry points of
+    // fallback_rtx_header.bytes take the acceleration view, the ray, the mask,
+    // the instance view and the tree's region base, in that order.  The base is
+    // the global (or parameter, inside a callable) named `<accel variable>Base`:
+    // on the SPIR-V route the global is a field of the push-constant block
+    // (`dsp_c.<accel variable>Base`, see entry_points.cpp), on DX a cbuffer the
+    // command encoder writes through its root constants.  A callable receives
+    // the base as a parameter and only forwards it.
+    auto PrintFallbackAccelBase = [&](Expression const *accel) {
+        if (opt->isSpirv && vis.f.tag() == Function::Tag::KERNEL) {
+            str << "dsp_c."sv;
+        }
+        accel->accept(vis);
+        str << "Base"sv;
+    };
+    auto PrintFallbackTraceArgs = [&](size_t mask_index) {
+        args[0u]->accept(vis);// accel
+        str << ',';
+        args[1u]->accept(vis);// ray
+        str << ',';
+        args[mask_index]->accept(vis);// mask
+        str << ',';
+        args[0u]->accept(vis);
+        str << "Inst,"sv;
+        PrintFallbackAccelBase(args[0u]);
+    };
+    auto ReportFallbackUnsupported = [&](luisa::string_view what) {
+        LUISA_ERROR(
+            "{} is not available on the software ray-tracing fallback "
+            "(DeviceConfigExt::use_fallback_rtx()): the fallback implements "
+            "closest-hit and any-hit tracing over triangle meshes only.  Run on a "
+            "device with hardware ray tracing (and leave use_fallback_rtx() "
+            "false), or rewrite the shader without {}.",
+            what, what);
     };
     auto PrintValidationBoundArgument = [&](Expression const *resource) {
         if (opt->enable_debug_info) {
@@ -273,6 +315,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                         }
                         i->accept(vis);
                         str << "Inst"sv;
+                        if (opt->fallback_rtx) {
+                            // The callee's acceleration view carries its own
+                            // region base (see GetFunctionDecl).
+                            str << ',';
+                            PrintFallbackAccelBase(i);
+                        }
                     } else {
                         // globallycoherent propagated
                         if (i->type()->is_buffer() && i->tag() == Expression::Tag::REF && iter) {
@@ -554,41 +602,41 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::ATOMIC_FETCH_XOR:
         case CallOp::ATOMIC_FETCH_MIN:
         case CallOp::ATOMIC_FETCH_MAX: {
-        auto rootVar = static_cast<RefExpr const *>(args[0]);
-        if ((expr->type()->is_float() && expr->op() != CallOp::ATOMIC_EXCHANGE) || expr->op() == CallOp::ATOMIC_COMPARE_EXCHANGE) {
-            mark_coherent(args[0]);
-        }
-        auto &chain = opt->GetAtomicFunc(vis.f, expr->op(), rootVar->variable(), expr->type(), args);
-        // Debug out-of-range detection: guard the first index node of the atomic
-        // access chain (the one indexing the buffer / shared array / local
-        // array root). Later nodes index vectors/matrices/structs, which are
-        // sized by the type system and cannot go out of range at runtime.
-        vstd::fixed_vector<AccessChain::NodeBound, 8> node_bounds;
-        vstd::StringBuilder bound_text;
-        if (opt->oob_check) {
-            auto const &root_variable = rootVar->variable();
-            auto root_type = root_variable.type();
-            uint kind = 0u;
-            if (root_type->is_buffer()) {
-                // Reuse the debug-validation bound (cbuffer slot in the kernel
-                // entry, forwarded parameter inside a callable). oob_check
-                // implies enable_debug_info, so the bound always exists.
-                PrintValidationBoundTo(args[0], bound_text);
-                kind = 1u;
-            } else if (root_variable.is_shared()) {
-                vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
-                kind = 4u;
-            } else if (root_type->is_array()) {
-                vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
-                kind = 3u;
+            auto rootVar = static_cast<RefExpr const *>(args[0]);
+            if ((expr->type()->is_float() && expr->op() != CallOp::ATOMIC_EXCHANGE) || expr->op() == CallOp::ATOMIC_COMPARE_EXCHANGE) {
+                mark_coherent(args[0]);
             }
-            if (kind != 0u) {
-                node_bounds.emplace_back(AccessChain::NodeBound{bound_text.view(), kind});
+            auto &chain = opt->GetAtomicFunc(vis.f, expr->op(), rootVar->variable(), expr->type(), args);
+            // Debug out-of-range detection: guard the first index node of the atomic
+            // access chain (the one indexing the buffer / shared array / local
+            // array root). Later nodes index vectors/matrices/structs, which are
+            // sized by the type system and cannot go out of range at runtime.
+            vstd::fixed_vector<AccessChain::NodeBound, 8> node_bounds;
+            vstd::StringBuilder bound_text;
+            if (opt->oob_check) {
+                auto const &root_variable = rootVar->variable();
+                auto root_type = root_variable.type();
+                uint kind = 0u;
+                if (root_type->is_buffer()) {
+                    // Reuse the debug-validation bound (cbuffer slot in the kernel
+                    // entry, forwarded parameter inside a callable). oob_check
+                    // implies enable_debug_info, so the bound always exists.
+                    PrintValidationBoundTo(args[0], bound_text);
+                    kind = 1u;
+                } else if (root_variable.is_shared()) {
+                    vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
+                    kind = 4u;
+                } else if (root_type->is_array()) {
+                    vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
+                    kind = 3u;
+                }
+                if (kind != 0u) {
+                    node_bounds.emplace_back(AccessChain::NodeBound{bound_text.view(), kind});
+                }
             }
+            chain.call_this_func(args, str, vis, node_bounds);
+            return;
         }
-        chain.call_this_func(args, str, vis, node_bounds);
-        return;
-    }
         case CallOp::TEXTURE_READ:
             str << "_Readtx";
             break;
@@ -958,12 +1006,27 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_texsize"sv;
         } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
+            if (opt->fallback_rtx) {
+                str << "_FallbackTraceClosest("sv;
+                PrintFallbackTraceArgs(2u);
+                str << ')';
+                return;
+            }
             str << "_TraceClosest"sv;
             break;
         case CallOp::RAY_TRACING_TRACE_ANY:
+            if (opt->fallback_rtx) {
+                str << "_FallbackTraceAny("sv;
+                PrintFallbackTraceArgs(2u);
+                str << ')';
+                return;
+            }
             str << "_TraceAny"sv;
             break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: {
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR"sv);
+            }
             // Motion blur trace: args are (accel, ray, time, mask)
             if (opt->isRayTracing) {
                 str << "_TraceClosestMotion("sv;
@@ -999,18 +1062,36 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         //     args[3]->accept(vis);// mask (skip time at index 2)
         //     str << ')';
         //     return;
+        case CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_TRACE_ANY_MOTION_BLUR"sv);
+            }
+            LUISA_ERROR("RAY_TRACING_TRACE_ANY_MOTION_BLUR not supported.");
+            break;
         case CallOp::RAY_TRACING_QUERY_ALL:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ALL"sv);
+            }
             str << "_QueryAll("sv;
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ANY:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ANY"sv);
+            }
             str << "_QueryAny("sv;
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ALL_MOTION_BLUR"sv);
+            }
             LUISA_ERROR("RAY_TRACING_QUERY_ALL_MOTION_BLUR not supported.");
             break;
         case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ANY_MOTION_BLUR"sv);
+            }
             LUISA_ERROR("RAY_TRACING_QUERY_ANY_MOTION_BLUR not supported.");
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
@@ -1677,7 +1758,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: {
-            str << "_InstMatrix("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstMatrix("sv : "_InstMatrix("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1685,7 +1766,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
-            str << "_InstId("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstId("sv : "_InstId("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1693,7 +1774,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
-            str << "_InstVis("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstVis("sv : "_InstVis("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1701,7 +1782,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
-            str << "_SetAccelTransform("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelTransform("sv : "_SetAccelTransform("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1709,7 +1790,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: {
-            str << "_SetAccelVis("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelVis("sv : "_SetAccelVis("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1717,7 +1798,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
-            str << "_SetAccelOpaque("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelOpaque("sv : "_SetAccelOpaque("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1725,7 +1806,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
-            str << "_SetUserId("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetUserId("sv : "_SetUserId("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -2193,7 +2274,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     }
                 }
                 if (!found) { str << "0/*no buf*/;"; }
-            } else { str << "0/*null*/;"; }
+            } else {
+                str << "0/*null*/;";
+            }
             str << "}";
             return;
         }

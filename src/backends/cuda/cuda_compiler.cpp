@@ -190,6 +190,10 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_math), luisa_compute_cuda_device_math_size);
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_resource), luisa_compute_cuda_device_resource_size);
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_coop), luisa_compute_cuda_device_coop_size);
+    // Kept separate from `_device_library`: only a fallback-mode shader appends
+    // it (see CUDADevice::create_shader), so the generated source - and its
+    // hash, and the cached PTX - of every hardware-path kernel is unchanged.
+    process_builtin(_fallback_rtx_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_fallback_rtx), luisa_compute_cuda_device_fallback_rtx_size);
 }
 
 void CUDACompiler::process_builtin(luisa::string &result, char const *data, size_t size) noexcept {

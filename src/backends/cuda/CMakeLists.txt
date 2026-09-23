@@ -73,6 +73,12 @@ if (CUDAToolkit_FOUND)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_CUDA_TILE_TIRX=1)
     endif ()
 
+    # software ray-tracing fallback (src/backends/common/rtx).  Guarded so that a
+    # tree which does not build the module yet still configures.
+    if (TARGET luisa-fallback-rtx)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-fallback-rtx)
+    endif ()
+
     # LLVM
     option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN "Enable experimental LLVM-based CUDA codegen" OFF)
     if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)

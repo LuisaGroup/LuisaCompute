@@ -25,6 +25,11 @@ private:
     bool _allow_indirect_dispatch;
     bool _requires_printing{false};
     bool _requires_optix{false};
+    // Compile ray tracing for the software fallback (see CUDACodegenAST): the
+    // emitted traversal is `cuda_device_fallback_rtx.h` instead of OptiX, the
+    // kernel is an ordinary `kernel_main`, and the operations the fallback does
+    // not implement are reported instead of being emitted.
+    bool _fallback_rtx{false};
 
 private:
     const Type *_ray_type;
@@ -138,7 +143,8 @@ private:
     }
 
 public:
-    CUDACodegenXIR(StringScratch &scratch, bool allow_indirect) noexcept;
+    CUDACodegenXIR(StringScratch &scratch, bool allow_indirect,
+                   bool fallback_rtx = false) noexcept;
     ~CUDACodegenXIR() noexcept;
     void emit(const xir::Module *module, luisa::span<const Function::Binding> bindings,
               luisa::string_view device_lib, luisa::string_view native_include) noexcept;

@@ -1075,15 +1075,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
-        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_instance_user_id"; break;
-        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << "lc_accel_instance_visibility_mask"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_instance_transform" : "lc_accel_instance_transform"); break;
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_instance_user_id" : "lc_accel_instance_user_id"); break;
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << (_fallback_rtx ? "lc_fallback_instance_visibility" : "lc_accel_instance_visibility"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_transform" : "lc_accel_set_instance_transform"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_visibility" : "lc_accel_set_instance_visibility"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_opacity" : "lc_accel_set_instance_opacity"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_user_id" : "lc_accel_set_instance_user_id"); break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << (_fallback_rtx ? "lc_fallback_trace_closest" : "lc_accel_trace_closest"); break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << (_fallback_rtx ? "lc_fallback_trace_any" : "lc_accel_trace_any"); break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: _scratch << "lc_accel_trace_closest_motion_blur"; break;
@@ -1568,6 +1568,14 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
+    if (_fallback_rtx) {
+        // `emit()` already rejects a function that uses ray queries; this is the
+        // belt-and-braces guard so that no path can lower one into a fallback
+        // shader.
+        LUISA_ERROR_WITH_LOCATION(
+            "Ray queries are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     _ray_query_lowering->lower(stmt);
 }
 
@@ -1581,9 +1589,49 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
 void CUDACodegenAST::emit(Function f, luisa::string_view device_lib, luisa::string_view native_include) {
 
     _requires_printing = f.requires_printing();
-    _requires_optix = f.requires_raytracing();
+    // In fallback mode the kernel is an ordinary CUDA kernel that calls into the
+    // software traversal (`cuda_device_fallback_rtx.h`): no OptiX header, no
+    // `__raygen__main`.  The operations the fallback does not implement are
+    // rejected here, before a single line is emitted, so a fallback kernel can
+    // never silently call into a missing (or wrong) symbol.
+    _requires_optix = f.requires_raytracing() && !_fallback_rtx;
 
-    if (f.requires_raytracing()) {
+    if (_fallback_rtx && f.requires_raytracing()) {
+        auto ops = f.propagated_builtin_callables();
+        auto unsupported = [&](auto op) noexcept { return ops.test(op); };
+        if (unsupported(CallOp::RAY_TRACING_QUERY_ALL) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ANY) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) ||
+            ops.uses_ray_query()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Ray queries are not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).  Use "
+                "Accel::intersect() / Accel::intersect_any(), or disable the fallback.");
+        }
+        if (unsupported(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX) ||
+            unsupported(CallOp::RAY_TRACING_INSTANCE_MOTION_SRT) ||
+            unsupported(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
+            unsupported(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Motion blur is not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+        if (f.required_curve_bases().any()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Curves are not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+        if (f.use_cooperative_operations() || ops.uses_cooperative()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Cooperative vectors are not supported by the CUDA software "
+                "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+    }
+
+    if (_requires_optix) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.required_curve_bases().any()) {
             _scratch << "#define LUISA_ENABLE_OPTIX_CURVE\n";
@@ -1646,7 +1694,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         }
         _scratch << "\n  alignas(16) lc_uint4 ls_kid;";
         _scratch << "\n};\n\n";
-        if (f.requires_raytracing()) {
+        if (_requires_optix) {
             _scratch << "extern \"C\" __constant__ Params params;\n\n";
         }
     }
@@ -1683,7 +1731,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "extern \"C\" __global__ void "
-                 << (f.requires_raytracing() ?
+                 << (_requires_optix ?
                          "__raygen__main" :
                          "kernel_main");
     } else if (f.tag() == Function::Tag::CALLABLE) {
@@ -1699,7 +1747,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     }
     _scratch << "(";
     if (f.tag() == Function::Tag::KERNEL) {
-        if (!f.requires_raytracing()) {
+        if (!_requires_optix) {
             _scratch << "const Params params";
         }
         _scratch << ") {";
@@ -1748,7 +1796,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     // emit built-in variables
     if (f.tag() == Function::Tag::KERNEL) {
         _emit_builtin_variables();
-        if (!f.requires_raytracing()) {
+        if (!_requires_optix) {
             _scratch << "\n  if (lc_any(did >= ls)) { return; }";
         }
     }
@@ -1760,7 +1808,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
 
     if (_allow_indirect_dispatch) {
         // generate meta-function that launches the kernel with dynamic parallelism
-        if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
+        if (f.tag() == Function::Tag::KERNEL && !_requires_optix) {
             _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
                      << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
                      << "  auto n = min(indirect.header()->size, indirect.capacity - indirect.offset);\n"
@@ -2425,10 +2473,13 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
 
-CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect,
+                               bool fallback_rtx) noexcept
     : _scratch{scratch},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _allow_indirect_dispatch{allow_indirect},
+      _fallback_rtx{fallback_rtx},
+
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},

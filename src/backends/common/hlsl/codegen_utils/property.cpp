@@ -9,7 +9,7 @@
 // Forward declarations for types used in this file
 namespace luisa::compute {
 class Type;
-}
+}// namespace luisa::compute
 
 namespace lc::hlsl {
 struct CodegenResult;
@@ -256,10 +256,21 @@ void CodegenUtility::CodegenProperties(
             }
         };
         auto printInstBuffer = [&]<bool writable>() {
-            if constexpr (writable)
-                varData << "RWStructuredBuffer<_MeshInst> "sv;
-            else
-                varData << "StructuredBuffer<_MeshInst> "sv;
+            if (opt->fallback_rtx) {
+                // The fallback instance buffer is a stream of uint4, one 8-uint4
+                // record per instance (fallback_rtx_layout.h): the traversal and
+                // the instance accessors of fallback_rtx_header.bytes read it
+                // directly, so no `_MeshInst` struct is involved.
+                if constexpr (writable)
+                    varData << "RWStructuredBuffer<uint4> "sv;
+                else
+                    varData << "StructuredBuffer<uint4> "sv;
+            } else {
+                if constexpr (writable)
+                    varData << "RWStructuredBuffer<_MeshInst> "sv;
+                else
+                    varData << "StructuredBuffer<_MeshInst> "sv;
+            }
             GetVariableName(kernel, i, varData);
             varData << "Inst"sv;
         };
@@ -306,6 +317,44 @@ void CodegenUtility::CodegenProperties(
                 default: break;
             }
         };
+        // Software ray tracing: the `accel` argument also carries the absolute
+        // uint4 offset of its tree's region inside the acceleration buffer, as a
+        // single 32-bit root constant (`SetComputeRoot32BitConstants` on DX, the
+        // push-constant block on the SPIR-V route).  The value is *not* a
+        // property of the shader: the fallback storage grows by reallocating, so
+        // the command encoder resolves it from `FallbackRtxDevice::binding()`
+        // every time it writes the argument's descriptors.
+        auto printFallbackAccelBase = [&]() {
+            auto r = registerCount.get((uint8_t)RegisterType::CBV);
+            properties.emplace_back(
+                Property{
+                    .type = ShaderVariableType::ConstantValue,
+                    .space_index = opt->isSpirv ? 0u : 1u,
+                    .register_index = opt->isSpirv ? 0u : r,
+                    .array_size = 1u});
+            if (!opt->isSpirv) {
+                // The SPIR-V route carries the region base inside the
+                // push-constant block it already declares (entry_points.cpp
+                // appends `uint <argname>Base;` per fallback `accel` argument,
+                // at the offset the command encoder writes them to: 32 + 4 * i,
+                // see stream.cpp), so only the DX route needs a buffer of its
+                // own here - written as root constants.  Either way the
+                // `ConstantValue` property above is the marker that tells the
+                // encoder the block holds one more 32-bit word for this
+                // argument.
+                if (opt->noRegister) {
+                    varData << "cbuffer _LCFallbackAccelBase{uint "sv;
+                } else {
+                    varData << "cbuffer _LCFallbackAccelBase:register(b"sv;
+                    vstd::to_string(r, varData);
+                    varData << "){uint "sv;
+                }
+                GetVariableName(kernel, i, varData);
+                varData << "Base;};\n"sv;
+                r++;
+            }
+            bind_count += 2;
+        };
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
                 if (split_texture_views) {
@@ -333,6 +382,48 @@ void CodegenUtility::CodegenProperties(
                 genArg.operator()<RegisterType::SRV>(ShaderVariableType::StructuredBuffer, 't');
                 break;
             case Type::Tag::ACCEL: {
+                if (opt->fallback_rtx) {
+                    // Software ray tracing.  The two views of
+                    // fallback_rtx_layout.h go into the two registers the native
+                    // argument already owns, plus the tree's region base:
+                    //
+                    //   accel            StructuredBuffer<uint4> (the whole
+                    //                    acceleration buffer; a handle is an
+                    //                    absolute uint4 index)
+                    //   <argname>Inst    StructuredBuffer<uint4> /
+                    //                    RWStructuredBuffer<uint4> (the instance
+                    //                    buffer, element 0 = the tree's first
+                    //                    record)
+                    //   <argname>Base    uint (the region's absolute uint4
+                    //                    offset)
+                    //
+                    // The acceleration view has to be absolute - and not a view
+                    // that starts at the region - because a TLAS region
+                    // references BLAS regions laid out before it and neither a
+                    // D3D12 root SRV nor a Vulkan descriptor range can be
+                    // indexed backwards (fallback_rtx_header.bytes).
+                    if (reads && writes) {
+                        LUISA_ERROR(
+                            "The fallback ray tracing "
+                            "(DeviceConfigExt::use_fallback_rtx()) cannot bind an "
+                            "`accel` argument that is both traced and written: "
+                            "the ABI has one acceleration view and one instance "
+                            "view per argument, and a written argument binds only "
+                            "the latter.  Split the shader into a tracing kernel "
+                            "and an update kernel.");
+                    }
+                    if (writes) {
+                        genArg.operator()<RegisterType::UAV, true, true>(
+                            ShaderVariableType::RWStructuredBuffer, 'u');
+                    } else {
+                        genArg.operator()<RegisterType::SRV>(
+                            ShaderVariableType::StructuredBuffer, 't');
+                        genArg.operator()<RegisterType::SRV, true>(
+                            ShaderVariableType::StructuredBuffer, 't');
+                    }
+                    printFallbackAccelBase();
+                    break;
+                }
                 if (!opt->isSpirv) {
                     // Keep the established DXIL ABI: its command encoder
                     // currently binds either the traversal resource plus the

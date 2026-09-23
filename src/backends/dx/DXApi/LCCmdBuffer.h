@@ -19,6 +19,7 @@ using namespace luisa::compute;
 class RenderTexture;
 class LCSwapChain;
 class BottomAccel;
+class LCDevice;
 struct ButtomCompactCmd {
     vstd::variant<BottomAccel *, TopAccel *> accel;
     size_t offset;
@@ -137,6 +138,21 @@ protected:
 
 public:
     CommandQueue queue;
+    // The device this queue belongs to, or `nullptr` for a queue that was not
+    // created by an `LCDevice`.  It owns the software ray-tracing fallback that
+    // every acceleration-structure command of this queue is routed through
+    // (`DirectXDeviceConfigExt::use_fallback_rtx()`).
+    LCDevice *lc_device{nullptr};
+    // The command list of every fallback build (`FallbackRtxDevice::build_blas`
+    // / `build_accel`), in the order the submitted commands ask for them.  The
+    // preprocess pass visits the commands of one build where the build command
+    // sits in its layer (which is what records their resource states *and*
+    // accumulates their uniform arguments, in the same order the flat sizing pass
+    // counted them), and the encoding pass replays the same build at the same
+    // position, re-recording its states so that the barrier between two of its
+    // dispatches lands between them.  Empty whenever the fallback is off, which
+    // is what keeps the hardware path allocation-free (see `LCCmdBuffer::Execute`).
+    luisa::vector<luisa::vector<luisa::unique_ptr<Command>>> fallback_builds;
     LCCmdBuffer(
         Device *device,
         GpuAllocator *resourceAllocator,

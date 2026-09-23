@@ -94,6 +94,14 @@ struct ShaderInterfaceRequest {
     bool use_tex2d_bindless{};
     bool use_tex3d_bindless{};
     bool has_constant_ubo_payload{};
+    // The shader belongs to a device that answers ray tracing with the
+    // software fallback (`Device::use_fallback_rtx()`): its `accel` arguments
+    // own plain storage-buffer views and append one push-constant word each
+    // (see `DescriptorInterfaceRequest::fallback_rtx`).  The artifact codec,
+    // which validates the *shape* of a persisted table rather than the mode of
+    // a device, requests that shape unconditionally: a device whose fallback is
+    // off re-checks the mode when it builds the pipeline layout (shader.cpp).
+    bool fallback_rtx{};
 };
 
 struct ShaderInterfacePlan {
@@ -178,7 +186,7 @@ struct TextureDescriptorRoles {
         request.properties, request.stage_mask,
         request.use_buffer_bindless, request.use_tex2d_bindless,
         request.use_tex3d_bindless,
-        request.has_constant_ubo_payload);
+        request.has_constant_ubo_payload, request.fallback_rtx);
     if (!plan.descriptor_interface) {
         return fail(ShaderInterfaceError::INVALID_DESCRIPTOR_INTERFACE);
     }
@@ -186,6 +194,25 @@ struct TextureDescriptorRoles {
             request.arguments, request.validation_count)) {
         return fail(ShaderInterfaceError::INVALID_SAVED_ARGUMENT_INTERFACE);
     }
+
+    // A software (fallback) `accel` argument is the one a fallback device
+    // declares: its two views are plain storage buffers, whereas a hardware
+    // argument declares the `SPIRVAccel*` roles the property loop below counts.
+    // The shape of the table therefore decides which of the two rules applies -
+    // a plain compute shader of a fallback device has no accel argument at all,
+    // and a hardware artifact keeps its own rule even when the codec asks for
+    // the fallback shape (shader_artifact_codec.cpp).
+    auto table_declares_hardware_accel_roles = false;
+    for (auto property : request.properties) {
+        if (property.type == hlsl::ShaderVariableType::SPIRVAccel ||
+            property.type == hlsl::ShaderVariableType::SPIRVAccelInstance ||
+            property.type == hlsl::ShaderVariableType::SPIRVAccelInstanceRW) {
+            table_declares_hardware_accel_roles = true;
+            break;
+        }
+    }
+    auto fallback_accel_arguments =
+        request.fallback_rtx && !table_declares_hardware_accel_roles;
 
     auto dialect = request.dialect;
     auto is_native = dialect == ShaderCodegenDialect::XIR_SPIRV;
@@ -304,6 +331,16 @@ struct TextureDescriptorRoles {
                 // expose only the traversal descriptor. Count the persisted
                 // role descriptors below, then validate their per-argument
                 // order against the dialect.
+
+                // A software (fallback) `accel` argument declares plain storage buffers,
+                // which the property loop below does not count (it counts the
+                // `SPIRVAccel*` roles a hardware argument uses), so its views are
+                // counted from the argument itself: the acceleration view plus the
+                // instance view, or only the latter for a write-only argument
+                // (property.cpp).
+                if (fallback_accel_arguments) {
+                    argument_descriptor_count += writes && !reads ? 1u : 2u;
+                }
                 break;
             default: break;
         }
@@ -496,6 +533,25 @@ struct TextureDescriptorRoles {
                     if (argument.native_accel_uses_instance_buffer() &&
                         !expect_binding(
                             expected_instance,
+                            ShaderInterfaceError::RESOURCE_BINDING_MISMATCH)) {
+                        return plan;
+                    }
+                } else if (fallback_accel_arguments) {
+                    // Software (fallback) ray tracing: the argument owns
+                    // the acceleration view (the whole acceleration buffer,
+                    // an absolute handle space) and, unless it is
+                    // write-only, the instance view - both plain storage
+                    // buffers (fallback_rtx_header.bytes).
+                    if (reads && !writes &&
+                        !expect_binding(
+                            hlsl::ShaderVariableType::StructuredBuffer,
+                            ShaderInterfaceError::RESOURCE_BINDING_MISMATCH)) {
+                        return plan;
+                    }
+                    if (!expect_binding(
+                            writes ?
+                                hlsl::ShaderVariableType::RWStructuredBuffer :
+                                hlsl::ShaderVariableType::StructuredBuffer,
                             ShaderInterfaceError::RESOURCE_BINDING_MISMATCH)) {
                         return plan;
                     }

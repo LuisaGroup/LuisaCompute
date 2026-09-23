@@ -712,4 +712,18 @@ struct OptionalDeviceFeaturePlan {
         .ray_tracing_motion_blur = ray_tracing_motion_blur};
 }
 
+// Whether the *hardware* ray-tracing path exists on this physical device: the
+// exact `VK_KHR_ray_query` path the backend enables (ray-query + acceleration
+// structure extensions and feature bits, deferred host operations and buffer
+// device address).  `plan_optional_device_features` stays the single source of
+// truth for what "the backend requires", so this asks it with the request
+// forced on instead of restating the extension list.  Motion blur is not part
+// of the question: it is optional even on a device that can trace in hardware.
+[[nodiscard]] constexpr bool hardware_raytracing_available(
+    OptionalDeviceFeatureSupport support) noexcept {
+    return plan_optional_device_features(
+               support, {.ray_query = true, .ray_tracing_motion_blur = false})
+        .ray_query;
+}
+
 }// namespace lc::vk::detail

@@ -38,6 +38,12 @@ add_headerfiles("*.h")
 add_headerfiles("tile/*.h")
 add_defines('LUISA_BIN_2_OBJ')
 on_load(function(target)
+    -- The software ray-tracing fallback (src/backends/common/rtx): the library
+    -- that answers `create_mesh` / `create_accel` when the user asked for the
+    -- fallback or when the machine has no OptiX (see cuda_config_ext.h and
+    -- cuda_device.cpp).  `src/backends/common/xmake.lua` builds it whenever a
+    -- backend that can fall back is enabled.
+    target:add("deps", "luisa-fallback-rtx")
     if has_config("lc_reproc_use_xrepo") then
         target:add("packages", "reproc")
     else

@@ -11,6 +11,7 @@
 #include "vk_allocator.h"
 #include "sparse_residency_registry.h"
 #include <luisa/backends/ext/vk_config_ext.h>
+#include "../common/rtx/fallback_rtx.h"
 #include <atomic>
 #include <limits>
 namespace lc::hlsl {
@@ -172,7 +173,8 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         uint mip_levels, bool simultaneous_access);
     [[nodiscard]] ShaderCreationInfo _create_shader_hlsl(
         const ShaderOption &option, Function kernel,
-        bool requires_sampler_anisotropy) noexcept;
+        bool requires_sampler_anisotropy,
+        bool fallback_rtx) noexcept;
 public:
     struct HeapAlloc {
         uint count = 0;
@@ -239,6 +241,16 @@ public:
     // owned logical devices only — imported devices cannot be queried).
     bool cuda_kernel_launch_enabled : 1 {false};
     bool motion_blur_enabled : 1 {false};
+    // Software ray tracing (`lc::fallback_rtx::FallbackRtxDevice`). Decided
+    // once, in `_init_device`: the user may force it through
+    // `VulkanDeviceConfigExt::use_fallback_rtx()`, and a physical device without
+    // the extensions/feature bits the hardware ray-query path needs has no
+    // other one. When the bit is clear no fallback object is ever created, no
+    // buffer is allocated, no descriptor changes and no generated source
+    // changes, so the hardware path stays byte-for-byte what it was.
+    bool use_fallback_rtx_bit : 1 {false};
+    mutable std::mutex _fallback_rtx_mutex;
+    mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
     bool subgroup_size_control_enabled : 1 {false};
     bool subgroup_extended_types_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
@@ -289,6 +301,26 @@ public:
     bool enable_interop() const { return interop_enabled; }
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
+    // Whether this device answers ray tracing with the software fallback. It is
+    // `false` on the hardware path, where every fallback branch is inert.
+    [[nodiscard]] bool use_fallback_rtx() const noexcept {
+        return use_fallback_rtx_bit;
+    }
+    // The fallback device, or `nullptr` when the hardware path is in use. It is
+    // created on the first call and lives as long as this device does; the
+    // object is bound to this `DeviceInterface`, so it must not outlive it.
+    [[nodiscard]] lc::fallback_rtx::FallbackRtxDevice *fallback_rtx() noexcept;
+    // Whether an acceleration-structure handle has to be routed into the
+    // fallback instead of the backend's native BLAS/TLAS path. Both are
+    // `false` whenever the fallback is not in use.
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) noexcept {
+        auto *fallback = use_fallback_rtx() ? fallback_rtx() : nullptr;
+        return fallback != nullptr && fallback->owns_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) noexcept {
+        auto *fallback = use_fallback_rtx() ? fallback_rtx() : nullptr;
+        return fallback != nullptr && fallback->owns_accel(handle);
+    }
     bool enable_device_address() const { return device_address_enabled; }
     [[nodiscard]] bool enable_cuda_kernel_launch() const noexcept {
         return cuda_kernel_launch_enabled;
@@ -386,12 +418,12 @@ public:
     void destroy_swapchain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
 
-        // kernel
-        ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-        ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
-                                              const tile::CompileOptions &tile_options,
-                                              tile::KernelMetadata &metadata) noexcept override;
-        ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept override;
+    // kernel
+    ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
+    ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                          const tile::CompileOptions &tile_options,
+                                          tile::KernelMetadata &metadata) noexcept override;
+    ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 

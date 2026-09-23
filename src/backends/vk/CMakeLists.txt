@@ -4,6 +4,15 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
     target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen luisa::tile-xir)
 
+# The software ray-tracing fallback (src/backends/common/rtx): the library that
+# answers `create_mesh` / `create_accel` when the user asked for the fallback
+# through `VulkanDeviceConfigExt::use_fallback_rtx()` or when the physical device
+# has no hardware ray-tracing path (see src/backends/vk/device.cpp). Guarded so
+# that a tree which does not build the module yet still configures.
+if (TARGET luisa-fallback-rtx)
+    target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-fallback-rtx)
+endif ()
+
     # CUDA interop (external memory + VK_NV_cuda_kernel_launch) links the CUDA
     # driver API only; the module image is produced by the cuda backend, so
     # no runtime CUDA compiler library is required here.

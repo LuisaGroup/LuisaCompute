@@ -75,6 +75,16 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
 
     // Return true to use system <d3d12.h> instead of bundled LCAgilitySDK headers
     [[nodiscard]] virtual bool UseSystemD3D12Headers() const noexcept { return false; }
+    // Force the software (fallback) BVH: `create_mesh` / `create_accel` hand out
+    // the handles of `lc::fallback_rtx::FallbackRtxDevice` and every build and
+    // trace of this device goes through the hand-written two-level LBVH of
+    // src/backends/common/rtx instead of DXR.  The fallback is enabled
+    // automatically when the DXGI device reports no ray-tracing support
+    // (`D3D12_FEATURE_D3D12_OPTIONS5::RaytracingTier ==
+    // D3D12_RAYTRACING_TIER_NOT_SUPPORTED`) or has no `ID3D12Device5`, so this is
+    // only needed to *force* it on a device that does support DXR (which is what
+    // the tests do).  When the fallback is off, nothing about the device changes.
+    [[nodiscard]] virtual bool use_fallback_rtx() const noexcept { return false; }
 
     // Called during create_device
     virtual void ReadbackDX12Device(

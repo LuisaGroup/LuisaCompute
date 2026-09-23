@@ -107,6 +107,23 @@ public:
     [[nodiscard]] virtual bool enable_raytracing_feature() const noexcept {
         return true;
     }
+    // Answer every acceleration-structure request (create_mesh / create_accel
+    // and their build commands) with the software two-level LBVH of
+    // `luisa-fallback-rtx` (src/backends/common/rtx) and never touch
+    // VK_KHR_acceleration_structure, even on a device that could trace in
+    // hardware. When it is false the backend uses the hardware path whenever
+    // the physical device exposes it, and falls back to the software one only
+    // when it does not, so the default behaviour is unchanged.
+    //
+    // A fallen-back device compiles a ray-tracing shader through the
+    // compatibility HLSL route (the native XIR-to-SPIR-V route has no software
+    // traversal): the shader's acceleration-structure argument is bound to the
+    // fallback's shared acceleration buffer and instance buffer instead of a
+    // VkAccelerationStructureKHR. Ray queries, motion blur, curves and
+    // procedural primitives are not implemented by the fallback and fail
+    // closed. `LUISA_VK_FALLBACK_RTX=1` forces it for tests that cannot hand a
+    // `VulkanDeviceConfigExt` to `Context::create_device`.
+    [[nodiscard]] virtual bool use_fallback_rtx() const noexcept { return false; }
     [[nodiscard]] virtual bool enable_interop_feature() const noexcept {
         return true;
     }

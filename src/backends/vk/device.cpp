@@ -3,6 +3,7 @@
 #include "float_atomic_policy.h"
 #include "sampler_anisotropy.h"
 #include "user_compute_codegen_route.h"
+#include "fallback_rtx_hlsl_codegen.h"
 #include "../common/env_flag.h"
 #include <luisa/ast/op.h>
 #include <luisa/core/clock.h>
@@ -125,6 +126,7 @@ namespace {
     constexpr std::array reasons{
         detail::UserComputeHlslFallbackReason::NATIVE_INCLUDE,
         detail::UserComputeHlslFallbackReason::PRINTING,
+        detail::UserComputeHlslFallbackReason::FALLBACK_RTX,
         detail::UserComputeHlslFallbackReason::ASYNC_COPY,
         detail::UserComputeHlslFallbackReason::MOTION_BLUR};
     luisa::string description;
@@ -390,15 +392,15 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app_info.pApplicationName = "luisa_compute";
         app_info.pEngineName = app_info.pApplicationName;
-  // The instance apiVersion advertises the highest core version the backend may
-  // use (Vulkan 1.3 entry points: vkCmdPipelineBarrier2/vkCmdCopyBuffer2/...).
-  // It must NOT be lowered to the device floor: loaders and validation layers
-  // refuse to hand out core entry points above the instance's declared version,
-  // which would leave the 1.3 function pointers null even on 1.3+ devices.
-  // Vulkan 1.2 devices remain supported: the loader clamps the requested
-  // version, and Device::sync2_capable()/copy2_capable() select the legacy
-  // barrier/copy paths when the device lacks the 1.3 core entry points.
-  app_info.apiVersion = VK_API_VERSION_1_3;
+        // The instance apiVersion advertises the highest core version the backend may
+        // use (Vulkan 1.3 entry points: vkCmdPipelineBarrier2/vkCmdCopyBuffer2/...).
+        // It must NOT be lowered to the device floor: loaders and validation layers
+        // refuse to hand out core entry points above the instance's declared version,
+        // which would leave the 1.3 function pointers null even on 1.3+ devices.
+        // Vulkan 1.2 devices remain supported: the loader clamps the requested
+        // version, and Device::sync2_capable()/copy2_capable() select the legacy
+        // barrier/copy paths when the device lacks the 1.3 core entry points.
+        app_info.apiVersion = VK_API_VERSION_1_3;
         // Get extensions supported by the instance and store for later use
         uint32_t ext_count = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, nullptr);
@@ -566,19 +568,48 @@ VkAllocationCallbacks *Device::alloc_callbacks() {
     return &detail::alloc.callbacks;
 }
 //////////////// Not implemented area
+lc::fallback_rtx::FallbackRtxDevice *Device::fallback_rtx() noexcept {
+    if (!use_fallback_rtx_bit) { return nullptr; }
+    std::lock_guard lock{_fallback_rtx_mutex};
+    if (_fallback_rtx == nullptr) {
+        _fallback_rtx = luisa::make_unique<lc::fallback_rtx::FallbackRtxDevice>(
+            static_cast<DeviceInterface *>(this));
+    }
+    return _fallback_rtx.get();
+}
+
 ResourceCreationInfo Device::create_mesh(
     const AccelOption &option) noexcept {
+    // The fallback hands out the handle of its own bottom-level structure, so
+    // the handle of a fallback `Mesh` *is* the handle of its fallback BLAS and
+    // `owns_fallback_blas()` later tells the build command where to go.
+    if (auto *fallback = use_fallback_rtx_bit ? fallback_rtx() : nullptr) {
+        auto blas = fallback->create_blas(option);
+        return ResourceCreationInfo{
+            .handle = blas,
+            .native_handle = nullptr};
+    }
     auto mesh = new Blas(this, option);
     return ResourceCreationInfo{
         .handle = reinterpret_cast<uint64_t>(mesh),
         .native_handle = nullptr};
 }
 void Device::destroy_mesh(uint64_t handle) noexcept {
+    if (auto *fallback = use_fallback_rtx_bit ? fallback_rtx() : nullptr) {
+        fallback->destroy_blas(handle);
+        return;
+    }
     delete reinterpret_cast<Blas *>(handle);
 }
 
 ResourceCreationInfo Device::create_procedural_primitive(
     const AccelOption &option) noexcept {
+    if (use_fallback_rtx_bit) [[unlikely]] {
+        LUISA_ERROR(
+            "Procedural primitives are not supported by the Vulkan software "
+            "ray-tracing fallback "
+            "(VulkanDeviceConfigExt::use_fallback_rtx()).");
+    }
     return create_mesh(option);
 }
 
@@ -603,16 +634,32 @@ void Device::destroy_procedural_primitive(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo Device::create_accel(const AccelOption &option) noexcept {
+    if (auto *fallback = use_fallback_rtx_bit ? fallback_rtx() : nullptr) {
+        auto accel = fallback->create_accel(option);
+        return ResourceCreationInfo{
+            .handle = accel,
+            .native_handle = nullptr};
+    }
     auto accel = new Tlas(this, option);
     return ResourceCreationInfo{
         .handle = reinterpret_cast<uint64_t>(accel),
         .native_handle = nullptr};
 }
 void Device::destroy_accel(uint64_t handle) noexcept {
+    if (auto *fallback = use_fallback_rtx_bit ? fallback_rtx() : nullptr) {
+        fallback->destroy_accel(handle);
+        return;
+    }
     delete reinterpret_cast<Tlas *>(handle);
 }
 
 ResourceCreationInfo Device::create_motion_instance(const AccelMotionOption &option) noexcept {
+    if (use_fallback_rtx_bit) [[unlikely]] {
+        LUISA_ERROR(
+            "Motion instances are not supported by the Vulkan software "
+            "ray-tracing fallback "
+            "(VulkanDeviceConfigExt::use_fallback_rtx()).");
+    }
     if (!motion_blur_enabled) [[unlikely]] {
         LUISA_ERROR("Motion instances require VK_NV_ray_tracing_motion_blur, "
                     "which is not enabled on this device.");
@@ -1016,14 +1063,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     VkPhysicalDeviceFeatures device_features{};
     vkGetPhysicalDeviceFeatures(physical_device, &device_features);
     auto storage_image_format_features =
-        detail::plan_storage_image_format_features({
-            .read_without_format =
-                device_features.shaderStorageImageReadWithoutFormat ==
-                VK_TRUE,
-            .write_without_format =
-                device_features.shaderStorageImageWriteWithoutFormat ==
-                VK_TRUE,
-            .imported_device = external_device != VK_NULL_HANDLE});
+        detail::plan_storage_image_format_features({.read_without_format =
+                                                        device_features.shaderStorageImageReadWithoutFormat ==
+                                                        VK_TRUE,
+                                                    .write_without_format =
+                                                        device_features.shaderStorageImageWriteWithoutFormat ==
+                                                        VK_TRUE,
+                                                    .imported_device = external_device != VK_NULL_HANDLE});
     device_features.shaderStorageImageReadWithoutFormat =
         storage_image_format_features.read_without_format ?
             VK_TRUE :
@@ -1566,15 +1612,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     }
                 }
             }
-          // Enable the extension if the hardware supports it.
-          cooperative_vector_enabled = enable_vulkan_memory_model && enable_replicated_composites;
-          if (cooperative_vector_enabled) {
-              enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
-              enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
-              LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
-          } else {
-              LUISA_INFO("VK_NV_cooperative_vector disabled: vulkanMemoryModel or shaderReplicatedComposites is unavailable.");
-          }
+            // Enable the extension if the hardware supports it.
+            cooperative_vector_enabled = enable_vulkan_memory_model && enable_replicated_composites;
+            if (cooperative_vector_enabled) {
+                enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+                enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
+                LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
+            } else {
+                LUISA_INFO("VK_NV_cooperative_vector disabled: vulkanMemoryModel or shaderReplicatedComposites is unavailable.");
+            }
         }
     }
     {
@@ -1626,7 +1672,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
         }
     }
-#endif // ENABLE_HIDDEN_FEATURES
+#endif// ENABLE_HIDDEN_FEATURES
     if (bindless_enabled) {
         // Descriptor indexing is core in Vulkan 1.2. Query the promoted feature
         // structure directly: chaining it together with the EXT structure is
@@ -1777,47 +1823,72 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
     }
     auto raytracing_requested = raytracing_enabled;
+    // ---- software (fallback) ray tracing ---------------------------------
+    // The effective decision is made exactly once, here, and every later
+    // branch reads it instead of re-deciding: the user may force the fallback
+    // through the config extension, and a physical device that cannot provide
+    // the hardware ray-query path (VK_KHR_acceleration_structure plus the
+    // ray-query extension and the feature bits the backend requires, all
+    // folded into `plan_optional_device_features`) has no other way to trace.
+    // `hardware_raytracing_available()` asks that plan with the request forced
+    // on, so this is the same capability the hardware path below is enabled
+    // from. An imported logical device keeps its established behaviour: the
+    // physical device is not asked for the fallback on its behalf, and the
+    // backend does not request the ray-tracing features it cannot attest.
+    auto feature_support = detail::OptionalDeviceFeatureSupport{
+        .fragment_shader_barycentric_extension =
+            supports_device_extension(
+                VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME),
+        .fragment_shader_barycentric_feature =
+            supported_barycentric.fragmentShaderBarycentric == VK_TRUE,
+        .ray_query_extension =
+            supports_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME),
+        .ray_query_feature = supported_ray_query.rayQuery == VK_TRUE,
+        .acceleration_structure_extension =
+            supports_device_extension(
+                VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME),
+        .acceleration_structure_feature =
+            supported_acceleration_structure.accelerationStructure == VK_TRUE,
+        .deferred_host_operations_extension =
+            supports_device_extension(
+                VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME),
+        .buffer_device_address =
+            (api_version >= VK_API_VERSION_1_2 ||
+             supports_device_extension(
+                 VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)) &&
+            _vk_device->features_12.bufferDeviceAddress == VK_TRUE,
+        .ray_tracing_pipeline_extension =
+            supports_device_extension(
+                VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME),
+        .ray_tracing_pipeline_feature =
+            supported_ray_tracing_pipeline.rayTracingPipeline == VK_TRUE,
+        .ray_traversal_primitive_culling_feature =
+            supported_ray_tracing_pipeline.rayTraversalPrimitiveCulling ==
+            VK_TRUE,
+        .ray_tracing_motion_blur_extension =
+            supports_device_extension(
+                VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME),
+        .ray_tracing_motion_blur_feature =
+            supported_motion_blur.rayTracingMotionBlur == VK_TRUE};
+    auto hardware_raytracing = detail::hardware_raytracing_available(
+        feature_support);
+    use_fallback_rtx_bit =
+        (_config_ext != nullptr && _config_ext->use_fallback_rtx()) ||
+        // `LUISA_VK_FALLBACK_RTX=1` forces the fallback for tests and
+        // command-line programs that cannot hand a `VulkanDeviceConfigExt` to
+        // `Context::create_device`; the supported surface stays
+        // `DeviceConfigExt::use_fallback_rtx()`.
+        luisa::compute::detail::env_flag("LUISA_VK_FALLBACK_RTX") ||
+        !hardware_raytracing;
     auto motion_blur_requested =
-        raytracing_requested &&
+        raytracing_requested && !use_fallback_rtx_bit &&
         (!_config_ext || _config_ext->enable_motion_blur());
     auto optional_device_features = detail::plan_optional_device_features(
-        {
-            .fragment_shader_barycentric_extension =
-                supports_device_extension(
-                    VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME),
-            .fragment_shader_barycentric_feature =
-                supported_barycentric.fragmentShaderBarycentric == VK_TRUE,
-            .ray_query_extension =
-                supports_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME),
-            .ray_query_feature = supported_ray_query.rayQuery == VK_TRUE,
-            .acceleration_structure_extension =
-                supports_device_extension(
-                    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME),
-            .acceleration_structure_feature =
-                supported_acceleration_structure.accelerationStructure == VK_TRUE,
-            .deferred_host_operations_extension =
-                supports_device_extension(
-                    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME),
-            .buffer_device_address =
-                (api_version >= VK_API_VERSION_1_2 ||
-                 supports_device_extension(
-                     VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)) &&
-                _vk_device->features_12.bufferDeviceAddress == VK_TRUE,
-            .ray_tracing_pipeline_extension =
-                supports_device_extension(
-                    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME),
-            .ray_tracing_pipeline_feature =
-                supported_ray_tracing_pipeline.rayTracingPipeline == VK_TRUE,
-            .ray_traversal_primitive_culling_feature =
-                supported_ray_tracing_pipeline.rayTraversalPrimitiveCulling ==
-                VK_TRUE,
-            .ray_tracing_motion_blur_extension =
-                supports_device_extension(
-                    VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME),
-            .ray_tracing_motion_blur_feature =
-                supported_motion_blur.rayTracingMotionBlur == VK_TRUE,
-        },
-        {.ray_query = raytracing_requested,
+        feature_support,
+        // The single place the hardware path is enabled: requested by the user
+        // (or by the platform default), supported by the physical device and
+        // not replaced by the fallback.
+        {.ray_query = raytracing_requested && !use_fallback_rtx_bit,
          .ray_tracing_motion_blur = motion_blur_requested});
     enable_barycentric =
         optional_device_features.fragment_shader_barycentric;
@@ -1825,7 +1896,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     enable_motion_blur =
         optional_device_features.ray_tracing_motion_blur;
     motion_blur_enabled = enable_motion_blur;
-    if (raytracing_requested && !raytracing_enabled) {
+    if (use_fallback_rtx_bit) {
+        LUISA_INFO(
+            "Vulkan ray tracing uses the software fallback "
+            "(VulkanDeviceConfigExt::use_fallback_rtx or a physical device "
+            "without the hardware ray-tracing path); the native acceleration-"
+            "structure extensions are not enabled.");
+    }
+    if (raytracing_requested && !raytracing_enabled && !use_fallback_rtx_bit) {
         LUISA_WARNING(
             "Vulkan ray query disabled: rayQuery={} accelerationStructure={} "
             "bufferDeviceAddress={} and required extensions={}",
@@ -2103,13 +2181,13 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 break;
         }
     }
-  if (cooperative_vector_enabled) {
-      cooperative_vector_features_nv.pNext = feature_next;
-      feature_next = &cooperative_vector_features_nv;
-      replicated_composites_features.pNext = feature_next;
-      replicated_composites_features.shaderReplicatedComposites = VK_TRUE;
-      feature_next = &replicated_composites_features;
-  }
+    if (cooperative_vector_enabled) {
+        cooperative_vector_features_nv.pNext = feature_next;
+        feature_next = &cooperative_vector_features_nv;
+        replicated_composites_features.pNext = feature_next;
+        replicated_composites_features.shaderReplicatedComposites = VK_TRUE;
+        feature_next = &replicated_composites_features;
+    }
     VkPhysicalDeviceShaderUntypedPointersFeaturesKHR
         untyped_pointers_features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
@@ -2204,17 +2282,17 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 
         .shaderSubgroupExtendedTypes = enable_subgroup_extended_types ? VK_TRUE : VK_FALSE,
 
-          .timelineSemaphore =
-              required_device_features.supported ? VK_TRUE : VK_FALSE,
-          .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE,
-          // The SPIR-V codegen switches to the Vulkan memory model only for
-          // cooperative-vector shaders (target_feature::cooperative_vector), so
-          // enable the memory-model features only when the extension is fully
-          // usable. On devices missing any prerequisite, keep the pre-existing
-          // GLSL450 device-scope behavior instead of toggling the memory model.
-          .vulkanMemoryModel = cooperative_vector_enabled ? VK_TRUE : VK_FALSE,
-          .vulkanMemoryModelDeviceScope =
-              cooperative_vector_enabled ? VK_TRUE : VK_FALSE};
+        .timelineSemaphore =
+            required_device_features.supported ? VK_TRUE : VK_FALSE,
+        .bufferDeviceAddress = device_address_enabled ? VK_TRUE : VK_FALSE,
+        // The SPIR-V codegen switches to the Vulkan memory model only for
+        // cooperative-vector shaders (target_feature::cooperative_vector), so
+        // enable the memory-model features only when the extension is fully
+        // usable. On devices missing any prerequisite, keep the pre-existing
+        // GLSL450 device-scope behavior instead of toggling the memory model.
+        .vulkanMemoryModel = cooperative_vector_enabled ? VK_TRUE : VK_FALSE,
+        .vulkanMemoryModelDeviceScope =
+            cooperative_vector_enabled ? VK_TRUE : VK_FALSE};
     VK_CHECK_RESULT(_vk_device->create_logical_device(device_features, _enable_device_exts, &vk12_feature, surface_enabled));
     if (external_device != VK_NULL_HANDLE) {
         _vk_device->queue_family_indices.graphics =
@@ -3023,13 +3101,24 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
 
 ShaderCreationInfo Device::_create_shader_hlsl(
     const ShaderOption &option, Function kernel,
-    bool requires_sampler_anisotropy) noexcept {
+    bool requires_sampler_anisotropy,
+    bool fallback_rtx) noexcept {
 #ifdef LC_NO_HLSL_BUILTIN
+    if (fallback_rtx) {
+        LUISA_ERROR(
+            "This Vulkan shader traces rays through the software fallback "
+            "acceleration structure "
+            "(VulkanDeviceConfigExt::use_fallback_rtx()), which is emitted by "
+            "the compatibility HLSL-to-SPIR-V codegen, but this Vulkan backend "
+            "was built without the bundled HLSL compiler.");
+    }
     LUISA_ERROR(
         "This Vulkan shader requires the HLSL-to-SPIR-V fallback, but the "
         "backend was built without the bundled HLSL compiler.");
 #else
-    if (kernel.requires_raytracing() && !raytracing_enabled) {
+    // The fallback traversal is HLSL text, not a hardware ray query, so it
+    // does not need VK_KHR_ray_query; only the hardware path does.
+    if (kernel.requires_raytracing() && !raytracing_enabled && !fallback_rtx) {
         LUISA_ERROR(
             "Vulkan shader '{}' requires ray tracing, but ray-query support "
             "is not enabled on this device.",
@@ -3040,12 +3129,39 @@ ShaderCreationInfo Device::_create_shader_hlsl(
     if (option.enable_fast_math) { mask |= 1u; }
     if (option.enable_debug_info) { mask |= 2u; }
 
-    auto code = hlsl::CodegenUtility{}.Codegen(
-        kernel, option.native_include, mask, true, false,
-        option.enable_debug_info, option.enable_fast_math);
+    auto code = [&]() -> hlsl::CodegenResult {
+        hlsl::CodegenUtility util;
+        // The traversal and the argument layout of a fallback acceleration
+        // structure belong to the HLSL codegen, which is asked for them with
+        // the trailing flag below; a build whose codegen predates them refuses
+        // the shader instead of compiling a hardware traversal.
+        return detail::codegen_compat_compute(
+            util, kernel, option.native_include, mask,
+            option.enable_debug_info, option.enable_fast_math,
+            fallback_rtx);
+    }();
+    if (fallback_rtx &&
+        luisa::compute::detail::env_flag("LUISA_VK_DUMP_FALLBACK_HLSL")) {
+        LUISA_INFO("fallback HLSL:\n{}",
+                   luisa::string_view{code.result.view().data(),
+                                      code.result.view().size()});
+    }
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(
                              code.result.data() + code.immutableHeaderSize),
                          code.result.size() - code.immutableHeaderSize});
+    // The push-constant block of the HLSL route is the fixed dispatch block the
+    // codegen always declares, plus one 32-bit word per fallback `accel`
+    // argument (the tree's region base, written by the command encoder:
+    // stream.cpp). The property table carries one `ConstantValue` marker per
+    // word, so its marker count is what sizes the block.
+    auto push_constant_marker_count = static_cast<uint32_t>(std::count_if(
+        code.properties.begin(), code.properties.end(),
+        [](const hlsl::Property &property) noexcept {
+            return property.type == hlsl::ShaderVariableType::ConstantValue;
+        }));
+    auto push_constant_size = static_cast<uint32_t>(
+        sizeof(IndirectDispatchPushConstants) +
+        4u * (push_constant_marker_count > 0u ? push_constant_marker_count - 1u : 0u));
     auto requires_async_copy =
         kernel.propagated_builtin_callables().test(CallOp::ASYNC_COPY) ||
         kernel.propagated_builtin_callables().test(CallOp::PIPELINE_COMMIT) ||
@@ -3085,7 +3201,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             option.name,
             SerdeType::kByteCode,
             _binary_io,
-            32u,
+            push_constant_size,
             option.enable_driver_optimization);
         if (cache_result.shader) {
             delete static_cast<ComputeShader *>(cache_result.shader);
@@ -3102,7 +3218,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             option.enable_debug_info);
         if (comp_result.is_type_of<vstd::string>()) {
             LUISA_WARNING("DXC compile error for Vulkan shader '{}': {}",
-                           option.name, comp_result.get<1>());
+                          option.name, comp_result.get<1>());
             info.block_size = kernel.block_size();
             info.compile_ok = false;
             return info;
@@ -3162,7 +3278,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             validation_count,
             kernel.allowed_warp_size(),
             requires_sampler_anisotropy,
-            32u,
+            push_constant_size,
             detail::ShaderCodegenDialect::HLSL_SPIRV,
             option.enable_driver_optimization);
         LUISA_VERBOSE(
@@ -3189,13 +3305,23 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     auto builtin_calls = kernel.propagated_builtin_callables();
     auto requires_motion_blur =
         builtin_calls.uses_raytracing_motion_blur();
+    // The device traces in software *and* this kernel uses the ray-tracing call
+    // ops: a software traversal is HLSL text
+    // (src/backends/common/hlsl/builtin/fallback_rtx_header.bytes), so the
+    // shader has to take the compatibility HLSL route - the native
+    // XIR-to-SPIR-V route can only emit the hardware query/trace operations.
+    // Nothing here changes for a device whose fallback is off.
+    auto uses_raytracing_ops = builtin_calls.uses_raytracing();
+    auto requires_fallback_rtx_traversal =
+        use_fallback_rtx_bit && uses_raytracing_ops;
     detail::UserComputeCodegenRequirements codegen_requirements{
         .native_include = !option.native_include.empty(),
         .printing = kernel.requires_printing(),
         .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
                       builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
                       builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
-        .motion_blur = requires_motion_blur};
+        .motion_blur = requires_motion_blur,
+        .fallback_rtx = requires_fallback_rtx_traversal};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);
     auto native_requirement = detail::plan_required_native_xir_spirv(
@@ -3229,6 +3355,37 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         validate_sampler_anisotropy_requirement(
             kernel, option.native_include,
             sampler_anisotropy_enabled);
+    if (requires_fallback_rtx_traversal) {
+        // What the software traversal does not implement is refused here, with
+        // the reason and the way out, instead of being compiled into
+        // something that renders differently (see the design brief's
+        // "Out (must fail closed)" list).
+        if (builtin_calls.uses_ray_query()) {
+            LUISA_ERROR(
+                "Vulkan shader '{}' uses a ray query (RAY_TRACING_QUERY_*), "
+                "which the software ray-tracing fallback of this device does "
+                "not implement "
+                "(VulkanDeviceConfigExt::use_fallback_rtx()). Use "
+                "Accel::intersect()/Accel::intersect_any() on this device, or "
+                "run without the fallback.",
+                kernel.name());
+        }
+        if (builtin_calls.uses_raytracing_motion_blur()) {
+            LUISA_ERROR(
+                "Vulkan shader '{}' uses motion-blur ray tracing, which the "
+                "software ray-tracing fallback of this device does not "
+                "implement "
+                "(VulkanDeviceConfigExt::use_fallback_rtx()). Run without the "
+                "fallback.",
+                kernel.name());
+        }
+        LUISA_ASSERT(
+            builtin_calls.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+                builtin_calls.test(CallOp::RAY_TRACING_TRACE_ANY),
+            "Vulkan shader '{}' was routed to the software ray-tracing "
+            "fallback without a trace operation.",
+            kernel.name());
+    }
     if (requires_motion_blur && !motion_blur_enabled) {
         LUISA_ERROR("Vulkan device does not support VK_NV_ray_tracing_motion_blur; "
                     "motion-time compute tracing cannot be compiled.");
@@ -3240,7 +3397,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             "{}.",
             kernel.name(), fallback_reasons);
         return _create_shader_hlsl(
-            option, kernel, requires_sampler_anisotropy);
+            option, kernel, requires_sampler_anisotropy,
+            requires_fallback_rtx_traversal);
     }
     auto enabled_spirv_features = enabled_spirv_artifact_features();
     auto target_features =
@@ -3417,6 +3575,15 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 
 #elif defined(LUISA_AST_LLVM_TO_SPIRV)
     // === AST LLVM to SPIR-V codegen path ===
+    if (requires_fallback_rtx_traversal) {
+        LUISA_ERROR(
+            "Vulkan shader '{}' traces rays through the software fallback "
+            "acceleration structure "
+            "(VulkanDeviceConfigExt::use_fallback_rtx()), but this Vulkan "
+            "backend was built with the experimental AST-LLVM SPIR-V codegen "
+            "route, which has no software traversal.",
+            kernel.name());
+    }
     if (kernel.requires_raytracing() && !raytracing_enabled) {
         LUISA_ERROR(
             "Vulkan shader '{}' requires ray tracing, but ray-query support "
@@ -3496,7 +3663,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
 #else
     return _create_shader_hlsl(
-        option, kernel, requires_sampler_anisotropy);
+        option, kernel, requires_sampler_anisotropy,
+        requires_fallback_rtx_traversal);
 #endif
     info.block_size = kernel.block_size();
     return info;

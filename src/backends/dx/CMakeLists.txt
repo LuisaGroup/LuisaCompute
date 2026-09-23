@@ -51,8 +51,13 @@ if (WIN32)
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LUISA_COMPUTE_DX_SDK_DIR})
-    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML dcomp luisa-compute-hlsl-codegen luisa-compute-xir luisa::tile-xir)
+      target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+      target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML dcomp luisa-compute-hlsl-codegen luisa-compute-xir luisa::tile-xir)
+      # The software ray-tracing fallback (src/backends/common/rtx).  Guarded so
+      # that a configuration that does not build it still links.
+      if (TARGET luisa-fallback-rtx)
+          target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-fallback-rtx)
+      endif ()
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE

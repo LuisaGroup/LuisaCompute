@@ -583,11 +583,19 @@ luisa::vector<std::byte> encode_compute_shader_artifact(
          .use_buffer_bindless = info.use_buffer_bindless,
          .use_tex2d_bindless = info.use_tex2d_bindless,
          .use_tex3d_bindless = info.use_tex3d_bindless,
-         .has_constant_ubo_payload = !info.constant_ubo_data.empty()});
+         .has_constant_ubo_payload = !info.constant_ubo_data.empty(),
+         .fallback_rtx = true});
     LUISA_ASSERT(
         interface_plan,
-        "Vulkan compute shader serialization received an invalid runtime interface: {}.",
-        shader_interface_error_name(interface_plan.error));
+        "Vulkan compute shader serialization received an invalid runtime interface: {} ({} arguments, {} properties, resource {}, local {}).",
+        shader_interface_error_name(interface_plan.error),
+        info.arguments.size(), info.properties.size(),
+        interface_plan.resource_binding_count,
+        plan_persisted_descriptor_interface(
+            info.properties, DescriptorInterfaceStageMask::COMPUTE,
+            info.use_buffer_bindless, info.use_tex2d_bindless,
+            info.use_tex3d_bindless, !info.constant_ubo_data.empty(), true)
+            .local_binding_count);
     LUISA_ASSERT(
         (info.required_spirv_features & ~spirv::target_feature::known_mask) == 0u,
         "Vulkan compute shader serialization received unknown SPIR-V target-feature bits 0x{:016x}.",
@@ -687,7 +695,8 @@ luisa::vector<std::byte> encode_raster_shader_artifact(
          .validation_count = info.validation_count,
          .use_buffer_bindless = info.use_buffer_bindless,
          .use_tex2d_bindless = info.use_tex2d_bindless,
-         .use_tex3d_bindless = info.use_tex3d_bindless});
+         .use_tex3d_bindless = info.use_tex3d_bindless,
+         .fallback_rtx = true});
     LUISA_ASSERT(
         interface_plan,
         "Vulkan raster shader serialization received an invalid runtime interface: {}.",
@@ -886,7 +895,8 @@ ComputeShaderArtifactDecodeResult decode_compute_shader_artifact(
          .use_buffer_bindless = header.use_bindless_buffer != 0u,
          .use_tex2d_bindless = header.use_bindless_tex2d != 0u,
          .use_tex3d_bindless = header.use_bindless_tex3d != 0u,
-         .has_constant_ubo_payload = !artifact.constant_ubo_data.empty()});
+         .has_constant_ubo_payload = !artifact.constant_ubo_data.empty(),
+         .fallback_rtx = true});
     if (!interface_plan) {
         return fail(ShaderArtifactCodecError::INVALID_SHADER_INTERFACE);
     }
@@ -1009,7 +1019,8 @@ RasterShaderArtifactDecodeResult decode_raster_shader_artifact(
          .validation_count = header.validation_count,
          .use_buffer_bindless = header.use_bindless_buffer != 0u,
          .use_tex2d_bindless = header.use_bindless_tex2d != 0u,
-         .use_tex3d_bindless = header.use_bindless_tex3d != 0u});
+         .use_tex3d_bindless = header.use_bindless_tex3d != 0u,
+         .fallback_rtx = true});
     if (!interface_plan) {
         return fail(ShaderArtifactCodecError::INVALID_SHADER_INTERFACE);
     }

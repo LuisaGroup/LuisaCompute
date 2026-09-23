@@ -95,16 +95,45 @@ public:
     vstd::vector<BottomAccelData> *bottom_accel_datas{};
     vstd::fixed_vector<std::pair<size_t, size_t>, 4> *accel_offset{};
     size_t build_accel_size = 0;
+    // Software ray tracing: the queue this pass belongs to (it tells the fallback
+    // handles apart from the native ones) and the builds the sizing pass already
+    // recorded, visited one build per build command, in submission order.
+    LCDevice *lc_device{nullptr};
+    luisa::vector<luisa::vector<luisa::unique_ptr<Command>>> *fallback_builds{};
+    size_t fallback_build_cursor{0};
+    // When set, the pass only records resource states: the uniform arguments of
+    // a command were already appended to `arg_buffer` by the preprocessing pass,
+    // and the encoding pass re-records the same command to get a barrier emitted
+    // *between* the commands of one fallback build (see LCCmdVisitor).
+    bool state_only{false};
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) const noexcept {
+        return lc_device != nullptr && lc_device->owns_fallback_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) const noexcept {
+        return lc_device != nullptr && lc_device->owns_fallback_accel(handle);
+    }
+    // Visit the commands of the next fallback build (one call per fallback build
+    // command, in submission order).
+    void preprocess_fallback_build() {
+        LUISA_ASSERT(fallback_builds != nullptr &&
+                         fallback_build_cursor < fallback_builds->size(),
+                     "A fallback build command has no recorded command list.");
+        for (auto &&c : (*fallback_builds)[fallback_build_cursor++]) {
+            c->accept(*this);
+        }
+    }
     void add_build_accel(size_t size) {
         size = CalcAlign(size, 256);
         accel_offset->emplace_back(build_accel_size, size);
         build_accel_size += size;
     }
     void uniform_align(size_t align) const {
+        if (state_only) { return; }
         luisa::vector_resize(*arg_buffer, CalcAlign(arg_buffer->size(), align));
     }
     template<typename T>
     void emplace_data(T const &data, size_t alignment) {
+        if (state_only) { return; }
         size_t sz = arg_buffer->size();
         alignment -= 1;
         auto aligned_size = (sz + alignment) & (~alignment);
@@ -115,6 +144,7 @@ public:
     }
     template<typename T>
     void emplace_data(T const *data, size_t size, size_t alignment) {
+        if (state_only) { return; }
         alignment -= 1;
         size_t sz = arg_buffer->size();
         auto aligned_size = (sz + alignment) & (~alignment);
@@ -232,6 +262,41 @@ public:
             ++arg;
         }
         void operator()(Argument::Accel const &bf) {
+            if (self->owns_fallback_accel(bf.handle)) {
+                // Software ray tracing: the argument's two views are the shared
+                // acceleration buffer (bound from its first uint4, so the whole
+                // buffer is live) and the tree's slice of the instance buffer.
+                // Both change whenever the storage grows, so they are resolved
+                // here, from `binding()`, and never cached.
+                auto fallback = self->lc_device->fallback_rtx();
+                auto binding = fallback->binding(bf.handle);
+                if (!binding.valid()) [[unlikely]] {
+                    LUISA_ERROR("A fallback ray-tracing shader was dispatched with an "
+                                "acceleration structure that has not been built yet "
+                                "(build it with Accel::build() first).");
+                }
+                auto accel_buffer = reinterpret_cast<Buffer const *>(binding.accel_buffer);
+                auto inst_buffer = reinterpret_cast<Buffer const *>(binding.instance_buffer);
+                self->state_tracker->Record(
+                    BufferView{accel_buffer, 0u,
+                               static_cast<uint64>(accel_buffer->GetByteSize())},
+                    accel_read_usage);
+                if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
+                    self->state_tracker->Record(
+                        BufferView{inst_buffer, binding.instance_offset_bytes,
+                                   static_cast<uint64>(inst_buffer->GetByteSize()) -
+                                       binding.instance_offset_bytes},
+                        uav_usage);
+                } else {
+                    self->state_tracker->Record(
+                        BufferView{inst_buffer, binding.instance_offset_bytes,
+                                   static_cast<uint64>(inst_buffer->GetByteSize()) -
+                                       binding.instance_offset_bytes},
+                        read_usage);
+                }
+                ++arg;
+                return;
+            }
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if (accel->GetInstBuffer()) [[likely]] {
                 if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
@@ -377,7 +442,14 @@ public:
         decode_cmd(cs->arg_bindings(), visitor);
         decode_cmd(cmd->arguments(), visitor);
         size_t afterSize = arg_buffer->size();
-        arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+        if (!state_only) {
+            // In `state_only` mode this command is being re-visited by the encoding
+            // pass of the *same* queue (see LCCmdVisitor::splice_fallback_build), and
+            // its uniform argument block - and therefore its argument-table entry -
+            // was already produced by the preprocessing pass; appending a second one
+            // would desynchronize the entry the encoding pass is about to consume.
+            arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+        }
         if (cmd->is_indirect()) {
             auto buffer = reinterpret_cast<Buffer *>(cmd->indirect_dispatch().handle);
             state_tracker->Record(
@@ -385,6 +457,13 @@ public:
         }
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
+        if (owns_fallback_accel(cmd->handle())) {
+            // Software ray tracing: the build was already recorded by the sizing
+            // pass (`FallbackRtxDevice::build_accel`); its commands take the place
+            // of the native build here.
+            preprocess_fallback_build();
+            return;
+        }
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         if (!cmd->update_instance_buffer_only()) {
             add_build_accel(
@@ -403,6 +482,10 @@ public:
         }
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
+        if (owns_fallback_blas(cmd->handle())) {
+            preprocess_fallback_build();
+            return;
+        }
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         BottomAccel::MeshOptions meshOptions{
             .vHandle = reinterpret_cast<Buffer const *>(cmd->vertex_buffer()),
@@ -475,7 +558,9 @@ public:
         auto dsv = cmd->dsv_tex();
         decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
         size_t afterSize = arg_buffer->size();
-        arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+        if (!state_only) {
+            arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+        }
 
         for (auto &&mesh : cmd->scene()) {
             for (auto &&v : mesh.vertex_buffers()) {
@@ -534,6 +619,13 @@ struct PendingCopy {
 class LCCmdVisitor : public CommandVisitor {
 public:
     Device *device{};
+    LCDevice *lc_device{nullptr};
+    // The preprocessing pass of the same queue, reused - in its `state_only` mode
+    // - to record the resource states of one fallback build command right before
+    // it is encoded (see `splice_fallback_build`).
+    LCPreProcessVisitor *pp_visitor{nullptr};
+    luisa::vector<luisa::vector<luisa::unique_ptr<Command>>> *fallback_builds{};
+    size_t fallback_build_cursor{0};
     luisa::function<void(luisa::string_view)> *logger{};
     CommandBufferBuilder *bd{};
     EnhancedBarrierTracker *state_tracker{};
@@ -571,6 +663,39 @@ public:
     void flush_all_pending() {
         flush_pending_upload();
         flush_pending_download();
+    }
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) const noexcept {
+        return lc_device != nullptr && lc_device->owns_fallback_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) const noexcept {
+        return lc_device != nullptr && lc_device->owns_fallback_accel(handle);
+    }
+    // Encode the next fallback build, in the place of the native build command.
+    //
+    // The commands were recorded by `FallbackRtxDevice::build_blas` /
+    // `build_accel` and their uniforms were already accumulated by the
+    // preprocessing pass, in this exact order; what is left here is to encode
+    // them and to put a barrier *between* two of them.  The layer the build
+    // command sits in was only proven hazard-free for the layer as a whole, and a
+    // fallback build is a chain of dispatches over one set of scratch buffers (the
+    // radix sort alone ping-pongs four passes through two key buffers), so the
+    // states of each command are recorded again here and flushed with an explicit
+    // `UpdateState()` before that command is encoded.
+    void splice_fallback_build() {
+        LUISA_ASSERT(pp_visitor != nullptr && fallback_builds != nullptr &&
+                         fallback_build_cursor < fallback_builds->size(),
+                     "A fallback build command has no preprocessing pass.");
+        auto &&cmds = (*fallback_builds)[fallback_build_cursor++];
+        flush_all_pending();
+        GraphicsCmdlistBarrierCallback barrier_callback(*bd);
+        for (auto &&c : cmds) {
+            pp_visitor->state_only = true;
+            c->accept(*pp_visitor);
+            pp_visitor->state_only = false;
+            state_tracker->UpdateState(&barrier_callback);
+            c->accept(*this);
+        }
+        flush_all_pending();
     }
 
     void visit(const BufferUploadCommand *cmd) noexcept override {
@@ -688,6 +813,39 @@ public:
             ++arg;
         }
         void operator()(Argument::Accel const &bf) {
+            if (self->owns_fallback_accel(bf.handle)) {
+                // Software ray tracing: the two views of the argument plus the
+                // tree's region base, in the order the code generator declared
+                // them (CodegenProperties):
+                //
+                //   accel          - the acceleration buffer, bound from its
+                //                    first uint4 (the shader addresses the trees
+                //                    with absolute uint4 handles)
+                //   <argname>Inst  - the tree's slice of the instance buffer
+                //   <argname>Base  - the region's absolute uint4 offset
+                //
+                // They are resolved here, on every dispatch, because the
+                // fallback storage grows by reallocating: the buffer handles and
+                // the region offsets both change under a cached descriptor.
+                auto binding = self->lc_device->fallback_rtx()->binding(bf.handle);
+                if (!binding.valid()) [[unlikely]] {
+                    LUISA_ERROR("A fallback ray-tracing shader was dispatched with an "
+                                "acceleration structure that has not been built yet "
+                                "(build it with Accel::build() first).");
+                }
+                auto accel_buffer = reinterpret_cast<Buffer const *>(binding.accel_buffer);
+                auto inst_buffer = reinterpret_cast<Buffer const *>(binding.instance_buffer);
+                if ((static_cast<uint>(arg->var_usage) & static_cast<uint>(Usage::WRITE)) == 0) {
+                    self->bind_props->emplace_back(BufferView(accel_buffer, 0u));
+                }
+                self->bind_props->emplace_back(
+                    BufferView(inst_buffer, binding.instance_offset_bytes));
+                self->bind_props->emplace_back(std::pair<uint, uint4>{
+                    1u,
+                    make_uint4(static_cast<uint>(binding.accel_offset_bytes / 16u), 0u, 0u, 0u)});
+                ++arg;
+                return;
+            }
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if ((static_cast<uint>(arg->var_usage) & static_cast<uint>(Usage::WRITE)) == 0) {
                 self->bind_props->emplace_back(
@@ -994,6 +1152,10 @@ public:
             true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
+        if (owns_fallback_accel(cmd->handle())) {
+            splice_fallback_build();
+            return;
+        }
         flush_all_pending();
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Accel build");
@@ -1039,6 +1201,10 @@ public:
         LUISA_NOT_IMPLEMENTED();
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
+        if (owns_fallback_blas(cmd->handle())) {
+            splice_fallback_build();
+            return;
+        }
 #ifdef LCDX_ENABLE_WINPIX
         PIXBeginEvent(bd->get_cb()->cmd_list(), get_pix_color(), "Mesh build");
         auto dispose_pix = vstd::scope_exit([&]() {
@@ -1261,6 +1427,12 @@ void LCCmdBuffer::Execute(
     {
         std::unique_lock lck{mtx};
         LCPreProcessVisitor pp_visitor;
+        // Software ray tracing: the fallback builds collected by the sizing pass
+        // below, replayed here at the position of their build command.
+        fallback_builds.clear();
+        pp_visitor.lc_device = lc_device;
+        pp_visitor.fallback_builds = &fallback_builds;
+        pp_visitor.fallback_build_cursor = 0u;
         pp_visitor.arg_vecs = &argVecs;
         pp_visitor.arg_buffer = &argBuffer;
         pp_visitor.bottom_accel_datas = &bottomAccelDatas;
@@ -1280,6 +1452,10 @@ void LCCmdBuffer::Execute(
         visitor.update_accel = &updateAccel;
         visitor.vbv = &vbv;
         visitor.device = device;
+        visitor.lc_device = lc_device;
+        visitor.pp_visitor = &pp_visitor;
+        visitor.fallback_builds = &fallback_builds;
+        visitor.fallback_build_cursor = 0u;
         visitor.after_custom_cmd = [](Device *device, CommandBufferBuilder *bd) {
             ID3D12DescriptorHeap *h[2] = {
                 device->global_heap->GetHeap(),
@@ -1319,6 +1495,57 @@ void LCCmdBuffer::Execute(
             auto bf = c.uniform(a.uniform);
             uniform_size += std::max<size_t>(4, bf.size_bytes());
         };
+        auto account_size = [&](ShaderDispatchCommandBase const *c) {
+            auto cs = reinterpret_cast<ComputeShader const *>(c->handle());
+            uniform_size = CalcAlign(uniform_size, 32);
+            for (auto &&i : cs->arg_bindings()) {
+                add_size(*c, i);
+            }
+            for (auto &&i : c->arguments()) {
+                add_size(*c, i);
+            }
+            // Account for validation data (_validate_* fields) in cbuffer
+            if (cs->validation_count() > 0) {
+                uniform_size += cs->validation_count() * sizeof(uint);
+            }
+        };
+        // Software ray tracing: a fallback build is recorded here - exactly once,
+        // because the build mutates the fallback storage planner - and its
+        // commands are replayed by the two passes below, where their build command
+        // sits.  Their uniform arguments are accounted for in the same order and
+        // with the same alignment the preprocessing pass accumulates them with, so
+        // the argument buffer the dispatch is bound to stays exactly the size the
+        // sizes here promise.
+        auto collect_fallback_build = [&](CommandList &&list) {
+            LUISA_ASSERT(list.callbacks().empty() && list.presents().empty(),
+                         "A fallback build must only contain commands (no callbacks "
+                         "or presents), got {} callbacks and {} presents.",
+                         list.callbacks().size(), list.presents().size());
+            auto cmds = list.steal_commands();
+            for (auto &&c : cmds) {
+                if (c->tag() == Command::Tag::EShaderDispatchCommand) {
+                    account_size(static_cast<ShaderDispatchCommand const *>(c.get()));
+                }
+            }
+            fallback_builds.emplace_back(std::move(cmds));
+        };
+        auto build_fallback_blas = [&](MeshBuildCommand const *c) {
+            return lc_device->fallback_rtx()->build_blas(
+                c->handle(),
+                lc::fallback_rtx::FallbackRtxDevice::MeshGeometry{
+                    .vertex_buffer = c->vertex_buffer(),
+                    .vertex_buffer_offset = c->vertex_buffer_offset(),
+                    .vertex_stride = c->vertex_stride(),
+                    .vertex_buffer_size = c->vertex_buffer_size(),
+                    .triangle_buffer = c->triangle_buffer(),
+                    .triangle_buffer_offset = c->triangle_buffer_offset(),
+                    .triangle_buffer_size = c->triangle_buffer_size()});
+        };
+        auto build_fallback_accel = [&](AccelBuildCommand const *c) {
+            return lc_device->fallback_rtx()->build_accel(
+                c->handle(), c->instance_count(), c->modifications(),
+                c->update_instance_buffer_only());
+        };
         for (auto &&command : commands) {
             // if (command->tag() == Command::Tag::EBindlessArrayUpdateCommand) {
             //     auto cmd = static_cast<BindlessArrayUpdateCommand const *>(command.get());
@@ -1327,18 +1554,18 @@ void LCCmdBuffer::Execute(
             command->accept(reorder);
             switch (command->tag()) {
                 case Command::Tag::EShaderDispatchCommand: {
-                    auto c = static_cast<ShaderDispatchCommand const *>(command.get());
-                    auto cs = reinterpret_cast<ComputeShader *>(c->handle());
-                    uniform_size = CalcAlign(uniform_size, 32);
-                    for (auto &&i : cs->arg_bindings()) {
-                        add_size(*c, i);
+                    account_size(static_cast<ShaderDispatchCommand const *>(command.get()));
+                } break;
+                case Command::Tag::EMeshBuildCommand: {
+                    auto c = static_cast<MeshBuildCommand const *>(command.get());
+                    if (pp_visitor.owns_fallback_blas(c->handle())) {
+                        collect_fallback_build(build_fallback_blas(c));
                     }
-                    for (auto &&i : c->arguments()) {
-                        add_size(*c, i);
-                    }
-                    // Account for validation data (_validate_* fields) in cbuffer
-                    if (cs->validation_count() > 0) {
-                        uniform_size += cs->validation_count() * sizeof(uint);
+                } break;
+                case Command::Tag::EAccelBuildCommand: {
+                    auto c = static_cast<AccelBuildCommand const *>(command.get());
+                    if (pp_visitor.owns_fallback_accel(c->handle())) {
+                        collect_fallback_build(build_fallback_accel(c));
                     }
                 } break;
                 case Command::Tag::ECustomCommand: {
@@ -1364,15 +1591,15 @@ void LCCmdBuffer::Execute(
             visitor.arg_buffer = {};
         }
         auto cmdLists = reorder.command_lists();
-    // Layer accounting decides how many barrier boundaries the batch is recorded
-    // with, so make it visible when debugging reorder behaviour.
-    size_t used_layers = 0u;
-    for (auto *head : cmdLists) {
-        if (head != nullptr) used_layers++;
-    }
-    LUISA_VERBOSE("DirectX command reorder: {} commands -> {} layers (reorder {}).",
-                  commands.size(), used_layers,
-                  reorder.enabled() ? "on" : "off");
+        // Layer accounting decides how many barrier boundaries the batch is recorded
+        // with, so make it visible when debugging reorder behaviour.
+        size_t used_layers = 0u;
+        for (auto *head : cmdLists) {
+            if (head != nullptr) used_layers++;
+        }
+        LUISA_VERBOSE("DirectX command reorder: {} commands -> {} layers (reorder {}).",
+                      commands.size(), used_layers,
+                      reorder.enabled() ? "on" : "off");
         ID3D12DescriptorHeap *h[2] = {
             device->global_heap->GetHeap(),
             device->sampler_heap->GetHeap()};

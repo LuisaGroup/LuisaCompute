@@ -5,6 +5,7 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
+#include "../common/rtx/fallback_rtx.h"
 #include "cuda_error.h"
 #include "cuda_texture.h"
 #include "cuda_stream.h"
@@ -142,6 +143,15 @@ private:
     uint64_t _sparse_granularity{};
     mutable spin_mutex _event_manager_mutex;
     mutable luisa::unique_ptr<CUDAEventManager> _event_manager;
+    // Software ray-tracing fallback.  `_use_fallback_rtx` is decided once, in the
+    // constructor (see `DeviceConfigExt::use_fallback_rtx()` and
+    // `optix::available()`); `_fallback_rtx` is created lazily on the first
+    // acceleration-structure request, so a device that does not use the fallback
+    // never allocates anything for it.  When `_use_fallback_rtx` is false the
+    // whole path is inert and OptiX is used exactly as before.
+    bool _use_fallback_rtx{false};
+    mutable spin_mutex _fallback_rtx_mutex;
+    mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
 
 private:
     // extensions
@@ -198,6 +208,22 @@ public:
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
+    // Whether this device answers ray tracing with the software fallback (and
+    // therefore never initialises OptiX).
+    [[nodiscard]] bool use_fallback_rtx() const noexcept { return _use_fallback_rtx; }
+    // The fallback device, or `nullptr` when the hardware path is in use.  It is
+    // created on the first call; the object lives as long as the device does.
+    [[nodiscard]] lc::fallback_rtx::FallbackRtxDevice *fallback_rtx() noexcept;
+    // Whether `handle` belongs to the fallback, i.e. whether an acceleration
+    // structure has to be routed into it instead of into the OptiX path.
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_accel(handle);
+    }
     [[nodiscard]] auto io() const noexcept { return _io; }
     [[nodiscard]] CUDAEventManager *event_manager() const noexcept;
 

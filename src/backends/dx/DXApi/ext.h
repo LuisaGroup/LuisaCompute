@@ -146,9 +146,15 @@ public:
 class Device;
 class DxRasterExt final : public RasterExt, public vstd::IOperatorNewBase {
     Device &_native_device;
+    // Whether the owning device answers ray tracing with the software fallback
+    // (see DirectXDeviceConfigExt::use_fallback_rtx()): a raster shader that
+    // traces has to be generated for the fallback ABI as well, even though the
+    // raster path itself is untouched.
+    bool _fallback_rtx{false};
 
 public:
-    DxRasterExt(Device &native_device) noexcept : _native_device{native_device} {}
+    DxRasterExt(Device &native_device, bool fallback_rtx) noexcept
+        : _native_device{native_device}, _fallback_rtx{fallback_rtx} {}
     ResourceCreationInfo create_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,

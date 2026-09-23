@@ -381,6 +381,28 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
     : DeviceInterface{std::move(ctx)},
       _handle{device_id}, _io{io},
       _device_config_ext{std::move(device_config_ext)} {
+    // decide once whether ray tracing is answered by the software fallback:
+    // the user may force it through the DeviceConfigExt, and a machine whose
+    // OptiX runtime cannot be loaded has no hardware path at all.
+    _use_fallback_rtx = [this] {
+        if (_device_config_ext != nullptr) {
+            if (static_cast<CUDADeviceConfigExt *>(_device_config_ext.get())
+                    ->use_fallback_rtx()) {
+                return true;
+            }
+        }
+        // `LUISA_CUDA_FALLBACK_RTX=1` forces the fallback for testing (the
+        // examples cannot hand a DeviceConfigExt to create_device()); the
+        // supported surface stays `DeviceConfigExt::use_fallback_rtx()`.
+        if (auto env = std::getenv("LUISA_CUDA_FALLBACK_RTX")) {
+            return std::string_view{env} == "1";
+        }
+        return !optix::available();
+    }();
+    if (_use_fallback_rtx) {
+        LUISA_INFO("CUDA ray tracing uses the software fallback "
+                   "(OptiX is not initialised).");
+    }
     // provide a default binary IO
     if (_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context(), false, use_lmdb);
@@ -494,6 +516,13 @@ CUDADevice::~CUDADevice() noexcept {
         if (_builtin_kernel_module)
             LUISA_CHECK_CUDA(cuModuleUnload(_builtin_kernel_module));
     });
+}
+
+lc::fallback_rtx::FallbackRtxDevice *CUDADevice::fallback_rtx() noexcept {
+    if (!_use_fallback_rtx) { return nullptr; }
+    std::scoped_lock lock{_fallback_rtx_mutex};
+    if (_fallback_rtx == nullptr) { _fallback_rtx = luisa::make_unique<lc::fallback_rtx::FallbackRtxDevice>(this); }
+    return _fallback_rtx.get();
 }
 
 CUDAEventManager *CUDADevice::event_manager() const noexcept {
@@ -922,10 +951,31 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // codegen
     StringScratch scratch;
     luisa::function<luisa::string()> generate_ptx;
+    // In fallback mode a ray-tracing kernel is an ordinary compute kernel whose
+    // traversal lives in `cuda_device_fallback_rtx.h`, so the source is compiled
+    // with `kernel_main` and the fallback traversal instead of with OptiX.  The
+    // fallback text is appended only here, which is what keeps the source (and
+    // the hash, and the cached PTX) of every hardware-path shader unchanged.
+    // In fallback mode the traversal text is appended to the built-in device
+    // library; the hardware path keeps using the library string as-is, without
+    // copying it.
+    luisa::string fallback_device_lib;
+    auto device_lib = [this, &fallback_device_lib]() noexcept -> luisa::string_view {
+        if (!_use_fallback_rtx) { return _compiler->device_library(); }
+        fallback_device_lib.append(_compiler->device_library());
+        fallback_device_lib.append(_compiler->fallback_rtx_device_library());
+        return fallback_device_lib;
+    }();
     auto print_formats = [&] {
 #ifdef LUISA_ENABLE_XIR
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
         if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN) {
+            if (_use_fallback_rtx && kernel.requires_raytracing()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "The experimental LLVM code generator has no software "
+                    "ray-tracing fallback.  Disable LUISA_EXPERIMENTAL_LLVM_CODEGEN "
+                    "or the CUDA fallback (DeviceConfigExt::use_fallback_rtx()).");
+            }
             generate_ptx = [this, &kernel, &option] {
                 auto xir_module =
                     luisa_cuda_backend_translate_ast_to_xir(
@@ -951,10 +1001,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN || kernel.requires_autodiff()) {
             auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             Clock clk;
-            CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty()};
+            CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
             StringScratch s;
             codegen.emit(xir_module.get(), kernel.bound_arguments(),
-                         compiler()->device_library(), option.native_include);
+                         device_lib, option.native_include);
             LUISA_INFO("CUDA Codegen XIR generated source in {} ms.", clk.toc());
             // dump for debugging
             {
@@ -966,8 +1016,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         }
 #endif
         Clock clk;
-        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
-        codegen.emit(kernel, _compiler->device_library(), option.native_include);
+        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
+        codegen.emit(kernel, device_lib, option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
         return std::move(codegen).move_print_formats();
     }();
@@ -1022,10 +1072,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
-    // We can safely turn on the minimal mode if using optix
+    // We can safely turn on the minimal mode if using optix; the fallback is
+    // plain CUDA, so it must not get this option.
     if (_compiler->nvrtc_version() >= 120400 &&
         _handle.driver_version() >= 12040 &&
-        kernel.requires_raytracing()) {
+        kernel.requires_raytracing() && !_use_fallback_rtx) {
         nvrtc_options.emplace_back("-minimal");
     }
 
@@ -1076,7 +1127,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     CUDAShaderMetadata metadata{
         .checksum = src_hash,
         .curve_bases = kernel.required_curve_bases(),
-        .kind = kernel.requires_raytracing() ?
+        // A raytracing kernel compiled in fallback mode is an ordinary compute
+        // kernel: it is launched as `kernel_main` with the same argument buffer
+        // and must not be handed to OptiX (CUDAShaderOptiX).
+        .kind = kernel.requires_raytracing() && !_use_fallback_rtx ?
                     CUDAShaderMetadata::Kind::RAY_TRACING :
                     CUDAShaderMetadata::Kind::COMPUTE,
         .enable_debug = option.enable_debug_info,
@@ -1238,6 +1292,13 @@ void CUDADevice::synchronize_event(uint64_t handle, uint64_t value) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        // The fallback hands out the handle of its own bottom-level structure;
+        // the backend adds nothing, so `destroy_mesh` / the instance
+        // modifications carry the same value straight back to it.
+        auto blas = fallback_rtx()->create_blas(option);
+        return {.handle = blas, .native_handle = nullptr};
+    }
     auto mesh_handle = with_handle([&option] {
         return new_with_allocator<CUDAMesh>(option);
     });
@@ -1246,13 +1307,21 @@ ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
-    with_handle([=] {
-        auto mesh = reinterpret_cast<CUDAMesh *>(handle);
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_blas(handle);
+        return;
+    }
+    with_handle([mesh = reinterpret_cast<CUDAMesh *>(handle)] {
         delete_with_allocator(mesh);
     });
 }
 
 ResourceCreationInfo CUDADevice::create_curve(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Curves are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto curve_handle = with_handle([&option] {
         return new_with_allocator<CUDACurve>(option);
     });
@@ -1268,6 +1337,11 @@ void CUDADevice::destroy_curve(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Procedural primitives are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto primitive_handle = with_handle([&option] {
         return new_with_allocator<CUDAProceduralPrimitive>(option);
     });
@@ -1283,6 +1357,11 @@ void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_motion_instance(const AccelMotionOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Motion instances are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto instance_handle = with_handle([this, &option] {
         return new_with_allocator<CUDAMotionInstance>(this, option);
     });
@@ -1298,6 +1377,10 @@ void CUDADevice::destroy_motion_instance(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        auto accel = fallback_rtx()->create_accel(option);
+        return {.handle = accel, .native_handle = nullptr};
+    }
     auto accel_handle = with_handle([&option] {
         return new_with_allocator<CUDAAccel>(option);
     });
@@ -1306,6 +1389,10 @@ ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcep
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_accel(handle);
+        return;
+    }
     with_handle([accel = reinterpret_cast<CUDAAccel *>(handle)] {
         delete_with_allocator(accel);
     });
