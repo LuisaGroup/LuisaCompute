@@ -106,9 +106,16 @@ option("lc_llvm_path", {default = false})
 -- LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE in the CMake build). Builds and links
 -- the bundled apache/tvm submodule at src/ext/tvm (tvm_ffi, tvm_runtime and
 -- tvm_compiler are compiled from source by src/ext/xmake.lua).
-option("lc_tile_tirx_bridge", {default = false,
-    description = "Enable the native C++ TileIR to TVM TIRx bridge using the bundled src/ext/tvm submodule.",
-    showmenu = true})
+    option("lc_tile_tirx_bridge", {default = false,
+        description = "Enable the native C++ TileIR to TVM TIRx bridge using the bundled src/ext/tvm submodule.",
+        showmenu = true})
+    -- Build the bundled TVM stack (tvm_ffi / tvm_runtime / tvm_compiler) without
+    -- the TileIR bridge. Useful on its own: the CUDA-C codegen registration, the
+    -- TVM source lists and the LLVM codegen can be built and probed while the
+    -- bridge is being ported to a newer TIRx API.
+    option("lc_tvm_stack", {default = false,
+        description = "Build the bundled TVM stack from src/ext/tvm without the TileIR TIRx bridge.",
+        showmenu = true})
 -- build the bundled TVM compiler with LLVM codegen (registers the
 -- target.build.llvm pipeline used by the TIRx CPU/execution tests). Requires
 -- LLVM >= 15, resolved from lc_llvm_path or the xmake-repo llvm package.

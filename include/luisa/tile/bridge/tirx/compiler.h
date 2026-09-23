@@ -43,6 +43,13 @@ enum class CpuMathBackend : uint8_t {
     ACCELERATE
 };
 
+// Whether this build can realize CpuMathBackend::ACCELERATE. The Apple
+// Accelerate framework is only linked by the macOS build, so a portable
+// consumer (and its tests) must query this capability before requesting the
+// backend: an unavailable provider always fails closed with an
+// "array-math" rejection rather than silently falling back to REFERENCE.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API bool supports_accelerate_math() noexcept;
+
 struct CompileOptions {
     // A target kind or native TVMx JSON target configuration. For standalone
     // CPU programs this selects the ISA of both compute and its packed entry.

@@ -55,6 +55,32 @@ on_config(function(target)
                   "Run `git submodule update --init src/ext/tvm` (with " ..
                   "`3rdparty/tvm-ffi` and its `3rdparty/dlpack`).")
         end
+        -- The bridge targets the TIRx API of TVM 46bc8c6a (the pin documented in
+        -- docs/source/internals/tile/cuda-workflow-b.md). Later upstream TIRx
+        -- refactors removed that API outright (#20370 StmtMutator/StmtVisitor,
+        -- #20381 arith -> sym, #20402 tirx/buffer.h merged into tirx/expr.h,
+        -- #20244 masked access split into special calls) and moved the node
+        -- model (PrimVar, TensorLoad, s_tir SBlock). Detect the break instead of
+        -- emitting hundreds of template errors: fail closed with the migration
+        -- checklist. `--lc_tvm_stack=true` still builds the bundled TVM stack.
+        local tvm_root = path.join(get_config("lc_ext_path"), "tvm")
+        local legacy_buffer = path.join(tvm_root, "include", "tvm", "tirx", "buffer.h")
+        local stmt_functor = path.join(tvm_root, "include", "tvm", "tirx", "stmt_functor.h")
+        local content = os.exists(stmt_functor) and io.readfile(stmt_functor) or ""
+        local has_legacy_api = os.exists(legacy_buffer) and content:find("class TVM_DLL StmtMutator", 1, true) ~= nil
+        if not has_legacy_api then
+            raise("lc_tile_tirx_bridge requires the legacy TIRx API (tvm/tirx/buffer.h + " ..
+                  "tvm::tirx::StmtMutator/StmtVisitor/StmtExprVisitor VisitStmt_/VisitExpr_ hooks), " ..
+                  "which the bundled src/ext/tvm no longer provides.\n" ..
+                  "The bridge needs a TIRx migration before it can build against this TVM: " ..
+                  "tirx::PrimVar -> tvm::PrimVar, arith -> sym, tirx::BufferLoad/ProducerLoad -> " ..
+                  "tvm::TensorLoad (with predicate masks moved to the tirx masked_load/masked_store " ..
+                  "special calls), tirx::SBlock -> s_tir::SBlock, and the StmtFunctor Dispatch_ / " ..
+                  "UnchangedOr + InplaceMode mutator contract.\n" ..
+                  "Options: (a) build the TVM stack alone with `--lc_tile_tirx_bridge=false " ..
+                  "--lc_tvm_stack=true`, (b) pin src/ext/tvm to the documented API-compatible " ..
+                  "commit (46bc8c6a / c7b458e9), or (c) migrate src/tile/bridge/tirx to the current API.")
+        end
     end
 end)
 target_end()

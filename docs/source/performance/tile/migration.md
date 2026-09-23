@@ -338,6 +338,41 @@ passes, but its three artifact-generation cases do not. The failure is retained,
 not skipped or counted as CUDA validation. No NVIDIA execution was attempted.
 This integration check is separate from all matrix timings above.
 
+Native CUDA-codegen registration
+
+The two missing registrations are now supplied by the C++ build itself.
+`src/ext/tvm_ext/cuda_header_generator.cc` (owned by this repository, compiled
+into `tvm_compiler` by `src/ext/xmake.lua`, so a submodule update cannot drop
+it) registers `tirx.intrinsics.cuda.header_generator` (a mechanical port of
+`python/tvm/backend/cuda/codegen/header.py`; the port is checked payload-for-
+payload and condition-for-condition against the Python source by
+`scripts/verify_cuda_header_port.py`, and regenerated with
+`scripts/port_cuda_header_generator.py`) and `tirx.intrinsics.cuda.get_codegen` (an
+empty registry, so ops that exist only as Python codegen registrations stay
+unsupported and fail closed instead of aborting). A pure C++ embedding of TVM
+now reaches `CodeGenCUDA::Finish()` without importing Python. The three
+artifact-generation cases above can therefore run as soon as the TileIR TIRx
+bridge itself builds against the bundled TVM.
+
+TIRx API break in the bundled TVM
+
+The bundled `src/ext/tvm` is at upstream `main` (e269315c, 2026-09-22) with all
+of its submodules at their latest remote commits. Upstream TIRx refactors removed
+the API `src/tile/bridge/tirx` is written against: #20370 replaced
+`StmtMutator`/`StmtVisitor`/`VisitStmt_`/`VisitExpr_` with the
+`StmtFunctor` `Dispatch_`/`Visit_`/`Mutate_` plus `UnchangedOr`/`InplaceMode`
+contract, #20381 renamed `tvm/arith` to `tvm/sym`, #20402 merged
+`tvm/tirx/buffer.h` into `tvm/tirx/expr.h`, #20244 replaced node-level predicate
+masks with the `tirx` `masked_load`/`masked_store` special calls, and the node
+model moved (`tvm::PrimVar`, `tvm::TensorLoad`, `s_tir::SBlock`). The bridge is
+consequently disabled against this TVM: `lc_tile_tirx_bridge` fails closed at
+configure time with the migration checklist, while `--lc_tvm_stack=true` builds
+the bundled TVM stack (`tvm_ffi`/`tvm_runtime`/`tvm_compiler`) on its own so the
+codegen registrations and source lists above stay buildable and testable.
+Pinning `src/ext/tvm` to the documented API-compatible commit (46bc8c6a, or
+c7b458e9 per `docs/source/internals/tile/cuda-workflow-b.md`) remains the
+supported way to run the TIRx bridge until that migration lands.
+
 ## Pure-entry follow-up: generic map fusion
 
 The follow-up improves **aligned CPU cumsum/cummax by approximately 18–21×**

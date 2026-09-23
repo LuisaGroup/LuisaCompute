@@ -89,7 +89,8 @@ end
 -- checked out.
 -- ============================================================================
 local lc_tvm_root = path.join(os.scriptdir(), "tvm")
-if has_config("lc_tile_tirx_bridge") and os.exists(path.join(lc_tvm_root, "CMakeLists.txt")) then
+local lc_tvm_enabled = has_config("lc_tile_tirx_bridge") or has_config("lc_tvm_stack")
+if lc_tvm_enabled and os.exists(path.join(lc_tvm_root, "CMakeLists.txt")) then
     -- Optional LLVM codegen for tvm_compiler (mirrors cmake/modules/LLVM.cmake
     -- with USE_LLVM=ON). Resolved from --lc_llvm_path (an LLVM installation
     -- with include/ and lib/) or, failing that, the xmake-repo llvm package.
@@ -173,7 +174,8 @@ if has_config("lc_tile_tirx_bridge") and os.exists(path.join(lc_tvm_root, "CMake
     add_deps("tvm_runtime")
     tvm_common_config("TVM_EXPORTS")
     add_files(path.join(lc_tvm_root, "src/ir/**.cc"),
-              path.join(lc_tvm_root, "src/arith/**.cc"),
+              -- shared symbolic analysis (upstream src/sym; renamed from src/arith).
+              path.join(lc_tvm_root, "src/sym/**.cc"),
               path.join(lc_tvm_root, "src/te/**.cc"),
               path.join(lc_tvm_root, "src/tirx/**.cc"),
               path.join(lc_tvm_root, "src/s_tir/**.cc"),
@@ -219,7 +221,14 @@ if has_config("lc_tile_tirx_bridge") and os.exists(path.join(lc_tvm_root, "CMake
               path.join(lc_tvm_root, "src/backend/trn/transform/*.cc"),
               path.join(lc_tvm_root, "src/backend/vulkan/codegen/target_kind.cc"),
               path.join(lc_tvm_root, "src/backend/vulkan/codegen/vulkan_fallback_module.cc"),
-              path.join(lc_tvm_root, "src/backend/webgpu/codegen/*.cc"))
+              path.join(lc_tvm_root, "src/backend/webgpu/codegen/*.cc"),
+              -- TVM-side additions owned by this repository (src/ext/tvm_ext)
+              -- instead of by the src/ext/tvm submodule. codegen_cuda.cc
+              -- ICHECKs tirx.intrinsics.cuda.header_generator / get_codegen,
+              -- which upstream only registers from the Python package, so a
+              -- pure C++ embedding needs them compiled in here.
+              -- Regenerate with scripts/port_cuda_header_generator.py.
+              path.join(os.scriptdir(), "tvm_ext", "*.cc"))
     on_load(function(target)
         if not tvm_use_llvm then
             return

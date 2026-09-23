@@ -918,6 +918,14 @@ void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&la
 
 }// namespace detail
 
+consteval bool supports_accelerate_math() noexcept {
+#if defined(LUISA_TILE_HAS_ACCELERATE)
+    return true;
+#else
+    return false;
+#endif
+}
+
 DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::string_view name,
                                        const CompileOptions &options) noexcept {
     DeviceCompilationResult result;

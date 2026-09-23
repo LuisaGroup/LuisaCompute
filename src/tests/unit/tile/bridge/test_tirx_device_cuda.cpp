@@ -148,7 +148,10 @@ void test_cuda_matmul_artifact() {
 }
 
 [[nodiscard]] constexpr luisa::string_view nvptx_target() noexcept {
-    return R"({"kind":"nvptx","thread_warp_size":32,"max_num_threads":1024,"max_shared_memory_per_block":98304})";
+    // The nvptx target kind declares mcpu/mtriple/max_num_threads/thread_warp_size
+    // only: passing max_shared_memory_per_block makes Target construction throw
+    // "Unknown config option" before any codegen runs.
+    return R"({"kind":"nvptx","thread_warp_size":32,"max_num_threads":1024})";
 }
 
 void test_cuda_nvptx_elementwise_artifact() {

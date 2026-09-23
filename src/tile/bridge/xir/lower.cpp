@@ -93,6 +93,13 @@ private:
     luisa::unordered_map<const Representation *, x::Value *> _fused_elements;
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
+    // A static budget rejection must stay recoverable: the caller consumes the
+    // NativeFunction error channel (same contract as the snapshot budget), so
+    // never abort here. Set once, then stop at the root operation boundary:
+    // the current operation still completes, so the emitted IR stays
+    // internally consistent (carried-state PHIs keep their shape) before run()
+    // discards it.
+    bool _budget_exceeded{false};
     uint32_t _recipe_depth{0u};
     bool _inside_parallel{false};
     bool _saw_parallel{false};
@@ -113,10 +120,20 @@ private:
         LUISA_ERROR("{}", message);
     }
     void _charge(uint64_t count = 1u) {
+        if (_budget_exceeded) { return; }
         if (count > _options.max_expanded_values || _expanded_values > _options.max_expanded_values - count) {
-            _fail("XIR realization exceeds its static SSA expansion budget; choose smaller Tiles");
+            _budget_exceeded = true;
+            _output.error = "XIR realization exceeds its static SSA expansion budget; choose smaller Tiles";
+            return;
         }
         _expanded_values += count;
+    }
+    // Drop the partially emitted module so a rejected realization can never be
+    // consumed as a valid NativeFunction (ok() requires module && function).
+    [[nodiscard]] NativeFunction _abandon() noexcept {
+        _output.function = nullptr;
+        _output.module = nullptr;
+        return std::move(_output);
     }
     [[nodiscard]] static const XType *_type(const Type &type) {
         if (type.kind() == TypeKind::INDEX) { return XType::of<int64_t>(); }
@@ -1913,6 +1930,9 @@ public:
         for (auto op : root->operations()) {
             if (op->kind() != OperationKind::CONSTANT && op->kind() != OperationKind::ELEMENTWISE && op->kind() != OperationKind::PARALLEL) { _fail("root effects require one explicit parallel execution domain"); }
             _operation(*op);
+            // Recoverable static budget rejection: stop before any consumer can
+            // observe a partially expanded realization.
+            if (_budget_exceeded) { return _abandon(); }
         }
         if (!_saw_parallel) { _fail("XIR realization requires a root parallel domain"); }
         LUISA_ASSERT(_output.resources.snapshot_bytes_per_worker == analysis.resources.snapshot_bytes_per_worker &&

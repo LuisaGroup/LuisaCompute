@@ -899,6 +899,9 @@ void test_metal_subgroup_reduction_contract(Runtime &runtime) {
 }
 
 void test_reduction_policy_admission(Runtime &runtime) {
+    // The llvm assertions below name the Accelerate reduction atom, so this
+    // case has no portable equivalent in a build without the Apple provider.
+    if (runtime.target() == "llvm" && !supports_accelerate_math()) { return; }
     constexpr auto rows = int64_t{3}, columns = int64_t{37};
     for (auto policy : {reduction::unordered_tree, reduction::ordered_tree,
                         reduction::fold_left, reduction::fold_right}) {
@@ -951,6 +954,8 @@ void test_reduction_policy_admission(Runtime &runtime) {
 }
 
 void test_mixed_reduction_policies(Runtime &runtime) {
+    // Same Accelerate-specific source assertion as the policy admission case.
+    if (runtime.target() == "llvm" && !supports_accelerate_math()) { return; }
     constexpr auto rows = int64_t{3}, columns = int64_t{37};
     auto definition = tile_kernel("mixed_reduction_policies", [&](TensorView<const float, 2> input,
                                                                   TensorView<float, 2> output) {
@@ -2027,6 +2032,9 @@ void test_metal_subgroup_extrema(Runtime &runtime) {
 }
 
 void test_cpu_accelerate_math(Runtime &runtime) {
+    // The provider is Apple-only; keep the non-llvm rejection path below, but
+    // never request an unavailable realization on the CPU route.
+    if (runtime.target() == "llvm" && !supports_accelerate_math()) { return; }
     auto definition = tile_kernel("accelerate_exp", [](TensorView<const float, 2> input,
                                                        TensorView<float, 2> output) {
         auto row = axis("row", input.extent<0>());
