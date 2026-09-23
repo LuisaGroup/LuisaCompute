@@ -38,6 +38,8 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/rtx/triangle.h>
 
+#include <bit>
+
 // ---------------------------------------------------------------------------
 // GPU-side layout.
 //
@@ -62,17 +64,38 @@ struct LbvhKey {
 };
 LUISA_STRUCT(LbvhKey, code, slot) {};
 
-// LBVH node: nodes are laid out as [internal nodes 0 .. n-2 | leaves n-1 .. 2n-2]
-// and `left == lbvh::invalid_node` identifies a leaf (`prim` is only meaningful
-// there).  Child pointers are absolute indices into the shared node buffer.
+// LBVH node, 32 bytes.
+//
+// Nodes are laid out as [internal nodes 0 .. n-2 | leaves n-1 .. 2n-2] and a leaf
+// is identified by a `invalid_node` left handle (`prim` is only meaningful there).
+// Child pointers are absolute indices into the shared node buffer.
+//
+// The layout is deliberate: the four floats of each `float4` are one AABB plane
+// (xyz) plus one 32-bit handle *bit-cast* into the fourth lane (w), so a node is
+// exactly 32 bytes = exactly one 32-byte L2 sector, and two 16-byte aligned
+// vector loads read all of it.  The obvious alternative - `float3 lo; float3 hi;
+// uint left; uint right; uint prim;` - is 48 bytes, because `float3` is 16-byte
+// aligned; a random node load then fetches *two* sectors (64 bytes of traffic for
+// 32 useful ones).  Both the internal-node AABB reduction of the build and every
+// step of the two traversals are dominated by random node loads, so the sector is
+// the natural unit; see bench/README.md for the measured difference.
+//
+// * internal node: `packed_lo.w` = left child, `packed_hi.w` = right child,
+// * leaf: `packed_lo.w` = `invalid_node`, `packed_hi.w` = primitive id.
+//
+// Handles are *bit-cast*, not value-cast, so the full 32-bit range and the
+// `invalid_node` sentinel survive; the field accessors below are the only place
+// that knows about the packing.
 struct LbvhNode {
-    luisa::float3 lo;
-    luisa::float3 hi;
-    luisa::uint left;
-    luisa::uint right;
-    luisa::uint prim;
+    luisa::float4 packed_lo;// xyz = AABB lo, w = left handle (internal) / invalid (leaf)
+    luisa::float4 packed_hi;// xyz = AABB hi, w = right handle (internal) / primitive id (leaf)
 };
-LUISA_STRUCT(LbvhNode, lo, hi, left, right, prim) {};
+LUISA_STRUCT(LbvhNode, packed_lo, packed_hi) {};
+
+// The point of the layout above: a node is exactly one L2 sector, so a random
+// node load never pays for a second one.
+static_assert(sizeof(LbvhNode) == 32u && alignof(LbvhNode) == 16u,
+              "an LBVH node must stay one 32-byte sector wide");
 
 // One BLAS: where its node array starts, and which triangle range it covers.
 struct LbvhBlas {
@@ -138,6 +161,77 @@ inline constexpr uint sort_radix_bins = 256u;
 inline constexpr uint max_build_dispatch_groups = 65535u;
 // Software traversal stack; a Morton-code radix tree is far shallower than this.
 inline constexpr uint traversal_stack_size = 64u;
+
+// ---------------------------------------------------------------------------
+// Field access of `LbvhNode` (see its definition above for the packing).
+//
+// These are templates so that they accept both a `Var<LbvhNode>` and the
+// `Expr<LbvhNode>` that `Buffer::read()` returns, and they are the *only* place
+// that knows how a node packs its AABB and its handles: the build's two
+// radix-tree passes, both traversals and the benchmark's instrumented mirror all
+// go through them, so a change of the layout is a change of this block.
+// ---------------------------------------------------------------------------
+
+template<typename N>
+[[nodiscard]] inline Float3 aabb_lo(N &&node) noexcept {
+    return make_float3(node.packed_lo.x, node.packed_lo.y, node.packed_lo.z);
+}
+
+template<typename N>
+[[nodiscard]] inline Float3 aabb_hi(N &&node) noexcept {
+    return make_float3(node.packed_hi.x, node.packed_hi.y, node.packed_hi.z);
+}
+
+// Left child handle of an internal node, `invalid_node` for a leaf.
+template<typename N>
+[[nodiscard]] inline UInt child_left(N &&node) noexcept {
+    return node.packed_lo.w.template bitcast<uint>();
+}
+
+// Right child handle of an internal node, the primitive id of a leaf (only ever
+// read when `child_left()` says it is a leaf).
+template<typename N>
+[[nodiscard]] inline UInt child_right(N &&node) noexcept {
+    return node.packed_hi.w.template bitcast<uint>();
+}
+
+template<typename N>
+[[nodiscard]] inline Bool is_leaf(N &&node) noexcept {
+    return child_left(node) == invalid_node;
+}
+
+// Bit-cast a handle into the lane it is stored in (the build side of the
+// packing).  `pack_invalid_handle()` is the leaf marker: a *constant* rather than
+// a float literal, so no NaN ever reaches a shader source.
+[[nodiscard]] inline Float pack_handle(UInt handle) noexcept {
+    return handle.bitcast<float>();
+}
+
+[[nodiscard]] inline Float pack_invalid_handle() noexcept {
+    return def(invalid_node).bitcast<float>();
+}
+
+[[nodiscard]] inline Float4 pack_node_plane(Float3 plane, UInt handle) noexcept {
+    return make_float4(plane.x, plane.y, plane.z, pack_handle(handle));
+}
+
+// Host-side reads of the same lanes, for the structural self-check (which walks a
+// read-back node array outside the DSL, so it cannot use the templates above).
+[[nodiscard]] inline uint host_child_left(const LbvhNode &node) noexcept {
+    return std::bit_cast<uint>(node.packed_lo.w);
+}
+
+[[nodiscard]] inline uint host_child_right(const LbvhNode &node) noexcept {
+    return std::bit_cast<uint>(node.packed_hi.w);
+}
+
+[[nodiscard]] inline float3 host_aabb_lo(const LbvhNode &node) noexcept {
+    return make_float3(node.packed_lo.x, node.packed_lo.y, node.packed_lo.z);
+}
+
+[[nodiscard]] inline float3 host_aabb_hi(const LbvhNode &node) noexcept {
+    return make_float3(node.packed_hi.x, node.packed_hi.y, node.packed_hi.z);
+}
 
 // ---------------------------------------------------------------------------
 // Host-side build-size query of one LBVH.

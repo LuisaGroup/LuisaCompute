@@ -27,21 +27,19 @@ void blas_traversal_instrumented(Var<LbvhHit> &best, UInt instance, const Var<Lb
                                  Var<uint> &max_stack) noexcept {
     auto inv_dir = safe_reciprocal(direction);
     Local<uint> stack{traversal_stack_size};
+    // Same walk as the library's `blas_traversal()`, counter for counter.
     stack[0u] = blas.node_offset;
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
         nodes_visited = nodes_visited + 1u;
         auto node = nodes.read(stack[size]);
-        auto node_lo = node.lo;
-        auto node_hi = node.hi;
-        auto node_left = node.left;
-        auto node_right = node.right;
-        auto node_prim = node.prim;
+        auto node_left = child_left(node);
         aabb_tests = aabb_tests + 1u;
-        $if (aabb_test(node_lo, node_hi, origin, inv_dir, t_min, best.t)) {
+        $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
             aabb_hits = aabb_hits + 1u;
             $if (node_left == invalid_node) {
+                auto node_prim = child_right(node);
                 tri_tests = tri_tests + 1u;
                 auto tri = triangles.read(blas.triangle_offset + node_prim);
                 auto v0 = vertices.read(tri.i0);
@@ -59,7 +57,7 @@ void blas_traversal_instrumented(Var<LbvhHit> &best, UInt instance, const Var<Lb
                 $if (size + 2u < traversal_stack_size) {
                     stack[size] = node_left;
                     size = size + 1u;
-                    stack[size] = node_right;
+                    stack[size] = child_right(node);
                     size = size + 1u;
                     max_stack = max(max_stack, size);
                 };
@@ -95,15 +93,12 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
         size = size - 1u;
         nodes_visited = nodes_visited + 1u;
         auto node = nodes.read(stack[size]);
-        auto node_lo = node.lo;
-        auto node_hi = node.hi;
-        auto node_left = node.left;
-        auto node_right = node.right;
-        auto node_prim = node.prim;
+        auto node_left = child_left(node);
         aabb_tests = aabb_tests + 1u;
-        $if (aabb_test(node_lo, node_hi, origin, inv_dir, t_min, best.t)) {
+        $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
             aabb_hits = aabb_hits + 1u;
             $if (node_left == invalid_node) {
+                auto node_prim = child_right(node);
                 auto instance = instances.read(node_prim);
                 auto blas = blas_table.read(instance.blas);
                 auto o4 = make_float4(origin, 1.0f);
@@ -122,7 +117,7 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
                 $if (size + 2u < traversal_stack_size) {
                     stack[size] = node_left;
                     size = size + 1u;
-                    stack[size] = node_right;
+                    stack[size] = child_right(node);
                     size = size + 1u;
                     max_stack = max(max_stack, size);
                 };
@@ -188,19 +183,19 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
             auto last = def(0u);
             $for (step, max_tree_descent_steps) {
                 auto node = nodes.read(left_index);
-                $if (node.left == invalid_node) {
+                $if (child_left(node) == invalid_node) {
                     first = left_index - leaf_base;
                     $break;
                 };
-                left_index = node.left;
+                left_index = child_left(node);
             };
             $for (step, max_tree_descent_steps) {
                 auto node = nodes.read(right_index);
-                $if (node.left == invalid_node) {
+                $if (child_left(node) == invalid_node) {
                     last = right_index - leaf_base;
                     $break;
                 };
-                right_index = node.right;
+                right_index = child_right(node);
             };
             node_range.write(node_base + i, make_uint2(first, last));
         };
@@ -223,13 +218,13 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
             auto arrived = def(false);
             $for (step, max_tree_descent_steps) {
                 auto node = nodes.read(index);
-                $if (node.left == invalid_node) {
+                $if (child_left(node) == invalid_node) {
                     arrived = true;
                     $break;
                 };
                 // the split of the node's leaf range: the last slot of the left
                 // child, which is the slot itself when the left child is a leaf
-                auto left = node.left;
+                auto left = child_left(node);
                 auto split = def(0u);
                 $if (left >= leaf_base) {
                     split = left - leaf_base;
@@ -241,7 +236,7 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
                     index = left;
                 }
                 $else {
-                    index = node.right;
+                    index = child_right(node);
                 };
                 depth = depth + 1u;
             };

@@ -1,6 +1,6 @@
 // The storage shared by every LBVH of one scene, together with the tree-agnostic
-// build stages: Morton codes, the single-work-group LSD radix sort and the
-// Karras radix-tree construction (leaves, internal nodes, node AABBs).
+// build stages: Morton codes, the LSD radix sort (lbvh_sort.h) and the Karras
+// radix-tree construction (leaves, internal nodes, node AABBs).
 //
 // A `BlasBuilder` (blas.h) and a `TlasBuilder` (tlas.h) only supply the
 // primitive AABBs (step 1 of the build) and then hand their tree to
@@ -10,6 +10,7 @@
 #pragma once
 
 #include "lbvh_common.h"
+#include "lbvh_sort.h"
 
 #include <cstddef>
 
@@ -45,9 +46,15 @@ public:
         size_t node_bytes{};
         size_t blas_table_bytes{};
         size_t instance_bytes{};
+        // Scratch of the parallel radix sort (per-block digit histograms and
+        // their scan).  Like `scratch_bytes` of a backend build it is not part of
+        // the acceleration structure and is only needed while the build runs, but
+        // it *is* device memory the caller has to have room for, so the size
+        // query reports it.
+        size_t sort_scratch_bytes{};
         [[nodiscard]] size_t total_bytes() const noexcept {
             return primitive_bytes + key_bytes + node_bytes +
-                   blas_table_bytes + instance_bytes;
+                   blas_table_bytes + instance_bytes + sort_scratch_bytes;
         }
     };
 
@@ -106,12 +113,16 @@ private:
     Buffer<LbvhNode> _nodes;
     Buffer<LbvhBlas> _blas_table;
     Buffer<LbvhInstance> _instances;
+    // The LSD radix sort of the Morton keys.  It owns its scratch and picks the
+    // single-work-group or the parallel implementation from the tree size (see
+    // lbvh_sort.h); for the small trees of a multi-BLAS scene that is the old
+    // single-work-group sort, byte for byte.
+    LbvhRadixSort _sort;
     // Warp (wave/sub-group) width of the device, queried once.  The radix-tree
     // construction dispatches one warp per internal node, so the host side needs
     // the same constant the kernel's `warp_lane_count()` expands to.
     uint _warp_size{32u};
     Shader1D<Buffer<LbvhPrim>, Buffer<LbvhKey>, uint, uint, float3, float3> _morton_kernel;
-    Shader1D<Buffer<LbvhKey>, Buffer<LbvhKey>, uint, uint, uint> _sort_kernel;
     Shader1D<Buffer<LbvhKey>, Buffer<LbvhPrim>, Buffer<LbvhNode>, uint, uint, uint> _leaf_kernel;
     Shader2D<Buffer<LbvhKey>, Buffer<LbvhNode>, uint, uint, uint, uint> _build_kernel;
 };

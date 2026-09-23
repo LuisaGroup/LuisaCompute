@@ -305,8 +305,10 @@ double BenchTiming::median_ms() const noexcept {
 // ---------------------------------------------------------------------------
 
 size_t lbvh_storage_bytes(const LbvhStorage::Sizes &sizes) noexcept {
-    return sizes.primitive_bytes + 2u * sizes.key_bytes + sizes.node_bytes +
-           sizes.blas_table_bytes + sizes.instance_bytes;
+    // `total_bytes()` is the storage's own query and already includes the scratch
+    // of the parallel radix sort; the benchmark must budget for exactly what the
+    // storage allocates, so it asks the storage instead of re-adding the parts.
+    return sizes.total_bytes();
 }
 
 BenchMemoryEstimate estimate_bench_memory(size_t triangles, size_t instances,

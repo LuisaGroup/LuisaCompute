@@ -149,14 +149,37 @@ luisa_compute_add_example(example_software_lbvh
 # test: it reports numbers instead of asserting, and the release build is the one
 # whose numbers are meaningful.
 luisa_compute_add_example(example_software_lbvh_bench
-        compute/lbvh/bench/benchmark_lbvh.cpp
-        compute/lbvh/bench/bench_scenes.cpp
-        compute/lbvh/bench/bench_harness.cpp
-        compute/lbvh/bench/bench_stats.cpp
-        compute/lbvh/lbvh_storage.cpp
-        compute/lbvh/blas.cpp
-        compute/lbvh/tlas.cpp
-        compute/lbvh/software_lbvh.cpp)
+    compute/lbvh/bench/benchmark_lbvh.cpp
+    compute/lbvh/bench/bench_scenes.cpp
+    compute/lbvh/bench/bench_harness.cpp
+    compute/lbvh/bench/bench_stats.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp)
+# A/B harness of the LBVH radix sort (the dominant build stage): measures the
+# sort implementations against each other and checks them bit-exactly against a
+# host reference.  Not mirrored as a test: it reports numbers.
+luisa_compute_add_example(example_software_lbvh_sort_bench
+    compute/lbvh/bench/sort_bench.cpp
+    compute/lbvh/bench/bench_scenes.cpp
+    compute/lbvh/bench/bench_harness.cpp
+    compute/lbvh/bench/bench_stats.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp)
+# Extra correctness tests of the software LBVH: host references for the build
+# stages, degenerate/randomized scenes and the boundary sizes of the build
+# dispatches, next to the demo's RTX cross-check.  Mirrored as a test target
+# (needs an RTX-capable backend).
+luisa_compute_add_example(example_software_lbvh_test
+    compute/lbvh/test/lbvh_test.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp
+    MIRROR_AS_TEST)
 # n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
 add_subdirectory(compute/tokenize)
 luisa_compute_add_example(example_multi_head_attention

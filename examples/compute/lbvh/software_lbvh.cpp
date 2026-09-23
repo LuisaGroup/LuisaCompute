@@ -83,6 +83,22 @@ void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices
                                   const Buffer<LbvhRay> &rays, const Buffer<LbvhHit> &hits,
                                   const Tlas &tlas, uint ray_count, uint ray_offset,
                                   uint ray_stride) noexcept {
+    LUISA_ASSERT(tlas.is_pre_built(), "trace_software() on a TLAS that was not built.");
+    LUISA_ASSERT(ray_stride > 0u, "a strided traversal needs a positive stride.");
+    // The kernel walks the ray indices `ray_offset, ray_offset + ray_stride, ...`
+    // `ray_count` times; the caller owns that (offset, stride, count) triple, so
+    // this is where a slice that would leave the ray/hit buffers is rejected
+    // instead of reading and writing one element past them - the kernels address
+    // buffers by index and a device bounds check only exists in a debug build.
+    if (ray_count > 0u) {
+        auto last = static_cast<size_t>(ray_offset) +
+                    static_cast<size_t>(ray_count - 1u) * ray_stride;
+        LUISA_ASSERT(last < static_cast<size_t>(rays.size()) &&
+                         last < static_cast<size_t>(hits.size()),
+                     "strided traversal [{} + {} * {}] runs past the "
+                     "{} rays / {} hits it was given.",
+                     ray_offset, ray_count, ray_stride, rays.size(), hits.size());
+    }
     stream << _trace_kernel(_storage.nodes(), _storage.blas_table(), _storage.instances(),
                             vertices, triangles, rays, hits, tlas.node_offset(), ray_offset,
                             ray_stride, ray_count)

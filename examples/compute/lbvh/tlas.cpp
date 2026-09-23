@@ -17,8 +17,8 @@ TlasBuilder::TlasBuilder(Device &device) noexcept
                   auto instance = instances.read(i);
                   auto blas = blas_table.read(instance.blas);
                   auto root = nodes.read(blas.node_offset);
-                  auto lo = root.lo;
-                  auto hi = root.hi;
+                  auto lo = aabb_lo(root);
+                  auto hi = aabb_hi(root);
                   auto w0 = instance.to_world_0;
                   auto w1 = instance.to_world_1;
                   auto w2 = instance.to_world_2;
@@ -169,14 +169,11 @@ Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
     $while (size > 0u) {
         size = size - 1u;
         auto node = nodes.read(stack[size]);
-        auto node_lo = node.lo;
-        auto node_hi = node.hi;
-        auto node_left = node.left;
-        auto node_right = node.right;
-        auto node_prim = node.prim;
-        $if (aabb_test(node_lo, node_hi, origin, inv_dir, t_min, best.t)) {
+        $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
+            auto node_left = child_left(node);
             $if (node_left == invalid_node) {
                 // ---- instance leaf: descend into its BLAS ----
+                auto node_prim = child_right(node);
                 auto instance = instances.read(node_prim);
                 auto blas = blas_table.read(instance.blas);
                 auto o4 = make_float4(origin, 1.0f);
@@ -195,7 +192,7 @@ Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
                 $if (size + 2u < traversal_stack_size) {
                     stack[size] = node_left;
                     size = size + 1u;
-                    stack[size] = node_right;
+                    stack[size] = child_right(node);
                     size = size + 1u;
                 };
             };

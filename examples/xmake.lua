@@ -87,9 +87,26 @@ end)
     -- Performance benchmark of the software LBVH: adversarial (worst-case) scenes and
     -- build/traversal stress sweeps.  Debug mode checks correctness under ASan, release
     -- mode produces the numbers; run with `xmake run example_software_lbvh_bench cuda`.
-    example_proj("example_software_lbvh_bench", "compute/lbvh/bench/benchmark_lbvh.cpp", false, function()
-        add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/*.cpp")
-    end)
+example_proj("example_software_lbvh_bench", "compute/lbvh/bench/benchmark_lbvh.cpp", false, function()
+    add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/bench_harness.cpp",
+              "compute/lbvh/bench/bench_scenes.cpp", "compute/lbvh/bench/bench_stats.cpp")
+end)
+-- A/B harness of the LBVH radix sort: the sort is the dominant build stage, so
+-- this target measures the sort implementations against each other and checks
+-- them bit-exactly against a host reference.  It is not part of the benchmark
+-- catalogue (which drives the library sort through the CLI instead).
+example_proj("example_software_lbvh_sort_bench", "compute/lbvh/bench/sort_bench.cpp", false, function()
+    add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/bench_harness.cpp",
+              "compute/lbvh/bench/bench_scenes.cpp", "compute/lbvh/bench/bench_stats.cpp")
+end)
+-- Extra correctness tests of the software LBVH.  The demo (software_lbvh.cpp)
+-- validates one hand-picked scene against the hardware RTX reference; this test
+-- target adds the cases that are not worth a demo: host references for the build
+-- stages, degenerate and randomized scenes, and small sizes that exercise the
+-- boundaries of the build dispatches.  Exits non-zero on the first failure.
+example_proj("example_software_lbvh_test", "compute/lbvh/test/lbvh_test.cpp", false, function()
+    add_files("compute/lbvh/*.cpp")
+end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)

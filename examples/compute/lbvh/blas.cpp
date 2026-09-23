@@ -93,16 +93,19 @@ void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
 
 // The bottom-level walk.
 //
-// This is the plain (blind-push) depth-first walk: a node is loaded once, when
-// it is popped, and it is tested there - so every node the walk visits costs
-// exactly one load and one slab test, and a child the ray does not enter still
-// costs a push, a pop and that test.  Ordered variants that test a child before
-// pushing it (and push the farther one first) were implemented and measured; they
-// win on the scenes that cull (uniform, line, exponential, instance-chain) but
-// lose on the degenerate ones this benchmark exists for (coincident,
-// grid-duplicates), because there a child that was tested to be pushed is loaded
-// a second time when it is popped while almost nothing can be culled - see the
-// measurements in the report.  This walk has no regression on any scene.
+// This is the plain (blind-push) depth-first walk: a node is loaded once, when it
+// is popped, and it is tested there - so every node the walk visits costs exactly
+// one load and one slab test, and a child the ray does not enter still costs a
+// push, a pop and that test.
+//
+// Two cheaper-looking variants were implemented and measured against it and both
+// *regressed* the scenes this benchmark exists for, so neither is in the code:
+// testing a child before pushing it (which costs one node load per child to learn
+// that it is not entered, and a zero-culling tree pays that for almost every
+// child), and pushing only one child while descending into the other directly
+// (which halves the stack traffic but lengthens the per-visit dependency chain;
+// it lost 10-15% on coincident, bimodal and sliver-soup and only won on the
+// scenes whose walk is short).  See bench/README.md for the numbers.
 void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas,
                     Float3 origin, Float3 direction, Float t_min,
                     const BufferVar<LbvhNode> &nodes,
@@ -114,14 +117,14 @@ void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
+        // one 32-byte node record: the two AABB planes and the two handles (see
+        // `LbvhNode`); the handles are only read once the AABB test has passed,
+        // and a leaf's second handle is its primitive id.
         auto node = nodes.read(stack[size]);
-        auto node_lo = node.lo;
-        auto node_hi = node.hi;
-        auto node_left = node.left;
-        auto node_right = node.right;
-        auto node_prim = node.prim;
-        $if (aabb_test(node_lo, node_hi, origin, inv_dir, t_min, best.t)) {
+        $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
+            auto node_left = child_left(node);
             $if (node_left == invalid_node) {
+                auto node_prim = child_right(node);
                 auto tri = triangles.read(blas.triangle_offset + node_prim);
                 auto v0 = vertices.read(tri.i0);
                 auto v1 = vertices.read(tri.i1);
@@ -138,7 +141,7 @@ void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas
                 $if (size + 2u < traversal_stack_size) {
                     stack[size] = node_left;
                     size = size + 1u;
-                    stack[size] = node_right;
+                    stack[size] = child_right(node);
                     size = size + 1u;
                 };
             };

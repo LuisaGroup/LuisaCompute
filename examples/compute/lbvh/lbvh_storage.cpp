@@ -21,6 +21,10 @@ LbvhStorage::Sizes LbvhStorage::estimate(size_t max_triangles, size_t max_instan
     sizes.node_bytes = sizes.node_capacity * sizeof(LbvhNode);
     sizes.blas_table_bytes = sizes.blas_capacity * sizeof(LbvhBlas);
     sizes.instance_bytes = sizes.instance_capacity * sizeof(LbvhInstance);
+    // Worst case of the parallel sort's per-block histogram/scan scratch (see
+    // LbvhRadixSort::scratch_bytes_for): the size query has to report everything
+    // the build will allocate, exactly like the scratch size of a backend build.
+    sizes.sort_scratch_bytes = LbvhRadixSort::scratch_bytes_for(sizes.primitive_capacity);
     return sizes;
 }
 
@@ -32,6 +36,7 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
       _nodes{device.create_buffer<LbvhNode>(_sizes.node_capacity)},
       _blas_table{device.create_buffer<LbvhBlas>(_sizes.blas_capacity)},
       _instances{device.create_buffer<LbvhInstance>(_sizes.instance_capacity)},
+      _sort{device, _sizes.primitive_capacity},
       _warp_size{device.compute_warp_size()},
 
       // 30-bit Morton code of every primitive.
@@ -64,85 +69,6 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
               };
           }})},
 
-      // One LSD radix-sort pass over 8 bits.  The source/destination buffers are
-      // shader arguments, so a single shader can ping-pong.
-      _sort_kernel{device.compile(Kernel1D{
-          [](BufferVar<LbvhKey> keys_in, BufferVar<LbvhKey> keys_out,
-             UInt base, UInt count, UInt shift) noexcept {
-              constexpr uint words = sort_block_size / 32u;
-              set_block_size(sort_block_size);
-              Shared<uint> histogram{sort_radix_bins};
-              Shared<uint> offsets{sort_radix_bins};
-              Shared<uint> flags{sort_radix_bins * words};
-              UInt tid = thread_x();
-              UInt word = tid / 32u;
-              UInt bit = 1u << (tid % 32u);
-              // per-bin histogram
-              histogram[tid] = 0u;
-              sync_block();
-              UInt i = tid;
-              $while (i < count) {
-                  auto code = keys_in.read(base + i).code;
-                  histogram.atomic((code >> shift) & (sort_radix_bins - 1u)).fetch_add(1u);
-                  i = i + sort_block_size;
-              };
-              sync_block();
-              // exclusive scan of the 256 bins (one thread is plenty here)
-              $if (tid == 0u) {
-                  UInt sum = def(0u);
-                  $for (b, sort_radix_bins) {
-                      auto c = histogram[b];
-                      offsets[b] = sum;
-                      sum = sum + c;
-                  };
-              };
-              sync_block();
-              // stable scatter, chunk by chunk: every lane only accumulates the
-              // lanes before it inside its own chunk, and the shared cursor is
-              // advanced once per bin and chunk.  Stability is what makes the
-              // four LSD passes add up to a full sort.
-              UInt chunks = (count + sort_block_size - 1u) / sort_block_size;
-              $for (chunk, chunks) {
-                  $for (k, words) { flags[tid * words + k] = 0u; };
-                  sync_block();
-                  UInt index = chunk * sort_block_size + tid;
-                  Bool valid = index < count;
-                  UInt bin = def(0u);
-                  UInt bin_offset = def(0u);
-                  UInt code = def(0u);
-                  UInt slot = def(0u);
-                  $if (valid) {
-                      auto key = keys_in.read(base + index);
-                      code = key.code;
-                      slot = key.slot;
-                      bin = (code >> shift) & (sort_radix_bins - 1u);
-                      bin_offset = offsets[bin];
-                      flags.atomic(bin * words + word).fetch_add(bit);
-                  };
-                  sync_block();
-                  $if (valid) {
-                      UInt prefix = def(0u);
-                      UInt total = def(0u);
-                      $for (w, words) {
-                          auto bits = flags[bin * words + w];
-                          auto bin_count = popcount(bits);
-                          total = total + bin_count;
-                          prefix = prefix + select(0u, bin_count, w < word);
-                          prefix = prefix + select(0u, popcount(bits & (bit - 1u)), w == word);
-                      };
-                      Var<LbvhKey> sorted;
-                      sorted.code = code;
-                      sorted.slot = slot;
-                      keys_out.write(base + bin_offset + prefix, sorted);
-                      // the last element of a bin advances the shared cursor
-                      $if (prefix == total - 1u) {
-                          offsets.atomic(bin).fetch_add(total);
-                      };
-                  };
-                  sync_block();
-              };
-          }})},
-
       // Radix-tree construction, pass 1 of 2: the leaves.  Leaf `i` is the
       // primitive at sorted position `i`, so this pass is the *only* place that
       // still chases the random `prims[slot]` read; it writes the leaf AABB into
@@ -157,11 +83,8 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
                   auto slot = keys.read(prim_base + i).slot;
                   auto prim = prims.read(prim_base + slot);
                   Var<LbvhNode> leaf;
-                  leaf.lo = prim.lo;
-                  leaf.hi = prim.hi;
-                  leaf.left = invalid_node;
-                  leaf.right = invalid_node;
-                  leaf.prim = prim.id;
+                  leaf.packed_lo = pack_node_plane(prim.lo, invalid_node);
+                  leaf.packed_hi = pack_node_plane(prim.hi, prim.id);
                   nodes.write(node_base + count - 1u + i, leaf);
               };
           }})},
@@ -280,28 +203,38 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
                   // at the bottom (the vast majority) end up reading a
                   // contiguous run of nodes per warp instruction.
                   auto leaf_base = node_base + count - 1u;
-                  auto length = range.y - range.x + 1u;
-                  // elements per lane; lanes whose slice is empty contribute the
-                  // identity and are dropped by the warp reduction
-                  auto chunk = (length + lane_count - 1u) / lane_count;
-                  auto begin = range.x + lane * chunk;
-                  auto end = min(begin + chunk, range.y + 1u);
+                  // The reduction iterates sum(leaf depth) times, so it is the
+                  // hottest loop of the build.  The lanes walk the range
+                  // *together* - lane `l` takes `range.x + l, + lane_count, ...` -
+                  // instead of each lane owning a contiguous slice: a per-lane
+                  // slice would put the lanes of one warp instruction
+                  // `length / lane_count` records apart (1.5 MiB for the root of a
+                  // 1 M-primitive tree), i.e. 32 unrelated cache lines per
+                  // instruction, while the strided walk reads `lane_count`
+                  // consecutive 48-byte records, which is one contiguous run the
+                  // memory system can coalesce.  Lanes whose first index is past the
+                  // end contribute the identity and are dropped by the reduction.
                   auto lo = def(make_float3(1.0e30f));
                   auto hi = def(make_float3(-1.0e30f));
-                  $for (j, begin, end) {
+                  // Two records per lane per iteration was measured too - it is the
+                  // obvious way to add memory-level parallelism to this loop, but on
+                  // all three backends it made the stage *slower* (4.32 -> 5.14 ms on
+                  // `uniform`, 1 M primitives, cuda): the clamp that keeps the second
+                  // load inside the range and the extra min/max per iteration cost
+                  // more than the second outstanding load buys.
+                  auto j = def(range.x + lane);
+                  $while (j <= range.y) {
                       auto leaf = nodes.read(leaf_base + j);
-                      lo = min(lo, leaf.lo);
-                      hi = max(hi, leaf.hi);
+                      lo = min(lo, aabb_lo(leaf));
+                      hi = max(hi, aabb_hi(leaf));
+                      j = j + lane_count;
                   };
                   lo = warp_active_min(lo);
                   hi = warp_active_max(hi);
                   $if (lane == 0u) {
                       Var<LbvhNode> node;
-                      node.lo = lo;
-                      node.hi = hi;
-                      node.left = child_a;
-                      node.right = child_b;
-                      node.prim = 0u;
+                      node.packed_lo = pack_node_plane(lo, child_a);
+                      node.packed_hi = pack_node_plane(hi, child_b);
                       nodes.write(node_base + i, node);
                   };
               };
@@ -351,11 +284,12 @@ void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
         timings->morton_ms += clock.toc();
         clock.tic();
     }
-    // 4 x 8 bit LSD radix sort: keys_a -> keys_b -> ... -> keys_a
-    stream << _sort_kernel(_keys_a, _keys_b, range.prim_base, range.count, 0u).dispatch(sort_block_size)
-           << _sort_kernel(_keys_b, _keys_a, range.prim_base, range.count, 8u).dispatch(sort_block_size)
-           << _sort_kernel(_keys_a, _keys_b, range.prim_base, range.count, 16u).dispatch(sort_block_size)
-           << _sort_kernel(_keys_b, _keys_a, range.prim_base, range.count, 24u).dispatch(sort_block_size);
+    // 4 x 8 bit LSD radix sort: keys_a -> keys_b -> ... -> keys_a.  `LbvhRadixSort`
+    // owns this stage now (lbvh_sort.h): it is one work-group below
+    // `automatic_min_count` elements - the old implementation, byte for byte -
+    // and a block-parallel sort above it, and it leaves the sorted keys in
+    // keys_a either way.
+    _sort.sort(stream, _keys_a, _keys_b, range.prim_base, range.count);
     if (timings != nullptr) {
         stream << synchronize();
         timings->sort_ms += clock.toc();
@@ -386,10 +320,17 @@ void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
 }
 
 size_t LbvhStorage::validate_tree(Stream &stream, uint node_base, uint count) noexcept {
+    LUISA_ASSERT(count > 0u, "validate_tree() needs at least one primitive.");
     auto node_count = count * 2u - 1u;
     luisa::vector<LbvhNode> nodes(node_count);
     stream << _nodes.view(node_base, node_count).copy_to(luisa::span{nodes})
            << synchronize();
+    // Both handles of a node must address a node *of this tree*; an inconsistent
+    // (node_base, count) - a caller's bug, not a malformed tree - must produce a
+    // problem report instead of reading past the vector.
+    auto addressable = [&](uint child) noexcept {
+        return child >= node_base && child < node_base + node_count;
+    };
     luisa::vector<uint> visits(node_count, 0u);
     luisa::vector<uint> stack{node_base};// the root
     size_t problems = 0u;
@@ -397,34 +338,42 @@ size_t LbvhStorage::validate_tree(Stream &stream, uint node_base, uint count) no
     while (!stack.empty()) {
         auto index = stack.back();
         stack.pop_back();
-        if (index < node_base || index >= node_base + node_count) {
+        if (!addressable(index)) {
             problems++;// dangling child pointer
             continue;
         }
-        index -= node_base;
-        if (visits[index]++ != 0u) {
+        auto slot = index - node_base;
+        if (visits[slot]++ != 0u) {
             problems++;// node reached twice (cycle or shared child)
             continue;
         }
-        auto node = nodes[index];
-        if (node.left == invalid_node) {
+        auto node = nodes[slot];
+        auto left = host_child_left(node);
+        if (left == invalid_node) {
             leaves++;
-            if (node.right != invalid_node || node.prim >= count) { problems++; }
+            // the second handle of a leaf carries the primitive id, not a child
+            if (host_child_right(node) >= count) { problems++; }
             continue;
         }
-        if (node.right == invalid_node) { problems++; }
-        auto a = nodes[node.left - node_base];
-        auto b = nodes[node.right - node_base];
-        auto lo = min(a.lo, b.lo);
-        auto hi = max(a.hi, b.hi);
-        auto dlo = abs(lo - node.lo);
-        auto dhi = abs(hi - node.hi);
+        auto right = host_child_right(node);
+        if (!addressable(left) || !addressable(right)) {
+            problems++;// dangling child pointer
+            continue;
+        }
+        auto a = nodes[left - node_base];
+        auto b = nodes[right - node_base];
+        auto lo = min(host_aabb_lo(a), host_aabb_lo(b));
+        auto hi = max(host_aabb_hi(a), host_aabb_hi(b));
+        auto node_lo = host_aabb_lo(node);
+        auto node_hi = host_aabb_hi(node);
+        auto dlo = abs(lo - node_lo);
+        auto dhi = abs(hi - node_hi);
         auto error = std::max(std::max(dlo.x, dlo.y),
                               std::max(dlo.z, std::max(dhi.x, std::max(dhi.y, dhi.z))));
         auto scale = std::max(1.0f, std::max(hi.x - lo.x, std::max(hi.y - lo.y, hi.z - lo.z)));
         if (error > 1.0e-4f * scale) { problems++; }
-        stack.push_back(node.left);
-        stack.push_back(node.right);
+        stack.push_back(left);
+        stack.push_back(right);
     }
     for (auto v : visits) {
         if (v != 1u) { problems++; }

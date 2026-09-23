@@ -609,12 +609,20 @@ struct TracePlan {
     // itself, because from there on the size is unusable whatever the other slices
     // cost.
     auto measure = [&](size_t slices) noexcept {
-        auto count = strided_count(plan.rays, slices, 0u);
         auto samples = std::min<size_t>(slices, sample_offsets);
         auto worst = 0.0;
         for (auto sample = size_t{0u}; sample < samples; sample++) {
             // with few slices, measure each one; otherwise spread the samples
             auto offset = samples == slices ? sample : slices * sample / samples;
+            // every offset needs its *own* ray count: a strided slice covers
+            // `(rays - offset + stride - 1) / stride` rays, which is one more
+            // than the slice of offset 0 whenever `offset` is not a multiple of
+            // the stride.  Re-using the count of offset 0 walks (and writes) past
+            // the end of the ray/hit buffers (an out-of-bounds *write* into the
+            // hits of the following buffers, which the debug build traps as
+            // `index 20017 < buffer size 20000` and release silently accepts).
+            auto count = strided_count(plan.rays, slices, offset);
+            if (count == 0u) { continue; }
             worst = std::max(worst, time_trace_dispatch(stream, resources, instrumented,
                                                         count, offset, slices));
             if (worst > budget_ms) { break; }
@@ -724,7 +732,13 @@ void measure_build(Stream &stream, SceneResources &resources, const BenchOptions
         timing.morton_ms.add(stages.morton_ms);
         timing.sort_ms.add(stages.sort_ms);
         timing.node_ms.add(stages.node_ms);
-        worst_dispatch_ms = std::max(worst_dispatch_ms, worst.value_ms());
+        // The headline build is a *single* fence-to-fence submission of the whole
+        // chain (`total`), while `worst` only knows about the staged rebuild that
+        // produced the breakdown.  A multi-*tree* scene submits the whole chain
+        // once (129 kernels for 256 trees here), so reporting `worst` alone
+        // under-states the largest submission by up to ~50x; the budget check has
+        // to see both.
+        worst_dispatch_ms = std::max({worst_dispatch_ms, worst.value_ms(), total});
     }
 }
 
