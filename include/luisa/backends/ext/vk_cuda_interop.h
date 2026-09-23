@@ -650,6 +650,26 @@ public:
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept = 0;
+    // Reverse direction of create_interop_buffer: the allocation is owned by
+    // CUDA instead of Vulkan. The implementation allocates device memory with
+    // the CUDA driver (cuMemCreate/cuMemMap on the CUDA device paired with
+    // this Vulkan device), exports it as an OS shareable handle, and imports
+    // it into Vulkan (VkExternalMemoryBufferCreateInfo + vkAllocateMemory
+    // import), so that the resulting buffer can be used by Vulkan commands -
+    // including VK_NV_cuda_kernel_launch dispatches - while CUDA sees it as a
+    // plain device allocation at *cuda_device_ptr (when cuda_device_ptr is not
+    // null; the pointer can be wrapped on a CUDA backend device with
+    // Device::import_external_buffer).
+    // The allocation is rounded up to the CUDA allocation granularity (2 MiB on
+    // current NVIDIA desktop parts), so a small buffer still costs a granule.
+    // Fails closed: returns an invalid BufferCreationInfo (handle ==
+    // invalid_resource_handle, so the Buffer built from it evaluates to false)
+    // when the
+    // platform or the driver cannot export/import CUDA-owned memory; the
+    // caller must check the result. The returned buffer releases both the
+    // Vulkan and the CUDA side when destroyed.
+    [[nodiscard]] virtual BufferCreationInfo create_interop_buffer_from_cuda(
+        const Type *element, size_t elem_count, uint64_t *cuda_device_ptr) noexcept = 0;
     [[nodiscard]] virtual ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
@@ -733,6 +753,15 @@ public:
     }
     ByteBuffer create_byte_buffer(size_t size_bytes) noexcept {
         return ByteBuffer{device(), create_interop_buffer(Type::of<void>(), size_bytes)};
+    }
+    // CUDA-owned counterparts of create_buffer/create_byte_buffer (see
+    // create_interop_buffer_from_cuda). Invalid (empty) buffers on failure.
+    template<typename T>
+    Buffer<T> create_buffer_from_cuda(size_t elem_count, uint64_t *cuda_device_ptr = nullptr) noexcept {
+        return Buffer<T>{device(), create_interop_buffer_from_cuda(Type::of<T>(), elem_count, cuda_device_ptr)};
+    }
+    ByteBuffer create_byte_buffer_from_cuda(size_t size_bytes, uint64_t *cuda_device_ptr = nullptr) noexcept {
+        return ByteBuffer{device(), create_interop_buffer_from_cuda(Type::of<void>(), size_bytes, cuda_device_ptr)};
     }
     template<typename T>
     Image<T> create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u, bool simultaneous_access = false, bool allow_raster_target = false) noexcept {

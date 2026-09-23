@@ -304,6 +304,13 @@ on_load(function(target)
         if project_kind == "static" or project_kind == "object" then
             target:add("cxflags", "-fPIC")
         end
+        -- The runtime dlopen()s the backend modules, and a loaded module's own
+        -- dependencies are resolved from *its* rpath, not the executable's.
+        -- Without $ORIGIN a backend .so next to its siblings still fails to
+        -- load with "libluisa-tile.so: cannot open shared object file".
+        if project_kind == "shared" then
+            target:add("rpathdirs", "$ORIGIN", {force = true})
+        end
     end
 
     -- macOS-specific flags
@@ -548,7 +555,9 @@ rule('lc_llvm')
 on_load(function(target, opt)
     local libs = {}
     local lc_llvm_path = get_config("lc_llvm_path")
-    if not lc_llvm_path then
+    -- `--lc_llvm_path=` stores an empty string, which is Lua-truthy, so test the
+    -- value: otherwise "/include" and "/lib" get added as if they were LLVM dirs.
+    if type(lc_llvm_path) ~= "string" or #lc_llvm_path == 0 then
         return nil
     end
 
@@ -606,7 +615,9 @@ after_build(function(target)
     end
 
     local lc_llvm_path = get_config("lc_llvm_path")
-    if not lc_llvm_path then
+    -- `--lc_llvm_path=` stores an empty string, which is Lua-truthy, so test the
+    -- value: otherwise "/include" and "/lib" get added as if they were LLVM dirs.
+    if type(lc_llvm_path) ~= "string" or #lc_llvm_path == 0 then
         return nil
     end
 
