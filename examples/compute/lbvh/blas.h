@@ -119,9 +119,12 @@ public:
     // Record the build: triangle AABBs -> Morton codes -> 4 x 8-bit LSD radix
     // sort -> Karras radix tree.  `request` mirrors the RTX build request; the
     // software LBVH has no in-place update path and always rebuilds the tree.
+    // A non-null `timings` asks for the per-stage times of this build to be
+    // accumulated into it (see `LbvhBuildTimings`).
     void build(Stream &stream, LbvhStorage &storage, const Blas &blas,
                const Buffer<float3> &vertices, const Buffer<Triangle> &triangles,
-               AccelBuildRequest request) noexcept;
+               AccelBuildRequest request,
+               LbvhBuildTimings *timings = nullptr) noexcept;
 
 private:
     Shader1D<Buffer<Triangle>, Buffer<float3>, Buffer<LbvhPrim>, uint, uint, uint> _prim_kernel;

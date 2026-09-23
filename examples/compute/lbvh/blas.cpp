@@ -67,23 +67,42 @@ size_t BlasBuilder::pre_build(LbvhStorage &storage, Blas &blas) noexcept {
 
 void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
                         const Buffer<float3> &vertices, const Buffer<Triangle> &triangles,
-                        AccelBuildRequest request) noexcept {
+                        AccelBuildRequest request, LbvhBuildTimings *timings) noexcept {
     LUISA_ASSERT(blas.is_pre_built(), "build() on a BLAS that was not pre-built.");
     // The RTX request (PREFER_UPDATE / FORCE_BUILD) selects in-place update on
     // the hardware backends; the software LBVH has no update path and always
     // rebuilds the tree, so the request only documents the caller's intent.
     (void)request;
+    Clock clock;
+    if (timings != nullptr) { clock.tic(); }
     stream << _prim_kernel(triangles, vertices, storage.prims(),
                            blas.prim_offset(), blas.triangle_offset(),
                            blas.triangle_count())
                   .dispatch(blas.triangle_count());
+    if (timings != nullptr) {
+        stream << synchronize();
+        timings->prim_ms += clock.toc();
+    }
     LbvhStorage::TreeRange range;
     range.prim_base = blas.prim_offset();
     range.node_base = blas.node_offset();
     range.count = blas.triangle_count();
-    storage.build_tree(stream, range, blas.object_space_min(), blas.object_space_max());
+    storage.build_tree(stream, range, blas.object_space_min(), blas.object_space_max(),
+                       timings);
 }
 
+// The bottom-level walk.
+//
+// This is the plain (blind-push) depth-first walk: a node is loaded once, when
+// it is popped, and it is tested there - so every node the walk visits costs
+// exactly one load and one slab test, and a child the ray does not enter still
+// costs a push, a pop and that test.  Ordered variants that test a child before
+// pushing it (and push the farther one first) were implemented and measured; they
+// win on the scenes that cull (uniform, line, exponential, instance-chain) but
+// lose on the degenerate ones this benchmark exists for (coincident,
+// grid-duplicates), because there a child that was tested to be pushed is loaded
+// a second time when it is popped while almost nothing can be culled - see the
+// measurements in the report.  This walk has no regression on any scene.
 void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas,
                     Float3 origin, Float3 direction, Float t_min,
                     const BufferVar<LbvhNode> &nodes,

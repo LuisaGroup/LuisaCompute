@@ -90,7 +90,7 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
 }
 
 void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
-                        AccelBuildRequest request) noexcept {
+                        AccelBuildRequest request, LbvhBuildTimings *timings) noexcept {
     LUISA_ASSERT(tlas.is_pre_built(), "build() on a TLAS that was not pre-built.");
     // The software LBVH always rebuilds the whole tree; there is no in-place
     // update path, so the request only documents the caller's intent.
@@ -99,10 +99,16 @@ void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
     range.prim_base = tlas.prim_offset();
     range.node_base = tlas.node_offset();
     range.count = tlas.instance_count();
+    Clock clock;
+    if (timings != nullptr) { clock.tic(); }
     stream << _prim_kernel(storage.nodes(), storage.blas_table(), storage.instances(),
                            storage.prims(), range.prim_base, range.count)
                   .dispatch(range.count);
-    storage.build_tree(stream, range, tlas._volume_lo, tlas._volume_hi);
+    if (timings != nullptr) {
+        stream << synchronize();
+        timings->prim_ms += clock.toc();
+    }
+    storage.build_tree(stream, range, tlas._volume_lo, tlas._volume_hi, timings);
 }
 
 void TlasBuilder::upload_instances(Stream &stream, LbvhStorage &storage,
@@ -157,7 +163,7 @@ Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
     best.bary = make_float2(0.0f);
     best.t = ray.t_max;
     Local<uint> stack{traversal_stack_size};
-    // ---- top level: instances ----
+    // ---- top level: instances; the same blind-push walk as `blas_traversal` ----
     stack[0u] = tlas_node_offset;
     auto size = def(1u);
     $while (size > 0u) {

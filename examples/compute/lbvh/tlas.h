@@ -96,9 +96,11 @@ public:
     // Record the build: world-space instance AABBs -> Morton codes -> 4 x 8-bit
     // LSD radix sort -> Karras radix tree.  `request` mirrors the RTX build
     // request; the software LBVH has no in-place update path and always rebuilds
-    // the tree.
+    // the tree.  A non-null `timings` asks for the per-stage times of this build
+    // to be accumulated into it (see `LbvhBuildTimings`).
     void build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
-               AccelBuildRequest request) noexcept;
+               AccelBuildRequest request,
+               LbvhBuildTimings *timings = nullptr) noexcept;
 
 private:
     // Instance records (world->object rows, object->world rows, BLAS index).

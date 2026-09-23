@@ -10,15 +10,21 @@ namespace luisa::example::lbvh {
 namespace {
 
 // One thread per ray; the traversal itself lives in tlas.cpp, where the top
-// level drives the bottom level.
+// level drives the bottom level.  One thread handles the ray
+// `ray_offset + i * ray_stride`, so a caller can keep every single submission
+// short by walking a strided slice of the rays (striding keeps every slice
+// representative of the whole ray set, a contiguous prefix is not: in a camera
+// frustum the first rows can miss the whole scene).
 [[nodiscard]] auto make_trace_kernel() noexcept {
     return Kernel1D{[](BufferVar<LbvhNode> nodes, BufferVar<LbvhBlas> blas_table,
                        BufferVar<LbvhInstance> instances, BufferVar<float3> vertices,
                        BufferVar<Triangle> triangles, BufferVar<LbvhRay> rays,
-                       BufferVar<LbvhHit> hits, UInt tlas_node_offset, UInt count) noexcept {
+                       BufferVar<LbvhHit> hits, UInt tlas_node_offset, UInt ray_offset,
+                       UInt ray_stride, UInt count) noexcept {
         set_block_size(64u);
-        UInt index = dispatch_id().x;
-        $if (index < count) {
+        UInt i = dispatch_id().x;
+        $if (i < count) {
+            auto index = ray_offset + i * ray_stride;
             auto ray = rays.read(index);
             auto hit = tlas_traversal(ray, tlas_node_offset, nodes, blas_table,
                                       instances, vertices, triangles);
@@ -61,21 +67,25 @@ size_t SoftwareLbvh::pre_build_accel(Stream &stream, Tlas &tlas,
 void SoftwareLbvh::build_blas(Stream &stream, const Blas &blas,
                               const Buffer<float3> &vertices,
                               const Buffer<Triangle> &triangles,
-                              AccelBuildRequest request) noexcept {
-    _blas_builder.build(stream, _storage, blas, vertices, triangles, request);
+                              AccelBuildRequest request,
+                              LbvhBuildTimings *timings) noexcept {
+    _blas_builder.build(stream, _storage, blas, vertices, triangles, request, timings);
 }
 
 void SoftwareLbvh::build_accel(Stream &stream, const Tlas &tlas,
-                               AccelBuildRequest request) noexcept {
-    _tlas_builder.build(stream, _storage, tlas, request);
+                               AccelBuildRequest request,
+                               LbvhBuildTimings *timings) noexcept {
+    _tlas_builder.build(stream, _storage, tlas, request, timings);
 }
 
 void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices,
                                   const Buffer<Triangle> &triangles,
                                   const Buffer<LbvhRay> &rays, const Buffer<LbvhHit> &hits,
-                                  const Tlas &tlas, uint ray_count) noexcept {
+                                  const Tlas &tlas, uint ray_count, uint ray_offset,
+                                  uint ray_stride) noexcept {
     stream << _trace_kernel(_storage.nodes(), _storage.blas_table(), _storage.instances(),
-                            vertices, triangles, rays, hits, tlas.node_offset(), ray_count)
+                            vertices, triangles, rays, hits, tlas.node_offset(), ray_offset,
+                            ray_stride, ray_count)
                   .dispatch(ray_count);
 }
 

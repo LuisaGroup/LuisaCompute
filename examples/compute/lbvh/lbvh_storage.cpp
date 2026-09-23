@@ -32,6 +32,7 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
       _nodes{device.create_buffer<LbvhNode>(_sizes.node_capacity)},
       _blas_table{device.create_buffer<LbvhBlas>(_sizes.blas_capacity)},
       _instances{device.create_buffer<LbvhInstance>(_sizes.instance_capacity)},
+      _warp_size{device.compute_warp_size()},
 
       // 30-bit Morton code of every primitive.
       _morton_kernel{device.compile(Kernel1D{
@@ -142,11 +143,42 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
               };
           }})},
 
-      // Radix-tree construction: leaves, internal nodes and node AABBs.
-      _build_kernel{device.compile(Kernel1D{
+      // Radix-tree construction, pass 1 of 2: the leaves.  Leaf `i` is the
+      // primitive at sorted position `i`, so this pass is the *only* place that
+      // still chases the random `prims[slot]` read; it writes the leaf AABB into
+      // the node array, where pass 2 reads it back contiguously.
+      _leaf_kernel{device.compile(Kernel1D{
           [](BufferVar<LbvhKey> keys, BufferVar<LbvhPrim> prims, BufferVar<LbvhNode> nodes,
              UInt prim_base, UInt node_base, UInt count) noexcept {
               set_block_size(sort_block_size);
+              UInt i = dispatch_id().x;
+              // leaves: [node_base + count - 1, node_base + 2 * count - 2]
+              $if (i < count) {
+                  auto slot = keys.read(prim_base + i).slot;
+                  auto prim = prims.read(prim_base + slot);
+                  Var<LbvhNode> leaf;
+                  leaf.lo = prim.lo;
+                  leaf.hi = prim.hi;
+                  leaf.left = invalid_node;
+                  leaf.right = invalid_node;
+                  leaf.prim = prim.id;
+                  nodes.write(node_base + count - 1u + i, leaf);
+              };
+          }})},
+
+      // Radix-tree construction, pass 2 of 2: the internal nodes.
+      //
+      // Internal node `i`'s AABB is the union of the leaf AABBs of its range
+      // [range.x, range.y], and the leaf nodes of a tree are contiguous at
+      // `node_base + count - 1`: the reduction therefore streams that array
+      // instead of doing one random `keys` read plus one random `prims` read per
+      // range slot.  The reduction iterates sum(leaf depth) times, which is what
+      // makes it the hottest loop of the whole build, and it no longer touches
+      // `keys` at all - the two searches do, and they stay close to `i`.
+      _build_kernel{device.compile(Kernel2D{
+          [](BufferVar<LbvhKey> keys, BufferVar<LbvhNode> nodes,
+             UInt prim_base, UInt node_base, UInt count, UInt row_stride) noexcept {
+              set_block_size(sort_block_size, 1u);
               // VkLBVH's delta(): the number of leading bits shared by two keys
               // (i.e. clz of their xor).  Equal Morton codes are ordered by their
               // sorted slot, which keeps the keys strictly increasing and the
@@ -210,7 +242,17 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
                   return cast<uint>(split);
               };
 
-              UInt i = dispatch_id().x;
+              // One *warp* per internal node, the lanes cooperating on the
+              // node's leaf range (see the reduction below).  A warp costs
+              // `warp_lane_count()` threads per node, which is a grid of
+              // `count * warp_size / sort_block_size` work-groups - more than the
+              // 65535 per dimension DirectX 12 allows, so the grid is 2D and the
+              // rows are laid out `row_stride` threads apart.
+              auto lane_count = warp_lane_count();
+              UInt lane = warp_lane_id();
+              UInt linear = block_id().y * row_stride +
+                            block_id().x * sort_block_size + thread_id().x;
+              UInt i = linear / lane_count;
               // internal nodes: [node_base, node_base + count - 2]
               $if (i + 1u < count) {
                   auto range = determine_range(keys, prim_base, count, cast<int>(i));
@@ -224,33 +266,44 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
                   auto child_b = select(node_base + split + 1u,
                                         node_base + count - 1u + split + 1u,
                                         split + 1u == range.y);
+                  // The AABB of the node: the union of the leaf AABBs of
+                  // [range.x, range.y], which pass 1 left as a contiguous run
+                  // of nodes at `leaf_base`.  The number of reduction steps is
+                  // sum over leaves of their depth (~count * mean_depth), so
+                  // this loop is the hottest part of the build - but the range
+                  // is extremely unbalanced: the root reduces the whole array
+                  // while a node at the bottom reduces two elements.  One thread
+                  // per node therefore leaves the few top nodes (which own most
+                  // of the work) running alone, which measured as ~95% of the
+                  // whole build.  Giving each node a whole warp instead splits
+                  // its range over `warp_lane_count()` lanes; the narrow nodes
+                  // at the bottom (the vast majority) end up reading a
+                  // contiguous run of nodes per warp instruction.
+                  auto leaf_base = node_base + count - 1u;
+                  auto length = range.y - range.x + 1u;
+                  // elements per lane; lanes whose slice is empty contribute the
+                  // identity and are dropped by the warp reduction
+                  auto chunk = (length + lane_count - 1u) / lane_count;
+                  auto begin = range.x + lane * chunk;
+                  auto end = min(begin + chunk, range.y + 1u);
                   auto lo = def(make_float3(1.0e30f));
                   auto hi = def(make_float3(-1.0e30f));
-                  $for (j, range.x, range.y + 1u) {
-                      auto slot = keys.read(prim_base + j).slot;
-                      auto prim = prims.read(prim_base + slot);
-                      lo = min(lo, prim.lo);
-                      hi = max(hi, prim.hi);
+                  $for (j, begin, end) {
+                      auto leaf = nodes.read(leaf_base + j);
+                      lo = min(lo, leaf.lo);
+                      hi = max(hi, leaf.hi);
                   };
-                  Var<LbvhNode> node;
-                  node.lo = lo;
-                  node.hi = hi;
-                  node.left = child_a;
-                  node.right = child_b;
-                  node.prim = 0u;
-                  nodes.write(node_base + i, node);
-              };
-              // leaves: [node_base + count - 1, node_base + 2 * count - 2]
-              $if (i < count) {
-                  auto slot = keys.read(prim_base + i).slot;
-                  auto prim = prims.read(prim_base + slot);
-                  Var<LbvhNode> leaf;
-                  leaf.lo = prim.lo;
-                  leaf.hi = prim.hi;
-                  leaf.left = invalid_node;
-                  leaf.right = invalid_node;
-                  leaf.prim = prim.id;
-                  nodes.write(node_base + count - 1u + i, leaf);
+                  lo = warp_active_min(lo);
+                  hi = warp_active_max(hi);
+                  $if (lane == 0u) {
+                      Var<LbvhNode> node;
+                      node.lo = lo;
+                      node.hi = hi;
+                      node.left = child_a;
+                      node.right = child_b;
+                      node.prim = 0u;
+                      nodes.write(node_base + i, node);
+                  };
               };
           }})} {}
 
@@ -280,18 +333,56 @@ void LbvhStorage::upload_instances(Stream &stream,
 }
 
 void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
-                             float3 lo, float3 hi) noexcept {
+                             float3 lo, float3 hi, LbvhBuildTimings *timings) noexcept {
     auto extent = max(hi - lo, make_float3(1.0e-8f));
     auto inv_extent = make_float3(1.0f) / extent;
+    // One code path for both callers: without `timings` the stages are simply
+    // recorded back to back (no fence, exactly as before), with it every stage
+    // is followed by a synchronisation so its time can be attributed.  The two
+    // radix-tree passes are *one* stage: the second reads the leaf nodes the
+    // first wrote, which the stream order guarantees without a fence, so a
+    // single `node_ms` covers both (as it covered the single fused pass).
+    Clock clock;
+    if (timings != nullptr) { clock.tic(); }
     stream << _morton_kernel(_prims, _keys_a, range.prim_base, range.count, lo, inv_extent)
                   .dispatch(range.count);
+    if (timings != nullptr) {
+        stream << synchronize();
+        timings->morton_ms += clock.toc();
+        clock.tic();
+    }
     // 4 x 8 bit LSD radix sort: keys_a -> keys_b -> ... -> keys_a
     stream << _sort_kernel(_keys_a, _keys_b, range.prim_base, range.count, 0u).dispatch(sort_block_size)
            << _sort_kernel(_keys_b, _keys_a, range.prim_base, range.count, 8u).dispatch(sort_block_size)
            << _sort_kernel(_keys_a, _keys_b, range.prim_base, range.count, 16u).dispatch(sort_block_size)
            << _sort_kernel(_keys_b, _keys_a, range.prim_base, range.count, 24u).dispatch(sort_block_size);
-    stream << _build_kernel(_keys_a, _prims, _nodes, range.prim_base, range.node_base, range.count)
+    if (timings != nullptr) {
+        stream << synchronize();
+        timings->sort_ms += clock.toc();
+        clock.tic();
+    }
+    // Radix tree: the leaves first (one random `prims` read per leaf, then the
+    // leaf node is written), then the internal nodes (one warp per node, the
+    // lanes splitting the node's leaf range).
+    stream << _leaf_kernel(_keys_a, _prims, _nodes, range.prim_base, range.node_base, range.count)
                   .dispatch(range.count);
+    if (range.count > 1u) {
+        // One warp per internal node, i.e. `count * warp_size` threads, laid out
+        // over a 2D grid whose every dimension stays inside the 65535 work-groups
+        // DirectX 12 allows per dimension (`rows` of `row_stride` threads each).
+        auto threads = static_cast<size_t>(range.count) * _warp_size;
+        auto groups = (threads + sort_block_size - 1u) / sort_block_size;
+        auto groups_x = std::min<size_t>(groups, max_build_dispatch_groups);
+        auto rows = (groups + groups_x - 1u) / groups_x;
+        auto row_stride = static_cast<uint>(groups_x * sort_block_size);
+        stream << _build_kernel(_keys_a, _nodes, range.prim_base, range.node_base,
+                                range.count, row_stride)
+                      .dispatch(groups_x * sort_block_size, static_cast<uint>(rows));
+    }
+    if (timings != nullptr) {
+        stream << synchronize();
+        timings->node_ms += clock.toc();
+    }
 }
 
 size_t LbvhStorage::validate_tree(Stream &stream, uint node_base, uint count) noexcept {

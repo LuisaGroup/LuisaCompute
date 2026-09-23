@@ -144,6 +144,19 @@ luisa_compute_add_example(example_software_lbvh
         compute/lbvh/tlas.cpp
         compute/lbvh/software_lbvh.cpp
         MIRROR_AS_TEST)
+# Performance benchmark of the software LBVH: adversarial (worst-case) scenes and
+# build/traversal stress sweeps with a device-memory budget.  Not mirrored as a
+# test: it reports numbers instead of asserting, and the release build is the one
+# whose numbers are meaningful.
+luisa_compute_add_example(example_software_lbvh_bench
+        compute/lbvh/bench/benchmark_lbvh.cpp
+        compute/lbvh/bench/bench_scenes.cpp
+        compute/lbvh/bench/bench_harness.cpp
+        compute/lbvh/bench/bench_stats.cpp
+        compute/lbvh/lbvh_storage.cpp
+        compute/lbvh/blas.cpp
+        compute/lbvh/tlas.cpp
+        compute/lbvh/software_lbvh.cpp)
 # n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
 add_subdirectory(compute/tokenize)
 luisa_compute_add_example(example_multi_head_attention

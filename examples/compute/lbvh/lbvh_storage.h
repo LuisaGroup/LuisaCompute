@@ -70,7 +70,18 @@ public:
     // Morton codes -> 4 x 8-bit LSD radix sort -> radix tree + node AABBs.
     // The primitive AABBs of `range` must have been filled in already; they are
     // expected to lie inside [lo, hi], which is mapped onto the unit cube.
-    void build_tree(Stream &stream, const TreeRange &range, float3 lo, float3 hi) noexcept;
+    // With a non-null `timings` the stages are separated by a synchronisation
+    // and their host-observed times are added into `timings` (see
+    // `LbvhBuildTimings`); a null pointer keeps the plain recorded build.
+    //
+    // The radix-tree construction itself is *two* dispatches over the same
+    // tree - the leaves first, the internal nodes second - which is what
+    // `node_ms` covers: an internal node's AABB is the union of the leaf AABBs
+    // of its range, and once the leaves exist those are contiguous in the node
+    // buffer, so the reduction streams the leaf array instead of chasing one
+    // random `prims` element per range slot (see the kernel comments).
+    void build_tree(Stream &stream, const TreeRange &range, float3 lo, float3 hi,
+                    LbvhBuildTimings *timings = nullptr) noexcept;
 
     // Structural self-check of one built tree: every node must be reachable from
     // the root exactly once, and every internal node AABB must be the union of
@@ -95,9 +106,14 @@ private:
     Buffer<LbvhNode> _nodes;
     Buffer<LbvhBlas> _blas_table;
     Buffer<LbvhInstance> _instances;
+    // Warp (wave/sub-group) width of the device, queried once.  The radix-tree
+    // construction dispatches one warp per internal node, so the host side needs
+    // the same constant the kernel's `warp_lane_count()` expands to.
+    uint _warp_size{32u};
     Shader1D<Buffer<LbvhPrim>, Buffer<LbvhKey>, uint, uint, float3, float3> _morton_kernel;
     Shader1D<Buffer<LbvhKey>, Buffer<LbvhKey>, uint, uint, uint> _sort_kernel;
-    Shader1D<Buffer<LbvhKey>, Buffer<LbvhPrim>, Buffer<LbvhNode>, uint, uint, uint> _build_kernel;
+    Shader1D<Buffer<LbvhKey>, Buffer<LbvhPrim>, Buffer<LbvhNode>, uint, uint, uint> _leaf_kernel;
+    Shader2D<Buffer<LbvhKey>, Buffer<LbvhNode>, uint, uint, uint, uint> _build_kernel;
 };
 
 }// namespace luisa::example::lbvh

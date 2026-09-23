@@ -129,8 +129,15 @@ inline constexpr uint invalid_node = 0xFFFFFFFFu;
 // Work-group size of the radix sort (one single work-group sorts a whole tree).
 inline constexpr uint sort_block_size = 256u;
 inline constexpr uint sort_radix_bins = 256u;
+// Upper bound of one grid dimension of the radix-tree construction.  That kernel
+// spends one warp on every internal node, i.e. `primitive_count * warp_size`
+// threads, which for any tree of a few hundred thousand primitives is a grid
+// larger than the 65535 work-groups per dimension DirectX 12 allows for a single
+// Dispatch().  The grid of that kernel is therefore two-dimensional and folded at
+// this many work-groups per dimension.
+inline constexpr uint max_build_dispatch_groups = 65535u;
 // Software traversal stack; a Morton-code radix tree is far shallower than this.
-inline constexpr uint traversal_stack_size = 92u;
+inline constexpr uint traversal_stack_size = 64u;
 
 // ---------------------------------------------------------------------------
 // Host-side build-size query of one LBVH.
@@ -171,6 +178,33 @@ struct LbvhBuildSizes {
     sizes.scratch_bytes = primitive_count * (sizeof(LbvhPrim) + 2u * sizeof(LbvhKey));
     return sizes;
 }
+
+// ---------------------------------------------------------------------------
+// Opt-in per-stage build timings.
+//
+// The build is a chain of four dependent kernels (primitive AABBs, Morton
+// codes, the four radix-sort passes and the radix-tree construction), and which
+// one dominates is not visible from outside: the whole chain is recorded into
+// one stream and there is no fence between the stages.  A caller that passes a
+// non-null pointer therefore asks the build to *synchronise between the stages*
+// and to accumulate the host-observed time of each one, which is what the
+// benchmark needs to attribute the build cost to a stage.
+//
+// The values are wall-clock and include the per-stage submission, so they are
+// only meaningful in release builds; `timings == nullptr` takes exactly the
+// untimed code path (no extra synchronisation), so the timing hook costs
+// nothing to the users that do not ask for it.  The fields *accumulate*, so a
+// whole scene (K BLASes + 1 TLAS) can be timed into a single record.
+// ---------------------------------------------------------------------------
+struct LbvhBuildTimings {
+    double prim_ms{0.0};  // primitive AABB kernel (only the BLAS/TLAS builder knows it)
+    double morton_ms{0.0};// Morton codes of every primitives
+    double sort_ms{0.0};  // the 4 LSD radix-sort passes together
+    double node_ms{0.0};  // radix-tree construction (leaves, internals, AABBs)
+    [[nodiscard]] double total_ms() const noexcept {
+        return prim_ms + morton_ms + sort_ms + node_ms;
+    }
+};
 
 // A row of a 4x4 matrix as a float4, for the explicit row-major transforms of
 // `LbvhInstance`.

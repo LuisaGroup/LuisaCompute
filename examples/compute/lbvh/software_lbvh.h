@@ -74,17 +74,30 @@ public:
                                          luisa::span<const InstanceDesc> instances) noexcept;
 
     // ---- build (records the GPU work; mirrors the backends' build) -------
+    // The optional `timings` asks the build to separate its stages by a
+    // synchronisation and to accumulate their host-observed times into it; the
+    // default (null) keeps the plain recorded build (see `LbvhBuildTimings`).
     void build_blas(Stream &stream, const Blas &blas, const Buffer<float3> &vertices,
                     const Buffer<Triangle> &triangles,
-                    AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
+                    AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE,
+                    LbvhBuildTimings *timings = nullptr) noexcept;
     void build_accel(Stream &stream, const Tlas &tlas,
-                     AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
+                     AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE,
+                     LbvhBuildTimings *timings = nullptr) noexcept;
 
     // ---- traversal -------------------------------------------------------
+    // `ray_offset` and `ray_stride` (additive, defaults 0 and 1) let a caller
+    // trace a *strided slice* of the ray buffer: it walks the indices
+    // `ray_offset, ray_offset + ray_stride, ...`.  That is what a caller that
+    // must keep every single device submission short does - it splits the rays
+    // into slices instead of issuing one dispatch over all of them - and striding
+    // (rather than a contiguous range) keeps every slice representative of the
+    // whole ray set.  The defaults trace the whole range contiguously, i.e. the
+    // behaviour is unchanged.
     void trace_software(Stream &stream, const Buffer<float3> &vertices,
                         const Buffer<Triangle> &triangles, const Buffer<LbvhRay> &rays,
-                        const Buffer<LbvhHit> &hits, const Tlas &tlas,
-                        uint ray_count) noexcept;
+                        const Buffer<LbvhHit> &hits, const Tlas &tlas, uint ray_count,
+                        uint ray_offset = 0u, uint ray_stride = 1u) noexcept;
 
     // Structural self-check of one built tree; returns the number of problems
     // found (see LbvhStorage::validate_tree).
@@ -106,7 +119,7 @@ private:
     BlasBuilder _blas_builder;
     TlasBuilder _tlas_builder;
     Shader1D<Buffer<LbvhNode>, Buffer<LbvhBlas>, Buffer<LbvhInstance>, Buffer<float3>,
-             Buffer<Triangle>, Buffer<LbvhRay>, Buffer<LbvhHit>, uint, uint>
+             Buffer<Triangle>, Buffer<LbvhRay>, Buffer<LbvhHit>, uint, uint, uint, uint>
         _trace_kernel;
     size_t _blas_count{0u};
 };

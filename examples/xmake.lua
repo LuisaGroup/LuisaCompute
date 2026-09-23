@@ -84,6 +84,12 @@ end)
     example_proj("example_software_lbvh", "compute/software_lbvh.cpp", false, function()
         add_files("compute/lbvh/*.cpp")
     end)
+    -- Performance benchmark of the software LBVH: adversarial (worst-case) scenes and
+    -- build/traversal stress sweeps.  Debug mode checks correctness under ASan, release
+    -- mode produces the numbers; run with `xmake run example_software_lbvh_bench cuda`.
+    example_proj("example_software_lbvh_bench", "compute/lbvh/bench/benchmark_lbvh.cpp", false, function()
+        add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/*.cpp")
+    end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
