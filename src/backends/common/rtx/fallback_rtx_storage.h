@@ -3,9 +3,11 @@
 // radix sort (fallback_rtx_sort.h) and the Karras radix-tree construction.
 //
 // This is the port of examples/compute/lbvh/lbvh_storage.{h,cpp}.  The
-// algorithm is that file's algorithm; what changed is the *layout* it writes
-// (fallback_rtx_layout.h) and the fact that the sizes are only discovered at
-// build time:
+// algorithm is that file's algorithm - including the shape of the tree
+// construction, which is the four passes of `build_tree()` (leaves, the plan of
+// the internal nodes, the block AABBs and the reduction); what changed is the
+// *layout* it writes (fallback_rtx_layout.h) and the fact that the sizes are
+// only discovered at build time:
 //
 //   * one *acceleration buffer* (`Buffer<uint4>`) holds every tree of the
 //     device, one *region* per tree.  Child handles are the bit pattern of the
@@ -16,6 +18,7 @@
 //     writes the AABB planes and the handles as *integers*, which is why the
 //     packing helpers below differ from the example's float-Lane ones;
 //   * the build scratch (primitive AABBs, Morton keys, the per-tree volume
+//     reduction, the internal-node plan and the block AABBs of the two-level
 //     reduction) is typed and shared, exactly like the example's `_prims` /
 //     `_keys_a` / `_keys_b`;
 //   * every buffer *grows by appending* (`detail::GrowableBuffer`): a larger
@@ -70,12 +73,20 @@
 
 // Input of one LBVH: the primitive AABB plus the id copied into the leaf node
 // (local triangle index for a BLAS, instance index for a TLAS).
+//
+// It is two `float4` and not the obvious `{uint id; float3 lo; float3 hi;}`: a
+// `float3` is 16-byte aligned, so that struct is 48 bytes, every record starts at
+// a multiple of 48 and therefore straddles a 32-byte sector boundary.  The leaf
+// pass reads one *random* `prims[slot]` per leaf and the Morton pass streams all
+// of them, so the 32-byte form costs a third fewer bytes and makes a random read
+// one aligned pair of sectors instead of a straddling 48-byte window.  The id
+// travels in the unused fourth lane of the lower plane (`prim_id`), which is what
+// keeps the record at 32 bytes.
 struct FallbackRtxPrim {
-    luisa::uint id;
-    luisa::float3 lo;
-    luisa::float3 hi;
+    luisa::float4 lo;// xyz = AABB min, w = the bit pattern of the primitive id
+    luisa::float4 hi;// xyz = AABB max, w = unused
 };
-LUISA_STRUCT(FallbackRtxPrim, id, lo, hi) {};
+LUISA_STRUCT(FallbackRtxPrim, lo, hi) {};
 
 namespace lc::fallback_rtx {
 
@@ -119,6 +130,60 @@ template<typename N>
 // when `node_child_left()` says it is a leaf).
 template<typename N>
 [[nodiscard]] inline UInt node_child_right(N &&node) noexcept { return node.w; }
+
+// ---------------------------------------------------------------------------
+// Field access of a primitive record: the AABB planes and the id the leaf node
+// carries (the lower plane's fourth lane).
+// ---------------------------------------------------------------------------
+
+template<typename P>
+[[nodiscard]] inline Float3 prim_lo(P &&prim) noexcept {
+    return make_float3(prim.lo.x, prim.lo.y, prim.lo.z);
+}
+
+template<typename P>
+[[nodiscard]] inline Float3 prim_hi(P &&prim) noexcept {
+    return make_float3(prim.hi.x, prim.hi.y, prim.hi.z);
+}
+
+template<typename P>
+[[nodiscard]] inline UInt prim_id(P &&prim) noexcept {
+    return prim.lo.w.template bitcast<uint>();
+}
+
+// ---------------------------------------------------------------------------
+// The two-level reduction of the internal-node AABBs.
+//
+// Internal node `i`'s AABB is the union of the leaf AABBs of its range, and the
+// range is extremely unbalanced: the direct form - one warp per node walking its
+// own range - reads `sum over nodes of range length`, i.e. every leaf once per
+// ancestor, which is `count * mean_depth` reads for `count` leaves (~20x the
+// leaves for a 1M-primitive tree) when only `count` are needed.
+//
+// Block `b` is the AABB of the `node_reduction_block` leaves `[b * block,
+// (b + 1) * block)` of one tree, computed by one pass that reads every leaf
+// exactly once (`_block_kernel`).  A node's range is then covered by three
+// disjoint pieces - the leaves up to the next block boundary, the whole blocks
+// strictly inside the range, and the leaves after the last boundary - so the
+// reduction reads O(count / block) block records plus two partial blocks instead
+// of the whole range.  A node whose range stays inside one block takes the first
+// piece only, which is exactly the work the direct form did.
+//
+// The union is *bit-identical* to the direct one: min/max are exact, every
+// element of the range is still read exactly once, and a reduction step is a
+// min/max, which is associative - so the blocks reorder the reads without
+// changing the result.
+//
+// The block size is the warp width: the block pass gives one warp one block and
+// the lanes walk it together, so a block is one warp-instruction-wide run of
+// consecutive records (the coalescing argument of the reduction loop below).
+// ---------------------------------------------------------------------------
+inline constexpr uint node_reduction_block = 32u;
+
+// uint4 slots of one internal-node plan record (`[range.x, range.y, child_a,
+// child_b]`) and of one block AABB (the two planes of a node pair).
+inline constexpr uint plan_record_u4 = 1u;
+inline constexpr uint block_record_u4 = node_u4;
 
 // ---------------------------------------------------------------------------
 // The unit-cube mapping of the Morton codes needs the scene bounds, which the
@@ -209,9 +274,21 @@ struct FallbackRtxRegion {
     uint prim_offset{};    // slice of the shared primitive scratch
     uint reduce_offset{};  // slice of the shared reduction scratch (uints)
     uint instance_offset{};// slice of the instance buffer (u4, TLAS)
+    // Slice of the two build-only scratch buffers: `_plan` holds one record per
+    // internal node (written by `_plan_kernel`, read by the reduction) and
+    // `_blocks` one record per `node_reduction_block` leaves.  Neither is part of
+    // the ABI (a traversal never reads them), so they live outside the region and
+    // are not counted in `region_u4()`.
+    uint plan_base{};      // first plan record (u4) of the tree
+    uint block_base{};     // first block record (u4) of the tree
     [[nodiscard]] uint region_u4() const noexcept {
         return header_u4 + node_u4 * node_count +
                index_count + vertex_count + blas_record_u4 * blas_count;
+    }
+    // Records the tree reserves in the two build-only scratch buffers.
+    [[nodiscard]] uint internal_count() const noexcept { return prim_count - 1u; }
+    [[nodiscard]] uint block_count() const noexcept {
+        return (prim_count + node_reduction_block - 1u) / node_reduction_block;
     }
 };
 
@@ -263,10 +340,11 @@ public:
     // ---- build stages ------------------------------------------------------
 
     // Stages 2..4 of a build, in one list: Morton codes, the 4 x 8-bit LSD
-    // radix sort and the Karras radix tree (leaves, then internal nodes).  The
-    // caller has already filled the primitive AABBs of `region` and started its
-    // reduction slot; this encodes everything else, including the volume
-    // reduction the Morton codes are normalized with.
+    // radix sort and the Karras radix tree (the leaves, the plan of the internal
+    // nodes, the block AABBs and the reduction that turns the two into the
+    // internal-node AABBs).  The caller has already filled the primitive AABBs of
+    // `region` and started its reduction slot; this encodes everything else,
+    // including the volume reduction the Morton codes are normalized with.
     void build_tree(CommandList &commands, const FallbackRtxRegion &region) noexcept;
 
     // ---- introspection -----------------------------------------------------
@@ -277,6 +355,8 @@ public:
     [[nodiscard]] const Buffer<FallbackRtxPrim> &prims() const noexcept { return _prims.buffer(); }
     [[nodiscard]] const Buffer<FallbackRtxKey> &keys_a() const noexcept { return _keys_a.buffer(); }
     [[nodiscard]] const Buffer<FallbackRtxKey> &keys_b() const noexcept { return _keys_b.buffer(); }
+    [[nodiscard]] const Buffer<uint4> &plan() const noexcept { return _plan.buffer(); }
+    [[nodiscard]] const Buffer<uint4> &blocks() const noexcept { return _blocks.buffer(); }
     [[nodiscard]] const Buffer<uint> &reduce() const noexcept { return _reduce.buffer(); }
     [[nodiscard]] const Buffer<uint4> &blas_directory() const noexcept { return _blas_directory.buffer(); }
     [[nodiscard]] const FallbackRtxSort &sort() const noexcept { return _sort; }
@@ -331,6 +411,11 @@ private:
     detail::GrowableBuffer<FallbackRtxKey> _keys_b;
     detail::GrowableBuffer<uint> _reduce;
     detail::GrowableBuffer<uint4> _blas_directory;
+    // Build-only scratch of the internal-node passes (see
+    // `node_reduction_block`): the plan of every internal node, and the AABB of
+    // every `node_reduction_block` leaves.
+    detail::GrowableBuffer<uint4> _plan;
+    detail::GrowableBuffer<uint4> _blocks;
     FallbackRtxSort _sort;
     Device *_device{nullptr};
 
@@ -338,11 +423,14 @@ private:
     size_t _instance_used{0u};
     size_t _prim_used{0u};
     size_t _reduce_used{0u};
+    size_t _plan_used{0u}; // u4: one per internal node
+    size_t _block_used{0u};// u4: `block_record_u4` per block
     size_t _blas_directory_used{0u};
 
     // Warp (wave/sub-group) width of the device, queried once.  The radix-tree
-    // construction dispatches one warp per internal node, so the host side needs
-    // the same constant the kernel's `warp_lane_count()` expands to.
+    // construction dispatches one warp per internal node and one per block of the
+    // two-level reduction, so the host side needs the same constant the kernels'
+    // `warp_lane_count()` expands to.
     uint _warp_size{32u};
 
     // The identity of both min/max reductions, written by `reset_reduction`.
@@ -353,12 +441,20 @@ private:
         _morton_kernel;
     // Scene bounds -> the unit cube, one thread.
     Shader1D<Buffer<uint>, uint> _volume_kernel;
-    // Tree construction, pass 1 of 2: the leaves.
+    // Tree construction, pass 1 of 4: the leaves.
     Shader1D<Buffer<FallbackRtxKey>, Buffer<FallbackRtxPrim>, Buffer<uint4>,
              uint, uint, uint>
         _leaf_kernel;
-    // Tree construction, pass 2 of 2: the internal nodes.
-    Shader2D<Buffer<FallbackRtxKey>, Buffer<uint4>, uint, uint, uint, uint> _build_kernel;
+    // Tree construction, pass 2 of 4: the structure of the internal nodes (the
+    // Karras searches), one thread per node.
+    Shader1D<Buffer<FallbackRtxKey>, Buffer<uint4>, uint, uint, uint, uint>
+        _plan_kernel;
+    // Tree construction, pass 3 of 4: the AABB of every `node_reduction_block`
+    // leaves, one warp per block.
+    Shader1D<Buffer<uint4>, Buffer<uint4>, uint, uint, uint> _block_kernel;
+    // Tree construction, pass 4 of 4: the AABBs of the internal nodes, one warp
+    // per node, from the plan and the blocks.
+    Shader2D<Buffer<uint4>, Buffer<uint4>, Buffer<uint4>, uint, uint, uint, uint, uint> _build_kernel;
     // The region header, from the planner's own numbers.
     Shader1D<Buffer<uint4>, uint4, uint4, uint4> _header_kernel;
     // One blas-table record of the shared directory, from two uniforms.

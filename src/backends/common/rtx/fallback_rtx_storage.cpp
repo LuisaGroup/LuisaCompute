@@ -13,6 +13,11 @@
 //     geometry, so the build reduces it on the device (`_volume_kernel`) and the
 //     Morton kernel reads it from the reduction slot;
 //   * every allocation goes through `detail::GrowableBuffer`, i.e. it appends.
+//
+// The tree construction itself is that file's, pass for pass: the leaves, the
+// plan of the internal nodes (one lane per node), the block AABBs of the
+// two-level reduction and the reduction that reads the two back (one warp per
+// node), so the two node stages stay comparable between the example and here.
 
 #include "fallback_rtx_storage.h"
 
@@ -34,6 +39,8 @@ namespace {
 constexpr size_t kInitialAccelU4 = 1024u;   // 16 KiB: a few small meshes
 constexpr size_t kInitialInstanceU4 = 1024u;// 128 instances
 constexpr size_t kInitialPrims = 1024u;     // triangles + instances
+constexpr size_t kInitialPlanU4 = 1024u;    // internal nodes of the trees built so far
+constexpr size_t kInitialBlockU4 = 128u;    // 64 blocks of the two-level reduction
 constexpr size_t kInitialReductionSlots = 8u;
 constexpr size_t kInitialDirectoryEntries = 16u;
 
@@ -52,6 +59,8 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
       _keys_b{device, kInitialPrims},
       _reduce{device, kInitialReductionSlots * reduce_slot_uints},
       _blas_directory{device, kInitialDirectoryEntries * blas_record_u4},
+      _plan{device, kInitialPlanU4},
+      _blocks{device, kInitialBlockU4},
       _sort{device, kInitialPrims},
       _device{&device},
       _warp_size{device.compute_warp_size()},
@@ -94,7 +103,7 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
                       reduce.read(reduce_offset + reduce_volume_inv + 1u).bitcast<float>(),
                       reduce.read(reduce_offset + reduce_volume_inv + 2u).bitcast<float>());
                   auto prim = prims.read(prim_base + i);
-                  auto center = (prim.lo + prim.hi) * 0.5f;
+                  auto center = (prim_lo(prim) + prim_hi(prim)) * 0.5f;
                   auto mapped = clamp((center - scene_min) * scene_inv_extent,
                                       make_float3(0.0f), make_float3(1.0f)) *
                                 1024.0f;
@@ -134,10 +143,10 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
               };
           }})},
 
-      // Radix-tree construction, pass 1 of 2: the leaves.  Leaf `i` is the
+      // Radix-tree construction, pass 1 of 4: the leaves.  Leaf `i` is the
       // primitive at sorted position `i`, so this pass is the *only* place that
       // still chases the random `prims[slot]` read; it writes the leaf AABB into
-      // the node array, where pass 2 reads it back contiguously.
+      // the node array, where the reduction reads it back contiguously.
       _leaf_kernel{device.compile(Kernel1D{
           [](BufferVar<FallbackRtxKey> keys, BufferVar<FallbackRtxPrim> prims,
              BufferVar<uint4> accel, UInt prim_base, UInt node_base, UInt count) noexcept {
@@ -151,23 +160,34 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
                   // right handle is the primitive id (the local triangle index of
                   // a BLAS, the instance index of a TLAS).
                   auto node = node_base + (count - 1u + i) * node_u4;
-                  accel.write(node, pack_node_plane(prim.lo, invalid_offset));
-                  accel.write(node + 1u, pack_node_plane(prim.hi, prim.id));
+                  accel.write(node, pack_node_plane(prim_lo(prim), invalid_offset));
+                  accel.write(node + 1u, pack_node_plane(prim_hi(prim), prim_id(prim)));
               };
           }})},
 
-      // Radix-tree construction, pass 2 of 2: the internal nodes.
+      // Radix-tree construction, pass 2 of 4: the *structure* of the internal
+      // nodes - the two Karras searches - with one thread (not one warp) per node.
       //
-      // Internal node `i`'s AABB is the union of the leaf AABBs of its range
-      // [range.x, range.y], and the leaf nodes of a tree are contiguous at
-      // `node_base + count - 1`: the reduction therefore streams that array
-      // instead of doing one random `keys` read plus one random `prims` read per
-      // range slot, and it no longer touches `keys` at all - the two searches do,
-      // and they stay close to `i`.
-      _build_kernel{device.compile(Kernel2D{
-          [](BufferVar<FallbackRtxKey> keys, BufferVar<uint4> accel, UInt prim_base,
-             UInt node_base, UInt count, UInt row_stride) noexcept {
-              set_block_size(sort_block_size, 1u);
+      // Both searches are chains of *dependent* reads of the sorted keys: the
+      // range search walks away from the node by doubling a stride until the
+      // common prefix of the keys breaks and then binary-searches back, and the
+      // split search binary-searches the range it found.  One node is therefore
+      // ~3 * log2(count) serialised key loads.  A whole warp per node runs that
+      // same chain 32 times over with a *single* load in flight; with one lane per
+      // node a warp keeps `warp_lane_count()` independent chains in flight
+      // instead, and 32 nodes finish in the time one did.
+      //
+      // The pass reads the sorted keys and writes one `uint4` per internal node -
+      // `[range.x, range.y, child_a, child_b]` - which is what makes one thread
+      // per node enough.  The reduction of pass 4 keeps the warp-per-node shape,
+      // because its work (a range of leaves) is what the lanes split.
+      //
+      // It only needs the sorted keys, so it is recorded *before* the block pass
+      // purely to keep the four passes of the tree in reading order.
+      _plan_kernel{device.compile(Kernel1D{
+          [](BufferVar<FallbackRtxKey> keys, BufferVar<uint4> plans, UInt prim_base,
+             UInt node_base, UInt plan_base, UInt count) noexcept {
+              set_block_size(sort_block_size);
               // VkLBVH's delta(): the number of leading bits shared by two keys
               // (i.e. clz of their xor).  Equal Morton codes are ordered by their
               // sorted slot, which keeps the keys strictly increasing and the
@@ -231,17 +251,8 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
                   return cast<uint>(split);
               };
 
-              // One *warp* per internal node, the lanes cooperating on the
-              // node's leaf range (see the reduction below).  A warp costs
-              // `warp_lane_count()` threads per node, so the grid is a 2D fold of
-              // `count * warp_size / sort_block_size` groups at the 65535 groups
-              // per dimension DirectX 12 allows.
-              auto lane_count = warp_lane_count();
-              UInt lane = warp_lane_id();
-              UInt linear = block_id().y * row_stride +
-                            block_id().x * sort_block_size + thread_id().x;
-              UInt i = linear / lane_count;
               // internal nodes: [node_base, node_base + 2 * (count - 2)]
+              UInt i = dispatch_id().x;
               $if (i + 1u < count) {
                   auto range = determine_range(keys, prim_base, count, cast<int>(i));
                   auto split = find_split(keys, prim_base, count, range.x, range.y);
@@ -255,16 +266,110 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
                   auto child_b = select(node_base + (split + 1u) * node_u4,
                                         leaf_base + (split + 1u) * node_u4,
                                         split + 1u == range.y);
+                  plans.write(plan_base + i, make_uint4(range.x, range.y, child_a, child_b));
+              };
+          }})},
+
+      // Radix-tree construction, pass 3 of 4: the block AABBs of the two-level
+      // reduction (see `node_reduction_block`).  Block `b` is the AABB of the
+      // leaves `[b * node_reduction_block, (b + 1) * ...)` of *this* tree, counted
+      // from its own leaf array at `node_base + count - 1`: this pass reads every
+      // leaf of the tree exactly once and turns the O(count * mean_depth) traffic
+      // of the direct reduction into O(count) here plus O(count / block) in pass
+      // 4.  One warp per block, the lanes walking the block together like the
+      // reduction does.
+      //
+      // A tree with no more leaves than one block dispatches no block pass at all:
+      // every node's range then lies inside block 0, pass 4 never reads the array
+      // and takes the single-loop path it took before this pass existed.
+      _block_kernel{device.compile(Kernel1D{
+          [](BufferVar<uint4> accel, BufferVar<uint4> blocks, UInt leaf_base,
+             UInt block_base, UInt count) noexcept {
+              set_block_size(sort_block_size);
+              auto lane_count = warp_lane_count();
+              UInt lane = warp_lane_id();
+              UInt block = (block_id().x * sort_block_size + thread_x()) / lane_count;
+              auto first = block * node_reduction_block;
+              auto last = min(first + node_reduction_block, count);
+              // The lanes of the warp all hold the same `block`, so the whole warp
+              // is active inside the guard and the lanes that run past the end
+              // contribute the identity to the reduction.
+              $if (first < last) {
+                  auto lo = def(make_float3(1.0e30f));
+                  auto hi = def(make_float3(-1.0e30f));
+                  auto j = def(first + lane);
+                  $while (j < last) {
+                      auto plane_lo = accel.read(leaf_base + j * node_u4);
+                      auto plane_hi = accel.read(leaf_base + j * node_u4 + 1u);
+                      lo = min(lo, node_aabb_lo(plane_lo));
+                      hi = max(hi, node_aabb_hi(plane_hi));
+                      j = j + lane_count;
+                  };
+                  lo = warp_active_min(lo);
+                  hi = warp_active_max(hi);
+                  $if (lane == 0u) {
+                      // The handle lanes of a block are unused: only the AABB
+                      // planes are read back (pass 4).
+                      auto bounds = block_base + block * block_record_u4;
+                      blocks.write(bounds, pack_node_plane(lo, 0u));
+                      blocks.write(bounds + 1u, pack_node_plane(hi, 0u));
+                  };
+              };
+          }})},
+
+      // Radix-tree construction, pass 4 of 4: the AABBs of the internal nodes,
+      // from the plan of pass 2 and the block AABBs of pass 3 - one warp per node.
+      //
+      // Internal node `i`'s AABB is the union of the leaf AABBs of its range, and
+      // the leaf nodes of a tree are contiguous at `node_base + count - 1`: the
+      // reduction streams that array instead of doing one random `prims` read per
+      // range slot, and it never touches `keys` at all - pass 2 does, and it stays
+      // close to `i`.
+      //
+      // The range is covered by three disjoint pieces (see
+      // `node_reduction_block`): the leaves from `range.x` to the next block
+      // boundary, the whole blocks strictly inside the range, and the leaves from
+      // the last block boundary to `range.y`.  A node whose range stays inside one
+      // block - which is the overwhelming majority: the mean range of a
+      // million-leaf tree is ~20 leaves - takes the first piece only and therefore
+      // costs exactly what the direct reduction cost.  The union is bit-identical
+      // to the direct reduction: min/max are exact, and every element of the range
+      // is read exactly once.
+      _build_kernel{device.compile(Kernel2D{
+          [](BufferVar<uint4> accel, BufferVar<uint4> blocks, BufferVar<uint4> plans,
+             UInt node_base, UInt plan_base, UInt block_base, UInt count,
+             UInt row_stride) noexcept {
+              set_block_size(sort_block_size, 1u);
+              // One *warp* per internal node, the lanes cooperating on the node's
+              // leaf range (see the reduction below).  A warp costs
+              // `warp_lane_count()` threads per node, so the grid is a 2D fold of
+              // `count * warp_size / sort_block_size` groups at the 65535 groups
+              // per dimension DirectX 12 allows.
+              auto lane_count = warp_lane_count();
+              UInt lane = warp_lane_id();
+              UInt linear = block_id().y * row_stride +
+                            block_id().x * sort_block_size + thread_id().x;
+              UInt i = linear / lane_count;
+              // internal nodes: [node_base, node_base + 2 * (count - 2)]
+              $if (i + 1u < count) {
+                  auto plan = plans.read(plan_base + i);
+                  auto child_a = plan.z;
+                  auto child_b = plan.w;
+                  auto leaf_base = node_base + (count - 1u) * node_u4;
+                  // `plan.x` / `plan.y` are leaf *indices*, not slots: the leaves
+                  // of this tree start at its own `leaf_base`.
+                  auto first = plan.x;
+                  auto last = plan.y;
                   // The AABB of the node: the union of the leaf AABBs of
-                  // [range.x, range.y], which pass 1 left as a contiguous run of
-                  // nodes at `leaf_base`.  The number of reduction steps is
-                  // sum over leaves of their depth (~count * mean_depth), and the
-                  // range is extremely unbalanced: one thread per node would leave
-                  // the few top nodes - which own most of the work - running
-                  // alone, so every node gets a whole warp.
+                  // [first, last], which pass 1 left as a contiguous run of nodes
+                  // at `leaf_base`.  The number of reduction steps of the direct
+                  // form is sum over leaves of their depth (~count * mean_depth),
+                  // and the range is extremely unbalanced: one thread per node
+                  // would leave the few top nodes - which own most of the work -
+                  // running alone, so every node gets a whole warp.
                   //
-                  // The lanes walk the range *together* - lane `l` takes
-                  // `range.x + l, + lane_count, ...` - instead of each lane owning a
+                  // The lanes walk each piece *together* - lane `l` takes
+                  // `begin + l, + lane_count, ...` - instead of each lane owning a
                   // contiguous slice: a per-lane slice would put the lanes of one
                   // warp instruction `length / lane_count` records apart, i.e. 32
                   // unrelated cache lines per instruction, while the strided walk
@@ -274,12 +379,37 @@ FallbackRtxStorage::FallbackRtxStorage(Device &device) noexcept
                   // reduction.
                   auto lo = def(make_float3(1.0e30f));
                   auto hi = def(make_float3(-1.0e30f));
-                  auto j = def(range.x + lane);
-                  $while (j <= range.y) {
+                  auto first_block = first / node_reduction_block;
+                  auto last_block = last / node_reduction_block;
+                  // `left_end` is exclusive and `right_begin` is empty when the
+                  // range stays inside one block: the first loop then covers the
+                  // whole range and the block loop does not run at all.
+                  auto left_end = min(last + 1u, (first_block + 1u) * node_reduction_block);
+                  auto right_begin = max(left_end, last_block * node_reduction_block);
+                  // the leaves up to the next block boundary
+                  auto j = def(first + lane);
+                  $while (j < left_end) {
                       auto plane_lo = accel.read(leaf_base + j * node_u4);
                       auto plane_hi = accel.read(leaf_base + j * node_u4 + 1u);
                       lo = min(lo, node_aabb_lo(plane_lo));
                       hi = max(hi, node_aabb_hi(plane_hi));
+                      j = j + lane_count;
+                  };
+                  // the leaves after the last block boundary
+                  j = right_begin + lane;
+                  $while (j <= last) {
+                      auto plane_lo = accel.read(leaf_base + j * node_u4);
+                      auto plane_hi = accel.read(leaf_base + j * node_u4 + 1u);
+                      lo = min(lo, node_aabb_lo(plane_lo));
+                      hi = max(hi, node_aabb_hi(plane_hi));
+                      j = j + lane_count;
+                  };
+                  // the whole blocks strictly inside the range
+                  j = first_block + 1u + lane;
+                  $while (j < last_block) {
+                      auto bounds = block_base + j * block_record_u4;
+                      lo = min(lo, node_aabb_lo(blocks.read(bounds)));
+                      hi = max(hi, node_aabb_hi(blocks.read(bounds + 1u)));
                       j = j + lane_count;
                   };
                   lo = warp_active_min(lo);
@@ -338,9 +468,15 @@ FallbackRtxRegion FallbackRtxStorage::plan_blas(CommandList &commands,
     region.vertex_base = region.index_base + region.index_count;
     region.prim_offset = static_cast<uint>(_prim_used);
     region.reduce_offset = static_cast<uint>(_reduce_used);
+    region.plan_base = static_cast<uint>(_plan_used);
+    region.block_base = static_cast<uint>(_block_used);
     _accel_used += region.region_u4();
     _prim_used += triangle_count;
     _reduce_used += reduce_slot_uints;
+    // One plan record per internal node (`count - 1` of them) and one block per
+    // `node_reduction_block` leaves.
+    _plan_used += region.internal_count();
+    _block_used += region.block_count();
     // The regions are handed out in call order and never moved, so the planner
     // is deterministic: the same sequence of builds produces the same offsets.
     _accel.reserve(_accel_used, commands);
@@ -348,6 +484,8 @@ FallbackRtxRegion FallbackRtxStorage::plan_blas(CommandList &commands,
     _keys_a.reserve(_prim_used, commands);
     _keys_b.reserve(_prim_used, commands);
     _reduce.reserve(_reduce_used, commands);
+    _plan.reserve(_plan_used, commands);
+    _blocks.reserve(_block_used * block_record_u4, commands);
     _sort.reserve(_prim_used);
     return region;
 }
@@ -365,9 +503,13 @@ FallbackRtxRegion FallbackRtxStorage::plan_tlas(CommandList &commands,
     region.prim_offset = static_cast<uint>(_prim_used);
     region.reduce_offset = static_cast<uint>(_reduce_used);
     region.instance_offset = static_cast<uint>(_instance_used);
+    region.plan_base = static_cast<uint>(_plan_used);
+    region.block_base = static_cast<uint>(_block_used);
     _accel_used += region.region_u4();
     _prim_used += instance_count;
     _reduce_used += reduce_slot_uints;
+    _plan_used += region.internal_count();
+    _block_used += region.block_count();
     _instance_used += instance_count * instance_u4;
     _accel.reserve(_accel_used, commands);
     _instances.reserve(_instance_used, commands);
@@ -375,6 +517,8 @@ FallbackRtxRegion FallbackRtxStorage::plan_tlas(CommandList &commands,
     _keys_a.reserve(_prim_used, commands);
     _keys_b.reserve(_prim_used, commands);
     _reduce.reserve(_reduce_used, commands);
+    _plan.reserve(_plan_used, commands);
+    _blocks.reserve(_block_used * block_record_u4, commands);
     _sort.reserve(_prim_used);
     return region;
 }
@@ -424,23 +568,48 @@ void FallbackRtxStorage::build_tree(CommandList &commands,
     // 4 x 8 bit LSD radix sort into `keys_a` (see fallback_rtx_sort.h).
     _sort.sort(commands, _keys_a.buffer(), _keys_b.buffer(),
                region.prim_offset, region.prim_count);
-    // Radix tree: the leaves first (one random `prims` read per leaf, then the
-    // leaf node is written), then the internal nodes (one warp per node, the
-    // lanes splitting the node's leaf range).
+    // Radix tree: the leaves (one random `prims` read per leaf, then the leaf
+    // node is written), the structure of the internal nodes (pass 2, one lane per
+    // node), the block AABBs of the two-level reduction (pass 3) and the AABBs of
+    // the internal nodes (pass 4, one warp per node, the lanes splitting the
+    // node's leaf range).
     commands << _leaf_kernel(_keys_a.buffer(), _prims.buffer(), _accel.buffer(),
                              region.prim_offset, region.node_base, region.prim_count)
                     .dispatch(region.prim_count);
     if (region.prim_count > 1u) {
-        // One warp per internal node, i.e. `count * warp_size` threads, laid out
-        // over a 2D grid whose every dimension stays inside the 65535 work-groups
-        // DirectX 12 allows per dimension (`rows` of `row_stride` threads each).
+        // Pass 2: the structure of the internal nodes, one *lane* per node.  The
+        // searches are chains of dependent key reads, so a whole warp per node
+        // would compute the same chain `warp_lane_count()` times over; with one
+        // lane per node a warp instead keeps `warp_lane_count()` independent
+        // chains - that many loads - in flight (see `_plan_kernel`).
+        commands << _plan_kernel(_keys_a.buffer(), _plan.buffer(), region.prim_offset,
+                                 region.node_base, region.plan_base, region.prim_count)
+                        .dispatch(region.prim_count);
+        // Pass 3: the block AABBs the reduction of pass 4 reads back.  A tree
+        // that stays inside one block needs no block at all: every one of its
+        // ranges lies inside block 0, so the reduction takes the single-loop path
+        // it took before this pass existed, and dispatching the pass would be
+        // work nobody reads (`_block_kernel`).
+        if (region.prim_count > node_reduction_block) {
+            auto leaf_base = region.node_base + (region.prim_count - 1u) * node_u4;
+            auto threads = static_cast<size_t>(region.block_count()) * _warp_size;
+            auto groups = (threads + sort_block_size - 1u) / sort_block_size;
+            commands << _block_kernel(_accel.buffer(), _blocks.buffer(), leaf_base,
+                                      region.block_base, region.prim_count)
+                            .dispatch(static_cast<uint>(groups * sort_block_size));
+        }
+        // Pass 4: the AABBs of the internal nodes, one warp per node, i.e.
+        // `count * warp_size` threads, laid out over a 2D grid whose every
+        // dimension stays inside the 65535 work-groups DirectX 12 allows per
+        // dimension (`rows` of `row_stride` threads each).
         auto threads = static_cast<size_t>(region.prim_count) * _warp_size;
         auto groups = (threads + sort_block_size - 1u) / sort_block_size;
         auto groups_x = std::min<size_t>(groups, max_build_dispatch_groups);
         auto rows = (groups + groups_x - 1u) / groups_x;
         auto row_stride = static_cast<uint>(groups_x * sort_block_size);
-        commands << _build_kernel(_keys_a.buffer(), _accel.buffer(), region.prim_offset,
-                                  region.node_base, region.prim_count, row_stride)
+        commands << _build_kernel(_accel.buffer(), _blocks.buffer(), _plan.buffer(),
+                                  region.node_base, region.plan_base, region.block_base,
+                                  region.prim_count, row_stride)
                         .dispatch(static_cast<uint>(groups_x * sort_block_size),
                                   static_cast<uint>(rows));
     }

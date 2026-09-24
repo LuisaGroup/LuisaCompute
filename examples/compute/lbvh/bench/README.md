@@ -111,6 +111,25 @@ What is measured
  * Ranking: both scenes and the counters are ranked against uniform, per
    primitive for the build and per ray for the traversal.
 
+The bindless heap (layout change)
+
+The two-level LBVH used to hand a traversal one shared node buffer and to identify a
+BLAS by the absolute node index its region starts at.  Following the fallback RTX
+backend (src/backends/common/rtx/fallback_rtx_layout.h), a TLAS now owns a
+`BindlessArray` - its *heap* - whose slots hold the node *regions* of the trees
+(slot 0 is the null slot, slot 1 the TLAS' own region and slot 2 + i the node region
+of BLAS i), and an `LbvhBlas` record names its region by that slot.
+`pre_build_accel` registers one `BufferView<LbvhNode>` per tree and records the heap
+update; the traversal resolves the top level through slot 1 and each BLAS through the
+slot its table record carries, reading node `handle` as `heap[slot][handle -
+node_offset]` (a heap entry is a view that starts at the region, so the conversion is
+region-local and never negative).  Because a heap entry is a view and not an offset
+into one shared descriptor, a TLAS may reference a BLAS that was laid out before it -
+the constraint the old ABI could not express.  The instrumented walk mirrors the
+change, so its counters still describe the measured walk, and `validate_heap` (used by
+the demo, the test and `--validate`) checks on the device that every record resolves
+through its slot to the same root node the shared node buffer holds.
+
 Findings (RTX 4060, release, --iters 3, min of 3; cuda / dx / vk)
 
 Round 1 - the build was the radix-tree construction
@@ -128,7 +147,7 @@ first - the only place that chases a random prims read - then internal nodes, wh
 reduction streams the contiguous leaf array), and the internal-node pass uses one
 warp per node plus `warp_active_min/max`.
 
-Round 2 (this change) - the sort, and the cost of a node
+Round 2 - the sort, and the cost of a node
 
 (a) The radix sort became the dominant stage (42-62 % of the build: 13.45 ms of
 21.47 ms for 2^20 primitives on cuda).  It was a *single work-group* 4 x 8-bit LSD
@@ -191,8 +210,8 @@ exponent of the whole build dropped from 1.02-1.05 to **0.70** (node stage 1.03-
 catalogue comes near the 1000 ms budget (worst traversal slice 326 ms on vk
 `coincident`, worst build 63 ms on dx `instance-chain`).
 
-`instance-chain` is the remaining independent story: 257 trees of 4096 primitives
-mean ~1300 kernel *submissions* for one build (5 per tree: primitive AABBs, Morton,
+instance-chain is the remaining independent story: 257 trees of 4096 primitives
+mean ~1300 kernel submissions for one build (5 per tree: primitive AABBs, Morton,
 4 sort passes as one batch - the single-block path - leaves, internal nodes), and
 the measured build of 19 ms (cuda) is dominated by the launch path rather than by
 the arithmetic (the same work spread over one tree is ~0.07 ms).  Batching the
@@ -201,7 +220,94 @@ AABB kernel (removing one submission and one 8 B/element round trip per tree), a
 the measured next steps; both change the build interface from one tree per call to
 all trees per call.
 
-What the traversal does not do (measured, twice)
+Round 3 (this change) - the searches, the node AABB and the primitive record
+
+The build was revisited with an ablation pass, which is the only way to attribute
+it: `LbvhBuildTimings` resolves the four stages (primitive AABBs, Morton, sort,
+radix tree) and the radix tree was in turn ablated part by part.  The ablations
+are done with the relink of every variant verified (`xmake` decides staleness from
+mtimes, and an install that preserves timestamps silently re-runs the *previous*
+binary - which is how a first pass at this round produced numbers that did not
+reproduce).
+
+For 1 M primitives (cuda) the radix-tree stage used to be 4.5 ms, and ablation
+attributed it to the two searches of a node - `determineRange()` and `findSplit()`
+- rather than to the AABB reduction, and to the *shape* of the kernel rather than
+to the memory traffic:
+
+(a) Both searches are chains of ~3 * log2(range) *dependent* key reads (each step's
+address depends on the previous comparison), and the pass ran one *warp* per node,
+so all 32 lanes walked the same chain: the same answer was computed 32 times and
+the warp had exactly one load in flight.  The searches are now computed by one
+*lane* per node (`_plan_kernel`), which puts 32 independent chains in a warp -
+32 loads in flight instead of one - and the pass needs no work-group cooperation,
+so it is a plain 1D dispatch.  It publishes one `uint4` per node, (first, last,
+child_a, child_b), which is also the point where the plan is read back: the
+reduction pass gets a node's whole plan in one 16-byte vector load.
+
+(b) The AABB of a node is the union of the leaf AABBs of its range, so the direct
+reduction reads every leaf once per ancestor: sum(leaf depth) reads, ~21 M x 32 B
+for 1 M primitives.  `_block_kernel` now precomputes the AABB of every block of
+`node_reduction_block` (= warp width) aligned leaves - it reads every leaf exactly
+once - and a node's range is covered by three disjoint pieces (the leaves up to the
+next block boundary, the whole blocks strictly in between, the leaves from the last
+boundary).  A node whose range stays inside one block - the overwhelming majority,
+the mean range of a 1 M-primitive tree is ~20 leaves - takes the first piece only
+and costs exactly what it cost before, and the wide nodes at the top read one block
+AABB per 32 leaves instead of every leaf.  Blocks are indexed by the *global node
+slot* a leaf starts at, so no per-tree rounding is involved: the whole scene needs
+one block per 32 node slots.  min/max are exact and associative, and every element
+of the range is still read exactly once, so the resulting tree is **bit-identical**
+to the one the direct reduction produced - which is why the determinism, hit and
+RTX cross-checks of the test suite pass unchanged.
+
+(c) `LbvhPrim` - the primitive AABB plus the id - was `uint id; float3 lo; float3
+hi;`, i.e. 48 bytes, because `float3` is 16-byte aligned: a third more memory, and
+the *random* `prims[slot]` read of the leaf pass - the only random access of the
+whole build - touched two 32-byte L2 sectors instead of one.  It is now exactly two
+`float4` (32 bytes, two vector loads) with the id bit-cast into the spare fourth
+lane of the low plane, the same packing `LbvhNode` already used for its handles.
+This is where the pass that looked cheapest actually was: writing the record costs
+one 16-byte store instead of three scalar stores, and the primitive-AABB pass - the
+stage that *fills* it - dropped by ~40 % (see the table).
+
+| scene (cuda, `--iters 5`, min of 5) | build before -> after | prim | node |
+|---|---|---|---|
+| uniform (1 M, 262 K rays) | 6.54 -> 4.78 ms (1.36x) | 0.84 -> 0.48 | 4.53 -> 2.90 |
+| exponential (1 M) | 6.62 -> 3.44 ms (1.92x) | 0.81 -> 0.46 | 5.04 -> 2.65 |
+| coincident (262 K) | 1.07 -> 0.69 ms (1.54x) | 0.25 -> 0.14 | 0.75 -> 0.49 |
+| bimodal (262 K) | 1.12 -> 0.71 ms (1.57x) | 0.25 -> 0.15 | 0.80 -> 0.50 |
+| grid-duplicates (262 K) | 1.08 -> 0.70 ms (1.53x) | 0.26 -> 0.14 | 0.77 -> 0.50 |
+| line (1 M) | 4.57 -> 3.26 ms (1.40x) | 0.75 -> 0.46 | 3.42 -> 2.46 |
+| sliver-soup (16 K) | 0.17 -> 0.15 ms (1.13x) | 0.06 -> 0.06 | 0.11 -> 0.09 |
+| instance-chain (257 trees) | 19.4 -> 20.9 ms | 7.0 -> 8.9 | 10.8 -> 12.9 |
+
+(`prim` is the primitive-AABB pass of the build, `node` the whole radix-tree
+construction - leaves, block AABBs, plan, reduction.  Two back-to-back rounds of
+the same pair of binaries agree to within a few percent on the `node` and `prim`
+columns; the traversal column is deliberately absent, because it is unchanged and
+the spread of the *traversal-heavy* scenes between two sessions (up to 20 % on
+`coincident`, 200-280 ms for a bit-identical walk) is far larger than anything
+these changes did to it.  That spread is also why every conclusion above comes
+from an interleaved A/B - the two variants rebuilt and re-run alternately in the
+same session - rather than from a before/after pair of files.)
+
+instance-chain is the one scene that does not follow: it is launch-bound and its
+four kernels per tree became six (the plan and the block pass), which costs more
+than the ~0.6 ms of arithmetic per tree that was saved.  Batching the trees into
+one dispatch per stage is still the fix - and now a slightly bigger one.
+
+What is left on the build: the reduction pass is now the largest piece of the
+radix tree (1.9 ms of the 2.9 ms node stage for 1 M primitives) and it is limited
+by the same sum(leaf depth) leaf traffic the block array could not remove for the
+narrow nodes - the small nodes read their own leaves, and their total is what the
+block array gives back.  Only a *bottom-up* pass (a node's AABB from its two
+children's, two reads per node instead of one per ancestor) removes it, and that
+needs an order in which the children of every node are known first; the
+Karras layout does not provide one for free (a node's children sit at a lower index
+when its range ends at the node and at a higher index when it starts at it).
+
+What the traversal does not do (measured, three times)
 
 The counters show the walk pushing both children and testing them when they are
 popped: 141.7 pops and 141.7 slab tests per ray for uniform, of which only 71.3
@@ -219,19 +325,41 @@ pass.  Two cheaper-looking walks were implemented and measured:
    +9 % sliver-soup, +23 % grid-duplicates.
 
 Both were reverted: the benchmark exists to protect the zero-culling worst cases,
-and the blind-push walk has no regression on any of them.  What remains for the
-traversal is the *number* of visits, which for the worst scenes is the whole tree by
-construction, and the triangle test (13946 tests per ray on coincident, 5577 on
-sliver-soup, ~15-30 % of those scenes' cost): computing the barycentric acceptance
-without the `1/det` division and dividing only on a hit is the cheap candidate left.
+and the blind-push walk has no regression on any of them.
+
+The third candidate was the triangle test (13946 tests per ray on coincident,
+5577 on sliver-soup, ~15-30 % of those scenes' cost): the acceptance test was
+decided on the barycentric coordinates after the `1/det` division, and since
+multiplying an inequality by `det` only flips it (which a sign trick handles), the
+whole test can be decided on the *unnormalized* cross products and the division
+(evaluated together with `u` and `v`, which only a hit needs) only happens on a
+hit.  It was implemented and measured, and it is **not** in the code: the traversal
+moved by less than the run-to-run noise on every scene (uniform -1 %, coincident
++1 %, sliver-soup -3 %) and `bimodal` regressed by a consistent +3-4 % in both
+rounds.  The division was apparently not the cost - what the change adds is a
+handful of multiplies plus a divergent `$if` on the hit, which is the wrong side of
+the trade on a GPU whose reciprocal is already cheap.  The traversal is also
+bandwidth-bound rather than arithmetic-bound: for `uniform` it reads 141.7 nodes x
+32 B per ray, 1.19 GB in 3.0 ms, i.e. ~390 GB/s - above the card's DRAM bandwidth,
+because the tree partially fits the 24 MB L2 - so only *fewer bytes per node* or
+*fewer visits* can move it, and both are build-quality/layout questions rather
+than traversal-loop questions.
+
+What remains for the traversal is therefore the number of visits, which for the
+worst scenes is the whole tree by construction, and the depth a ray reaches: the
+deepest stack of the catalogue is 26 entries on `line` (average 1.4-15.5), against
+a 64-entry software stack, so the stack is not the lever either.
+
 
 Verified behaviour
 
- * `--validate` self-checks the structure of every tree (reachability,
-   parent-vs-children AABBs, the `2n-1` node count) and cross-checks the sampled
-   hits against the Luisa RTX reference on the same buffers.  On cuda, dx and vk
-   the catalogue reports 0 structural problems and 0 hit/miss, distance and
-   instance/primitive mismatches in all 24 scene x backend runs; same-distance ties
+   * `--validate` self-checks the structure of every tree (reachability,
+     parent-vs-children AABBs, the `2n-1` node count), checks the bindless heap
+     (`validate_heap`: a slot per BLAS, every record's slot resolving to the same
+     root node the shared node buffer holds) and cross-checks the sampled
+     hits against the Luisa RTX reference on the same buffers.  On cuda, dx and vk
+     the catalogue reports 0 structural problems and 0 hit/miss, distance and
+     instance/primitive mismatches in all 24 scene x backend runs; same-distance ties
    between overlapping primitives (up to 9912 rays on `coincident`, zero on
    `uniform` and `line`) are counted, not hidden, and are not fatal because the
    closest hit is genuinely not unique there.  Rays that are incomparable by
@@ -256,22 +384,37 @@ double-precision brute-force reference *and* against the hardware RTX reference 
 a bug shared by "software LBVH and RTX" cannot hide).  It also verifies slice
 invariance (`trace_software`'s strided slices must equal the contiguous trace
 element-wise), build determinism (the same scene built twice must produce identical
-nodes and hits) and the tree contracts (`validate_tree`, exactly `2n-1` nodes, exact
-tiling of the shared buffers).  Its sensitivity was checked with six injected
+  and the tree contracts (`validate_tree`, exactly `2n-1` nodes, exact
+  tiling of the shared buffers, `validate_heap`).  Its sensitivity was checked with six injected
 mutations (dropped hits, perturbed distances, a shifted slice, a wrong validate
 range), each of which produced >= 3 failing checks and a non-zero exit code.
 
-It also found three real defects, all fixed here: `validate_tree` used to index the
-children of the node it was checking *before* range-checking them (a wrong
-`(node_base, count)` crashed the host instead of reporting a problem), the
+It also found three real defects, all fixed here: validate_tree used to index the
+children of the node it was checking before range-checking them (a wrong
+(node_base, count) crashed the host instead of reporting a problem), the
 benchmark's slice planner re-used the ray count of offset 0 for the other sampled
 offsets (which walks - and writes - up to one element past the ray/hit buffers
 whenever the offset is not a multiple of the stride; the debug build traps it as
-`Out of bounds: !(index: 20017 < lc_buffer_size(buffer): 20000)`, release does not),
+Out of bounds: !(index: 20017 < lc_buffer_size(buffer): 20000), release does not),
 and the reported worst build submission ignored the plain whole-chain build (it
 only tracked the staged rebuild used for the breakdown, under-reporting by up to
-~50x on a many-tree scene).  `SoftwareLbvh::trace_software` now also rejects a
+~50x on a many-tree scene).  SoftwareLbvh::trace_software now also rejects a
 strided range that would leave the ray/hit buffers.
+
+Round 3 added a fourth, and the *demo* is what found it: the internal-node pass
+publishes its plan in a shared buffer, and the two builders rebuild their
+`TreeRange` by hand from their resource's accessors, so a field that is not copied
+there (the plan offset) is simply left indeterminate.  That failure mode is nasty
+precisely because it is *invisible*: the kernel that writes the plan and the kernel
+that reads it agree on the same wrong base, so the tree that comes out is correct
+whenever the base happens to be in bounds and does not collide with a live plan -
+which is why the test suite passed 78/78 while the demo hit
+CUDA_ERROR_ILLEGAL_ADDRESS.  `TreeRange` now default-initialises every field and
+`build_tree()` checks the range it is handed against the storage' bookkeeping, and
+the test checks the *offsets themselves* (each tree's plan base must follow the
+previous tree's by that tree's own internal-node count), which is the check that
+would have caught it.  That check was verified the same way as the others: with
+the plan offsets never set, every boundary scene fails with problems=1.
 
 Caveats
 

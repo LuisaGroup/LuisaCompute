@@ -6,7 +6,8 @@
 namespace luisa::example::lbvh {
 
 TlasBuilder::TlasBuilder(Device &device) noexcept
-    : _prim_kernel{device.compile(Kernel1D{
+    : _device{&device},
+      _prim_kernel{device.compile(Kernel1D{
           // World-space AABB of every TLAS instance, from its BLAS root AABB.
           [](BufferVar<LbvhNode> nodes, BufferVar<LbvhBlas> blas_table,
              BufferVar<LbvhInstance> instances, BufferVar<LbvhPrim> prims,
@@ -34,9 +35,10 @@ TlasBuilder::TlasBuilder(Device &device) noexcept
                       world_hi = max(world_hi, world);
                   };
                   Var<LbvhPrim> prim;
-                  prim.id = i;// instance index
-                  prim.lo = world_lo;
-                  prim.hi = world_hi;
+                  // xyz = the world-space AABB, w = the instance id bit-cast (see
+                  // `LbvhPrim`): two float4, one 32-byte sector.
+                  prim.lo = make_float4(world_lo, pack_handle(i));
+                  prim.hi = make_float4(world_hi, 0.0f);
                   prims.write(prim_base + i, prim);
               };
           }})} {}
@@ -64,14 +66,23 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
                               luisa::span<const InstanceDesc> instances) noexcept {
     LUISA_ASSERT(tlas.is_created(), "pre_build() on a TLAS that was not created.");
     LUISA_ASSERT(!instances.empty(), "a TLAS needs at least one instance.");
+    LUISA_ASSERT(!blases.empty(), "a TLAS needs at least one BLAS.");
     LUISA_ASSERT(instances.size() == tlas.instance_count(),
                  "a TLAS build got {} instances but was created for {}.",
                  instances.size(), tlas.instance_count());
+    // The bindless heap this TLAS resolves its BLAS regions through
+    // (lbvh_common.h): slot 0 is the null slot, slot 1 the TLAS' own region and
+    // slot 2 + i the node region of BLAS i.  It is created here, where the BLAS
+    // count is known.
+    ensure_heap(tlas, blases.size());
     // The BLAS table comes first: both the instance AABB kernel of build() and
-    // the two-level traversal read it.
+    // the two-level traversal read it.  Each record names the node region of its
+    // BLAS by the bindless slot the heap reserves for it.
     luisa::vector<LbvhBlas> table;
     table.reserve(blases.size());
-    for (auto &&blas : blases) { table.emplace_back(blas.record()); }
+    for (auto i = 0u; i < blases.size(); i++) {
+        table.emplace_back(blases[i].record(heap_first_blas_slot + i));
+    }
     storage.upload_blas_table(stream, luisa::span{table});
     upload_instances(stream, storage, instances);
 
@@ -82,11 +93,41 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
     auto range = storage.allocate(tlas._sizes.primitive_count);
     tlas._node_offset = range.node_base;
     tlas._prim_offset = range.prim_base;
+    tlas._plan_offset = range.plan_base;
     tlas._volume_lo = volume_lo;
     tlas._volume_hi = volume_hi;
     tlas._pre_built = true;
+    // Register the node regions in the heap: a heap entry is a view of the
+    // shared node buffer that *starts at the region*, so it is exactly the
+    // `node_offset` / `node_count` slice of the tree (lbvh_common.h).  The TLAS'
+    // own region is slot 1, and every BLAS is registered at its slot; the update
+    // is a command of its own and is ordered before the build (and hence before
+    // any traversal) by the stream.
+    auto &nodes = storage.nodes();
+    for (auto i = 0u; i < blases.size(); i++) {
+        tlas._accel_heap.emplace_on_update(
+            heap_first_blas_slot + i,
+            nodes.view(blases[i].node_offset(), blases[i].node_count()));
+    }
+    tlas._accel_heap.emplace_on_update(
+        heap_tlas_slot, nodes.view(tlas._node_offset, tlas.node_count()));
+    stream << tlas._accel_heap.update();
     // What the backend pre-build returns: the scratch size of the build.
     return tlas._sizes.scratch_bytes;
+}
+
+void TlasBuilder::ensure_heap(Tlas &tlas, size_t blas_count) noexcept {
+    // Slot 0 is the null slot, slot 1 the TLAS' own region and slot 2 + i BLAS i
+    // (lbvh_common.h).
+    auto needed = blas_count + heap_first_blas_slot;
+    if (tlas._accel_heap && tlas._accel_heap.size() >= needed) { return; }
+    if (tlas._accel_heap) {
+        // A bindless array has a fixed slot count, so a TLAS that grew gets a new
+        // one.  The heap it outgrew is *retired*, not destroyed: a command that
+        // is still in flight may read it.
+        tlas._retired_heaps.emplace_back(std::move(tlas._accel_heap));
+    }
+    tlas._accel_heap = _device->create_bindless_array(needed);
 }
 
 void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
@@ -98,6 +139,7 @@ void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
     LbvhStorage::TreeRange range;
     range.prim_base = tlas.prim_offset();
     range.node_base = tlas.node_offset();
+    range.plan_base = tlas.plan_offset();
     range.count = tlas.instance_count();
     Clock clock;
     if (timings != nullptr) { clock.tic(); }
@@ -147,12 +189,17 @@ std::pair<float3, float3> TlasBuilder::instance_volume(
     return {lo, hi};
 }
 
-Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
-                            const BufferVar<LbvhNode> &nodes,
+Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, const BindlessVar &heap,
+                            UInt tlas_node_offset,
                             const BufferVar<LbvhBlas> &blas_table,
                             const BufferVar<LbvhInstance> &instances,
                             const BufferVar<float3> &vertices,
                             const BufferVar<Triangle> &triangles) noexcept {
+    // The TLAS' own node region is heap slot 1 (lbvh_common.h).  A heap entry is
+    // a view that starts at the region, so a node handle - an absolute index in
+    // the shared node buffer - is read at `handle - tlas_node_offset`.
+    auto nodes = heap.buffer<LbvhNode>(heap_tlas_slot);
+    auto base = tlas_node_offset;
     auto origin = ray.origin;
     auto direction = ray.direction;
     auto t_min = ray.t_min;
@@ -164,11 +211,11 @@ Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
     best.t = ray.t_max;
     Local<uint> stack{traversal_stack_size};
     // ---- top level: instances; the same blind-push walk as `blas_traversal` ----
-    stack[0u] = tlas_node_offset;
+    stack[0u] = base;
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
-        auto node = nodes.read(stack[size]);
+        auto node = nodes.read(stack[size] - base);
         $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
             auto node_left = child_left(node);
             $if (node_left == invalid_node) {
@@ -186,7 +233,7 @@ Var<LbvhHit> tlas_traversal(const Var<LbvhRay> &ray, UInt tlas_node_offset,
                                               dot(d4, instance.to_object_1),
                                               dot(d4, instance.to_object_2));
                 blas_traversal(best, node_prim, blas, object_origin, object_dir, t_min,
-                               nodes, vertices, triangles);
+                               heap, vertices, triangles);
             }
             $else {
                 $if (size + 2u < traversal_stack_size) {

@@ -24,9 +24,13 @@
 //
 // A `Blas` is an LBVH over the triangles of one mesh, a `Tlas` is an LBVH over
 // instances where every instance references a `Blas` and a transform.  All
-// trees of one scene share a single primitive buffer / node buffer, each tree
-// owning a contiguous range; child pointers are stored as absolute node
-// indices, so a traversal needs no descriptor indexing.
+// trees of one scene share a single primitive buffer and a single node buffer,
+// each tree owning a contiguous range, and child pointers are stored as
+// absolute node indices.  A traversal no longer indexes the shared node buffer
+// directly, though: a `Tlas` owns a `BindlessArray` (its *heap*) whose slots
+// hold the node region of every tree, and a BLAS is resolved by its *bindless
+// slot* exactly like the fallback RTX backend resolves its regions
+// (src/backends/common/rtx/fallback_rtx_layout.h).
 //
 // This header defines the data layout plus the ray/AABB and ray/triangle tests
 // shared by the two traversal levels.
@@ -49,12 +53,22 @@
 
 // Input of one LBVH: the primitive AABB plus the id copied into the leaf node
 // (triangle index for a BLAS, instance index for a TLAS).
+//
+// The record is deliberately two `float4` - exactly 32 bytes, two 16-byte vector
+// loads - with the id bit-cast into the spare fourth lane of the low plane, i.e.
+// the same trick `LbvhNode` uses for its child handles (see below).  The obvious
+// `uint id; float3 lo; float3 hi;` is 48 bytes, because `float3` is 16-byte
+// aligned; that costs a third more memory *and* makes the random `prims[slot]`
+// read of the radix-tree leaf pass touch two 32-byte L2 sectors instead of one -
+// the leaf pass is the only random access of the whole build, so the sector is
+// what it pays for.  A struct of scalars also risks being lowered as one scalar
+// load per member on some backends, while a pair of vectors is one vector load
+// each by construction.
 struct LbvhPrim {
-    luisa::uint id;
-    luisa::float3 lo;
-    luisa::float3 hi;
+    luisa::float4 lo;// xyz = AABB lo, w = id (bit-cast)
+    luisa::float4 hi;// xyz = AABB hi, w = unused
 };
-LUISA_STRUCT(LbvhPrim, id, lo, hi) {};
+LUISA_STRUCT(LbvhPrim, lo, hi) {};
 
 // One (Morton code, primitive slot) pair; `slot` indexes the primitive array of
 // the tree being built.
@@ -97,13 +111,19 @@ LUISA_STRUCT(LbvhNode, packed_lo, packed_hi) {};
 static_assert(sizeof(LbvhNode) == 32u && alignof(LbvhNode) == 16u,
               "an LBVH node must stay one 32-byte sector wide");
 
-// One BLAS: where its node array starts, and which triangle range it covers.
+// One BLAS: where its node array starts, which triangle range it covers, and
+// the bindless slot its node region occupies in the owning TLAS' heap (see "The
+// bindless heap of a TLAS" below).  A traversal resolves the tree through
+// `heap_slot`; `node_offset` is kept because it is the region's base (a node
+// handle is absolute in the shared node buffer, see `LbvhNode`), and because the
+// host-side build and the structural self-check address the tree through it.
 struct LbvhBlas {
     luisa::uint node_offset;
     luisa::uint triangle_offset;
     luisa::uint triangle_count;
+    luisa::uint heap_slot;
 };
-LUISA_STRUCT(LbvhBlas, node_offset, triangle_offset, triangle_count) {};
+LUISA_STRUCT(LbvhBlas, node_offset, triangle_offset, triangle_count, heap_slot) {};
 
 // One TLAS instance.  `float4x4` is deliberately avoided here: the transforms
 // are stored as explicit *rows*, so the buffer layout is unambiguous.
@@ -149,6 +169,32 @@ using namespace luisa::compute;
 // Marks an empty child pointer, i.e. a leaf node (`LbvhNode::left`), and a miss
 // in `LbvhHit::inst` / `LbvhHit::prim`.
 inline constexpr uint invalid_node = 0xFFFFFFFFu;
+// ---------------------------------------------------------------------------
+// The bindless heap of a TLAS.
+//
+// This is the software mirror of the fallback RTX layout
+// (src/backends/common/rtx/fallback_rtx_layout.h): a TLAS owns a
+// `BindlessArray` whose slots hold the *node regions* of the trees, and a
+// `LbvhBlas` record carries the bindless slot of the region it names.  A
+// traversal therefore resolves a BLAS through the heap instead of through an
+// absolute node offset in one shared node buffer.  A heap entry is a view that
+// *starts at the region*, so a TLAS may reference a BLAS laid out before it -
+// the constraint a single shared buffer with absolute handles cannot express.
+//
+// The slot assignment is fixed, so a traversal names the TLAS' own region
+// without a second descriptor:
+//
+//   slot 0 : the null slot - no region.  A `LbvhBlas` record whose slot lane is
+//            0 is a BLAS the caller never gave geometry, which a traversal
+//            skips exactly like the fallback's null `blas_base`.
+//   slot 1 : the TLAS' own node region.
+//   slot 2 + i : the node region of BLAS `i`.  The BLAS table of this example
+//            is indexed by BLAS (not by instance, as the fallback's table is),
+//            so the slot is the BLAS' own index rather than an instance's.
+// ---------------------------------------------------------------------------
+inline constexpr uint heap_null_slot = 0u;
+inline constexpr uint heap_tlas_slot = 1u;
+inline constexpr uint heap_first_blas_slot = 2u;
 // Work-group size of the radix sort (one single work-group sorts a whole tree).
 inline constexpr uint sort_block_size = 256u;
 inline constexpr uint sort_radix_bins = 256u;
@@ -161,6 +207,19 @@ inline constexpr uint sort_radix_bins = 256u;
 inline constexpr uint max_build_dispatch_groups = 65535u;
 // Software traversal stack; a Morton-code radix tree is far shallower than this.
 inline constexpr uint traversal_stack_size = 64u;
+// Leaves per block of the two-level reduction of the internal-node AABB pass
+// (`LbvhStorage::build_tree`).  The AABB of an internal node is the union of the
+// leaf AABBs of its range, and a node's range is covered exactly once by
+// [range.x, the next block boundary), [the previous block boundary, range.y] and
+// the *whole* blocks in between; the two partial ends cost one warp-load each
+// and the middle costs one block AABB (see `_build_kernel`) instead of one leaf
+// per lane.  The block AABBs are built from the leaves by `_block_kernel`, so the
+// whole pass still reads every leaf exactly once plus the blocks of the prefix
+// sums - the O(sum of leaf depths) leaf traffic of the direct reduction becomes
+// O(count + count / block_size * mean_depth).  The value is the warp width so
+// that a partial end is exactly one warp-load on every backend, and the union is
+// bit-identical to the direct reduction (min/max are exact and associative).
+inline constexpr uint node_reduction_block = 32u;
 
 // ---------------------------------------------------------------------------
 // Field access of `LbvhNode` (see its definition above for the packing).
@@ -198,6 +257,28 @@ template<typename N>
 template<typename N>
 [[nodiscard]] inline Bool is_leaf(N &&node) noexcept {
     return child_left(node) == invalid_node;
+}
+
+// ---------------------------------------------------------------------------
+// Field access of `LbvhPrim` (see its definition above for the packing): the
+// record is two `float4`, with the primitive id bit-cast into the fourth lane of
+// the low plane, and these accessors are the only place that knows it.
+// ---------------------------------------------------------------------------
+
+template<typename P>
+[[nodiscard]] inline Float3 prim_lo(P &&prim) noexcept {
+    return make_float3(prim.lo.x, prim.lo.y, prim.lo.z);
+}
+
+template<typename P>
+[[nodiscard]] inline Float3 prim_hi(P &&prim) noexcept {
+    return make_float3(prim.hi.x, prim.hi.y, prim.hi.z);
+}
+
+// The primitive id the leaf node carries (triangle index / instance index).
+template<typename P>
+[[nodiscard]] inline UInt prim_id(P &&prim) noexcept {
+    return prim.lo.w.template bitcast<uint>();
 }
 
 // Bit-cast a handle into the lane it is stored in (the build side of the

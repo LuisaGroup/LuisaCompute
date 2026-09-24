@@ -19,21 +19,27 @@ namespace {
 // whether the traversal is anywhere near `traversal_stack_size`.
 void blas_traversal_instrumented(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas,
                                  Float3 origin, Float3 direction, Float t_min,
-                                 const BufferVar<LbvhNode> &nodes,
+                                 const BindlessVar &heap,
                                  const BufferVar<float3> &vertices,
                                  const BufferVar<Triangle> &triangles,
                                  Var<uint> &nodes_visited, Var<uint> &aabb_tests,
                                  Var<uint> &aabb_hits, Var<uint> &tri_tests,
                                  Var<uint> &max_stack) noexcept {
+    // Same region resolution as the library's `blas_traversal()`: the BLAS is
+    // resolved through the heap slot its record carries, and a node handle (an
+    // absolute index in the shared node buffer) is read at `handle - node_offset`
+    // (lbvh_common.h).
+    auto nodes = heap.buffer<LbvhNode>(blas.heap_slot);
+    auto base = blas.node_offset;
     auto inv_dir = safe_reciprocal(direction);
     Local<uint> stack{traversal_stack_size};
     // Same walk as the library's `blas_traversal()`, counter for counter.
-    stack[0u] = blas.node_offset;
+    stack[0u] = base;
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
         nodes_visited = nodes_visited + 1u;
-        auto node = nodes.read(stack[size]);
+        auto node = nodes.read(stack[size] - base);
         auto node_left = child_left(node);
         aabb_tests = aabb_tests + 1u;
         $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
@@ -68,8 +74,8 @@ void blas_traversal_instrumented(Var<LbvhHit> &best, UInt instance, const Var<Lb
 
 // Instrumented copy of `tlas_traversal()`: the top level drives the (also
 // instrumented) bottom level, so both levels land in the same counters.
-Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node_offset,
-                                         const BufferVar<LbvhNode> &nodes,
+Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, const BindlessVar &heap,
+                                         UInt tlas_node_offset,
                                          const BufferVar<LbvhBlas> &blas_table,
                                          const BufferVar<LbvhInstance> &instances,
                                          const BufferVar<float3> &vertices,
@@ -77,6 +83,10 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
                                          Var<uint> &nodes_visited, Var<uint> &aabb_tests,
                                          Var<uint> &aabb_hits, Var<uint> &tri_tests,
                                          Var<uint> &max_stack) noexcept {
+    // The TLAS' own region is heap slot 1 (lbvh_common.h); a node handle is read
+    // at `handle - tlas_node_offset`, the same conversion the library uses.
+    auto nodes = heap.buffer<LbvhNode>(heap_tlas_slot);
+    auto base = tlas_node_offset;
     auto origin = ray.origin;
     auto direction = ray.direction;
     auto t_min = ray.t_min;
@@ -87,12 +97,12 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
     best.bary = make_float2(0.0f);
     best.t = ray.t_max;
     Local<uint> stack{traversal_stack_size};
-    stack[0u] = tlas_node_offset;
+    stack[0u] = base;
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
         nodes_visited = nodes_visited + 1u;
-        auto node = nodes.read(stack[size]);
+        auto node = nodes.read(stack[size] - base);
         auto node_left = child_left(node);
         aabb_tests = aabb_tests + 1u;
         $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
@@ -110,7 +120,7 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
                                               dot(d4, instance.to_object_1),
                                               dot(d4, instance.to_object_2));
                 blas_traversal_instrumented(best, node_prim, blas, object_origin, object_dir,
-                                            t_min, nodes, vertices, triangles, nodes_visited,
+                                            t_min, heap, vertices, triangles, nodes_visited,
                                             aabb_tests, aabb_hits, tri_tests, max_stack);
             }
             $else {
@@ -128,7 +138,7 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
 }
 
 [[nodiscard]] auto make_trace_kernel() noexcept {
-    return Kernel1D{[](BufferVar<LbvhNode> nodes, BufferVar<LbvhBlas> blas_table,
+    return Kernel1D{[](BindlessVar heap, BufferVar<LbvhBlas> blas_table,
                        BufferVar<LbvhInstance> instances, BufferVar<float3> vertices,
                        BufferVar<Triangle> triangles, BufferVar<LbvhRay> rays,
                        BufferVar<LbvhHit> hits, BufferVar<LbvhRayStats> ray_stats,
@@ -144,7 +154,7 @@ Var<LbvhHit> tlas_traversal_instrumented(const Var<LbvhRay> &ray, UInt tlas_node
             auto aabb_hits = def(0u);
             auto tri_tests = def(0u);
             auto max_stack = def(0u);
-            auto hit = tlas_traversal_instrumented(ray, tlas_node_offset, nodes, blas_table,
+            auto hit = tlas_traversal_instrumented(ray, heap, tlas_node_offset, blas_table,
                                                    instances, vertices, triangles,
                                                    nodes_visited, aabb_tests, aabb_hits,
                                                    tri_tests, max_stack);
@@ -267,7 +277,7 @@ BenchStats::BenchStats(Device &device, size_t node_capacity,
       _range_kernel{device.compile(make_range_kernel())},
       _depth_kernel{device.compile(make_depth_kernel())} {}
 
-void BenchStats::trace_instrumented(Stream &stream, const Buffer<LbvhNode> &nodes,
+void BenchStats::trace_instrumented(Stream &stream, const BindlessArray &heap,
                                     const Buffer<LbvhBlas> &blas_table,
                                     const Buffer<LbvhInstance> &instances,
                                     const Buffer<float3> &vertices,
@@ -276,7 +286,7 @@ void BenchStats::trace_instrumented(Stream &stream, const Buffer<LbvhNode> &node
                                     const Buffer<LbvhRayStats> &ray_stats,
                                     uint tlas_node_offset, uint ray_count, uint ray_offset,
                                     uint ray_stride) noexcept {
-    stream << _trace_kernel(nodes, blas_table, instances, vertices, triangles, rays, hits,
+    stream << _trace_kernel(heap, blas_table, instances, vertices, triangles, rays, hits,
                             ray_stats, tlas_node_offset, ray_offset, ray_stride, ray_count)
                   .dispatch(ray_count);
 }

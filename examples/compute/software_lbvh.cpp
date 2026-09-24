@@ -175,14 +175,17 @@ int main(int argc, char *argv[]) {
                build_ms, lbvh.blas_count(), blas_nodes, tlas.instance_count(), tlas.node_count(),
                static_cast<double>(blas_scratch) / 1024.0);
 
-    // structural self-check of every tree that was just built
+    // structural self-check of every tree that was just built, plus the bindless
+    // heap the traversal resolves its BLAS regions through (lbvh_common.h)
     {
         size_t problems = 0u;
         for (auto i = 0u; i < blases.size(); i++) {
             problems += lbvh.validate_tree(stream, blases[i].node_offset(), blases[i].triangle_count());
         }
         problems += lbvh.validate_tree(stream, tlas.node_offset(), tlas.instance_count());
-        LUISA_INFO("structural self-check: {} BLAS + 1 TLAS, {} problem(s)", blases.size(), problems);
+        problems += lbvh.validate_heap(stream, tlas, static_cast<uint>(blases.size()));
+        LUISA_INFO("structural self-check: {} BLAS + 1 TLAS, bindless heap ({} slot(s)), {} problem(s)",
+                   blases.size(), tlas.heap_size(), problems);
         LUISA_ASSERT(problems == 0u, "the software LBVH is malformed.");
     }
 

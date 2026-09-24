@@ -158,10 +158,12 @@ FallbackTlasBuilder::FallbackTlasBuilder(FallbackRtxStorage &storage) noexcept
                       };
                   };
                   Var<FallbackRtxPrim> prim;
-                  // the instance index the leaf node carries
-                  prim.id = i;
-                  prim.lo = lo;
-                  prim.hi = hi;
+                  // The instance index the leaf node carries travels in the spare
+                  // fourth lane of the lower plane, bit-cast, which is what keeps
+                  // the record at 32 bytes (`FallbackRtxPrim`); it is read back
+                  // bit-exactly by `prim_id()`.
+                  prim.lo = make_float4(lo, i.bitcast<float>());
+                  prim.hi = make_float4(hi, 0.0f);
                   prims.write(prim_base + i, prim);
                   // the scene volume the Morton codes are normalized with is not
                   // known on the host either (see fallback_rtx_storage.h)
@@ -192,10 +194,23 @@ void FallbackTlasBuilder::upload_records(CommandList &commands, FallbackTlas &tl
         }
     }
     auto &instances = _storage->instances();
-    for (auto k = 0u; k < uploaded.size(); k++) {
+    // One copy per *run* of consecutive instance indices, not one copy per
+    // instance: the records of a run are adjacent in `staged` (it is filled in
+    // this same order) and their slots are adjacent in the instance buffer, so a
+    // single copy covers the whole run.  A build that mentions every instance
+    // used to record one 128-byte copy command per instance, and at ~1.7 us of
+    // submission each that was 110 ms of a 65536-instance rebuild against the
+    // 1.5 ms the tree itself costs.  `uploaded` is in the caller's order, which
+    // is why this coalesces runs instead of sorting them: ascending indices - the
+    // common full build - collapse to one copy, and an order that has no run at
+    // all is never worse than the per-instance form.
+    for (auto k = 0u; k < uploaded.size();) {
+        auto run = 1u;
+        while (k + run < uploaded.size() && uploaded[k + run] == uploaded[k] + run) { run++; }
         auto slot = tlas.region.instance_offset + uploaded[k] * instance_u4;
-        commands << instance_words(instances, slot, instance_u4)
-                        .copy_from(staged.subspan(k * record_words, record_words));
+        commands << instance_words(instances, slot, run * instance_u4)
+                        .copy_from(staged.subspan(k * record_words, run * record_words));
+        k += run;
     }
 }
 

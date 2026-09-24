@@ -50,10 +50,12 @@ FallbackBlasBuilder::FallbackBlasBuilder(FallbackRtxStorage &storage) noexcept
                   auto lo = min(min(v0, v1), v2);
                   auto hi = max(max(v0, v1), v2);
                   Var<FallbackRtxPrim> prim;
-                  // the local triangle index the leaf node carries
-                  prim.id = i;
-                  prim.lo = lo;
-                  prim.hi = hi;
+                  // The local triangle index the leaf node carries travels in the
+                  // spare fourth lane of the lower plane, bit-cast, which is what
+                  // keeps the record at 32 bytes (`FallbackRtxPrim`).  It is read
+                  // back bit-exactly by `prim_id()`.
+                  prim.lo = make_float4(lo, i.bitcast<float>());
+                  prim.hi = make_float4(hi, 0.0f);
                   prims.write(prim_base + i, prim);
                   // The scene bounds of this mesh are not known on the host
                   // either, so the build reduces them here (orderable keys, see

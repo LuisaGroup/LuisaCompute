@@ -11,10 +11,11 @@
 //   create_blas()       - create a BLAS resource   (create_mesh analogue)
 //   create_accel()      - create a TLAS resource   (create_accel analogue)
 //   pre_build_blas()    - host pre-build: reserve the tree, return the scratch
-//   pre_build_accel()   - host pre-build: upload instances, reserve the tree
+//   pre_build_accel()   - host pre-build: upload instances, register the heap,
+//                         reserve the tree
 //   build_blas()        - record the bottom-level build kernels
 //   build_accel()       - record the top-level build kernels
-//   trace_software()    - software two-level traversal
+//   trace_software()    - software two-level traversal (through the TLAS heap)
 //
 // Usage (the order the hardware backends use: estimate -> create -> pre_build
 // -> build):
@@ -105,6 +106,16 @@ public:
         return _storage.validate_tree(stream, node_base, count);
     }
 
+    // Device-side self-check of a built TLAS' bindless heap (lbvh_common.h's "The
+    // bindless heap of a TLAS"): every `LbvhBlas` record of the table must name
+    // its node region by the slot the layout fixes (2 + its index), and the root
+    // node read through that slot must be bit-identical to the root node read
+    // directly from the shared node buffer - which is exactly the resolution a
+    // traversal performs.  The TLAS' own region (`heap_tlas_slot`) is checked the
+    // same way.  Returns the number of problems found.
+    [[nodiscard]] size_t validate_heap(Stream &stream, const Tlas &tlas,
+                                       uint blas_count) noexcept;
+
     // ---- introspection ---------------------------------------------------
     [[nodiscard]] const Buffer<LbvhNode> &nodes() const noexcept { return _storage.nodes(); }
     [[nodiscard]] const Buffer<LbvhBlas> &blas_table() const noexcept { return _storage.blas_table(); }
@@ -118,9 +129,12 @@ private:
     LbvhStorage _storage;
     BlasBuilder _blas_builder;
     TlasBuilder _tlas_builder;
-    Shader1D<Buffer<LbvhNode>, Buffer<LbvhBlas>, Buffer<LbvhInstance>, Buffer<float3>,
+    Shader1D<BindlessArray, Buffer<LbvhBlas>, Buffer<LbvhInstance>, Buffer<float3>,
              Buffer<Triangle>, Buffer<LbvhRay>, Buffer<LbvhHit>, uint, uint, uint, uint>
         _trace_kernel;
+    Shader1D<BindlessArray, Buffer<LbvhBlas>, Buffer<LbvhNode>, Buffer<uint>, uint, uint>
+        _heap_check_kernel;
+    Buffer<uint> _heap_problems;// one element: the mismatches of `validate_heap`
     size_t _blas_count{0u};
 };
 

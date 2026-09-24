@@ -16,7 +16,7 @@ namespace {
 // representative of the whole ray set, a contiguous prefix is not: in a camera
 // frustum the first rows can miss the whole scene).
 [[nodiscard]] auto make_trace_kernel() noexcept {
-    return Kernel1D{[](BufferVar<LbvhNode> nodes, BufferVar<LbvhBlas> blas_table,
+    return Kernel1D{[](BindlessVar heap, BufferVar<LbvhBlas> blas_table,
                        BufferVar<LbvhInstance> instances, BufferVar<float3> vertices,
                        BufferVar<Triangle> triangles, BufferVar<LbvhRay> rays,
                        BufferVar<LbvhHit> hits, UInt tlas_node_offset, UInt ray_offset,
@@ -26,9 +26,47 @@ namespace {
         $if (i < count) {
             auto index = ray_offset + i * ray_stride;
             auto ray = rays.read(index);
-            auto hit = tlas_traversal(ray, tlas_node_offset, nodes, blas_table,
+            // `heap` is the TLAS' bindless heap: the traversal resolves both the
+            // top-level region and every BLAS it reaches through it
+            // (lbvh_common.h's "The bindless heap of a TLAS").
+            auto hit = tlas_traversal(ray, heap, tlas_node_offset, blas_table,
                                       instances, vertices, triangles);
             hits.write(index, hit);
+        };
+    }};
+}
+
+// Device-side self-check of the TLAS' bindless heap (lbvh_common.h): for every
+// BLAS, the root node must be reachable both through the record's heap slot and
+// directly from the shared node buffer, and the slot must be the one the layout
+// fixes (`heap_first_blas_slot` + the record's index).  The TLAS' own region
+// (`heap_tlas_slot`) is compared the same way on lane 0.  The comparisons are
+// exact: both reads fetch the same bytes of the same node.
+[[nodiscard]] auto make_heap_check_kernel() noexcept {
+    return Kernel1D{[](BindlessVar heap, BufferVar<LbvhBlas> blas_table,
+                       BufferVar<LbvhNode> nodes, BufferVar<uint> problems,
+                       UInt blas_count, UInt tlas_node_offset) noexcept {
+        set_block_size(64u);
+        UInt i = dispatch_id().x;
+        $if (i < blas_count) {
+            auto record = blas_table.read(i);
+            auto via_heap = heap.buffer<LbvhNode>(record.heap_slot).read(0u);
+            auto direct = nodes.read(record.node_offset);
+            auto same = (record.heap_slot == heap_first_blas_slot + i) &
+                        all(aabb_lo(via_heap) == aabb_lo(direct)) &
+                        all(aabb_hi(via_heap) == aabb_hi(direct)) &
+                        (child_left(via_heap) == child_left(direct)) &
+                        (child_right(via_heap) == child_right(direct));
+            $if (!same) { problems.atomic(0u).fetch_add(1u); };
+        };
+        $if (i == 0u) {
+            auto via_heap = heap.buffer<LbvhNode>(heap_tlas_slot).read(0u);
+            auto direct = nodes.read(tlas_node_offset);
+            auto same = all(aabb_lo(via_heap) == aabb_lo(direct)) &
+                        all(aabb_hi(via_heap) == aabb_hi(direct)) &
+                        (child_left(via_heap) == child_left(direct)) &
+                        (child_right(via_heap) == child_right(direct));
+            $if (!same) { problems.atomic(0u).fetch_add(1u); };
         };
     }};
 }
@@ -39,7 +77,9 @@ SoftwareLbvh::SoftwareLbvh(Device &device, const Sizes &sizes) noexcept
     : _storage{device, sizes},
       _blas_builder{device},
       _tlas_builder{device},
-      _trace_kernel{device.compile(make_trace_kernel())} {}
+      _trace_kernel{device.compile(make_trace_kernel())},
+      _heap_check_kernel{device.compile(make_heap_check_kernel())},
+      _heap_problems{device.create_buffer<uint>(1u)} {}
 
 Blas SoftwareLbvh::create_blas(const AccelOption &option, uint triangle_offset,
                                uint triangle_count, float3 object_min,
@@ -84,6 +124,7 @@ void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices
                                   const Tlas &tlas, uint ray_count, uint ray_offset,
                                   uint ray_stride) noexcept {
     LUISA_ASSERT(tlas.is_pre_built(), "trace_software() on a TLAS that was not built.");
+    LUISA_ASSERT(tlas.has_heap(), "trace_software() on a TLAS without a bindless heap.");
     LUISA_ASSERT(ray_stride > 0u, "a strided traversal needs a positive stride.");
     // The kernel walks the ray indices `ray_offset, ray_offset + ray_stride, ...`
     // `ray_count` times; the caller owns that (offset, stride, count) triple, so
@@ -99,10 +140,31 @@ void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices
                      "{} rays / {} hits it was given.",
                      ray_offset, ray_count, ray_stride, rays.size(), hits.size());
     }
-    stream << _trace_kernel(_storage.nodes(), _storage.blas_table(), _storage.instances(),
+    stream << _trace_kernel(tlas.heap(), _storage.blas_table(), _storage.instances(),
                             vertices, triangles, rays, hits, tlas.node_offset(), ray_offset,
                             ray_stride, ray_count)
                   .dispatch(ray_count);
+}
+
+size_t SoftwareLbvh::validate_heap(Stream &stream, const Tlas &tlas,
+                                   uint blas_count) noexcept {
+    LUISA_ASSERT(tlas.has_heap(), "validate_heap() on a TLAS without a bindless heap.");
+    LUISA_ASSERT(tlas.heap_size() >= static_cast<size_t>(blas_count) + heap_first_blas_slot,
+                 "the TLAS heap holds {} slot(s) but {} BLAS + {} reserved slots are checked.",
+                 tlas.heap_size(), blas_count, heap_first_blas_slot);
+    // One element accumulates the mismatches, and one thread per BLAS compares
+    // its root; the TLAS' own root is compared by lane 0.  The counters are
+    // device-side so the check does not depend on the host being able to read a
+    // `BindlessArray` (it cannot).
+    auto zero = 0u;
+    auto host = 0u;
+    stream << _heap_problems.copy_from(luisa::span<const uint>{&zero, 1u})
+           << _heap_check_kernel(tlas.heap(), _storage.blas_table(), _storage.nodes(),
+                                 _heap_problems, blas_count, tlas.node_offset())
+                  .dispatch(std::max(blas_count, 1u))
+           << _heap_problems.copy_to(luisa::span<uint>{&host, 1u})
+           << synchronize();
+    return host;
 }
 
 }// namespace luisa::example::lbvh

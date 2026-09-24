@@ -1307,6 +1307,7 @@ using RtxShader = Shader1D<Accel, Buffer<LbvhRay>, Buffer<LbvhHit>, uint>;
 struct SceneRun {
     size_t tree_problems{0u};
     size_t range_problems{0u};
+    size_t heap_problems{0u};
     size_t contract_problems{0u};
     size_t slice_problems{0u};
     size_t repeat_problems{0u};
@@ -1321,8 +1322,8 @@ struct SceneRun {
     HitComparison rtx;
 
     [[nodiscard]] size_t problems() const noexcept {
-        return tree_problems + range_problems + contract_problems + slice_problems +
-               repeat_problems + reference_hit_problems;
+        return tree_problems + range_problems + heap_problems + contract_problems +
+               slice_problems + repeat_problems + reference_hit_problems;
     }
     [[nodiscard]] size_t fatal() const noexcept {
         return problems() + software.fatal() + rtx.fatal();
@@ -1472,13 +1473,28 @@ struct NodeDifference {
     luisa::vector<Blas> blases;
     blases.reserve(scene.meshes.size());
     auto node_total = running_nodes;
+    // The plan records (`_plan_kernel`) are handed out exactly like the nodes,
+    // one per internal node, so the offset a BLAS reports must follow the previous
+    // one by its own internal-node count.  A build that loses the field would
+    // instead give every tree the same (or a garbage) base, which is a *silently*
+    // correct tree - the plan pass and the reduction pass would agree on the wrong
+    // place - so it has to be checked here and not by the structural self-check.
+    auto plan_total = 0u;
+    auto plan_base = 0u;
+    auto have_plan_base = false;
     for (auto &&mesh : scene.meshes) {
         auto blas = lbvh.create_blas(AccelOption{}, mesh.triangle_offset, mesh.triangle_count,
                                      mesh.lo, mesh.hi);
         lbvh.pre_build_blas(blas);
+        if (!have_plan_base) {
+            plan_base = blas.plan_offset();
+            have_plan_base = true;
+        }
         run.range_problems += blas.node_count() != 2u * mesh.triangle_count - 1u ? 1u : 0u;
         run.range_problems += blas.node_offset() != node_total ? 1u : 0u;
+        run.range_problems += blas.plan_offset() != plan_base + plan_total ? 1u : 0u;
         node_total += blas.node_count();
+        plan_total += blas.triangle_count() - 1u;
         blases.emplace_back(blas);
     }
     luisa::vector<InstanceDesc> descriptions;
@@ -1488,9 +1504,19 @@ struct NodeDifference {
     }
     auto tlas = lbvh.create_accel(AccelOption{}, static_cast<uint>(descriptions.size()));
     lbvh.pre_build_accel(stream, tlas, luisa::span{blases}, luisa::span{descriptions});
+    if (!have_plan_base) {
+        plan_base = tlas.plan_offset();
+        have_plan_base = true;
+    }
     run.range_problems += tlas.node_count() != 2u * descriptions.size() - 1u ? 1u : 0u;
     run.range_problems += tlas.node_offset() != node_total ? 1u : 0u;
+    run.range_problems += tlas.plan_offset() != plan_base + plan_total ? 1u : 0u;
+    run.range_problems += lbvh.sizes().plan_capacity <
+                                  plan_base + plan_total + descriptions.size() - 1u
+                              ? 1u
+                              : 0u;
     node_total += tlas.node_count();
+    plan_total += descriptions.size() - 1u;
     for (auto &&blas : blases) {
         lbvh.build_blas(stream, blas, vertex_buffer, triangle_buffer);
     }
@@ -1507,12 +1533,26 @@ struct NodeDifference {
     run.range_problems += lbvh.sizes().node_capacity < running_nodes ? 1u : 0u;
     run.range_problems += lbvh.sizes().primitive_capacity < running_primitives ? 1u : 0u;
 
+    // ---- the bindless heap of the TLAS (lbvh_common.h) ----
+    // It must exist and hold one slot per BLAS plus the two reserved ones
+    // (null + the TLAS' own region); the device-side check then verifies that
+    // every record resolves through its slot to the same root node the shared
+    // node buffer holds.
+    run.heap_problems += tlas.has_heap() &&
+                                 tlas.heap_size() >= blases.size() + heap_first_blas_slot
+                             ? 0u
+                             : 1u;
+
     // ---- structural self-check of every tree that was just built ----
     for (auto &&blas : blases) {
         run.tree_problems += lbvh.validate_tree(stream, blas.node_offset(),
                                                 blas.triangle_count());
     }
     run.tree_problems += lbvh.validate_tree(stream, tlas.node_offset(), tlas.instance_count());
+    if (tlas.has_heap()) {
+        run.heap_problems += lbvh.validate_heap(stream, tlas,
+                                                static_cast<uint>(blases.size()));
+    }
 
     // ---- traversal ----
     lbvh.trace_software(stream, vertex_buffer, triangle_buffer, ray_buffer, hit_buffer,
@@ -1629,6 +1669,7 @@ struct BuildOutcome {
     uint node_base{0u};
     uint node_count{0u};
     size_t tree_problems{0u};
+    size_t heap_problems{0u};
 };
 
 // Builds and traces the scene into `lbvh` (whose node buffer is zeroed first so
@@ -1676,6 +1717,12 @@ struct BuildOutcome {
     }
     outcome.tree_problems += lbvh.validate_tree(stream, tlas.node_offset(),
                                                 tlas.instance_count());
+    if (tlas.has_heap()) {
+        outcome.heap_problems += lbvh.validate_heap(stream, tlas,
+                                                   static_cast<uint>(blases.size()));
+    } else {
+        outcome.heap_problems++;
+    }
     lbvh.trace_software(stream, vertex_buffer, triangle_buffer, ray_buffer, hit_buffer,
                         tlas, ray_count);
     stream << synchronize();
@@ -1716,6 +1763,7 @@ struct BuildOutcome {
     auto b = build_outcome(device, stream, second, scene);
     auto c = build_outcome(device, stream, first, scene);
     run.tree_problems += a.tree_problems + b.tree_problems + c.tree_problems;
+    run.heap_problems += a.heap_problems + b.heap_problems + c.heap_problems;
     run.repeat_hit_problems += count_hit_mismatches(luisa::span{a.hits}, luisa::span{b.hits});
     run.repeat_hit_problems += count_hit_mismatches(luisa::span{a.hits}, luisa::span{c.hits});
     auto stride = first.nodes().stride();
@@ -1760,6 +1808,7 @@ struct Totals {
     size_t failed{0u};
     size_t tree_problems{0u};
     size_t range_problems{0u};
+    size_t heap_problems{0u};
     size_t contract_problems{0u};
     size_t slice_problems{0u};
     size_t repeat_problems{0u};
@@ -1849,6 +1898,10 @@ void report_check(const char *family, const TestScene &scene, const SceneRun &ru
     if (run.range_problems != 0u) {
         std::printf("       node/primitive range bookkeeping: %zu problem(s)\n", run.range_problems);
     }
+    if (run.heap_problems != 0u) {
+        std::printf("       bindless heap (slot assignment / region resolution): %zu problem(s)\n",
+                    run.heap_problems);
+    }
     if (run.contract_problems != 0u) {
         std::printf("       hit contract (inst/prim/t on a miss): %zu problem(s)\n",
                     run.contract_problems);
@@ -1909,6 +1962,7 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
         if (determinism_scenes) {
             auto repeat = run_determinism(device, stream, scene, options);
             run.tree_problems += repeat.tree_problems;
+            run.heap_problems += repeat.heap_problems;
             run.repeat_problems += repeat.repeat_problems;
             run.repeat_hit_problems += repeat.repeat_hit_problems;
             run.repeat_node_problems += repeat.repeat_node_problems;
@@ -1919,6 +1973,7 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
         totals.failed += run.fatal() == 0u ? 0u : 1u;
         totals.tree_problems += run.tree_problems;
         totals.range_problems += run.range_problems;
+        totals.heap_problems += run.heap_problems;
         totals.contract_problems += run.contract_problems;
         totals.slice_problems += run.slice_problems;
         totals.repeat_problems += run.repeat_problems;
@@ -1998,9 +2053,10 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
                 totals.checks, totals.checks - totals.failed, totals.failed, elapsed / 1000.0,
                 options.backend.c_str(), static_cast<unsigned long long>(options.seed),
                 options.quick ? ", quick" : "");
-    std::printf("summary: problems: tree %zu, ranges %zu, hit contract %zu, slices %zu, "
+    std::printf("summary: problems: tree %zu, ranges %zu, heap %zu, hit contract %zu, slices %zu, "
                 "repeats %zu, empty reference %zu\n",
-                totals.tree_problems, totals.range_problems, totals.contract_problems,
+                totals.tree_problems, totals.range_problems, totals.heap_problems,
+                totals.contract_problems,
                 totals.slice_problems, totals.repeat_problems, totals.reference_hit_problems);
     std::printf("summary: software-vs-reference mismatches %zu, RTX-vs-reference mismatches %zu "
                 "(%zu RTX cross-checks); compared %zu hit(s), ties %zu; not comparable: "

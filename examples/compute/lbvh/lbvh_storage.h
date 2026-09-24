@@ -24,12 +24,17 @@ class LbvhStorage {
 
 public:
     // The contiguous slice of the shared primitive/node buffers that belongs to
-    // one tree.
+    // one tree.  Every field is initialised: a caller that builds one by hand
+    // (the two builders do, from the accessors of their resource) must not be
+    // able to leave a field indeterminate.
     struct TreeRange {
-        uint prim_base;// first primitive slot
-        uint node_base;// first node
-        uint count;    // primitive (= leaf) count
+        uint prim_base{};// first primitive slot
+        uint node_base{};// first node
+        uint plan_base{};// first plan slot (see `_plan_kernel`)
+        uint count{};    // primitive (= leaf) count
         [[nodiscard]] uint node_count() const noexcept { return count * 2u - 1u; }
+        // Internal nodes of the tree, i.e. one plan record each.
+        [[nodiscard]] uint internal_count() const noexcept { return count - 1u; }
     };
 
     // Host-side scene size query: the maximum sizes of every shared buffer of a
@@ -44,6 +49,18 @@ public:
         size_t primitive_bytes{};
         size_t key_bytes{};
         size_t node_bytes{};
+        // Block AABBs of the two-level reduction (see `node_reduction_block`).
+        // A block is indexed by the *leaf slot* it starts at, i.e. by the node
+        // array (a leaf of a tree lives in the shared node buffer at its global
+        // slot), so the whole scene needs one block per `node_reduction_block`
+        // node slots - no per-tree rounding, and no bookkeeping to allocate.
+        size_t block_capacity{};
+        size_t block_bytes{};
+        // Per-internal-node records of `_plan_kernel` (one `uint4` per internal
+        // node: leaf range + child handles).  A scene has `sum(count) - trees <
+        // primitive_capacity` internal nodes, so the primitive capacity bounds it.
+        size_t plan_capacity{};
+        size_t plan_bytes{};
         size_t blas_table_bytes{};
         size_t instance_bytes{};
         // Scratch of the parallel radix sort (per-block digit histograms and
@@ -53,8 +70,8 @@ public:
         // query reports it.
         size_t sort_scratch_bytes{};
         [[nodiscard]] size_t total_bytes() const noexcept {
-            return primitive_bytes + key_bytes + node_bytes +
-                   blas_table_bytes + instance_bytes + sort_scratch_bytes;
+            return primitive_bytes + key_bytes + node_bytes + block_bytes +
+                   plan_bytes + blas_table_bytes + instance_bytes + sort_scratch_bytes;
         }
     };
 
@@ -81,12 +98,14 @@ public:
     // and their host-observed times are added into `timings` (see
     // `LbvhBuildTimings`); a null pointer keeps the plain recorded build.
     //
-    // The radix-tree construction itself is *two* dispatches over the same
-    // tree - the leaves first, the internal nodes second - which is what
-    // `node_ms` covers: an internal node's AABB is the union of the leaf AABBs
-    // of its range, and once the leaves exist those are contiguous in the node
-    // buffer, so the reduction streams the leaf array instead of chasing one
-    // random `prims` element per range slot (see the kernel comments).
+    // The radix-tree construction itself is *four* dispatches over the same
+    // tree - the leaves, the block AABBs, and the two internal-node passes (the
+    // searches of the tree structure, then the AABB reduction) - which is what
+    // `node_ms` covers: an internal node's AABB is the union of the leaf AABBs of
+    // its range, and once the leaves exist those are contiguous in the node
+    // buffer, so the reduction streams them (and one AABB per
+    // `node_reduction_block` of them) instead of chasing one random `prims`
+    // element per range slot (see `_plan_kernel` / `_build_kernel`).
     void build_tree(Stream &stream, const TreeRange &range, float3 lo, float3 hi,
                     LbvhBuildTimings *timings = nullptr) noexcept;
 
@@ -97,6 +116,7 @@ public:
 
     [[nodiscard]] const Buffer<LbvhPrim> &prims() const noexcept { return _prims; }
     [[nodiscard]] const Buffer<LbvhNode> &nodes() const noexcept { return _nodes; }
+    [[nodiscard]] const Buffer<LbvhNode> &blocks() const noexcept { return _blocks; }
     [[nodiscard]] const Buffer<LbvhBlas> &blas_table() const noexcept { return _blas_table; }
     [[nodiscard]] const Buffer<LbvhInstance> &instances() const noexcept { return _instances; }
     [[nodiscard]] const Sizes &sizes() const noexcept { return _sizes; }
@@ -107,10 +127,18 @@ private:
     Sizes _sizes;
     size_t _prim_count{0u};
     size_t _node_count{0u};
+    size_t _plan_count{0u};
     Buffer<LbvhPrim> _prims;
     Buffer<LbvhKey> _keys_a;
     Buffer<LbvhKey> _keys_b;
     Buffer<LbvhNode> _nodes;
+    // Block AABBs of `node_reduction_block` consecutive leaves, indexed by the
+    // *leaf slot* they start at in the shared node buffer (a block holds the AABB
+    // planes of `LbvhNode`; its handle lanes are unused).
+    Buffer<LbvhNode> _blocks;
+    // Per internal node: (first, last, child_a, child_b), the output of
+    // `_plan_kernel` and the input of the reduction pass.
+    Buffer<uint4> _plan;
     Buffer<LbvhBlas> _blas_table;
     Buffer<LbvhInstance> _instances;
     // The LSD radix sort of the Morton keys.  It owns its scratch and picks the
@@ -124,7 +152,10 @@ private:
     uint _warp_size{32u};
     Shader1D<Buffer<LbvhPrim>, Buffer<LbvhKey>, uint, uint, float3, float3> _morton_kernel;
     Shader1D<Buffer<LbvhKey>, Buffer<LbvhPrim>, Buffer<LbvhNode>, uint, uint, uint> _leaf_kernel;
-    Shader2D<Buffer<LbvhKey>, Buffer<LbvhNode>, uint, uint, uint, uint> _build_kernel;
+    Shader1D<Buffer<LbvhKey>, Buffer<uint4>, uint, uint, uint, uint> _plan_kernel;
+    Shader1D<Buffer<LbvhNode>, Buffer<LbvhNode>, uint, uint, uint> _block_kernel;
+    Shader2D<Buffer<LbvhNode>, Buffer<LbvhNode>, Buffer<uint4>, uint, uint, uint, uint>
+        _build_kernel;
 };
 
 }// namespace luisa::example::lbvh

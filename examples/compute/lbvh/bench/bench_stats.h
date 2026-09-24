@@ -122,8 +122,10 @@ public:
 
     // One instrumented traversal of the strided slice
     // (ray_offset, ray_offset + ray_stride, ...) of the ray buffer; `ray_stats`
-    // receives one record per ray of that slice.
-    void trace_instrumented(Stream &stream, const Buffer<LbvhNode> &nodes,
+    // receives one record per ray of that slice.  `heap` is the TLAS' bindless
+    // heap: the instrumented walk resolves every node region through it exactly
+    // like the library walk (lbvh_common.h's "The bindless heap of a TLAS").
+    void trace_instrumented(Stream &stream, const BindlessArray &heap,
                             const Buffer<LbvhBlas> &blas_table,
                             const Buffer<LbvhInstance> &instances,
                             const Buffer<float3> &vertices,
@@ -143,7 +145,7 @@ private:
     Buffer<uint> _leaf_depth; // encoded depth of every leaf
     luisa::vector<uint2> _host_range;
     luisa::vector<uint> _host_depth;
-    Shader1D<Buffer<LbvhNode>, Buffer<LbvhBlas>, Buffer<LbvhInstance>, Buffer<float3>,
+    Shader1D<BindlessArray, Buffer<LbvhBlas>, Buffer<LbvhInstance>, Buffer<float3>,
              Buffer<Triangle>, Buffer<LbvhRay>, Buffer<LbvhHit>, Buffer<LbvhRayStats>, uint,
              uint, uint, uint>
         _trace_kernel;

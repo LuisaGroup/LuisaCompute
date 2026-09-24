@@ -466,7 +466,7 @@ struct BenchWorstDispatch {
     clock.tic();
     if (instrumented) {
         resources.bench_stats->trace_instrumented(
-            stream, resources.lbvh->nodes(), resources.lbvh->blas_table(),
+            stream, resources.tlas.heap(), resources.lbvh->blas_table(),
             resources.lbvh->instances(), resources.vertices, resources.triangles,
             resources.rays, resources.reference_hits, resources.ray_stats,
             resources.tlas.node_offset(), static_cast<uint>(count),
@@ -1018,6 +1018,20 @@ void generate_rays(Stream &stream, SceneResources &resources, const BenchScene &
                tree_problems);
     if (tree_problems != 0u) {
         error = luisa::format("the software LBVH of scene '{}' is malformed", scene.name);
+        return false;
+    }
+    // The bindless heap of the TLAS: the BLAS records and the TLAS region must
+    // resolve through the heap to the very nodes the shared node buffer holds
+    // (lbvh_common.h's "The bindless heap of a TLAS").  This is the ABI the
+    // traversal runs on, so a wrong slot is reported here instead of silently
+    // walking another tree.
+    auto heap_problems = resources.lbvh->validate_heap(
+        stream, resources.tlas, static_cast<uint>(resources.blases.size()));
+    LUISA_INFO("  self-check: bindless heap ({} slot(s)), {} problem(s)",
+               resources.tlas.heap_size(), heap_problems);
+    if (heap_problems != 0u) {
+        error = luisa::format("the bindless heap of the software LBVH of scene '{}' is malformed",
+                              scene.name);
         return false;
     }
     // ---- the same scene through the Luisa RTX API ----

@@ -22,9 +22,11 @@ BlasBuilder::BlasBuilder(Device &device) noexcept
                   auto v1 = vertices.read(tri.i1);
                   auto v2 = vertices.read(tri.i2);
                   Var<LbvhPrim> prim;
-                  prim.id = i;// local triangle index inside this BLAS
-                  prim.lo = min(min(v0, v1), v2);
-                  prim.hi = max(max(v0, v1), v2);
+                  // xyz = the AABB, w = the id bit-cast (see `LbvhPrim`): the record
+                  // stays one 32-byte sector, and the random prims[slot] read of
+                  // the leaf pass never needs a second one.
+                  prim.lo = make_float4(min(min(v0, v1), v2), pack_handle(i));
+                  prim.hi = make_float4(max(max(v0, v1), v2), 0.0f);
                   prims.write(prim_base + i, prim);
               };
           }})} {}
@@ -60,6 +62,7 @@ size_t BlasBuilder::pre_build(LbvhStorage &storage, Blas &blas) noexcept {
     auto range = storage.allocate(blas._sizes.primitive_count);
     blas._node_offset = range.node_base;
     blas._prim_offset = range.prim_base;
+    blas._plan_offset = range.plan_base;
     blas._pre_built = true;
     // What the backend pre-build returns: the scratch size of the build.
     return blas._sizes.scratch_bytes;
@@ -86,6 +89,7 @@ void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
     LbvhStorage::TreeRange range;
     range.prim_base = blas.prim_offset();
     range.node_base = blas.node_offset();
+    range.plan_base = blas.plan_offset();
     range.count = blas.triangle_count();
     storage.build_tree(stream, range, blas.object_space_min(), blas.object_space_max(),
                        timings);
@@ -108,19 +112,27 @@ void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
 // scenes whose walk is short).  See bench/README.md for the numbers.
 void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas,
                     Float3 origin, Float3 direction, Float t_min,
-                    const BufferVar<LbvhNode> &nodes,
+                    const BindlessVar &heap,
                     const BufferVar<float3> &vertices,
                     const BufferVar<Triangle> &triangles) noexcept {
+    // The BLAS node region is a *bindless heap entry* (lbvh_common.h): the
+    // record carries the slot, and a heap entry is a view that starts at the
+    // region, so a node handle - an absolute index in the shared node buffer -
+    // is read at `handle - node_offset`.  The root of a tree is its region's
+    // first node, i.e. `node_offset` itself, and the subtraction is
+    // region-local and never negative.
+    auto nodes = heap.buffer<LbvhNode>(blas.heap_slot);
+    auto base = blas.node_offset;
     auto inv_dir = safe_reciprocal(direction);
     Local<uint> stack{traversal_stack_size};
-    stack[0u] = blas.node_offset;
+    stack[0u] = base;
     auto size = def(1u);
     $while (size > 0u) {
         size = size - 1u;
         // one 32-byte node record: the two AABB planes and the two handles (see
         // `LbvhNode`); the handles are only read once the AABB test has passed,
         // and a leaf's second handle is its primitive id.
-        auto node = nodes.read(stack[size]);
+        auto node = nodes.read(stack[size] - base);
         $if (aabb_test(aabb_lo(node), aabb_hi(node), origin, inv_dir, t_min, best.t)) {
             auto node_left = child_left(node);
             $if (node_left == invalid_node) {

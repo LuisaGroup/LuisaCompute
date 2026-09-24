@@ -70,14 +70,18 @@ public:
     [[nodiscard]] bool is_pre_built() const noexcept { return _pre_built; }
     [[nodiscard]] uint node_offset() const noexcept { return _node_offset; }
     [[nodiscard]] uint prim_offset() const noexcept { return _prim_offset; }
+    [[nodiscard]] uint plan_offset() const noexcept { return _plan_offset; }
     [[nodiscard]] uint triangle_offset() const noexcept { return _triangle_offset; }
     [[nodiscard]] uint triangle_count() const noexcept { return _triangle_count; }
     [[nodiscard]] uint node_count() const noexcept { return static_cast<uint>(_sizes.node_count); }
     [[nodiscard]] float3 object_space_min() const noexcept { return _lo; }
     [[nodiscard]] float3 object_space_max() const noexcept { return _hi; }
-    // GPU-side view of this BLAS.
-    [[nodiscard]] LbvhBlas record() const noexcept {
-        return LbvhBlas{_node_offset, _triangle_offset, _triangle_count};
+    // GPU-side view of this BLAS.  `heap_slot` is the bindless slot the owning
+    // TLAS registered this BLAS' node region at (lbvh_common.h's "The bindless
+    // heap of a TLAS"); it is the TLAS builder that knows it, so the caller
+    // passes it in.
+    [[nodiscard]] LbvhBlas record(uint heap_slot) const noexcept {
+        return LbvhBlas{_node_offset, _triangle_offset, _triangle_count, heap_slot};
     }
 
 private:
@@ -86,6 +90,7 @@ private:
     LbvhBuildSizes _sizes;
     uint _node_offset{};
     uint _prim_offset{};
+    uint _plan_offset{};
     uint _triangle_offset{};
     uint _triangle_count{};
     float3 _lo{};
@@ -134,8 +139,10 @@ private:
 // the instance that owns it: `origin` / `direction` are transformed by the
 // caller, but the direction is deliberately not renormalized, so the ray
 // parameter keeps its world-space meaning and `t_min` / the current best
-// distance of `best` can be compared directly.  `nodes`, `vertices` and
-// `triangles` are the shared buffers of the scene.
+// distance of `best` can be compared directly.  `heap` is the owning TLAS'
+// bindless heap: the BLAS is resolved through it by `blas.heap_slot` instead of
+// by an index into a shared node buffer (lbvh_common.h), and `vertices` /
+// `triangles` are the shared geometry buffers of the scene.
 //
 // `best` is the running closest hit; it must already be initialized (miss
 // marker, `bary`, and the current upper distance bound in `t`), and is updated
@@ -143,7 +150,7 @@ private:
 // `LbvhHit::inst`.
 void blas_traversal(Var<LbvhHit> &best, UInt instance, const Var<LbvhBlas> &blas,
                     Float3 origin, Float3 direction, Float t_min,
-                    const BufferVar<LbvhNode> &nodes,
+                    const BindlessVar &heap,
                     const BufferVar<float3> &vertices,
                     const BufferVar<Triangle> &triangles) noexcept;
 
