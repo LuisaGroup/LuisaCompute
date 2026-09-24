@@ -1,7 +1,9 @@
-// Native shader injection (HLSL on dx, GLSL on vk) through NativeShaderExt.
+// Native shader injection (HLSL on dx, GLSL on vk, CUDA C++ on cuda) through
+// NativeShaderExt.
 //
 //   example_native_shader dx
 //   example_native_shader vk
+//   example_native_shader cuda
 //
 // The example compiles a native compute shader at runtime, reflects its
 // bindings, creates a backend shader instance from the compiled bytecode and
@@ -58,6 +60,20 @@ void main() {
 
 constexpr auto element_count = 1u << 16u;
 
+// The same shader again, this time in CUDA C++ for the CUDA backend. NVRTC
+// compiles it and the extension reflects the kernel signature: the pointer
+// parameters are the buffer bindings, in declaration order (`const float *src`
+// is read-only, `float *dst` is writable), and the non-pointer parameters are
+// the launcher's `add_uniform` values, in declaration order - exactly the two
+// buffers and the two floats the other routes bind. The kernel is declared
+// `extern "C"` so that its name reaches the PTX unmangled.
+constexpr auto cuda_source = R"(
+extern "C" __global__ void scale(const float *src, float *dst, float k, float c) {
+    auto i = blockIdx.x * blockDim.x + threadIdx.x;
+    dst[i] = src[i] * k + c;
+}
+)";
+
 [[nodiscard]] int fail(const char *message) noexcept {
     LUISA_ERROR("native shader example FAILED: {}", message);
     return 1;
@@ -67,13 +83,13 @@ constexpr auto element_count = 1u << 16u;
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        LUISA_INFO("Usage: {} <dx|vk>",
+        LUISA_INFO("Usage: {} <dx|vk|cuda>",
                    argc > 0 ? argv[0] : "example_native_shader");
         return 1;
     }
     auto backend = luisa::string_view{argv[1]};
-    if (backend != "dx" && backend != "vk") {
-        LUISA_INFO("This example demonstrates the dx and vk backends only.");
+    if (backend != "dx" && backend != "vk" && backend != "cuda") {
+        LUISA_INFO("This example demonstrates the dx, vk and cuda backends only.");
         return 1;
     }
     Context context{argv[0]};
@@ -83,6 +99,9 @@ int main(int argc, char *argv[]) {
         LUISA_WARNING("Backend '{}' has no NativeShaderExt.", backend);
         return 1;
     }
+    auto language_name = [&] {
+        return backend == "dx" ? "HLSL" : backend == "vk" ? "GLSL" : "CUDA";
+    };
     if (backend == "dx") {
         // dx has no GLSL front end: the extension refuses GLSL explicitly.
         NativeShaderCompileInfo info;
@@ -93,20 +112,42 @@ int main(int argc, char *argv[]) {
             return fail("dx did not reject GLSL");
         }
         LUISA_INFO("dx rejects GLSL as expected: {}", rejected.error);
+    } else if (backend == "cuda") {
+        // cuda has no HLSL/GLSL front end either: the extension refuses both and
+        // compiles CUDA C++ (NativeShaderLanguage::CUDA_NVRTC) instead.
+        NativeShaderCompileInfo info;
+        info.language = NativeShaderLanguage::HLSL;
+        info.source = hlsl_source;
+        auto rejected = ext->compile(info);
+        if (rejected.ok() || rejected.error.empty()) {
+            return fail("cuda did not reject HLSL");
+        }
+        LUISA_INFO("cuda rejects HLSL as expected: {}", rejected.error);
     }
 
     NativeShaderCompileInfo info;
     info.language = backend == "dx" ? NativeShaderLanguage::HLSL :
-                                      NativeShaderLanguage::GLSL;
+                    backend == "vk" ? NativeShaderLanguage::GLSL :
+                                       NativeShaderLanguage::CUDA_NVRTC;
     info.source = backend == "dx" ? luisa::string_view{hlsl_source} :
-                                    luisa::string_view{glsl_source};
-    info.entry_point = backend == "dx" ? "CSMain" : "main";
+                  backend == "vk" ? luisa::string_view{glsl_source} :
+                                     luisa::string_view{cuda_source};
+    info.entry_point = backend == "dx" ? "CSMain" :
+                       backend == "vk" ? "main" : "scale";
+    // The uniform bytes: a `cbuffer`/push-constant block on dx/vk, the two
+    // scalar kernel parameters on cuda (where the reflection also derives it, so
+    // this line is a cross-check rather than a requirement).
     info.push_constant_size = 2u * sizeof(float);
+    if (backend == "cuda") {
+        // CUDA kernels declare no workgroup size; the launcher's block size must
+        // be given (or derived from `__launch_bounds__(N)`).
+        info.block_size = uint3{64u, 1u, 1u};
+    }
     auto compiled = ext->compile(info);
     if (!compiled.ok()) { return fail(compiled.error.c_str()); }
     LUISA_INFO("compiled a native {} shader: {} bytes, workgroup size ({} {} {}), "
                "{} reflected binding(s)",
-               backend == "dx" ? "HLSL" : "GLSL", compiled.binary.size(),
+               language_name(), compiled.binary.size(),
                compiled.block_size.x, compiled.block_size.y, compiled.block_size.z,
                compiled.bindings.size());
     for (auto i = 0u; i < compiled.bindings.size(); i++) {
@@ -130,7 +171,7 @@ int main(int argc, char *argv[]) {
     Buffer<float> independent = device.create_buffer<float>(element_count);
     stream << src.copy_from(luisa::span{host_src}) << synchronize();
 
-    // Binding by index is unambiguous on both backends: on dx the HLSL register
+    // Binding by index is unambiguous on every route: on dx the HLSL register
     // namespaces make `register(t0)` and `register(b0)` the same bind point.
     auto make_dispatch = [&](const BufferView<float> &from,
                              const BufferView<float> &to,

@@ -49,6 +49,10 @@ public:
     [[nodiscard]] uint node_offset() const noexcept { return _node_offset; }
     [[nodiscard]] uint prim_offset() const noexcept { return _prim_offset; }
     [[nodiscard]] uint plan_offset() const noexcept { return _plan_offset; }
+    // Slot of this tree in the storage's per-tree usage buffer (see
+    // `LbvhStorage::usage`): the fused leaf pass writes the tree's node count
+    // there and `compact()` reads it back.
+    [[nodiscard]] uint usage_slot() const noexcept { return _usage_slot; }
     [[nodiscard]] uint instance_count() const noexcept { return _instance_count; }
     [[nodiscard]] uint node_count() const noexcept { return static_cast<uint>(_sizes.node_count); }
     // The bindless heap of this TLAS (lbvh_common.h's "The bindless heap of a
@@ -58,6 +62,9 @@ public:
     // before the TLAS was pre-built.
     [[nodiscard]] bool has_heap() const noexcept { return static_cast<bool>(_accel_heap); }
     [[nodiscard]] const BindlessArray &heap() const noexcept { return _accel_heap; }
+    // Non-const so a caller can record `heap().update()` after re-registering the
+    // views (see `TlasBuilder::emplace_heaps` / `SoftwareLbvh::compact`).
+    [[nodiscard]] BindlessArray &heap() noexcept { return _accel_heap; }
     [[nodiscard]] size_t heap_size() const noexcept {
         return _accel_heap ? _accel_heap.size() : 0u;
     }
@@ -69,6 +76,7 @@ private:
     uint _node_offset{};
     uint _prim_offset{};
     uint _plan_offset{};
+    uint _usage_slot{};
     uint _instance_count{};
     // World-space volume the Morton codes of the build are normalized with; kept
     // here (like the backend keeps its prebuild info in the resource) so that
@@ -125,6 +133,15 @@ public:
     void build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
                AccelBuildRequest request,
                LbvhBuildTimings *timings = nullptr) noexcept;
+
+    // Stash one bindless view per BLAS node region (slot 2 + i) and one for the
+    // TLAS' own region (slot 1) on `tlas`' heap, without recording the update -
+    // the caller owns that, so the registration can be appended to the same
+    // command list as the copy that filled `nodes`.  This is the single
+    // definition of the slot layout (lbvh_common.h); `pre_build()` uses it for
+    // the build, `SoftwareLbvh::compact()` for the dense buffer.
+    void emplace_heaps(const Buffer<LbvhNode> &nodes, Tlas &tlas,
+                       luisa::span<const Blas> blases) noexcept;
 
 private:
     // Make sure `tlas` owns a heap with room for `blas_count` BLAS regions (slot

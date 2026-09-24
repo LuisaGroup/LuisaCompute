@@ -71,6 +71,10 @@ public:
     [[nodiscard]] uint node_offset() const noexcept { return _node_offset; }
     [[nodiscard]] uint prim_offset() const noexcept { return _prim_offset; }
     [[nodiscard]] uint plan_offset() const noexcept { return _plan_offset; }
+    // Slot of this tree in the storage's per-tree usage buffer (see
+    // `LbvhStorage::usage`): the fused leaf pass writes the tree's node count
+    // there and `compact()` reads it back.
+    [[nodiscard]] uint usage_slot() const noexcept { return _usage_slot; }
     [[nodiscard]] uint triangle_offset() const noexcept { return _triangle_offset; }
     [[nodiscard]] uint triangle_count() const noexcept { return _triangle_count; }
     [[nodiscard]] uint node_count() const noexcept { return static_cast<uint>(_sizes.node_count); }
@@ -91,6 +95,7 @@ private:
     uint _node_offset{};
     uint _prim_offset{};
     uint _plan_offset{};
+    uint _usage_slot{};
     uint _triangle_offset{};
     uint _triangle_count{};
     float3 _lo{};

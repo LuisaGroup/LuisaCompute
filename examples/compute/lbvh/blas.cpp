@@ -40,8 +40,13 @@ Blas BlasBuilder::create(const AccelOption &option, uint triangle_offset,
                       "the motion option of this BLAS is ignored.");
     }
     if (option.allow_compaction) {
-        LUISA_WARNING("The software LBVH does not compact its trees; "
-                      "allow_compaction of this BLAS is ignored.");
+        // The flag is the caller's *intent* (a hint, never a semantic change, the
+        // same contract the hardware backends state).  The software LBVH builds a
+        // loose tree and densifies it only when the caller runs
+        // `SoftwareLbvh::compact()` after the build; `compact()` asserts this
+        // flag, so setting it is what makes the call valid.
+        LUISA_WARNING("The software LBVH builds a loose accel; "
+                      "allow_compaction is honoured by SoftwareLbvh::compact().");
     }
     Blas blas;
     blas._option = option;
@@ -63,6 +68,7 @@ size_t BlasBuilder::pre_build(LbvhStorage &storage, Blas &blas) noexcept {
     blas._node_offset = range.node_base;
     blas._prim_offset = range.prim_base;
     blas._plan_offset = range.plan_base;
+    blas._usage_slot = range.usage_slot;
     blas._pre_built = true;
     // What the backend pre-build returns: the scratch size of the build.
     return blas._sizes.scratch_bytes;
@@ -72,6 +78,9 @@ void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
                         const Buffer<float3> &vertices, const Buffer<Triangle> &triangles,
                         AccelBuildRequest request, LbvhBuildTimings *timings) noexcept {
     LUISA_ASSERT(blas.is_pre_built(), "build() on a BLAS that was not pre-built.");
+    LUISA_ASSERT(storage.buildable(),
+                 "build() after release_build_scratch(): the storage can no longer "
+                 "be built into, use a new LbvhStorage.");
     // The RTX request (PREFER_UPDATE / FORCE_BUILD) selects in-place update on
     // the hardware backends; the software LBVH has no update path and always
     // rebuilds the tree, so the request only documents the caller's intent.
@@ -91,6 +100,7 @@ void BlasBuilder::build(Stream &stream, LbvhStorage &storage, const Blas &blas,
     range.node_base = blas.node_offset();
     range.plan_base = blas.plan_offset();
     range.count = blas.triangle_count();
+    range.usage_slot = blas.usage_slot();
     storage.build_tree(stream, range, blas.object_space_min(), blas.object_space_max(),
                        timings);
 }

@@ -21,6 +21,7 @@ class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDAPinnedMemoryExt;
 class CudaGraphExtImpl;
+class CUDANativeShaderExt;
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 class CUDATexCompressExt;
@@ -155,12 +156,18 @@ private:
 
 private:
     // extensions
+    //
+    // NOTE: the extensions are declared *after* `_handle` on purpose: members
+    // are destroyed in reverse declaration order, so every extension (and
+    // therefore every GPU/API object it owns, e.g. the modules of the native
+    // shaders) dies while this device's CUDA context is still alive.
     std::mutex _ext_mutex;
     luisa::unique_ptr<DeviceConfigExt> _device_config_ext;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
     luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
     luisa::unique_ptr<CudaGraphExtImpl> _cuda_graph_ext;
     luisa::unique_ptr<CUDAExternalExt> _external_ext;
+    luisa::unique_ptr<CUDANativeShaderExt> _native_shader_ext;
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
 #endif

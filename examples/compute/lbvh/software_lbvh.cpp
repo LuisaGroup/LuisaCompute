@@ -118,6 +118,79 @@ void SoftwareLbvh::build_accel(Stream &stream, const Tlas &tlas,
     _tlas_builder.build(stream, _storage, tlas, request, timings);
 }
 
+LbvhStorage::CompactResult SoftwareLbvh::compact(Stream &stream, Tlas &tlas,
+                                                 luisa::span<const Blas> blases,
+                                                 CompactionPolicy policy,
+                                                 bool release_scratch) noexcept {
+    LUISA_ASSERT(tlas.is_pre_built(), "compact() on a TLAS that was not built.");
+    LUISA_ASSERT(tlas.has_heap(), "compact() on a TLAS without a bindless heap.");
+    // The RTX contract, translated: `allow_compaction` is the caller's intent (a
+    // hint, never a semantic change), and this call is the action that honours
+    // it.  Check it here, where the options are still visible, exactly like a
+    // backend checks the flag before it compacts.
+    LUISA_ASSERT(tlas.option().allow_compaction,
+                 "compact() requires the TLAS to be created with "
+                 "AccelOption::allow_compaction.");
+    for (auto i = 0u; i < blases.size(); i++) {
+        LUISA_ASSERT(blases[i].option().allow_compaction,
+                     "compact() requires every BLAS to be created with "
+                     "AccelOption::allow_compaction (BLAS {} was not).",
+                     i);
+    }
+    // One command list carries the copy, the heap re-registration and the
+    // retirement, so they are guaranteed to complete in that order on the device
+    // (a list is executed as a unit, and its callbacks run after it).
+    CommandList list = CommandList::create(1u, 2u);
+    // (2)/(3): the device size query + the exact-size allocation; the copy is
+    // recorded into `list`.  `LbvhStorage::compact` synchronises the stream, so
+    // the host has the node count before it sizes the dense buffer.
+    auto result = _storage.compact(stream, list, policy);
+    if (result.compacted()) {
+        // (4a): re-register every heap view onto the dense buffer.  It is the
+        // same list as the copy, so no traversal that resolves through the new
+        // views can run before the copy has filled the buffer.
+        _tlas_builder.emplace_heaps(result.nodes, tlas, blases);
+        list << tlas.heap().update();
+        // (4b): retire the loose node buffer - and, opt-in, the build scratch -
+        // through a *completion* callback of the same list.  The callback owns
+        // the moved buffers (`Buffer` is movable, not copyable, and destroys its
+        // handle in its destructor), so the device buffers are released only
+        // after the list has completed and every recorded dispatch that read them
+        // is done.  `add_dtor_callback` would run at submit time - never use it
+        // for a resource retirement.  The build scratch is only read by the
+        // build, which has completed (compact() synchronised for its size query),
+        // and nothing this list records reads it.
+        auto scratch = release_scratch ? _storage.release_build_scratch()
+                                       : LbvhStorage::ReleasedScratch{};
+        result.reclaimed_scratch_bytes = scratch.bytes;
+        list.add_callback([old_nodes = _storage.take_loose_nodes(),
+                           scratch = std::move(scratch)]() mutable noexcept {
+            // the assignments destroy the buffers: this is where the device
+            // handles are released, after the GPU work above finished
+            old_nodes = {};
+            scratch = LbvhStorage::ReleasedScratch{};
+        });
+        // The storage adopts the dense buffer *before* the commit (the
+        // retirement callback owns only the old/loose buffer and the
+        // temporaries); a callback that captured the new buffer would leave the
+        // storage holding a destroyed handle.  This is the Luisa shape of
+        // Metal's `compacted_handle->retain()` before
+        // `copyAndCompactAccelerationStructure`.
+        _storage.adopt_nodes(std::move(result.nodes));
+        if (result.reclaimed_scratch_bytes != 0u) {
+            LUISA_INFO("software LBVH compact(): build scratch retired "
+                       "({} B, {}).",
+                       result.reclaimed_scratch_bytes,
+                       _storage.buildable() ? "storage still buildable"
+                                            : "storage now traverse-only");
+        }
+    }
+    stream << list.commit();
+    LUISA_ASSERT(!tlas.heap().dirty(),
+                 "the bindless heap must be re-registered before the traversal.");
+    return result;
+}
+
 void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices,
                                   const Buffer<Triangle> &triangles,
                                   const Buffer<LbvhRay> &rays, const Buffer<LbvhHit> &hits,

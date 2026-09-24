@@ -50,8 +50,10 @@ Tlas TlasBuilder::create(const AccelOption &option, uint instance_count) noexcep
                       "the motion option of this TLAS is ignored.");
     }
     if (option.allow_compaction) {
-        LUISA_WARNING("The software LBVH does not compact its trees; "
-                      "allow_compaction of this TLAS is ignored.");
+        // See the same note in `BlasBuilder::create`: the flag is the caller's
+        // intent and `SoftwareLbvh::compact()` is the action that honours it.
+        LUISA_WARNING("The software LBVH builds a loose accel; "
+                      "allow_compaction is honoured by SoftwareLbvh::compact().");
     }
     LUISA_ASSERT(instance_count > 0u, "a TLAS needs at least one instance.");
     Tlas tlas;
@@ -94,6 +96,7 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
     tlas._node_offset = range.node_base;
     tlas._prim_offset = range.prim_base;
     tlas._plan_offset = range.plan_base;
+    tlas._usage_slot = range.usage_slot;
     tlas._volume_lo = volume_lo;
     tlas._volume_hi = volume_hi;
     tlas._pre_built = true;
@@ -103,7 +106,21 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
     // own region is slot 1, and every BLAS is registered at its slot; the update
     // is a command of its own and is ordered before the build (and hence before
     // any traversal) by the stream.
-    auto &nodes = storage.nodes();
+    emplace_heaps(storage.nodes(), tlas, blases);
+    stream << tlas._accel_heap.update();
+    // What the backend pre-build returns: the scratch size of the build.
+    return tlas._sizes.scratch_bytes;
+}
+
+void TlasBuilder::emplace_heaps(const Buffer<LbvhNode> &nodes, Tlas &tlas,
+                                luisa::span<const Blas> blases) noexcept {
+    // The slot layout is fixed by lbvh_common.h: slot 0 is the null slot (a BLAS
+    // the caller never gave geometry is skipped through it), slot 1 the TLAS'
+    // own region and slot 2 + i the node region of BLAS i.
+    LUISA_ASSERT(blases.size() + heap_first_blas_slot <= tlas._accel_heap.size(),
+                 "the TLAS heap holds {} slot(s) but {} BLAS + {} reserved slots "
+                 "were registered.",
+                 tlas._accel_heap.size(), blases.size(), heap_first_blas_slot);
     for (auto i = 0u; i < blases.size(); i++) {
         tlas._accel_heap.emplace_on_update(
             heap_first_blas_slot + i,
@@ -111,9 +128,6 @@ size_t TlasBuilder::pre_build(Stream &stream, LbvhStorage &storage, Tlas &tlas,
     }
     tlas._accel_heap.emplace_on_update(
         heap_tlas_slot, nodes.view(tlas._node_offset, tlas.node_count()));
-    stream << tlas._accel_heap.update();
-    // What the backend pre-build returns: the scratch size of the build.
-    return tlas._sizes.scratch_bytes;
 }
 
 void TlasBuilder::ensure_heap(Tlas &tlas, size_t blas_count) noexcept {
@@ -133,6 +147,9 @@ void TlasBuilder::ensure_heap(Tlas &tlas, size_t blas_count) noexcept {
 void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
                         AccelBuildRequest request, LbvhBuildTimings *timings) noexcept {
     LUISA_ASSERT(tlas.is_pre_built(), "build() on a TLAS that was not pre-built.");
+    LUISA_ASSERT(storage.buildable(),
+                 "build() after release_build_scratch(): the storage can no longer "
+                 "be built into, use a new LbvhStorage.");
     // The software LBVH always rebuilds the whole tree; there is no in-place
     // update path, so the request only documents the caller's intent.
     (void)request;
@@ -141,6 +158,7 @@ void TlasBuilder::build(Stream &stream, LbvhStorage &storage, const Tlas &tlas,
     range.node_base = tlas.node_offset();
     range.plan_base = tlas.plan_offset();
     range.count = tlas.instance_count();
+    range.usage_slot = tlas.usage_slot();
     Clock clock;
     if (timings != nullptr) { clock.tic(); }
     stream << _prim_kernel(storage.nodes(), storage.blas_table(), storage.instances(),

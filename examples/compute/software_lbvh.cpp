@@ -56,6 +56,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -64,9 +66,39 @@ using namespace luisa::example::lbvh;
 int main(int argc, char *argv[]) {
     auto executable = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : "";
     if (argc < 2 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
-        LUISA_INFO("Usage: {} <backend>.", executable);
-        return 1;
+        LUISA_INFO("Usage: {} <backend> [--no-compact] [--headroom <factor>] "
+                   "[--keep-scratch].",
+                   executable);
     }
+    // Compaction is on by default (it is what makes `allow_compaction`
+    // meaningful); `--no-compact` restores the loose build for an A/B, and
+    // `--headroom` sizes the storage from a budget instead of the exact scene, so
+    // the compaction has something to reclaim (the realistic "size it before the
+    // scene is known" case).
+    bool compact = true;
+    // The demo compacts once, at the end, and never rebuilds, so it opts in to
+    // the build-scratch release: the primitive AABBs, both Morton-key buffers,
+    // the block AABBs and the plan are as large again as the node buffer.
+    bool release_scratch = true;
+    double headroom = 2.0;
+    for (auto i = 2; i < argc; i++) {
+        if (argv[i] == nullptr) { continue; }
+        if (std::strcmp(argv[i], "--compact") == 0) {
+            compact = true;
+        } else if (std::strcmp(argv[i], "--no-compact") == 0) {
+            compact = false;
+        } else if (std::strcmp(argv[i], "--keep-scratch") == 0) {
+            release_scratch = false;
+        } else if (std::strcmp(argv[i], "--release-scratch") == 0) {
+            release_scratch = true;
+        } else if (std::strcmp(argv[i], "--headroom") == 0 && i + 1 < argc && argv[i + 1] != nullptr) {
+            headroom = std::strtod(argv[++i], nullptr);
+        } else {
+            LUISA_ERROR("Unknown option '{}'.", argv[i]);
+            return 1;
+        }
+    }
+    if (!(headroom >= 1.0)) { headroom = 1.0; }
 
     Context context{executable};
     Device device = context.create_device(argv[1]);
@@ -139,20 +171,33 @@ int main(int argc, char *argv[]) {
     Clock clock;
     clock.tic();
     // Host-side size query before anything is allocated on the device, the
-    // software counterpart of the driver's prebuild-info query.
-    auto sizes = SoftwareLbvh::estimate(host_triangles.size(), instance_specs.size(),
+    // software counterpart of the driver's prebuild-info query.  The capacity is
+    // the scene *times a headroom factor*: a caller has to size its storage
+    // before the scene is known (the storage's own contract, lbvh_storage.h), and
+    // that deliberate slack is exactly what `compact()` later reclaims.  With
+    // `--headroom 1` the storage is exact and the compaction finds nothing to
+    // reclaim (the no-op path).
+    auto capacity_triangles = static_cast<size_t>(
+        std::ceil(static_cast<double>(host_triangles.size()) * headroom));
+    auto capacity_instances = static_cast<size_t>(
+        std::ceil(static_cast<double>(instance_specs.size()) * headroom));
+    auto sizes = SoftwareLbvh::estimate(capacity_triangles, capacity_instances,
                                         mesh_ranges.size());
-    LUISA_INFO("software LBVH storage estimate: {} primitives, {} nodes, {:.1f} MiB",
-               sizes.primitive_capacity, sizes.node_capacity,
+    LUISA_INFO("software LBVH storage estimate: {} primitives, {} nodes (headroom {}x), {:.1f} MiB",
+               sizes.primitive_capacity, sizes.node_capacity, headroom,
                static_cast<double>(sizes.total_bytes()) / (1024.0 * 1024.0));
     SoftwareLbvh lbvh{device, sizes};
     luisa::vector<Blas> blases;
     blases.reserve(mesh_ranges.size());
     size_t blas_nodes = 0u;
     size_t blas_scratch = 0u;
+    // `allow_compaction` is the caller's intent (the hint the hardware backends
+    // take); `lbvh.compact()` below is the action that honours it.
+    AccelOption blas_option;
+    blas_option.allow_compaction = compact;
     for (auto &&range : mesh_ranges) {
         // create (create_mesh) -> pre_build (size query + reservation) -> build
-        auto blas = lbvh.create_blas(AccelOption{}, range.triangle_offset,
+        auto blas = lbvh.create_blas(blas_option, range.triangle_offset,
                                      range.triangle_count, range.lo, range.hi);
         blas_scratch += lbvh.pre_build_blas(blas);
         lbvh.build_blas(stream, blas, vertices, triangles);
@@ -164,7 +209,9 @@ int main(int argc, char *argv[]) {
     for (auto &&spec : instance_specs) {
         instance_descs.emplace_back(InstanceDesc{spec.to_world, spec.mesh});
     }
-    auto tlas = lbvh.create_accel(AccelOption{},
+    AccelOption tlas_option;
+    tlas_option.allow_compaction = compact;
+    auto tlas = lbvh.create_accel(tlas_option,
                                   static_cast<uint>(instance_descs.size()));
     blas_scratch += lbvh.pre_build_accel(stream, tlas,
                                          luisa::span{blases}, luisa::span{instance_descs});
@@ -356,6 +403,90 @@ int main(int argc, char *argv[]) {
                                    half_width, half_height)
                   .dispatch(ray_count)
            << synchronize();
+
+    // -----------------------------------------------------------------------
+    // RTX-style compaction, before the timed traces: the device reports how many
+    // nodes the trees use, the host reads it back with a hard synchronise,
+    // allocates a node buffer of exactly that size, copies the built nodes into
+    // it, re-registers every bindless heap view onto the dense buffer and retires
+    // the loose buffer plus the temporary buffers through a completion callback.
+    // The same deterministic rays are traced before and after: compaction is a
+    // hint, not a semantic change, so the hits must stay bit-identical (the
+    // contract `allow_compaction` makes at the runtime level).
+    // -----------------------------------------------------------------------
+    if (compact) {
+        Buffer<LbvhHit> hits_before = device.create_buffer<LbvhHit>(ray_count);
+        Buffer<LbvhHit> hits_after = device.create_buffer<LbvhHit>(ray_count);
+        lbvh.trace_software(stream, vertices, triangles, rays, hits_before, tlas, ray_count);
+        stream << synchronize();
+        auto loose_bytes = lbvh.nodes().size_bytes();
+        Clock compact_clock;
+        compact_clock.tic();
+        auto result = lbvh.compact(stream, tlas, luisa::span{blases},
+                                   SoftwareLbvh::CompactionPolicy::as_built, release_scratch);
+        stream << synchronize();
+        auto compact_ms = compact_clock.toc();
+        LUISA_INFO("compaction: {} tree(s), {} -> {} node(s) ({:.1f} -> {:.1f} KiB, "
+                   "{} B reclaimed, {:.1f}%, {:.3f} ms){}",
+                   result.trees, result.nodes_before, result.nodes_after,
+                   static_cast<double>(result.bytes_before) / 1024.0,
+                   static_cast<double>(result.bytes_after) / 1024.0,
+                   result.compacted_bytes,
+                   100.0 * static_cast<double>(result.compacted_bytes) /
+                       static_cast<double>(std::max<size_t>(result.bytes_before, 1u)),
+                   compact_ms,
+                   result.reclaimed_scratch_bytes != 0u
+                       ? luisa::format(", build scratch {} B retired",
+                                       result.reclaimed_scratch_bytes)
+                       : luisa::string{});
+        // The storage must now hold exactly the kept nodes, and the live buffer
+        // must be the dense one the heap views were re-registered onto.
+        LUISA_ASSERT(result.nodes_after == lbvh.node_count() &&
+                         lbvh.nodes().size() == lbvh.node_count(),
+                     "compaction left the storage holding {} node(s) but the trees "
+                     "use {}.",
+                     lbvh.nodes().size(), lbvh.node_count());
+        LUISA_ASSERT(result.compacted_bytes ==
+                         (result.nodes_before - result.nodes_after) * sizeof(LbvhNode),
+                     "the reported reclaimed byte count does not match the node slots.");
+        LUISA_ASSERT(lbvh.nodes().size_bytes() == result.bytes_after &&
+                         lbvh.nodes().size_bytes() <= loose_bytes,
+                     "the live node buffer is not the dense one.");
+        // Re-validate on the dense buffer: this is the strongest cheap check that
+        // every BLAS/TLAS region and every handle still resolves, and that the
+        // bindless heap was re-registered onto the new buffer.
+        size_t after_problems = 0u;
+        for (auto i = 0u; i < blases.size(); i++) {
+            after_problems += lbvh.validate_tree(stream, blases[i].node_offset(),
+                                                 blases[i].triangle_count());
+        }
+        after_problems += lbvh.validate_tree(stream, tlas.node_offset(), tlas.instance_count());
+        after_problems += lbvh.validate_heap(stream, tlas, static_cast<uint>(blases.size()));
+        LUISA_INFO("structural self-check after compaction: {} problem(s)", after_problems);
+        LUISA_ASSERT(after_problems == 0u, "the compacted software LBVH is malformed.");
+        // The traversal must be bit-identical before and after.
+        lbvh.trace_software(stream, vertices, triangles, rays, hits_after, tlas, ray_count);
+        stream << synchronize();
+        luisa::vector<LbvhHit> host_before(ray_count);
+        luisa::vector<LbvhHit> host_after(ray_count);
+        stream << hits_before.copy_to(luisa::span{host_before})
+               << hits_after.copy_to(luisa::span{host_after})
+               << synchronize();
+        size_t changed_hits = 0u;
+        for (auto i = 0u; i < ray_count; i++) {
+            auto &&a = host_before[i];
+            auto &&b = host_after[i];
+            changed_hits += (a.inst != b.inst || a.prim != b.prim || a.t != b.t ||
+                             a.bary.x != b.bary.x || a.bary.y != b.bary.y)
+                                ? 1u
+                                : 0u;
+        }
+        LUISA_INFO("compaction changed {} of {} hit(s)", changed_hits, ray_count);
+        LUISA_ASSERT(changed_hits == 0u,
+                     "compaction changed the traversal result; it must be invisible.");
+    } else {
+        LUISA_INFO("compaction disabled (--no-compact): tracing the loose structure.");
+    }
 
     clock.tic();
     lbvh.trace_software(stream, vertices, triangles, rays, software_hits, tlas, ray_count);

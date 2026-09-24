@@ -16,6 +16,7 @@
 #include "cuda_texture.h"
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
+#include "native_shader_ext.h"
 
 #include "extensions/cuda_dstorage.h"
 
@@ -305,6 +306,15 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
             auto lcub_command = static_cast<CudaLCubCommand *>(command);
             LUISA_ASSERT(lcub_command != nullptr, "Invalid CudaLCuBCommand.");
             lcub_command->func(_stream->handle());
+            break;
+        }
+        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+            // A native (non-DSL) CUDA kernel: the extension owns the module and
+            // the launch-time parameter layout, so it encodes the whole
+            // dispatch.
+            encode_native_shader_dispatch(
+                _stream->device(), this,
+                static_cast<NativeShaderDispatchCommand *>(command));
             break;
         }
         default:

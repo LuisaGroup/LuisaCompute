@@ -42,6 +42,9 @@ if (CUDAToolkit_FOUND)
             cuda_shader_printer.cpp cuda_shader_printer.h
             cuda_sparse_heap.cpp cuda_sparse_heap.h
             cuda_swapchain.cpp cuda_swapchain.h
+            native_shader.cpp native_shader.h
+            native_shader_ext.cpp native_shader_ext.h
+            native_shader_reflection.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h

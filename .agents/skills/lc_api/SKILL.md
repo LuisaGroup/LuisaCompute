@@ -1588,15 +1588,15 @@ stream << cmdlist.commit() << synchronize();
 
 ### Native Shader Injection (`NativeShaderExt`)
 
-Injects **native HLSL/GLSL compute shaders** (bypassing the DSL/AST codegen) through
-`include/luisa/backends/ext/native_shader_ext.h`:
+Injects **native compute shaders** (HLSL/GLSL on dx/vk, CUDA C++ on cuda, bypassing the
+DSL/AST codegen) through `include/luisa/backends/ext/native_shader_ext.h`:
 
 ```cpp
 #include <luisa/backends/ext/native_shader_ext.h>
 auto ext = device.extension<NativeShaderExt>();   // nullptr on backends without it
 
 NativeShaderCompileInfo info;
-info.language = NativeShaderLanguage::HLSL;        // or GLSL (vk only)
+info.language = NativeShaderLanguage::HLSL;        // GLSL (vk), CUDA_NVRTC (cuda)
 info.source = hlsl_source;
 info.entry_point = "CSMain";                       // any name (dx), "main" for GLSL
 info.push_constant_size = 2u * sizeof(float);      // uniform block the launcher feeds
@@ -1611,8 +1611,10 @@ launcher.add_buffer_by_index(0u, a.view(), Usage::READ)
 stream << std::move(launcher).build(thread_count) << synchronize();
 ```
 
-* **Backends/formats**: `dx` = HLSL -> DXIL; `vk` = GLSL -> SPIR-V (glslang) and HLSL -> SPIR-V (DXC).
-  dx rejects GLSL fail-closed. Compute shaders only; native shaders are JIT-only (no AOT/`LUISA_DUMP_SOURCE`).
+* **Backends/formats**: `dx` = HLSL -> DXIL; `vk` = GLSL -> SPIR-V (glslang) and HLSL -> SPIR-V (DXC);
+  `cuda` = CUDA C++ -> PTX (the backend's `luisa_nvrtc`, i.e. `cuda_nvrtc_compiler.cpp`), loaded with the driver
+  API. Every route rejects the other languages fail-closed. Compute shaders only; native shaders are JIT-only
+  (no AOT/`LUISA_DUMP_SOURCE`).
 * **Bindings**: buffers and uniform blocks in this iteration. Constant buffers, structured/byte-address/typed
   buffers are bindable; textures, samplers and acceleration structures are reflected but rejected by `load()`.
   Bind resources by reflection index (`add_buffer_by_index`, index = position in `NativeShader::bindings()`),
@@ -1621,13 +1623,20 @@ stream << std::move(launcher).build(thread_count) << synchronize();
 * **Uniforms**: `add_uniform` values become root 32-bit constants at `register(b0)` (dx: the shader must declare
   `cbuffer ... : register(b0)`, which the launcher's block replaces) or push constants (vk: `layout(push_constant)`
   in GLSL, `[[vk::push_constant]] ConstantBuffer<T>` in HLSL), sized by `NativeShaderCompileInfo::push_constant_size`.
+* **CUDA route (`CUDA_NVRTC`)**: the `__global__` signature *is* the binding declaration - the pointer
+  parameters are the buffer bindings in declaration order (`const T *` = read-only, `T *` = writable, and
+  `register_index` = the parameter index), while the non-pointer parameters are the launcher's `add_uniform`
+  values in declaration order, whose byte size must equal the compiled parameter size. `entry_point` selects the
+  kernel (the default `main` means "the only `__global__`", and is rejected when the source declares several);
+  declare the kernel `extern "C"` so the name reaches the PTX unmangled. `block_size` must be declared (or come
+  from `__launch_bounds__(N)`), and `push_constant_size` is the total scalar-parameter size (reflected when 0).
 * **Correct synchronization needs a correct `Usage`**: the per-argument usage is the contract the command-reorder
   pass and the backend barriers rely on (a UAV declared `READ` is a data race). `launcher.validate()` returns the
   contract error that `build()` asserts (SRV/CBV+WRITE and UAV+READ without `set_allow_usage_override(true)`).
 * **Workgroup size**: reflection reports `[numthreads]`/`local_size_*`; the launcher asserts the dispatch block size
   matches it.
-* See `examples/compute/native_shader.cpp` for a runnable reorder-safety example, and
-  `src/tests/unit/ext/test_native_shader_{command,reflection}.cpp` /
+* See `examples/compute/native_shader.cpp` (`dx|vk|cuda`) for a runnable reorder-safety example, and
+  `src/tests/unit/ext/test_native_shader_{command,reflection,cuda_reflection}.cpp` /
   `src/tests/integration/runtime/test_native_shader.cpp` for the contract tests.
 
 ### Complete Runtime Example

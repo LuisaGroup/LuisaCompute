@@ -110,6 +110,43 @@ BenchOptionParse parse_bench_options(int argc, char *const *argv) noexcept {
             options.force_oversize = true;
             continue;
         }
+        if (arg == "--compact") {
+            options.compact = true;
+            continue;
+        }
+        if (arg == "--release-scratch") {
+            // opt-in: the build scratch is retired with the loose node buffer,
+            // after which the storage can only be traversed/validated
+            options.release_scratch = true;
+            continue;
+        }
+        // `--compact=as-built|subtrees`: the policy of `SoftwareLbvh::compact`
+        if (arg.size() > 10u && arg.substr(0u, 10u) == "--compact=") {
+            auto policy = arg.substr(10u);
+            if (policy == "as-built") {
+                options.compact = true;
+            } else if (policy == "subtrees") {
+                // designed but deliberately not implemented; fail closed here
+                // instead of aborting inside `compact()` (see bench/README.md)
+                set_error("--compact=subtrees: the subtree_contiguous policy is "
+                          "reserved but not implemented; use --compact=as-built");
+            } else {
+                set_error(luisa::format("invalid --compact value '{}' "
+                                        "(expected as-built or subtrees)",
+                                        policy));
+            }
+            continue;
+        }
+        if (take_value(argc, argv, i, arg, "--headroom", value, result.error)) {
+            double f = 0.0;
+            if (result.error.empty() && (!parse_f64(value, f) || f < 1.0)) {
+                set_error(luisa::format("invalid --headroom value '{}' (must be >= 1)",
+                                        value));
+            } else if (result.error.empty()) {
+                options.headroom = f;
+            }
+            continue;
+        }
         // then the options that take a value
         if (take_value(argc, argv, i, arg, "--scene", value, result.error)) {
             if (result.error.empty()) { options.scene = luisa::string{value}; }
@@ -257,6 +294,25 @@ void print_bench_usage(const char *executable) noexcept {
         "                             with the Luisa RTX reference (RTX-capable backend)\n"
         "  --repeat-check             verify the traversal result is bit-identical across\n"
         "                             the timed iterations\n"
+        "  --compact[=as-built|subtrees]\n"
+        "                             compact the acceleration structure after the build\n"
+        "                             (the software analogue of an RTX compacted copy:\n"
+        "                             device size query -> readback + synchronise ->\n"
+        "                             exact-size dense node buffer -> device copy ->\n"
+        "                             bindless heap re-registration -> the loose buffer\n"
+        "                             retired through a command-list callback).  The\n"
+        "                             traversal is measured on the loose structure first\n"
+        "                             and on the dense one afterwards; the hits must be\n"
+        "                             bit-identical.  'as-built' is the delivered,\n"
+        "                             index-preserving policy; 'subtrees' is reserved but\n"
+        "                             not implemented (see bench/README.md)\n"
+        "  --headroom <f>             size the storage as scene * f (default 2), i.e. the\n"
+        "                             loose slack a compaction reclaims; 1 makes the\n"
+        "                             storage exact and the compaction a no-op\n"
+        "  --release-scratch          with --compact, also retire the build scratch\n"
+        "                             (primitive AABBs, both Morton-key buffers, block\n"
+        "                             AABBs, the plan) through the same callback; the\n"
+        "                             storage is traverse-only afterwards\n"
         "  --mesh <file.obj>          run a scene loaded from an OBJ file (v/f only) instead\n"
         "                             of the catalogue: any real asset works (Sponza, the\n"
         "                             Stanford dragon, ...); the mesh becomes one BLAS\n"
@@ -304,22 +360,33 @@ double BenchTiming::median_ms() const noexcept {
 // Device-memory estimate
 // ---------------------------------------------------------------------------
 
-size_t lbvh_storage_bytes(const LbvhStorage::Sizes &sizes) noexcept {
+size_t lbvh_storage_bytes(const LbvhStorage::Sizes &sizes, bool with_compaction) noexcept {
     // `total_bytes()` is the storage's own query and already includes the scratch
     // of the parallel radix sort; the benchmark must budget for exactly what the
     // storage allocates, so it asks the storage instead of re-adding the parts.
-    return sizes.total_bytes();
+    // A compaction holds the loose node buffer and the dense one at the same time
+    // (until the loose one is retired through the command-list callback), so the
+    // transient peak adds one more node buffer - an upper bound, since the dense
+    // one is at most the reserved node capacity.
+    return sizes.total_bytes() + (with_compaction ? sizes.node_bytes : 0u);
 }
 
 BenchMemoryEstimate estimate_bench_memory(size_t triangles, size_t instances,
                                           size_t blas_count, size_t vertices,
-                                          size_t rays, bool with_rtx_reference) noexcept {
+                                          size_t rays, bool with_rtx_reference,
+                                          bool with_compaction, double headroom) noexcept {
     // The storage sizes are the same host-side query the demo uses; the estimate
-    // is therefore exact for everything the LBVH allocates.
-    auto sizes = LbvhStorage::estimate(triangles, instances, blas_count);
+    // is therefore exact for everything the LBVH allocates.  `headroom` scales
+    // the capacities the way `SceneResources` allocates them, so a `--headroom 2`
+    // run is budgeted for the storage it really creates.
+    auto capacity_triangles = static_cast<size_t>(
+        std::ceil(static_cast<double>(triangles) * headroom));
+    auto capacity_instances = static_cast<size_t>(
+        std::ceil(static_cast<double>(instances) * headroom));
+    auto sizes = LbvhStorage::estimate(capacity_triangles, capacity_instances, blas_count);
     BenchMemoryEstimate estimate;
     estimate.geometry_bytes = vertices * sizeof(float3) + triangles * sizeof(Triangle);
-    estimate.lbvh_bytes = lbvh_storage_bytes(sizes);
+    estimate.lbvh_bytes = lbvh_storage_bytes(sizes, with_compaction);
     // The tree statistics own one leaf-range record (uint2) per node slot and one
     // encoded leaf depth per primitive slot (see bench_stats.h).
     estimate.stats_bytes = sizes.node_capacity * sizeof(uint2) +

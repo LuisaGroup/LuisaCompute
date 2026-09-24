@@ -24,10 +24,11 @@ namespace luisa::compute {
 // Native shader injection (bypassing the DSL/AST codegen path).
 //
 // `NativeShaderExt` lets an application hand the runtime native shader source
-// (HLSL or GLSL), have it compiled to the backend's bytecode format through the
-// backend's own compiler, reflect its resource bindings, create a backend
-// compute-shader instance from the compiled bytecode, and dispatch it from a
-// `Stream` with `NativeShaderDispatchCommand` (built by `NativeShaderLauncher`).
+// (HLSL, GLSL, or - on the CUDA backend - CUDA C++ for NVRTC), have it compiled
+// to the backend's bytecode format through the backend's own compiler, reflect
+// its resource bindings, create a backend compute-shader instance from the
+// compiled bytecode, and dispatch it from a `Stream` with
+// `NativeShaderDispatchCommand` (built by `NativeShaderLauncher`).
 //
 // Contract notes (read before use):
 //  * Compute shaders only. Ray tracing and rasterization native injection are
@@ -48,42 +49,86 @@ namespace luisa::compute {
 //    (HLSL) / `local_size_*` (GLSL) workgroup size; `load` reports the
 //    reflected size and `build()` asserts they match.
 //  * Uniform values passed through `add_uniform` are bound as the backend's
-//    "push constant" currency: a Vulkan push-constant range, or DirectX root
-//    32-bit constants. The shader must therefore declare a matching block
-//    (`layout(push_constant) uniform ...` in GLSL, `[[vk::push_constant]]
-//    ConstantBuffer<...>` in HLSL for Vulkan, and a `cbuffer ... : register(b0)`
-//    block for DirectX), and the application must declare the block's size
-//    through `NativeShaderCompileInfo::push_constant_size` (on the Vulkan side
-//    the size is also read back from the module when it is left 0). On DirectX
-//    the reflected `cbuffer` at `register(b0)` *is* that block: it is fed by the
-//    launcher's uniform values and is therefore not reported as a resource to
-//    bind (declare the uniform block at another register if you want to bind a
-//    buffer to it instead, and pass `push_constant_size = 0`).
+// "push constant" currency: a Vulkan push-constant range, or DirectX root
+// 32-bit constants. The shader must therefore declare a matching block
+// (`layout(push_constant) uniform ...` in GLSL, `[[vk::push_constant]]
+// ConstantBuffer<...>` in HLSL for Vulkan, and a `cbuffer ... : register(b0)`
+// block for DirectX), and the application must declare the block's size
+// through `NativeShaderCompileInfo::push_constant_size` (on the Vulkan side
+// the size is also read back from the module when it is left 0). On DirectX
+// the reflected `cbuffer` at `register(b0)` *is* that block: it is fed by the
+// launcher's uniform values and is therefore not reported as a resource to
+// bind (declare the uniform block at another register if you want to bind a
+// buffer to it instead, and pass `push_constant_size = 0`).
 //  * Textures, samplers and acceleration structures are reflected and reported,
-//    but `load()` rejects them for now on both backends: buffers and uniform
-//    blocks are the supported resource classes of this iteration.
+// but `load()` rejects them for now on both backends: buffers and uniform
+// blocks are the supported resource classes of this iteration.
 //
 //  * Lifetime: a `NativeShader` instance (and any shader handle returned by
-//    `load`) must be destroyed - `NativeShader::reset()`, the RAII destructor or
-//    `destroy_shader()` - before the `Device` that created it, and its
-//    dispatches must have been synchronized before destruction, exactly like any
-//    other GPU resource. Instances that are still alive when the device's
-//    extension is torn down are released by the backend with a warning; they are
-//    never silently dropped.
+// `load`) must be destroyed - `NativeShader::reset()`, the RAII destructor or
+// `destroy_shader()` - before the `Device` that created it, and its
+// dispatches must have been synchronized before destruction, exactly like any
+// other GPU resource. Instances that are still alive when the device's
+// extension is torn down are released by the backend with a warning; they are
+// never silently dropped.
 //
 // Backend support matrix (this iteration):
-//                    | HLSL                     | GLSL
-//  DirectX (dx)      | DXIL + DXC reflection    | rejected (fail-closed)
-//  Vulkan (vk)       | SPIR-V via DXC           | SPIR-V via glslang
+// | HLSL | GLSL | CUDA C++ (NVRTC)
+//  DirectX (dx) | DXIL + DXC reflection | rejected (fail-closed) | rejected (fail-closed)
+//  Vulkan (vk) | SPIR-V via DXC | SPIR-V via glslang | rejected (fail-closed)
+//  CUDA (cuda) | rejected (fail-closed) | rejected (fail-closed) | PTX via NVRTC
 //
 // Resource kinds supported per backend (buffers and uniform blocks only):
 //  * dx: constant buffers (CBV), structured buffers (SRV/UAV) and byte-address
-//    buffers (SRV/UAV). Typed buffers, textures, samplers and acceleration
-//    structures are reflected but rejected at `load()` with an explicit error.
+// buffers (SRV/UAV). Typed buffers, textures, samplers and acceleration
+// structures are reflected but rejected at `load()` with an explicit error.
 //  * vk: constant buffers (uniform buffer descriptors), structured/byte-address
-//    /typed buffers (storage buffer descriptors). Samplers, sampled images,
-//    storage images and acceleration structures are reflected but rejected at
-//    `load()` with an explicit error.
+// /typed buffers (storage buffer descriptors). Samplers, sampled images,
+// storage images and acceleration structures are reflected but rejected at
+// `load()` with an explicit error.
+//  * cuda: buffers, and buffers only - every pointer-typed parameter of the
+// `__global__` entry is one binding. There is no resource-class metadata in
+// PTX, so the reflection is read from the kernel signature in the source and
+// cross-checked against the compiled parameter list: `const T*` becomes a
+// read-only binding (`StructuredBuffer`, `Usage::READ`) and `T*` a writable one
+// (`RWStructuredBuffer`, `Usage::READ_WRITE`). CUDA has no `ConstantBuffer`,
+// `Sampler`, `Texture2D` or acceleration-structure classes in this API: a
+// non-pointer parameter is not a binding at all, it is a plain scalar kernel
+// parameter (see the CUDA route notes below).
+//
+// CUDA route in detail (`NativeShaderLanguage::CUDA_NVRTC`):
+//  * The source is CUDA C++ compiled by NVRTC (the backend's `luisa_nvrtc`
+// helper), and the resulting PTX is loaded with the CUDA driver API. Helper
+// `__device__` functions, headers included by the runtime, and multiple
+// `__global__` functions per translation unit are all fine; `entry_point`
+// selects the kernel (it may be left at the default `main` when the source
+// declares exactly one `__global__` function).
+//  * Kernel parameter layout: the pointer parameters of the entry function are
+// the launcher's resource arguments, in declaration order, each supplied as
+// the buffer's 64-bit device address (buffer base + the `BufferView`'s byte
+// offset). Every non-pointer parameter is a scalar kernel parameter whose
+// value comes from `add_uniform`, in declaration order, and whose size must
+// equal the parameter's compiled size (a mismatch - or a dispatch that supplies
+// the wrong number of buffers/scalars - is a contract violation and is reported
+// as an error). (So the kernel signature
+// `void k(const float *src, float k, float *dst)` takes `src` and `dst` as
+// `add_buffer*()` arguments and `k` as an `add_uniform()` argument, and the
+// reflection table is `[src(READ), dst(READ_WRITE)]`.)
+//  * `NativeShaderCompileInfo::push_constant_size` is the *total* size of those
+// scalar parameters in bytes: it may be left 0 (the value is reflected from the
+// compiled parameter list) but must match when it is nonzero. There is no push-
+// constant *block* on the CUDA route - the values travel as ordinary kernel
+// parameters, so a scalar parameter may be a small struct passed by value
+// (`add_uniform(my_struct)` uses `sizeof(my_struct)` bytes).
+//  * `block_size` comes from `NativeShaderCompileInfo::block_size`; when it is
+// left 0 the kernel's declared maximum thread count (`__launch_bounds__(N)`,
+// i.e. PTX `.maxntid`) is used, and the compile fails closed when the kernel
+// declares neither. `shader_model` is ignored by the CUDA route.
+//  * `load()` therefore rejects nothing that the CUDA route reflects: a native
+// CUDA shader is buffers + scalars by construction. Non-pointer parameters are
+// not reported as bindings (they are the uniform values), and buffer bindings
+// carry `register_index` = the parameter index in the kernel signature (space
+// 0), which is exactly the order `add_buffer*()` binds them by default.
 //
 // Binding a resource: `NativeShaderLauncher` accepts a reflection index
 // (`add_buffer_by_index`, unambiguous), a `(register, space)` pair (HLSL
@@ -92,8 +137,13 @@ namespace luisa::compute {
 // `NativeShaderMetadata::bindings` reports.
 
 enum class NativeShaderLanguage : uint8_t {
-    HLSL,
-    GLSL
+    HLSL, // HLSL source, DirectX (DXIL) or Vulkan (SPIR-V via DXC)
+    GLSL, // GLSL source, Vulkan only (SPIR-V via glslang)
+    // CUDA C++ source compiled by NVRTC (CUDA backend only). Buffers are the
+    // pointer parameters of the `__global__` entry, and non-pointer parameters
+    // are scalar kernel parameters fed by `add_uniform`; see the CUDA route
+    // notes above.
+    CUDA_NVRTC
 };
 
 // Reflection kind of one shader resource.
@@ -141,26 +191,39 @@ struct NativeShaderResourceBinding {
 struct NativeShaderCompileInfo {
     NativeShaderLanguage language{NativeShaderLanguage::HLSL};
     luisa::string_view source;
+    // Entry point of the compiled module: the HLSL function name, `main` for
+    // GLSL, or the `__global__` function name for the CUDA route (where the
+    // default `main` is understood as "the only kernel in the source", and is
+    // rejected when the source declares several of them).
     luisa::string_view entry_point{"main"};
     luisa::string_view file_name; // diagnostics only
-    uint shader_model{65u};       // DX SM for HLSL (ignored by the GLSL route)
-    uint3 block_size{0u, 0u, 0u}; // optional; 0 => take [numthreads]/local_size
-    uint32_t push_constant_size{0u}; // bytes; 0 => no push/root constant block
+    uint shader_model{65u}; // DX SM for HLSL (ignored by GLSL and CUDA)
+    // Optional workgroup size: 0 => take `[numthreads]` / `local_size_*`
+    // (HLSL/GLSL) or the kernel's `__launch_bounds__` (CUDA).
+    uint3 block_size{0u, 0u, 0u};
+    // Uniform bytes: bytes; 0 => no push/root constant block. On the CUDA route
+    // this is the total size of the scalar kernel parameters (0 => reflect it).
+    uint32_t push_constant_size{0u};
     bool optimize{true};
     bool enable_fast_math{false};
     bool enable_debug_info{false};
 };
 
 struct NativeShaderCompileResult {
-    luisa::vector<std::byte> binary;                      // DXIL or SPIR-V words
+    luisa::vector<std::byte> binary; // DXIL, SPIR-V words, or NUL-terminated PTX
     luisa::vector<NativeShaderResourceBinding> bindings;  // reflection
-    luisa::string error;                                  // empty == success
+    luisa::string error; // empty == success
     NativeShaderLanguage language{NativeShaderLanguage::HLSL};
     uint3 block_size{0u, 0u, 0u};
     uint32_t shader_model{0u};
     // Push-constant / root-constant block size carried over from the compile
     // info, so that `load(result)` is self-contained.
     uint32_t push_constant_size{0u};
+    // The entry point `load(result)` must use. Empty means "derive it from the
+    // binary" (the Vulkan and DirectX routes re-reflect their module, which
+    // carries a single entry point); the CUDA route fills it in, because a PTX
+    // module can hold every `__global__` function of the translation unit.
+    luisa::string entry_point;
     [[nodiscard]] bool ok() const noexcept { return error.empty() && !binary.empty(); }
 };
 

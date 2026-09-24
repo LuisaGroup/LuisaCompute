@@ -27,10 +27,13 @@ assertions, which is how the out-of-bounds slice bug below was found).
 | --force-oversize | override the pre-flight refusal of a size that would exceed it |
 | --validate | structural self-check of every tree + the demo's RTX cross-check |
 | --repeat-check | the traversal result must be bit-identical across iterations |
+| --compact (=as-built) | compact the structure after the build (see "Round 4" below); `subtrees` is reserved but not implemented and fails the parse |
+| --release-scratch | with `--compact`, also retire the build scratch (opt-in; the storage is traverse-only afterwards) |
+| --headroom (2) | size the storage as scene * f, i.e. the loose slack `--compact` reclaims; 1 makes the storage exact and the compaction a no-op |
 
-Every measurement also prints machine-readable bench_* records (scene, build,
-tree, trace, dispatch, memory, skip, oversize) so results from several
-backends can be diffed or plotted.
+Every measurement also prints machine-readable bench_ records (scene, build,
+tree, trace, dispatch, memory, skip, oversize, and - only when a compaction ran -
+compact) so results from several backends can be diffed or plotted.
 
 Safety model
 
@@ -415,6 +418,145 @@ the test checks the *offsets themselves* (each tree's plan base must follow the
 previous tree's by that tree's own internal-node count), which is the check that
 would have caught it.  That check was verified the same way as the others: with
 the plan offsets never set, every boundary scene fails with problems=1.
+
+Round 4 (this change) - storage compaction
+
+The acceleration structure of this example used to be built once, loosely, into a
+buffer whose size is the caller's budget for the scene (two nodes per primitive),
+and kept that shape for the rest of its life.  This round adds the RTX compaction
+flow, which is what `AccelOption::allow_compaction` means on the hardware backends:
+after the scene is built, ask the *device* how many nodes the trees actually use,
+read that back with a hard synchronise, allocate a node buffer of exactly that size,
+copy the built nodes into it with a kernel, re-register every bindless heap view onto
+the new buffer (`BindlessArray::update`), and retire the loose buffer plus every
+temporary buffer through a *completion callback* of the same command list that
+carried the copy.  It is the software translation of
+`vkCmdCopyAccelerationStructureKHR` / OptiX `optixAccelCompact` / the DX
+`PROPERTY_TYPE_COMPACTED_SIZE` prebuild, and Metal's BLAS/TLAS path is the closest
+analogue (write the size, read it back on a callback, hard-sync, copy-and-compact,
+release the old handle in a callback).
+
+The flag on `AccelOption` is the caller's intent, never a semantic change (the same
+contract the hardware backends state): `SoftwareLbvh::compact()` is the action that
+honours it, and it asserts that every BLAS/TLAS was created with the flag.
+
+How the size query is answered without a pass or an atomic
+
+The fused leaf pass of `build_tree()` now writes the tree's node count (`2 * count - 1`)
+into its own slot of a per-tree usage buffer.  It is one 4-byte store by lane 0 of a
+pass that is already recorded for *every* tree - the `count == 1` case skips the other
+three radix-tree passes, but never the leaves - so the query adds no dispatch and no
+shared counter to reduce.  DX answers the same question the same way in spirit: its
+prebuild carves the 8-byte compacted size out of the build scratch the build already
+owns.  `LbvhStorage::compact()` then reads the slots back (its own submission, followed
+by `synchronize()` - the host needs the number to size the allocation) and fails closed
+if the device count and the host bookkeeping disagree, which is "compaction only on a
+full build".  A compacted structure has no spare capacity: reserving *new* trees on
+the same storage fails closed (`allocate()` checks the live node buffer), while
+re-building an *existing* tree in place stays valid under `as_built` because every
+index is unchanged - the test suite checks that, and it is the half of the contract
+`subtree_contiguous` (see below) would not keep.
+
+What it costs, what it reclaims (cuda, --iters 3, --validate --repeat-check)
+
+`--headroom f` sizes the storage as scene * f *before* the scene is known - the
+storage's own contract - and that headroom is exactly the loose slack the compaction
+reclaims.  This is deliberate: an *exact* `estimate()` leaves only `blas_count + 1`
+nodes of slack, i.e. 128 B for the demo scene, which is the honest number but not a
+useful demonstration.  With the benchmark's default `--headroom 2`:
+
+| scene | nodes loose -> dense | reclaimed | copy ms | loose -> dense ns/ray |
+|---|---|---|---|---|
+| uniform | 4194308 -> 2097152 | 64.0 MiB | 4.34 | 12.58 -> 11.69 |
+| coincident | 1048580 -> 524288 | 16.0 MiB | 2.61 | 3537 -> 3912 |
+| grid-duplicates | 4194308 -> 2097152 | 64.0 MiB | 5.11 | 7.53 -> 7.69 |
+| exponential | 4194308 -> 2097152 | 64.0 MiB | 4.59 | 150.7 -> 151.0 |
+| line | 4194308 -> 2097152 | 64.0 MiB | 4.39 | 291.3 -> 288.1 |
+| sliver-soup | 65540 -> 32768 | 1.0 MiB | 2.16 | 2032 -> 2058 |
+| bimodal | 1048580 -> 524288 | 16.0 MiB | 2.44 | 20822 -> 20904 |
+| instance-chain | 4195328 -> 2097407 | 64.0 MiB | 4.50 | 9.83 -> 9.01 |
+
+`copy ms` is the whole compaction (size readback + synchronise + exact-size allocation
++ the copy submission + the heap update); the allocation is the one-shot part of it
+and is what makes the first call of a scene cost more than the copy itself (a 64 MiB
+`cuMemAlloc` on this machine, vs ~0.5 ms of pure 32 B/node streaming).
+
+Releasing the build scratch (opt-in, `--release-scratch`)
+
+The node buffer is not the only memory a built scene holds.  The primitive AABBs
+(32 B per primitive), the two Morton-key ping-pong buffers (8 B each), the plan
+records (16 B per internal node) and the block AABBs (~1 B per node slot) are read
+only while a tree is *built*, and together add up to ~66 B per primitive slot - as
+large again as the node buffer's 64 B, i.e. roughly twice the node bytes a
+`--headroom 2` compaction reclaims.  `--release-scratch` moves them out of the
+storage and retires them through the same completion callback as the loose node
+buffer (the build has long completed: `compact()` synchronises for its size query, and
+nothing the command list records reads the scratch).  For uniform on cuda that is
+132.0 MiB of scratch on top of the 64.0 MiB of node bytes.
+
+It is opt-in because it changes the storage contract: after it the storage can only
+be traversed and validated - every build stage fails closed on the missing buffers -
+so a rebuild needs a new `LbvhStorage`.  That is the same "a compacted structure has
+no spare capacity" rule as the node compaction, applied to the build scratch; the
+default keeps the current rebuild-valid contract.  The radix sort's own scratch (~1 B
+per primitive) is not released.  The demo opts in by default (it compacts once, at the
+end, and never rebuilds) and prints both numbers; the test suite releases it once and
+then re-validates and re-traces the same scene.
+
+The delivered policy is `as_built`: destination index == source index, so the copy is
+a streaming node copy, every handle and every `LbvhBlas::node_offset` stays valid, and
+a later rebuild of the same storage stays valid.  That also means the traversal
+*cannot* change - the bytes are the same bytes in the same order - and the two ns/ray
+columns are session noise, not a result: grid-duplicates appears as 12.4 -> 8.5 in one
+session and 7.5 -> 7.7 in the next, with a bit-identical walk (0 hit mismatches in
+every scene of both runs), which is the same spread this README warns about for the
+traversal everywhere else.  The claim of this round is the bytes, not the ns.
+
+`subtree_contiguous` - designed, rejected here
+
+The second planned policy relabels each tree into DFS preorder (for a Karras tree,
+two stable sorts by `(leaf range, subtree size)` give exactly that order), so that a
+subtree - the working set of one descended path - is one contiguous range.  That is
+the only variant that would add *adjacent access* rather than just shrink the working
+set, and it is what the "friendly cache hit" half of the requirement is about.  It is
+not implemented, and `--compact=subtrees` fails the parse (and
+`LbvhStorage::compact` fails closed on the enum value) instead of silently producing
+an unrelabelled structure:
+
+  the relabel needs a second LSD sort that is recorded into the *same* command list
+   as the copy - the existing `LbvhRadixSort::sort` submits to a `Stream`, so the
+   ordering that makes the copy the last reader of the old buffer would be lost - and
+   therefore a `CommandList`-recording overload of the sort, a node-sized scratch
+   (keys + the sort's own matrix/scan scratch, ~32 B/node = as large as the node
+   buffer), a `remap` pass and a retirement bundle that owns that scratch; and it
+   moves every index, so a rebuild after it must either fail closed or re-reserve a
+   loose buffer, i.e. it changes the rebuild contract that the delivered policy
+   deliberately keeps.
+  it is also not measurable *without* that machinery, so this round records it as a
+   rejected alternative rather than claiming a win: the index-preserving `as_built`
+   policy is the deliverable, and the extension point is the enum value and this
+   paragraph.
+
+Verification of the compaction
+
+The demo (`example_software_lbvh --compact`, on by default) prints the nodes/bytes
+before and after, re-runs `validate_tree` for every tree and `validate_heap` on the
+dense buffer, and traces the same deterministic rays on both structures with an
+assert that every hit is bit-identical; `--no-compact` and `--headroom 1` give the
+A/B and the no-op case.  The test suite rebuilds every one of its scenes into its own
+headroom-sized storage, compacts, and checks the contract (`nodes()`/`node_count()`/
+`nodes_after`/`compacted_bytes` agree with the device query, the dense buffer is
+exactly `2n-1` per tree), the structure and the heap on the dense buffer, the hit
+identity before/after, that the dense node bytes equal the loose ones (`as_built`),
+that a second `compact()` reclaims 0 and records no copy, and that several
+independent storages compacted back-to-back still validate and trace (the retirement
+callbacks must all fire), and that a storage whose build scratch was released is no
+longer buildable but still validates and traces.  On cuda, dx and vk: 86 checks in the
+full run, 0 failures, 0 compaction problems; the benchmark gate is
+`--validate --repeat-check --iters 3 --compact` (and the same with
+`--release-scratch`), 8/8 scenes, 0 hit mismatches and `estimated >= allocated` for
+every scene (the budget counts the loose *and* the dense node buffer, and the
+`--headroom` the storage is sized with).
 
 Caveats
 

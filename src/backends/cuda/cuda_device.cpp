@@ -40,6 +40,7 @@
 #include <luisa/xir/verifier.h>
 
 #include "cuda_codegen_xir.h"
+#include "native_shader_ext.h"
 
 namespace luisa::compute::cuda {
 namespace {
@@ -1445,6 +1446,7 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
         if (_external_ext == nullptr) { _external_ext = luisa::make_unique<CUDAExternalExtImpl>(this); }
         return _external_ext.get();
     }
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(NativeShader, _native_shader_ext)
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(TexCompress, _tex_comp_ext)
 #endif

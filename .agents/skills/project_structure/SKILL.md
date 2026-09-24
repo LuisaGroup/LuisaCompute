@@ -111,6 +111,9 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 `src/backends/dx/DXApi/native_shader_ext.{h,cpp}` (HLSL→DXIL + DXC reflection),
 `src/backends/vk/native_shader_ext.{h,cpp}`, `native_shader.{h,cpp}`, `glslang_compiler.{h,cpp}`
 (GLSL/HLSL→SPIR-V, Tier-B pipeline built from reflection), `src/backends/validation/native_shader_ext_impl.*`,
+`src/backends/cuda/native_shader_ext.{h,cpp}`, `native_shader.{h,cpp}`, `native_shader_reflection.h`
+(CUDA C++ -> PTX via NVRTC + driver-API module load; reflection from the `__global__` signature crossed
+with the compiled PTX parameter layout),
 `examples/compute/native_shader.cpp`, and the `test_native_shader*` tests. Dispatch goes through
 `CustomCommandUUID::NATIVE_SHADER_DISPATCH` (`CustomDispatchCommand`), so the reorder pass and the per-backend
 barriers use the declared per-argument `Usage`.

@@ -230,13 +230,19 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             // launch configuration
             auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
             auto blocks = (dispatch_size + block_size - 1u) / block_size;
-            auto arguments = static_cast<void *>(argument_buffer.data());
+            // `kernelParams` is the array of pointers to the parameter values
+            // itself (one entry per kernel parameter); a DSL kernel has exactly
+            // one (the packed argument buffer), just like the indirect path
+            // above.  Passing the address of a local that holds the array base
+            // instead would make the driver read every parameter after the
+            // first out of unrelated stack memory.
+            void *arguments[] = {argument_buffer.data()};
             LUISA_CHECK_CUDA(cuLaunchKernel(
                 _function,
                 blocks.x, blocks.y, blocks.z,
                 block_size.x, block_size.y, block_size.z,
                 0u, cuda_stream,
-                &arguments, nullptr));
+                arguments, nullptr));
             ++kernel_id;
         }
     }

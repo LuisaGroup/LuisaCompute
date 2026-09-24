@@ -61,6 +61,19 @@ struct BenchOptions {
     bool repeat_check{false};
     bool list{false};
     bool help{false};
+    // Storage compaction (the software analogue of the RTX compacted copy, see
+    // `SoftwareLbvh::compact`): off by default so the existing numbers stay
+    // comparable, `--compact[=as-built]` turns it on, and `--headroom <factor>`
+    // sizes the storage (and hence the loose slack the compaction reclaims) from
+    // a budget instead of the exact scene.  The `subtree_contiguous` policy is
+    // reserved but not implemented (`--compact=subtrees` fails the parse; see
+    // bench/README.md).
+    bool compact{false};
+    // Also retire the build scratch through the compaction's completion callback
+    // (opt-in; after it the storage is traverse-only - see
+    // `LbvhStorage::release_build_scratch`).
+    bool release_scratch{false};
+    double headroom{2.0};
 };
 
 // Result of parsing the command line.  A parse error is *recoverable*: the
@@ -157,16 +170,27 @@ struct BenchMemoryEstimate {
 
 // Byte estimate of one measurement of `triangles` triangles over `instances`
 // instances in `blas_count` meshes, `vertices` shared vertices and `rays` rays.
+// With `with_compaction` it also counts the transient peak of
+// `SoftwareLbvh::compact()`: the loose node buffer and the dense one exist at the
+// same time until the loose one is retired, so one more node buffer of room is
+// required.  `headroom` is the factor the storage is deliberately over-sized by
+// (`--headroom`), applied to the triangle/instance capacities exactly like
+// `SceneResources` applies it - the budget check has to see the storage the
+// measurement actually allocates, not the nominal scene size.
 [[nodiscard]] BenchMemoryEstimate estimate_bench_memory(size_t triangles, size_t instances,
                                                         size_t blas_count, size_t vertices,
                                                         size_t rays,
-                                                        bool with_rtx_reference) noexcept;
+                                                        bool with_rtx_reference,
+                                                        bool with_compaction = false,
+                                                        double headroom = 1.0) noexcept;
 
 // Bytes the shared LBVH storage allocates for a scene with these capacities.
 // `Sizes::key_bytes` (and hence `Sizes::total_bytes()`) accounts for one of the
 // two ping-pong Morton-key buffers while the storage allocates both, so the
-// budget counts the second one explicitly.
-[[nodiscard]] size_t lbvh_storage_bytes(const LbvhStorage::Sizes &sizes) noexcept;
+// budget counts the second one explicitly.  `with_compaction` adds the dense node
+// buffer `compact()` allocates while the loose one is still alive.
+[[nodiscard]] size_t lbvh_storage_bytes(const LbvhStorage::Sizes &sizes,
+                                        bool with_compaction = false) noexcept;
 
 [[nodiscard]] luisa::string human_bytes(size_t bytes) noexcept;
 

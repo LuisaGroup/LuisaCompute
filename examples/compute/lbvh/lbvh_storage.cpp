@@ -4,6 +4,7 @@
 #include "lbvh_storage.h"
 
 #include <algorithm>
+#include <numeric>
 
 namespace luisa::example::lbvh {
 
@@ -31,6 +32,19 @@ LbvhStorage::Sizes LbvhStorage::estimate(size_t max_triangles, size_t max_instan
     sizes.plan_bytes = sizes.plan_capacity * sizeof(uint4);
     sizes.blas_table_bytes = sizes.blas_capacity * sizeof(LbvhBlas);
     sizes.instance_bytes = sizes.instance_capacity * sizeof(LbvhInstance);
+    // One node-count slot per tree the storage can reserve.  A storage is shared
+    // by all trees of a scene *and* may be reused for the next scene (the test
+    // does exactly that), so the count is not `blas_capacity + 1`: every BLAS
+    // consumes one slot, and every TLAS one more - and a TLAS always has at least
+    // one instance, so `blas_capacity + instance_capacity` bounds the trees a
+    // caller that sizes its storage from the scene can create.  It is 4 bytes per
+    // slot, so the device-side size query `compact()` performs costs no meaningful
+    // allocation, exactly like the DX prebuild, which carves the 8-byte
+    // compacted-size slot out of a buffer the build already owns (the scratch
+    // tail, dx/Resource/BottomAccel.cpp).  A caller that reserves more trees than
+    // its estimate allows trips the fail-closed assert in `allocate()`.
+    sizes.tree_capacity = std::max(sizes.blas_capacity + sizes.instance_capacity, size_t{1u});
+    sizes.usage_bytes = sizes.tree_capacity * sizeof(uint);
     // Worst case of the parallel sort's per-block histogram/scan scratch (see
     // LbvhRadixSort::scratch_bytes_for): the size query has to report everything
     // the build will allocate, exactly like the scratch size of a backend build.
@@ -39,7 +53,9 @@ LbvhStorage::Sizes LbvhStorage::estimate(size_t max_triangles, size_t max_instan
 }
 
 LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
-    : _sizes{sizes},
+    : _device{&device},
+      _sizes{sizes},
+      _node_capacity{_sizes.node_capacity},
       _prims{device.create_buffer<LbvhPrim>(_sizes.primitive_capacity)},
       _keys_a{device.create_buffer<LbvhKey>(_sizes.primitive_capacity)},
       _keys_b{device.create_buffer<LbvhKey>(_sizes.primitive_capacity)},
@@ -48,6 +64,7 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
       _plan{device.create_buffer<uint4>(_sizes.plan_capacity)},
       _blas_table{device.create_buffer<LbvhBlas>(_sizes.blas_capacity)},
       _instances{device.create_buffer<LbvhInstance>(_sizes.instance_capacity)},
+      _usage{device.create_buffer<uint>(_sizes.tree_capacity)},
       _sort{device, _sizes.primitive_capacity},
       _warp_size{device.compute_warp_size()},
 
@@ -85,13 +102,28 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
       // primitive at sorted position `i`, so this pass is the *only* place that
       // still chases the random `prims[slot]` read; it writes the leaf AABB into
       // the node array, where pass 3 reads it back contiguously.
+      //
+      // The pass also publishes the tree's *usage*: the number of nodes it
+      // occupies (`2 * count - 1`), written by lane 0 into the tree's own slot of
+      // `usage`.  This is the device-side size query `compact()` reads back (the
+      // software analogue of OptiX's PROPERTY_TYPE_COMPACTED_SIZE / DX's
+      // POSTBUILD_INFO_COMPACTED_SIZE), fused into the pass that is recorded for
+      // *every* tree: with `count == 1` passes 2-4 are skipped, but the leaf pass
+      // runs for every tree, and lane 0 of a plain 1D dispatch is exactly the
+      // first thread of the tree's own dispatch.  It needs no extra dispatch and
+      // no global atomic (one 4-byte store into a private slot per tree, reduced
+      // on the host - the same rule `bench_stats.h` follows for its counters),
+      // which is the lc_optimize answer to a contended counter.
       _leaf_kernel{device.compile(Kernel1D{
           [](BufferVar<LbvhKey> keys, BufferVar<LbvhPrim> prims, BufferVar<LbvhNode> nodes,
-             UInt prim_base, UInt node_base, UInt count) noexcept {
+             BufferVar<uint> usage, UInt prim_base, UInt node_base, UInt count,
+             UInt usage_slot) noexcept {
               set_block_size(sort_block_size);
               UInt i = dispatch_id().x;
               // leaves: [node_base + count - 1, node_base + 2 * count - 2]
               $if (i < count) {
+                  // the tree's node count, published once per tree (see above)
+                  $if (i == 0u) { usage.write(usage_slot, count * 2u - 1u); };
                   auto slot = keys.read(prim_base + i).slot;
                   auto prim = prims.read(prim_base + slot);
                   Var<LbvhNode> leaf;
@@ -99,6 +131,14 @@ LbvhStorage::LbvhStorage(Device &device, const Sizes &sizes) noexcept
                   leaf.packed_hi = pack_node_plane(prim_hi(prim), prim_id(prim));
                   nodes.write(node_base + count - 1u + i, leaf);
               };
+          }})},
+
+      // The dense copy of `compact()`, see `_copy_kernel` in the header.
+      _copy_kernel{device.compile(Kernel1D{
+          [](BufferVar<LbvhNode> src, BufferVar<LbvhNode> dst, UInt count) noexcept {
+              set_block_size(256u);
+              UInt i = dispatch_id().x;
+              $if (i < count) { dst.write(i, src.read(i)); };
           }})},
 
       // Radix-tree construction, pass 2 of 4: the *structure* of the internal
@@ -361,6 +401,22 @@ LbvhStorage::TreeRange LbvhStorage::allocate(size_t prim_count) noexcept {
     range.count = static_cast<uint>(prim_count);
     LUISA_ASSERT(_plan_count + range.internal_count() <= _sizes.plan_capacity,
                  "software LBVH node-plan capacity exceeded.");
+    // A compacted storage has no spare capacity (DX/HIP state it explicitly): the
+    // dense buffer holds exactly the nodes the trees use, so reserving *new* trees
+    // must fail closed instead of writing past it.  Re-building an existing tree
+    // into its own range is still valid - that is what `as_built` guarantees and
+    // what the test checks.
+    LUISA_ASSERT(_node_count + range.node_count() <= _node_capacity,
+                 "allocate() on a compacted storage: {} live node slot(s) but {} "
+                 "were already reserved; a compacted structure has no spare "
+                 "capacity, build into a new LbvhStorage (or use AsBuilt and "
+                 "rebuild the existing trees in place).",
+                 _node_capacity, _node_count);
+    // One usage slot per tree: the fused leaf pass of `build_tree()` writes the
+    // tree's node count there and `compact()` reads the slots back.
+    LUISA_ASSERT(_tree_count < _sizes.tree_capacity,
+                 "software LBVH tree capacity exceeded.");
+    range.usage_slot = static_cast<uint>(_tree_count++);
     _prim_count += prim_count;
     _node_count += range.node_count();
     _plan_count += range.internal_count();
@@ -384,10 +440,14 @@ void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
     // The range is built by the caller (the two builders copy it out of their
     // resource's accessors), so check it here instead of trusting it: a range
     // that lost a field would silently build a tree out of another tree's plan.
+    LUISA_ASSERT(buildable(),
+                 "build_tree() after release_build_scratch(): the storage can no "
+                 "longer be built into, use a new LbvhStorage.");
     LUISA_ASSERT(range.count > 0u &&
                      range.node_base + range.node_count() <= _node_count &&
                      range.prim_base + range.count <= _prim_count &&
-                     range.plan_base + range.internal_count() <= _plan_count,
+                     range.plan_base + range.internal_count() <= _plan_count &&
+                     range.usage_slot < _tree_count,
                  "build_tree() got a range that was not reserved by allocate().");
     auto extent = max(hi - lo, make_float3(1.0e-8f));
     auto inv_extent = make_float3(1.0f) / extent;
@@ -422,7 +482,8 @@ void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
       // Karras 2012, one lane per node), the block AABBs of the two-level
       // reduction (`node_reduction_block`), and the AABBs of the internal nodes
       // (one warp per node, the lanes splitting the node's leaf range).
-      stream << _leaf_kernel(_keys_a, _prims, _nodes, range.prim_base, range.node_base, range.count)
+      stream << _leaf_kernel(_keys_a, _prims, _nodes, _usage, range.prim_base, range.node_base,
+                             range.count, range.usage_slot)
                     .dispatch(range.count);
       if (range.count > 1u) {
           // Pass 2: the structure of the internal nodes, one *lane* per node.
@@ -471,6 +532,112 @@ void LbvhStorage::build_tree(Stream &stream, const TreeRange &range,
         stream << synchronize();
         timings->node_ms += clock.toc();
     }
+}
+
+LbvhStorage::CompactResult LbvhStorage::compact(Stream &stream, CommandList &list,
+                                                CompactionPolicy policy) noexcept {
+    LUISA_ASSERT(_tree_count > 0u && static_cast<bool>(_nodes),
+                 "compact() needs at least one built tree.");
+    // `subtree_contiguous` is designed but deliberately not implemented (see
+    // bench/README.md, "Round 4"): relabelling needs a second, node-sized LSD
+    // sort recorded into the *same* command list as the copy (the existing sort
+    // submits to a stream), a remap pass, and a retirement bundle for the
+    // transient scratch - and it changes the rebuild contract, because the
+    // indices move.  It fails closed instead of silently producing a wrong
+    // structure.
+    LUISA_ASSERT(policy == CompactionPolicy::as_built,
+                 "CompactionPolicy::subtree_contiguous is reserved but not "
+                 "implemented; use CompactionPolicy::as_built (the delivered "
+                 "policy, which keeps every index and every rebuild valid).");
+    // ---- size query: the device counts are already there (the fused leaf pass
+    // of `build_tree`), read them back with a submission of its own and a hard
+    // synchronise.  The host needs the number before it can size the allocation,
+    // which is exactly the readback + `force_sync` DX and Metal perform.
+    luisa::vector<uint> host_counts(_tree_count);
+    stream << _usage.view(0u, _tree_count).copy_to(luisa::span{host_counts})
+           << synchronize();
+    auto used = std::accumulate(host_counts.begin(), host_counts.end(), size_t{0u});
+    // Fail closed: the device number is what sizes the dense buffer, so the host
+    // bookkeeping - every reserved tree has been built - must agree with it.
+    // This is the compaction-only-on-a-full-build contract the hardware backends
+    // state as `RequireCompact() = (flags & ALLOW_COMPACTION) && !update`.
+    LUISA_ASSERT(used == _node_count,
+                 "compact() requires every reserved tree to be built: the device "
+                 "reports {} node(s) but the storage reserved {}.",
+                 used, _node_count);
+    LUISA_ASSERT(used <= _node_capacity,
+                 "compact() on a storage that kept building after an earlier "
+                 "compaction: {} reserved node(s) but only {} dense slot(s) "
+                 "(a compacted structure has no spare capacity).",
+                 used, _node_capacity);
+
+    CompactResult result;
+    result.policy = policy;
+    result.trees = _tree_count;
+    result.nodes_before = _node_capacity;
+    result.nodes_after = used;
+    result.bytes_before = result.nodes_before * sizeof(LbvhNode);
+    result.bytes_after = result.nodes_after * sizeof(LbvhNode);
+    result.compacted_bytes = result.bytes_before - result.bytes_after;
+
+    // Already exactly dense: a second `compact()` on the same storage, or a
+    // storage the caller sized exactly.  Nothing to reclaim, so no copy is
+    // recorded and the buffer the heap views already point at cannot be retired;
+    // `result.nodes` stays empty and the caller must not re-register the heap.
+    if (used == _node_capacity) {
+        LUISA_INFO("software LBVH compact(): nothing to reclaim ({} node(s), "
+                   "{:.1f} KiB); no copy recorded.",
+                   used, static_cast<double>(result.bytes_after) / 1024.0);
+        return result;
+    }
+    // ---- exact-size target + copy ----
+    // Allocation alignment/padding is the runtime's business (CUDA aligns its AS
+    // allocation to ACCEL_BUFFER_BYTE_ALIGNMENT, DX to 64 KiB and patches an
+    // NVIDIA prebuild bug there): the *node count* is exact, and
+    // `Device::create_buffer<LbvhNode>` allocates/aligned it, so the compaction
+    // size is deliberately not rounded here.
+    auto dense = _device->create_buffer<LbvhNode>(used);
+    list << _copy_kernel(_nodes, dense, static_cast<uint>(used))
+                .dispatch(static_cast<uint>(used));
+    result.nodes = std::move(dense);
+    LUISA_INFO("software LBVH compact(): {} tree(s), {} -> {} node(s) "
+               "({:.1f} -> {:.1f} KiB, {} B reclaimed, {}).",
+               result.trees, result.nodes_before, result.nodes_after,
+               static_cast<double>(result.bytes_before) / 1024.0,
+               static_cast<double>(result.bytes_after) / 1024.0,
+               result.compacted_bytes,
+               policy == CompactionPolicy::as_built ? "as built" : "subtree contiguous");
+    return result;
+}
+
+Buffer<LbvhNode> LbvhStorage::take_loose_nodes() noexcept {
+    auto nodes = std::move(_nodes);
+    _nodes = {};
+    return nodes;
+}
+
+void LbvhStorage::adopt_nodes(Buffer<LbvhNode> &&dense) noexcept {
+    LUISA_ASSERT(static_cast<bool>(dense) && !static_cast<bool>(_nodes),
+                 "adopt_nodes() expects the loose buffer to have been taken first.");
+    _nodes = std::move(dense);
+    _node_capacity = _nodes.size();
+}
+
+LbvhStorage::ReleasedScratch LbvhStorage::release_build_scratch() noexcept {
+    ReleasedScratch released;
+    released.bytes = _prims.size_bytes() + _keys_a.size_bytes() + _keys_b.size_bytes() +
+                     _blocks.size_bytes() + _plan.size_bytes();
+    released.prims = std::move(_prims);
+    released.keys_a = std::move(_keys_a);
+    released.keys_b = std::move(_keys_b);
+    released.blocks = std::move(_blocks);
+    released.plan = std::move(_plan);
+    _prims = {};
+    _keys_a = {};
+    _keys_b = {};
+    _blocks = {};
+    _plan = {};
+    return released;
 }
 
 size_t LbvhStorage::validate_tree(Stream &stream, uint node_base, uint count) noexcept {

@@ -90,6 +90,19 @@ struct BenchRun {
     size_t trace_chunk_rays{0u};
     double trace_per_ray_ns{0.0};
     double trace_validated_ms{0.0};
+    // Storage compaction (`--compact`): the loose structure the build produced,
+    // the dense one after the copy, the bytes reclaimed (and, when the optional
+    // build-scratch release ran, the scratch bytes reclaimed separately) and the
+    // copy time.  The traversal is measured on both structures with the same plan
+    // and the hits must agree bit-for-bit.
+    bool compacted{false};
+    size_t compact_nodes_before{0u};
+    size_t compact_nodes_after{0u};
+    size_t compact_reclaimed_bytes{0u};
+    size_t compact_reclaimed_scratch_bytes{0u};
+    double compact_ms{0.0};
+    BenchTraceTiming trace_loose;
+    size_t compact_hit_mismatches{0u};
 };
 
 // Machine-readable records: one line per measurement, `key=value`, no timestamp
@@ -170,6 +183,22 @@ void print_machine_readable(const BenchRun &run) noexcept {
     std::printf("bench_memory scene=%s step=%s estimated_bytes=%llu actual_bytes=%llu\n",
                 key, step, static_cast<unsigned long long>(run.memory.total_bytes()),
                 static_cast<unsigned long long>(run.actual_bytes));
+    if (run.compacted || run.compact_nodes_before != 0u) {
+        // only emitted when a compaction ran, so the records of a plain run are
+        // byte-for-byte what they were before this option existed
+        std::printf("bench_compact scene=%s step=%s compacted=%d iters=%llu nodes_before=%llu nodes_after=%llu reclaimed_bytes=%llu reclaimed_scratch_bytes=%llu compact_ms=%.6f "
+                    "loose_trace_ms_min=%.6f dense_trace_ms_min=%.6f loose_ns_per_ray=%.4f dense_ns_per_ray=%.4f hit_mismatches=%llu\n",
+                    key, step, run.compacted ? 1 : 0,
+                    static_cast<unsigned long long>(run.trace.total_ms.count()),
+                    static_cast<unsigned long long>(run.compact_nodes_before),
+                    static_cast<unsigned long long>(run.compact_nodes_after),
+                    static_cast<unsigned long long>(run.compact_reclaimed_bytes),
+                    static_cast<unsigned long long>(run.compact_reclaimed_scratch_bytes),
+                    run.compact_ms,
+                    run.trace_loose.total_ms.min_ms(), run.trace.total_ms.min_ms(),
+                    run.trace_loose.ns_per_ray(), run.trace.ns_per_ray(),
+                    static_cast<unsigned long long>(run.compact_hit_mismatches));
+    }
     std::fflush(stdout);
 }
 
@@ -219,6 +248,18 @@ void print_human_summary(const BenchRun &run) noexcept {
     }
     LUISA_INFO("  memory: {:>10} estimated, {:>10} allocated",
                human_bytes(run.memory.total_bytes()), human_bytes(run.actual_bytes));
+    if (run.compacted || run.compact_nodes_before != 0u) {
+        // The "friendly cache hit" claim, as a number: the dense structure is
+        // traced after the loose one with the same rays, so the two ns/ray are an
+        // interleaved A/B of the two layouts.
+        LUISA_INFO("  compact: {} -> {} node(s), {} reclaimed ({}), {} build scratch reclaimed, copy {:.3f} ms; trace {:.1f} -> {:.1f} ns/ray ({} hit mismatch(es))",
+                   run.compact_nodes_before, run.compact_nodes_after,
+                   human_bytes(run.compact_reclaimed_bytes),
+                   run.compacted ? "dense" : "no-op",
+                   human_bytes(run.compact_reclaimed_scratch_bytes),
+                   run.compact_ms, run.trace_loose.ns_per_ray(), run.trace.ns_per_ray(),
+                   run.compact_hit_mismatches);
+    }
     if (run.measured) {
         // The safety claim of the run: one submission is what the driver resets
         // the device for, and these are the largest ones this scene produced.
@@ -293,9 +334,12 @@ struct SceneResources {
     size_t ray_capacity{0u};
 
     // `ray_count` is clamped to one element: a build-only measurement (a sweep
-    // step) allocates no rays but the buffers must stay non-empty.
+    // step) allocates no rays but the buffers must stay non-empty.  `headroom`
+    // scales the storage capacity (the loose slack `--compact` reclaims) and
+    // `allow_compaction` sets the `AccelOption` the compaction requires.
     SceneResources(Device &device, Stream &stream, const BenchScene &scene, size_t ray_count,
-                   bool with_stats) noexcept
+                   bool with_stats, double headroom = 1.0,
+                   bool allow_compaction = false) noexcept
         : vertices{device.create_buffer<float3>(scene.vertices.size())},
           triangles{device.create_buffer<Triangle>(scene.triangles.size())},
           rays{device.create_buffer<LbvhRay>(std::max<size_t>(ray_count, 1u))},
@@ -309,12 +353,18 @@ struct SceneResources {
                << triangles.copy_from(luisa::span{scene.triangles})
                << synchronize();
         // estimate -> create -> pre_build (the backend order, see software_lbvh.h)
-        auto sizes = SoftwareLbvh::estimate(scene.triangles.size(), scene.instances.size(),
+        auto capacity_triangles = static_cast<size_t>(
+            std::ceil(static_cast<double>(scene.triangles.size()) * headroom));
+        auto capacity_instances = static_cast<size_t>(
+            std::ceil(static_cast<double>(scene.instances.size()) * headroom));
+        auto sizes = SoftwareLbvh::estimate(capacity_triangles, capacity_instances,
                                             scene.meshes.size());
         lbvh = luisa::make_unique<SoftwareLbvh>(device, sizes);
+        AccelOption option;
+        option.allow_compaction = allow_compaction;
         blases.reserve(scene.meshes.size());
         for (auto &&mesh : scene.meshes) {
-            auto blas = lbvh->create_blas(AccelOption{}, mesh.triangle_offset,
+            auto blas = lbvh->create_blas(option, mesh.triangle_offset,
                                           mesh.triangle_count, mesh.lo, mesh.hi);
             lbvh->pre_build_blas(blas);
             blases.emplace_back(blas);
@@ -324,7 +374,7 @@ struct SceneResources {
         for (auto &&instance : scene.instances) {
             descriptions.emplace_back(InstanceDesc{instance.to_world, instance.mesh});
         }
-        tlas = lbvh->create_accel(AccelOption{}, static_cast<uint>(descriptions.size()));
+        tlas = lbvh->create_accel(option, static_cast<uint>(descriptions.size()));
         lbvh->pre_build_accel(stream, tlas, luisa::span{blases}, luisa::span{descriptions});
         if (with_stats) {
             bench_stats = luisa::make_unique<BenchStats>(device, sizes.node_capacity,
@@ -333,7 +383,7 @@ struct SceneResources {
         actual_bytes = buffer_bytes(vertices) + buffer_bytes(triangles) +
                        buffer_bytes(rays) + buffer_bytes(hits) +
                        buffer_bytes(reference_hits) + buffer_bytes(ray_stats) +
-                       lbvh_storage_bytes(sizes) +
+                       lbvh_storage_bytes(sizes, allow_compaction) +
                        (with_stats ? bench_stats->scratch_bytes() : 0u);
     }
 };
@@ -1365,7 +1415,7 @@ void sweep_traversal(Device &device, Stream &stream, const BenchOptions &options
                      luisa::vector<BenchRun> &results) noexcept {
     auto estimate = estimate_bench_memory(scene.triangles.size(), scene.instances.size(),
                                           scene.meshes.size(), scene.vertices.size(),
-                                          ray_count, validate);
+                                          ray_count, validate, options.compact);
     if (estimate.total_bytes() > budget_bytes) {
         LUISA_WARNING("traversal sweep of '{}' skipped: {} needed", scene.name,
                       human_bytes(estimate.total_bytes()));
@@ -1527,9 +1577,13 @@ enum struct RunStatus {
     if (!make_scene(options, name, scene, error)) { return RunStatus::SCENE_ERROR; }
     auto ray_count = effective_rays(options, scene);
     auto primitives = scene.triangles.size() + scene.instances.size();
+    // the storage is over-sized only for a compaction run, and the estimate must
+    // see exactly the storage `SceneResources` will allocate (see --headroom)
+    auto storage_headroom = options.compact ? options.headroom : 1.0;
     auto estimate = estimate_bench_memory(scene.triangles.size(), scene.instances.size(),
                                           scene.meshes.size(), scene.vertices.size(),
-                                          ray_count, validate);
+                                          ray_count, validate, options.compact,
+                                          storage_headroom);
     // ---- the budget gate, before anything is allocated ----
     if (estimate.total_bytes() > budget_bytes) {
         LUISA_WARNING("scene '{}' needs {} but the budget is only {} - skipping it "
@@ -1611,8 +1665,8 @@ enum struct RunStatus {
     }
     run.dispatch_budget_ms = options.dispatch_budget_ms;
     {
-        auto resources = luisa::make_unique<SceneResources>(device, stream, scene, ray_count,
-                                                            true);
+        auto resources = luisa::make_unique<SceneResources>(
+            device, stream, scene, ray_count, true, storage_headroom, options.compact);
         generate_rays(stream, *resources, scene, ray_shader, ray_count, options.seed);
         run.actual_bytes = resources->actual_bytes;
         run.build.primitives = primitives;
@@ -1644,10 +1698,60 @@ enum struct RunStatus {
         run.trace_chunk_rays = plan.slice_rays;
         run.trace_per_ray_ns = plan.per_ray_ns;
         run.trace_validated_ms = plan.validated_ms;
+        // ---- storage compaction (`--compact`), after the plan was measured on
+        // the loose structure: trace the loose one with the same plan, compact it
+        // (device size query -> readback + synchronise -> exact-size dense buffer
+        // -> copy -> heap re-registration -> callback retirement), then trace the
+        // dense one below.  The two traversals must agree bit-for-bit; the memory
+        // the compaction reclaims is `(capacity - used) * 32` bytes.
+        luisa::vector<LbvhHit> host_loose;
+        if (options.compact) {
+            size_t loose_repeat_mismatches = 0u;
+            measure_trace(stream, *resources, options, plan, run.trace_loose, false,
+                          loose_repeat_mismatches, host_loose, run.worst_trace_chunk_ms);
+            auto policy = SoftwareLbvh::CompactionPolicy::as_built;
+            Clock compact_clock;
+            compact_clock.tic();
+            auto result = resources->lbvh->compact(stream, resources->tlas,
+                                                   luisa::span{resources->blases}, policy,
+                                                   options.release_scratch);
+            stream << synchronize();
+            run.compact_ms = compact_clock.toc();
+            run.compacted = result.compacted();
+            run.compact_nodes_before = result.nodes_before;
+            run.compact_nodes_after = result.nodes_after;
+            run.compact_reclaimed_bytes = result.compacted_bytes;
+            run.compact_reclaimed_scratch_bytes = result.reclaimed_scratch_bytes;
+            LUISA_INFO("  compaction (as-built): {} -> {} node(s), {} reclaimed, "
+                       "{} scratch reclaimed, {:.3f} ms",
+                       result.nodes_before, result.nodes_after,
+                       human_bytes(result.compacted_bytes),
+                       human_bytes(result.reclaimed_scratch_bytes), run.compact_ms);
+        }
         luisa::vector<LbvhHit> host_hits;
         size_t repeat_mismatches = 0u;
         measure_trace(stream, *resources, options, plan, run.trace, repeat_check,
                       repeat_mismatches, host_hits, run.worst_trace_chunk_ms);
+        if (options.compact) {
+            // The hits of the loose and the dense structure must be identical: the
+            // same promise `allow_compaction` makes at the runtime level (the
+            // option is a hint, never a semantic change).
+            auto comparable = std::min(host_loose.size(), host_hits.size());
+            for (auto i = 0u; i < comparable; i++) {
+                auto &&a = host_loose[i];
+                auto &&b = host_hits[i];
+                if (a.inst != b.inst || a.prim != b.prim || a.t != b.t ||
+                    a.bary.x != b.bary.x || a.bary.y != b.bary.y) {
+                    run.compact_hit_mismatches++;
+                }
+            }
+            if (host_loose.size() != host_hits.size()) { run.compact_hit_mismatches++; }
+            if (run.compact_hit_mismatches != 0u) {
+                error = luisa::format("scene '{}': compaction changed {} of {} hit(s)",
+                                      name, run.compact_hit_mismatches, comparable);
+                return RunStatus::MISMATCH;
+            }
+        }
         // A scene whose own measurement already blew through --max-seconds must
         // not be swept: on a debug/ASan run that would look like a hang.
         auto too_slow = run.build.total_ms.min_ms() > options.max_seconds * 1.0e3 ||

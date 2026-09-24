@@ -1314,6 +1314,7 @@ struct SceneRun {
     size_t repeat_hit_problems{0u};
     size_t repeat_node_problems{0u};
     size_t reference_hit_problems{0u};
+    size_t compaction_problems{0u};
     size_t software_hits{0u};
     size_t reference_hits{0u};
     size_t rtx_hits{0u};
@@ -1323,7 +1324,8 @@ struct SceneRun {
 
     [[nodiscard]] size_t problems() const noexcept {
         return tree_problems + range_problems + heap_problems + contract_problems +
-               slice_problems + repeat_problems + reference_hit_problems;
+               slice_problems + repeat_problems + reference_hit_problems +
+               compaction_problems;
     }
     [[nodiscard]] size_t fatal() const noexcept {
         return problems() + software.fatal() + rtx.fatal();
@@ -1375,31 +1377,36 @@ struct SceneRun {
     return type->size();
 }
 
+// The mask is one *byte* per byte of the record (not `bool`): `luisa::span` can
+// only view a contiguous container, and a bit-packed `vector<bool>` - the
+// `std::vector<bool>` specialization some STL configurations pick - cannot be
+// viewed at all, so a byte mask keeps this check portable across the STL the
+// project is configured with (it also makes the mask printable verbatim).
 template<typename S, size_t... K>
-[[nodiscard]] luisa::vector<bool> defined_bytes_from(const size_t *member_offsets,
-                                                     std::index_sequence<K...>) noexcept {
+[[nodiscard]] luisa::vector<uint8_t> defined_bytes_from(const size_t *member_offsets,
+                                                        std::index_sequence<K...>) noexcept {
     using members = typename luisa::compute::struct_member_tuple<S>::type;
     static_assert(sizeof...(K) == std::tuple_size_v<members>,
                   "the member reflection of the struct and its offset sequence disagree");
     std::array<size_t, sizeof...(K)> member_sizes{
         member_value_bytes(luisa::compute::Type::of<std::tuple_element_t<K, members>>())...};
-    luisa::vector<bool> defined(luisa::compute::Type::of<S>()->size(), false);
+    luisa::vector<uint8_t> defined(luisa::compute::Type::of<S>()->size(), uint8_t{0u});
     for (auto k = 0u; k < sizeof...(K); k++) {
         for (auto b = member_offsets[k]; b < member_offsets[k] + member_sizes[k]; b++) {
-            if (b < defined.size()) { defined[b] = true; }
+            if (b < defined.size()) { defined[b] = uint8_t{1u}; }
         }
     }
     return defined;
 }
 
 template<typename S, size_t... I>
-[[nodiscard]] luisa::vector<bool> defined_bytes_impl(std::integer_sequence<size_t, I...>) noexcept {
+[[nodiscard]] luisa::vector<uint8_t> defined_bytes_impl(std::integer_sequence<size_t, I...>) noexcept {
     constexpr size_t member_offsets[] = {I...};
     return defined_bytes_from<S>(member_offsets, std::make_index_sequence<sizeof...(I)>{});
 }
 
 template<typename S>
-[[nodiscard]] luisa::vector<bool> defined_bytes() noexcept {
+[[nodiscard]] luisa::vector<uint8_t> defined_bytes() noexcept {
     return defined_bytes_impl<S>(typename luisa::compute::struct_member_tuple<S>::offset{});
 }
 
@@ -1412,7 +1419,7 @@ struct NodeDifference {
 // Compares the *defined* bytes of every node record of two node buffers.
 [[nodiscard]] NodeDifference compare_node_buffers(luisa::span<const std::byte> a,
                                                   luisa::span<const std::byte> b,
-                                                  luisa::span<const bool> defined,
+                                                  luisa::span<const uint8_t> defined,
                                                   size_t stride) noexcept {
     NodeDifference difference;
     if (stride == 0u || defined.size() != stride) { return difference; }
@@ -1775,7 +1782,7 @@ struct BuildOutcome {
         run.repeat_problems++;
         std::printf("       the reflected LbvhNode size (%zu) differs from the buffer stride (%zu)\n",
                     defined.size(), stride);
-        defined.resize(stride, true);
+        defined.resize(stride, uint8_t{1u});
     }
     auto nodes_ab = compare_node_buffers(luisa::span{a.nodes}, luisa::span{b.nodes}, defined, stride);
     run.repeat_node_problems += nodes_ab.records == 0u ? 0u : 1u;
@@ -1800,6 +1807,425 @@ struct BuildOutcome {
 }
 
 // ---------------------------------------------------------------------------
+// Storage compaction (P5/P8): contract, structure, hit identity, no-op,
+// determinism and the repeated-compaction lifetime, on the *dense* buffer.
+//
+// Not covered here (per test/SKILL.md's harness limits): the *failure* mode of
+// `compact()` - a storage built without `AccelOption::allow_compaction`, or one
+// whose reserved trees were not all built, trips a `LUISA_ASSERT` and aborts the
+// process, and this harness has no way to run a crashing case in a child
+// process.  The positive side of the same contract is covered: every check below
+// builds with `allow_compaction` set, and the no-op / repeat cases pin the
+// bookkeeping `compact()` asserts on.
+// ---------------------------------------------------------------------------
+
+// Geometry + rays of one scene, plus one build into `lbvh`.  `option` carries the
+// caller's `allow_compaction` intent (which `compact()` requires); the returned
+// BLAS handles and the TLAS are what a compaction and a traversal address.
+struct BuiltScene {
+    Buffer<float3> vertices;
+    Buffer<Triangle> triangles;
+    Buffer<LbvhRay> rays;
+    luisa::vector<Blas> blases;
+    Tlas tlas;
+};
+
+[[nodiscard]] BuiltScene build_scene(Device &device, Stream &stream, SoftwareLbvh &lbvh,
+                                     const TestScene &scene,
+                                     const AccelOption &option) noexcept {
+    BuiltScene built;
+    auto ray_count = static_cast<uint>(scene.rays.size());
+    built.vertices = device.create_buffer<float3>(scene.vertices.size());
+    built.triangles = device.create_buffer<Triangle>(scene.triangles.size());
+    built.rays = device.create_buffer<LbvhRay>(ray_count);
+    stream << built.vertices.copy_from(luisa::span{scene.vertices})
+           << built.triangles.copy_from(luisa::span{scene.triangles})
+           << built.rays.copy_from(luisa::span{scene.rays})
+           << synchronize();
+    built.blases.reserve(scene.meshes.size());
+    for (auto &&mesh : scene.meshes) {
+        auto blas = lbvh.create_blas(option, mesh.triangle_offset, mesh.triangle_count,
+                                     mesh.lo, mesh.hi);
+        lbvh.pre_build_blas(blas);
+        lbvh.build_blas(stream, blas, built.vertices, built.triangles);
+        built.blases.emplace_back(blas);
+    }
+    luisa::vector<InstanceDesc> descriptions;
+    descriptions.reserve(scene.instances.size());
+    for (auto &&instance : scene.instances) {
+        descriptions.emplace_back(InstanceDesc{instance.to_world, instance.mesh});
+    }
+    built.tlas = lbvh.create_accel(option, static_cast<uint>(descriptions.size()));
+    lbvh.pre_build_accel(stream, built.tlas, luisa::span{built.blases},
+                         luisa::span{descriptions});
+    lbvh.build_accel(stream, built.tlas);
+    stream << synchronize();
+    return built;
+}
+
+// Number of nodes the trees of `scene` occupy: `2t - 1` per BLAS and `2I - 1`
+// for the TLAS.
+[[nodiscard]] size_t scene_node_count(const TestScene &scene) noexcept {
+    size_t nodes = 0u;
+    for (auto &&mesh : scene.meshes) { nodes += 2u * mesh.triangle_count - 1u; }
+    nodes += 2u * scene.instances.size() - 1u;
+    return nodes;
+}
+
+// Everything the compaction contract promises, on one scene built into its own
+// storage (sized with headroom, so there is something to reclaim):
+//
+//   1. `nodes()`/`node_count()`/`nodes_after`/`compacted_bytes` agree, and the
+//      device size query equals the host's `2n-1` bookkeeping (P5.1/P5.2);
+//   2. `validate_tree` of every BLAS + the TLAS and `validate_heap` still report
+//      0 on the *dense* buffer (the heap was re-registered onto it);
+//   3. the traversal is bit-identical before and after compaction (P5.3);
+//   4. the dense node bytes are exactly the loose ones (`as_built` keeps the
+//      indices, so the copy is an identity on the defined bytes) (P5.4);
+//   5. a second `compact()` on the already-dense storage reclaims nothing,
+//      records no copy and leaves the traversal untouched.
+struct CompactionCheck {
+    size_t contract_problems{0u};
+    size_t tree_problems{0u};
+    size_t heap_problems{0u};
+    size_t hit_problems{0u};
+    size_t node_problems{0u};
+    size_t trees{0u};
+    size_t nodes_before{0u};
+    size_t nodes_after{0u};
+    size_t reclaimed_bytes{0u};
+    bool compacted{false};
+};
+
+[[nodiscard]] CompactionCheck run_compaction_checks(Device &device, Stream &stream,
+                                                    const TestScene &scene,
+                                                    SoftwareLbvh::CompactionPolicy policy) noexcept {
+    CompactionCheck check;
+    auto ray_count = static_cast<uint>(scene.rays.size());
+    if (ray_count == 0u || scene.meshes.empty() || scene.instances.empty()) { return check; }
+    auto expected_nodes = scene_node_count(scene);
+    // Deliberate headroom: the storage is larger than the scene, which is the
+    // "size it before the scene is known" case and what makes the compaction
+    // observable (reclaiming `(capacity - used) * 32` bytes).
+    auto sizes = SoftwareLbvh::estimate(2u * scene.triangles.size() + 1u,
+                                        2u * scene.instances.size() + 1u,
+                                        2u * scene.meshes.size() + 1u);
+    SoftwareLbvh lbvh{device, sizes};
+    AccelOption option;
+    option.allow_compaction = true;
+    auto built = build_scene(device, stream, lbvh, scene, option);
+    check.contract_problems += lbvh.node_count() == expected_nodes ? 0u : 1u;
+    check.contract_problems += lbvh.node_capacity() >= expected_nodes ? 0u : 1u;
+    auto nodes_before = lbvh.node_capacity();
+
+    // the loose node bytes, before anything is copied (P5.4, `as_built` only)
+    auto stride = lbvh.nodes().stride();
+    auto defined = defined_bytes<LbvhNode>();
+    if (defined.size() != stride) {
+        check.node_problems++;
+        defined.resize(stride, uint8_t{1u});
+    }
+    luisa::vector<std::byte> loose(expected_nodes * stride);
+    stream << lbvh.nodes().view(0u, expected_nodes).copy_to(luisa::span{loose})
+           << synchronize();
+
+    // traversal before compaction
+    Buffer<LbvhHit> hits = device.create_buffer<LbvhHit>(ray_count);
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> host_before(ray_count);
+    stream << hits.copy_to(luisa::span{host_before}) << synchronize();
+
+    // ---- the compaction ----
+    auto result = lbvh.compact(stream, built.tlas, luisa::span{built.blases}, policy);
+    stream << synchronize();
+    check.trees = result.trees;
+    check.nodes_before = result.nodes_before;
+    check.nodes_after = result.nodes_after;
+    check.reclaimed_bytes = result.compacted_bytes;
+    check.compacted = result.compacted();
+    check.contract_problems += result.trees == scene.meshes.size() + 1u ? 0u : 1u;
+    check.contract_problems += result.nodes_before == nodes_before ? 0u : 1u;
+    check.contract_problems += result.nodes_after == expected_nodes ? 0u : 1u;
+    check.contract_problems += result.compacted() ? 0u : 1u;// used < capacity here
+    check.contract_problems += result.nodes_after == lbvh.node_count() ? 0u : 1u;
+    check.contract_problems += lbvh.nodes().size() == expected_nodes ? 0u : 1u;
+    check.contract_problems += result.bytes_after == expected_nodes * sizeof(LbvhNode) ? 0u : 1u;
+    check.contract_problems +=
+        result.compacted_bytes ==
+                (result.nodes_before - result.nodes_after) * sizeof(LbvhNode)
+            ? 0u
+            : 1u;
+
+    // ---- structural check on the dense buffer ----
+    for (auto &&blas : built.blases) {
+        check.tree_problems += lbvh.validate_tree(stream, blas.node_offset(),
+                                                  blas.triangle_count());
+    }
+    check.tree_problems += lbvh.validate_tree(stream, built.tlas.node_offset(),
+                                              built.tlas.instance_count());
+    check.heap_problems += lbvh.validate_heap(stream, built.tlas,
+                                              static_cast<uint>(built.blases.size()));
+
+    // ---- hit identity ----
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> host_after(ray_count);
+    stream << hits.copy_to(luisa::span{host_after}) << synchronize();
+    check.hit_problems += count_hit_mismatches(luisa::span{host_before},
+                                               luisa::span{host_after});
+
+    // ---- the copy is exact (`as_built` keeps every index) ----
+    if (policy == SoftwareLbvh::CompactionPolicy::as_built) {
+        luisa::vector<std::byte> dense(expected_nodes * stride);
+        stream << lbvh.nodes().view(0u, expected_nodes).copy_to(luisa::span{dense})
+               << synchronize();
+        auto difference = compare_node_buffers(luisa::span{loose}, luisa::span{dense},
+                                               defined, stride);
+        check.node_problems += difference.records == 0u ? 0u : 1u;
+        if (difference.records != 0u) {
+            std::printf("       compacted node bytes differ from the loose ones: "
+                        "%zu record(s), %zu byte(s), first at %lld\n",
+                        difference.records, difference.bytes,
+                        static_cast<long long>(difference.first));
+        }
+    }
+
+    // ---- a second compact() is a no-op ----
+    auto again = lbvh.compact(stream, built.tlas, luisa::span{built.blases}, policy);
+    stream << synchronize();
+    check.contract_problems += again.compacted() ? 1u : 0u;
+    check.contract_problems += again.nodes_after == result.nodes_after ? 0u : 1u;
+    check.contract_problems += again.nodes_before == result.nodes_after ? 0u : 1u;
+    check.contract_problems += again.compacted_bytes == 0u ? 0u : 1u;
+    check.contract_problems += lbvh.nodes().size() == expected_nodes ? 0u : 1u;
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> host_idempotent(ray_count);
+    stream << hits.copy_to(luisa::span{host_idempotent}) << synchronize();
+    check.hit_problems += count_hit_mismatches(luisa::span{host_before},
+                                               luisa::span{host_idempotent});
+    // ---- `as_built` keeps a rebuild of the *existing* trees valid: the indices
+    // did not move, so re-building into the dense buffer reproduces the same
+    // structure and the same hits.  (Reserving *new* trees fails closed instead -
+    // a compacted storage has no spare capacity; `subtree_contiguous` would not
+    // keep even the in-place rebuild valid, which is why it is rejected.) ----
+    if (policy == SoftwareLbvh::CompactionPolicy::as_built) {
+        for (auto &&blas : built.blases) {
+            lbvh.build_blas(stream, blas, built.vertices, built.triangles);
+        }
+        lbvh.build_accel(stream, built.tlas);
+        stream << synchronize();
+        for (auto &&blas : built.blases) {
+            check.tree_problems += lbvh.validate_tree(stream, blas.node_offset(),
+                                                      blas.triangle_count());
+        }
+        check.tree_problems += lbvh.validate_tree(stream, built.tlas.node_offset(),
+                                                  built.tlas.instance_count());
+        check.heap_problems += lbvh.validate_heap(stream, built.tlas,
+                                                  static_cast<uint>(built.blases.size()));
+        lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                            built.tlas, ray_count);
+        stream << synchronize();
+        luisa::vector<LbvhHit> host_rebuilt(ray_count);
+        stream << hits.copy_to(luisa::span{host_rebuilt}) << synchronize();
+        check.hit_problems += count_hit_mismatches(luisa::span{host_before},
+                                                   luisa::span{host_rebuilt});
+    }
+    return check;
+}
+
+// The no-op boundary (P5.5): a storage whose capacity is *exactly* the scene's
+// node count.  `compact()` must reclaim 0 bytes, record no copy (a zero-count
+// dispatch must not exist) and leave the traversal untouched.
+struct NoOpCheck {
+    size_t contract_problems{0u};
+    size_t hit_problems{0u};
+    size_t tree_problems{0u};
+};
+
+[[nodiscard]] NoOpCheck run_compaction_noop_check(Device &device, Stream &stream,
+                                                  const TestScene &scene) noexcept {
+    NoOpCheck check;
+    auto ray_count = static_cast<uint>(scene.rays.size());
+    if (ray_count == 0u || scene.meshes.empty() || scene.instances.empty()) { return check; }
+    auto expected_nodes = scene_node_count(scene);
+    auto sizes = SoftwareLbvh::estimate(scene.triangles.size(), scene.instances.size(),
+                                        scene.meshes.size());
+    // shrink the node budget to exactly the scene (the no-op case)
+    sizes.node_capacity = expected_nodes;
+    sizes.node_bytes = expected_nodes * sizeof(LbvhNode);
+    sizes.block_capacity = (expected_nodes + node_reduction_block - 1u) / node_reduction_block;
+    sizes.block_bytes = sizes.block_capacity * sizeof(LbvhNode);
+    SoftwareLbvh lbvh{device, sizes};
+    AccelOption option;
+    option.allow_compaction = true;
+    auto built = build_scene(device, stream, lbvh, scene, option);
+    check.contract_problems += lbvh.node_capacity() == expected_nodes ? 0u : 1u;
+    check.contract_problems += lbvh.node_count() == expected_nodes ? 0u : 1u;
+    Buffer<LbvhHit> hits = device.create_buffer<LbvhHit>(ray_count);
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> before(ray_count);
+    stream << hits.copy_to(luisa::span{before}) << synchronize();
+    auto result = lbvh.compact(stream, built.tlas, luisa::span{built.blases});
+    stream << synchronize();
+    check.contract_problems += result.compacted() ? 1u : 0u;
+    check.contract_problems += result.nodes_before == expected_nodes ? 0u : 1u;
+    check.contract_problems += result.nodes_after == expected_nodes ? 0u : 1u;
+    check.contract_problems += result.compacted_bytes == 0u ? 0u : 1u;
+    check.contract_problems += lbvh.nodes().size() == expected_nodes ? 0u : 1u;
+    check.tree_problems += lbvh.validate_tree(stream, built.tlas.node_offset(),
+                                              built.tlas.instance_count());
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> after(ray_count);
+    stream << hits.copy_to(luisa::span{after}) << synchronize();
+    check.hit_problems += count_hit_mismatches(luisa::span{before}, luisa::span{after});
+    return check;
+}
+
+// The build-scratch release (P6, opt-in): after `compact(..., release_scratch=true)`
+// the storage must no longer be buildable, the returned scratch bytes must be the
+// scratch the estimate reports, and the structure must still validate and trace.
+struct ScratchCheck {
+    size_t contract_problems{0u};
+    size_t tree_problems{0u};
+    size_t heap_problems{0u};
+    size_t hit_problems{0u};
+};
+
+[[nodiscard]] ScratchCheck run_scratch_release_check(Device &device, Stream &stream,
+                                                     const TestScene &scene) noexcept {
+    ScratchCheck check;
+    auto ray_count = static_cast<uint>(scene.rays.size());
+    if (ray_count == 0u || scene.meshes.empty() || scene.instances.empty()) { return check; }
+    auto expected_nodes = scene_node_count(scene);
+    auto sizes = SoftwareLbvh::estimate(2u * scene.triangles.size() + 1u,
+                                        2u * scene.instances.size() + 1u,
+                                        2u * scene.meshes.size() + 1u);
+    // the scratch the size query reports and `release_build_scratch` hands back
+    auto expected_scratch = sizes.primitive_bytes + 2u * sizes.key_bytes +
+                            sizes.block_bytes + sizes.plan_bytes;
+    SoftwareLbvh lbvh{device, sizes};
+    AccelOption option;
+    option.allow_compaction = true;
+    auto built = build_scene(device, stream, lbvh, scene, option);
+    check.contract_problems += lbvh.buildable() ? 0u : 1u;
+    Buffer<LbvhHit> hits = device.create_buffer<LbvhHit>(ray_count);
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> before(ray_count);
+    stream << hits.copy_to(luisa::span{before}) << synchronize();
+    auto result = lbvh.compact(stream, built.tlas, luisa::span{built.blases},
+                               SoftwareLbvh::CompactionPolicy::as_built,
+                               /*release_scratch=*/true);
+    stream << synchronize();
+    check.contract_problems += result.compacted() ? 0u : 1u;
+    check.contract_problems += result.nodes_after == expected_nodes ? 0u : 1u;
+    check.contract_problems += result.reclaimed_scratch_bytes == expected_scratch ? 0u : 1u;
+    check.contract_problems += result.reclaimed_scratch_bytes != 0u ? 0u : 1u;
+    check.contract_problems += lbvh.buildable() ? 1u : 0u;
+    for (auto &&blas : built.blases) {
+        check.tree_problems += lbvh.validate_tree(stream, blas.node_offset(),
+                                                  blas.triangle_count());
+    }
+    check.tree_problems += lbvh.validate_tree(stream, built.tlas.node_offset(),
+                                              built.tlas.instance_count());
+    check.heap_problems += lbvh.validate_heap(stream, built.tlas,
+                                              static_cast<uint>(built.blases.size()));
+    lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                        built.tlas, ray_count);
+    stream << synchronize();
+    luisa::vector<LbvhHit> after(ray_count);
+    stream << hits.copy_to(luisa::span{after}) << synchronize();
+    check.hit_problems += count_hit_mismatches(luisa::span{before}, luisa::span{after});
+    return check;
+}
+
+// The repeated-compaction lifetime check (P5.6): several storages are built and
+// compacted back to back (each `compact()` synchronises for its size query, so
+// the lists cannot overlap), then every one is validated and traced.  A wrong
+// callback type (`add_dtor_callback` would retire the old buffer at submit time)
+// or a dangling `BufferView` in the heap fails here.
+struct RepeatCheck {
+    size_t contract_problems{0u};
+    size_t tree_problems{0u};
+    size_t heap_problems{0u};
+    size_t hit_problems{0u};
+    size_t reclaimed_bytes{0u};
+};
+
+[[nodiscard]] RepeatCheck run_compaction_repeat_check(Device &device, Stream &stream,
+                                                      const TestScene &scene,
+                                                      size_t repeats) noexcept {
+    RepeatCheck check;
+    auto ray_count = static_cast<uint>(scene.rays.size());
+    if (ray_count == 0u || scene.meshes.empty() || scene.instances.empty()) { return check; }
+    auto expected_nodes = scene_node_count(scene);
+    auto sizes = SoftwareLbvh::estimate(2u * scene.triangles.size() + 1u,
+                                        2u * scene.instances.size() + 1u,
+                                        2u * scene.meshes.size() + 1u);
+    luisa::vector<luisa::unique_ptr<SoftwareLbvh>> storages;
+    luisa::vector<BuiltScene> builds;
+    AccelOption option;
+    option.allow_compaction = true;
+    for (auto i = 0u; i < repeats; i++) {
+        storages.emplace_back(luisa::make_unique<SoftwareLbvh>(device, sizes));
+        builds.emplace_back(build_scene(device, stream, *storages.back(), scene, option));
+    }
+    // compact all of them (this is the retirement stress: each compaction retires
+    // its loose buffer through a completion callback)
+    for (auto i = 0u; i < repeats; i++) {
+        auto result = storages[i]->compact(stream, builds[i].tlas,
+                                           luisa::span{builds[i].blases});
+        stream << synchronize();
+        check.reclaimed_bytes += result.compacted_bytes;
+        check.contract_problems += result.nodes_after == expected_nodes ? 0u : 1u;
+        check.contract_problems += storages[i]->nodes().size() == expected_nodes ? 0u : 1u;
+    }
+    // every storage must still validate and trace correctly, on its dense buffer
+    for (auto i = 0u; i < repeats; i++) {
+        auto &&lbvh = *storages[i];
+        auto &&built = builds[i];
+        for (auto &&blas : built.blases) {
+            check.tree_problems += lbvh.validate_tree(stream, blas.node_offset(),
+                                                      blas.triangle_count());
+        }
+        check.tree_problems += lbvh.validate_tree(stream, built.tlas.node_offset(),
+                                                  built.tlas.instance_count());
+        check.heap_problems += lbvh.validate_heap(stream, built.tlas,
+                                                  static_cast<uint>(built.blases.size()));
+        Buffer<LbvhHit> hits = device.create_buffer<LbvhHit>(ray_count);
+        lbvh.trace_software(stream, built.vertices, built.triangles, built.rays, hits,
+                            built.tlas, ray_count);
+        stream << synchronize();
+        luisa::vector<LbvhHit> host_hits(ray_count);
+        stream << hits.copy_to(luisa::span{host_hits}) << synchronize();
+        // the same scene must give the same hits in every storage
+        if (i != 0u) {
+            // re-trace storage 0 for the comparison
+            Buffer<LbvhHit> reference_hits = device.create_buffer<LbvhHit>(ray_count);
+            storages[0]->trace_software(stream, builds[0].vertices, builds[0].triangles,
+                                        builds[0].rays, reference_hits, builds[0].tlas,
+                                        ray_count);
+            stream << synchronize();
+            luisa::vector<LbvhHit> host_reference(ray_count);
+            stream << reference_hits.copy_to(luisa::span{host_reference}) << synchronize();
+            check.hit_problems += count_hit_mismatches(luisa::span{host_reference},
+                                                       luisa::span{host_hits});
+        }
+    }
+    return check;
+}
+
+// ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
 
@@ -1812,6 +2238,7 @@ struct Totals {
     size_t contract_problems{0u};
     size_t slice_problems{0u};
     size_t repeat_problems{0u};
+    size_t compaction_problems{0u};
     size_t reference_hit_problems{0u};
     size_t software_mismatches{0u};
     size_t rtx_mismatches{0u};
@@ -1915,6 +2342,11 @@ void report_check(const char *family, const TestScene &scene, const SceneRun &ru
                     "(%zu hit, %zu node)\n",
                     run.repeat_problems, run.repeat_hit_problems, run.repeat_node_problems);
     }
+    if (run.compaction_problems != 0u) {
+        std::printf("       storage compaction (contract/structure/heap/hits/copy): "
+                    "%zu problem(s)\n",
+                    run.compaction_problems);
+    }
     if (run.reference_hit_problems != 0u) {
         std::printf("       the host reference found no hit at all for this scene\n");
     }
@@ -1967,6 +2399,17 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
             run.repeat_hit_problems += repeat.repeat_hit_problems;
             run.repeat_node_problems += repeat.repeat_node_problems;
         }
+        // Storage compaction (P5): every scene is rebuilt into its own storage
+        // (the family's shared one must not be compacted, because a compacted
+        // storage has no spare capacity for the next scene's trees), compacted
+        // and checked - structure, heap, hit identity, exact copy, no-op.
+        {
+            auto compaction = run_compaction_checks(device, stream, scene,
+                                                    SoftwareLbvh::CompactionPolicy::as_built);
+            run.compaction_problems += compaction.contract_problems +
+                                       compaction.tree_problems + compaction.heap_problems +
+                                       compaction.hit_problems + compaction.node_problems;
+        }
         auto elapsed_ms = clock.toc();
         report_check(family, scene, run, options, elapsed_ms, &ref);
         totals.checks++;
@@ -1977,6 +2420,7 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
         totals.contract_problems += run.contract_problems;
         totals.slice_problems += run.slice_problems;
         totals.repeat_problems += run.repeat_problems;
+        totals.compaction_problems += run.compaction_problems;
         totals.reference_hit_problems += run.reference_hit_problems;
         totals.software_mismatches += run.software.fatal();
         totals.rtx_mismatches += run.rtx.fatal();
@@ -1987,6 +2431,82 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
         totals.conditioned += run.conditioned();
         totals.guard_decided += run.guard_decided();
         totals.rtx_checks += run.rtx_ran ? 1u : 0u;
+        std::fflush(stdout);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (8) compaction-specific family: the no-op boundary (a storage sized exactly
+// like the scene), repeated compactions of independent storages, and the
+// `as_built` copy/identity contract - next to the per-scene compaction check
+// that `run_family` already runs.
+// ---------------------------------------------------------------------------
+
+void run_compaction_family(Device &device, Stream &stream, const Options &options,
+                           luisa::vector<TestScene> &scenes, Totals &totals) noexcept {
+    for (auto &&scene : scenes) {
+        auto ref = make_ref_scene(scene);
+        Clock clock;
+        clock.tic();
+        SceneRun run;
+        auto noop = run_compaction_noop_check(device, stream, scene);
+        run.compaction_problems += noop.contract_problems + noop.hit_problems +
+                                   noop.tree_problems;
+        auto compaction = run_compaction_checks(device, stream, scene,
+                                                SoftwareLbvh::CompactionPolicy::as_built);
+        run.compaction_problems += compaction.contract_problems + compaction.tree_problems +
+                                   compaction.heap_problems + compaction.hit_problems +
+                                   compaction.node_problems;
+        if (options.verbose) {
+            std::printf("       compaction %-16s trees=%zu nodes %zu -> %zu reclaimed=%zu "
+                        "(no-op %s)\n",
+                        scene.label.c_str(), compaction.trees, compaction.nodes_before,
+                        compaction.nodes_after, compaction.reclaimed_bytes,
+                        noop.contract_problems == 0u ? "ok" : "bad");
+        }
+        auto elapsed_ms = clock.toc();
+        report_check("compact", scene, run, options, elapsed_ms, &ref);
+        totals.checks++;
+        totals.failed += run.fatal() == 0u ? 0u : 1u;
+        totals.compaction_problems += run.compaction_problems;
+        std::fflush(stdout);
+    }
+    if (!scenes.empty()) {
+        // the build-scratch release (P6, opt-in): after it the storage is
+        // traverse-only and the structure must still validate and trace
+        SceneRun scratch_run;
+        TestScene scratch_labelled;
+        scratch_labelled.label = "release-scratch";
+        Clock scratch_clock;
+        scratch_clock.tic();
+        auto scratch = run_scratch_release_check(device, stream, scenes.front());
+        scratch_run.compaction_problems += scratch.contract_problems +
+                                           scratch.tree_problems + scratch.heap_problems +
+                                           scratch.hit_problems;
+        auto scratch_ms = scratch_clock.toc();
+        report_check("compact", scratch_labelled, scratch_run, options, scratch_ms, nullptr);
+        totals.checks++;
+        totals.failed += scratch_run.fatal() == 0u ? 0u : 1u;
+        totals.compaction_problems += scratch_run.compaction_problems;
+        std::fflush(stdout);
+    }
+    if (!scenes.empty()) {
+        // repeated compactions of independent storages (P5.6): the retirement
+        // callbacks must all fire and nothing may dangle.
+        auto repeats = options.quick ? 2u : 3u;
+        SceneRun run;
+        TestScene labelled;
+        labelled.label = luisa::format("repeat x{}", repeats);
+        Clock clock;
+        clock.tic();
+        auto repeat = run_compaction_repeat_check(device, stream, scenes.front(), repeats);
+        run.compaction_problems += repeat.contract_problems + repeat.tree_problems +
+                                   repeat.heap_problems + repeat.hit_problems;
+        auto elapsed_ms = clock.toc();
+        report_check("compact", labelled, run, options, elapsed_ms, nullptr);
+        totals.checks++;
+        totals.failed += run.fatal() == 0u ? 0u : 1u;
+        totals.compaction_problems += run.compaction_problems;
         std::fflush(stdout);
     }
 }
@@ -2038,6 +2558,21 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
         run_family(device, stream, options, "random", scenes, rtx_shader, totals, false);
     }
     {
+        // (8) storage compaction: the no-op boundary (a storage sized exactly like
+        // the scene), the 1/2/17-BLAS and count==1 cases, and repeated
+        // compactions.  `run_family` already compacts every scene of every family
+        // above; this family adds the cases that need a purpose-built storage.
+        luisa::vector<TestScene> scenes;
+        scenes.emplace_back(make_boundary_scene(1u, 0x6000ull, ray_budget));
+        scenes.emplace_back(make_boundary_scene(17u, 0x6001ull, ray_budget));
+        scenes.emplace_back(make_multi_blas_scene(1u, 0x6002ull, ray_budget, "blas=1"));
+        scenes.emplace_back(make_multi_blas_scene(2u, 0x6003ull, ray_budget, "blas=2"));
+        scenes.emplace_back(make_multi_blas_scene(17u, 0x6004ull, ray_budget, "blas=17"));
+        scenes.emplace_back(make_random_scene(options.seed + 0x6005ull, options.quick,
+                                              ray_budget));
+        run_compaction_family(device, stream, options, scenes, totals);
+    }
+    {
         // (6)/(7): a scene whose primitives all coincide (so the tree order is
         // observable in the reported `prim`), a random one and a multi-instance one
         luisa::vector<TestScene> scenes;
@@ -2054,10 +2589,11 @@ void run_family(Device &device, Stream &stream, const Options &options, const ch
                 options.backend.c_str(), static_cast<unsigned long long>(options.seed),
                 options.quick ? ", quick" : "");
     std::printf("summary: problems: tree %zu, ranges %zu, heap %zu, hit contract %zu, slices %zu, "
-                "repeats %zu, empty reference %zu\n",
+                "repeats %zu, compaction %zu, empty reference %zu\n",
                 totals.tree_problems, totals.range_problems, totals.heap_problems,
                 totals.contract_problems,
-                totals.slice_problems, totals.repeat_problems, totals.reference_hit_problems);
+                totals.slice_problems, totals.repeat_problems, totals.compaction_problems,
+                totals.reference_hit_problems);
     std::printf("summary: software-vs-reference mismatches %zu, RTX-vs-reference mismatches %zu "
                 "(%zu RTX cross-checks); compared %zu hit(s), ties %zu; not comparable: "
                 "grazing %zu, boundary %zu, ill-conditioned %zu, determinant-guard %zu\n",

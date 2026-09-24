@@ -1,7 +1,7 @@
 // Device tests for the native shader injection extension
 // (NativeShaderExt / NativeShaderLauncher / NativeShaderDispatchCommand).
 //
-// Run as: test_native_shader <dx|vk>
+// Run as: test_native_shader <dx|vk|cuda>
 //
 // Covered risks:
 //  * R14 - a non-`main` entry point compiles.
@@ -11,6 +11,10 @@
 //          enabled and disabled.
 //  * R16 - load/destroy does not leak.
 //  * R2/R3 - the Vulkan HLSL/GLSL binding tables come from the SPIR-V module.
+//  * the CUDA route: the reflection comes from the `__global__` signature
+//    cross-checked against the NVRTC PTX parameter layout, buffers are the
+//    pointer parameters (read-only for `const T *`), and the non-pointer
+//    parameters are the launcher's uniform values, in declaration order.
 #include "ut/ut.hpp"
 #include "test_device.h"
 
@@ -69,6 +73,19 @@ void main() {
 }
 )";
 
+// The same shader once more, now as CUDA C++ for the CUDA backend (compiled by
+// NVRTC). The kernel signature *is* the binding declaration on this route: the
+// pointer parameters become the buffer bindings in declaration order
+// (`const float *src` is read-only, `float *dst` is writable) and the
+// non-pointer ones become the launcher's uniform values, in declaration order.
+// `extern "C"` keeps the entry-point name unmangled in the PTX.
+constexpr auto cuda_source = R"(
+extern "C" __global__ void scale(const float *src, float *dst, float k, float c) {
+    auto i = blockIdx.x * blockDim.x + threadIdx.x;
+    dst[i] = src[i] * k + c;
+}
+)";
+
 constexpr auto element_count = 1024u;
 constexpr auto block_size = uint3{64u, 1u, 1u};
 
@@ -115,6 +132,7 @@ static void test_native_shader(Device &device) {
     }
     auto is_dx = backend == "dx";
     auto is_vk = backend == "vk";
+    auto is_cuda = backend == "cuda";
 
     // ---- compile + reflection -------------------------------------------
     if (is_dx) {
@@ -310,17 +328,168 @@ void CSMain(uint3 tid : SV_DispatchThreadID) {
         };
     }
 
+    if (is_cuda) {
+        // (the file-level `block_size` constant is ambiguous with the DSL
+        // `block_size()` builtin, so the CUDA block sizes are spelled out)
+        constexpr auto cuda_bs = uint3{64u, 1u, 1u};
+        "native_shader_cuda_reflection"_test = [&] {
+            NativeShaderCompileInfo cuda_info;
+            cuda_info.language = NativeShaderLanguage::CUDA_NVRTC;
+            cuda_info.source = cuda_source;
+            cuda_info.entry_point = "scale";
+            cuda_info.block_size = cuda_bs;
+            cuda_info.push_constant_size = 2u * sizeof(float);
+            auto result = ext->compile(cuda_info);
+            expect(result.ok()) << result.error.c_str();
+            expect(result.language == NativeShaderLanguage::CUDA_NVRTC);
+            expect(result.entry_point == "scale");
+            expect(result.block_size.x == cuda_bs.x &&
+                   result.block_size.y == cuda_bs.y &&
+                   result.block_size.z == cuda_bs.z);
+            // the two scalar kernel parameters (float k, float c)
+            expect(result.push_constant_size == 2u * sizeof(float));
+            expect(!result.binary.empty());
+            expect(result.bindings.size() == 2u) << result.bindings.size();
+            if (result.bindings.size() == 2u) {
+                // pointer parameters in declaration order == the canonical order
+                expect(result.bindings[0].kind ==
+                       NativeShaderResourceKind::StructuredBuffer);
+                expect(result.bindings[0].register_index == 0u);
+                expect(result.bindings[0].space_index == 0u);
+                expect(result.bindings[0].usage == Usage::READ);
+                expect(result.bindings[1].kind ==
+                       NativeShaderResourceKind::RWStructuredBuffer);
+                expect(result.bindings[1].register_index == 1u);
+                expect(result.bindings[1].usage == Usage::READ_WRITE);
+            }
+            auto metadata = ext->load(result);
+            expect(metadata.valid());
+            if (metadata.valid()) {
+                expect(metadata.language == NativeShaderLanguage::CUDA_NVRTC);
+                expect(metadata.bindings.size() == 2u);
+                ext->destroy_shader(metadata.handle);
+            }
+            // the workgroup size must be knowable: either declared or from
+            // `__launch_bounds__(N)`
+            cuda_info.block_size = uint3{0u, 0u, 0u};
+            auto undeclared = ext->compile(cuda_info);
+            expect(!undeclared.ok());
+            expect(undeclared.error.find("workgroup size") != luisa::string::npos)
+                << undeclared.error.c_str();
+            // ... and the declared uniform size must match the kernel signature
+            cuda_info.block_size = cuda_bs;
+            cuda_info.push_constant_size = 3u * sizeof(float);
+            auto mismatched = ext->compile(cuda_info);
+            expect(!mismatched.ok());
+            expect(mismatched.error.find("push-constant") != luisa::string::npos)
+                << mismatched.error.c_str();
+        };
+        "native_shader_cuda_rejects_hlsl_and_glsl"_test = [&] {
+            NativeShaderCompileInfo cuda_info;
+            cuda_info.language = NativeShaderLanguage::HLSL;
+            cuda_info.source = hlsl_source;
+            auto hlsl = ext->compile(cuda_info);
+            expect(!hlsl.ok());
+            expect(hlsl.error.find("CUDA_NVRTC") != luisa::string::npos)
+                << hlsl.error.c_str();
+            cuda_info.language = NativeShaderLanguage::GLSL;
+            cuda_info.source = glsl_source;
+            expect(!ext->compile(cuda_info).ok());
+        };
+        "native_shader_cuda_entry_point_selection"_test = [&] {
+            // Two kernels in one translation unit: the entry point becomes
+            // mandatory, and a wrong one is reported with the declared names.
+            constexpr auto two_kernels = R"(
+extern "C" __global__ void scale(const float *src, float *dst, float k) {
+    dst[blockIdx.x * blockDim.x + threadIdx.x] =
+        src[blockIdx.x * blockDim.x + threadIdx.x] * k;
+}
+extern "C" __global__ void scale2(float *dst, float k) {
+    dst[blockIdx.x * blockDim.x + threadIdx.x] = k;
+}
+)";
+            NativeShaderCompileInfo cuda_info;
+            cuda_info.language = NativeShaderLanguage::CUDA_NVRTC;
+            cuda_info.source = two_kernels;
+            cuda_info.block_size = cuda_bs;
+            cuda_info.entry_point = "main";
+            auto ambiguous = ext->compile(cuda_info);
+            expect(!ambiguous.ok());
+            expect(ambiguous.error.find("scale2") != luisa::string::npos)
+                << ambiguous.error.c_str();
+            cuda_info.entry_point = "scale2";
+            auto selected = ext->compile(cuda_info);
+            expect(selected.ok()) << selected.error.c_str();
+            expect(selected.entry_point == "scale2");
+            expect(selected.bindings.size() == 1u);
+            expect(selected.push_constant_size == sizeof(float));
+            cuda_info.entry_point = "nope";
+            expect(!ext->compile(cuda_info).ok());
+            // ... and a mapped (non-`extern "C"`) kernel name is refused with an
+            // explicit hint
+            cuda_info.source = R"(
+__global__ void mangled(float *dst) { dst[0] = 1.0f; }
+)";
+            cuda_info.entry_point = "mangled";
+            auto mangled = ext->compile(cuda_info);
+            expect(!mangled.ok());
+            expect(mangled.error.find("extern \"C\"") != luisa::string::npos)
+                << mangled.error.c_str();
+        };
+        "native_shader_cuda_usage_contract"_test = [&] {
+            NativeShaderCompileInfo cuda_info;
+            cuda_info.language = NativeShaderLanguage::CUDA_NVRTC;
+            cuda_info.source = cuda_source;
+            cuda_info.entry_point = "scale";
+            cuda_info.block_size = cuda_bs;
+            auto result = ext->compile(cuda_info);
+            expect(result.ok()) << result.error.c_str();
+            // A `const float *` binding is read-only: declaring it writable must
+            // fail closed at `load()`.
+            luisa::vector<Usage> bad_override{Usage::WRITE, Usage::WRITE};
+            auto rejected = ext->load(result, luisa::span{bad_override});
+            expect(!rejected.valid());
+            // The correct declaration loads, and the *launcher* then refuses a
+            // read-only declaration for the writable (`float *dst`) binding
+            // unless the caller explicitly allows the override.
+            luisa::vector<Usage> override{Usage::READ, Usage::READ};
+            auto metadata = ext->load(result, luisa::span{override});
+            expect(metadata.valid());
+            if (!metadata.valid()) { return; }
+            NativeShader shader{*ext, std::move(metadata)};
+            auto buffer = device.create_buffer<float>(element_count);
+            auto launcher = shader.launcher();
+            launcher.add_buffer_by_index(0u, buffer.view(), Usage::READ)
+                .add_buffer_by_index(1u, buffer.view(), Usage::READ)
+                .add_uniform(1.0f)
+                .add_uniform(0.0f);
+            expect(!launcher.validate().empty())
+                << "a UAV bound as READ must be rejected by default";
+            launcher.set_allow_usage_override(true);
+            expect(launcher.validate().empty()) << launcher.validate().c_str();
+        };
+    }
     // ---- dispatch --------------------------------------------------------
     {
         NativeShaderCompileInfo info;
-        info.language = is_dx ? NativeShaderLanguage::HLSL : NativeShaderLanguage::GLSL;
+        info.language = is_dx ? NativeShaderLanguage::HLSL :
+                        is_vk ? NativeShaderLanguage::GLSL :
+                                NativeShaderLanguage::CUDA_NVRTC;
         info.source = is_dx ? hlsl_source :
-                      (is_vk ? glsl_source : luisa::string_view{});
+                      is_vk ? glsl_source :
+                              luisa::string_view{cuda_source};
         // The HLSL sources use a non-`main` entry point (R14); GLSL has exactly
-        // one entry point per stage and it is called `main`.
-        info.entry_point = is_dx ? "CSMain" : "main";
+        // one entry point per stage and it is called `main`; the CUDA kernel is
+        // selected by its `__global__` name.
+        info.entry_point = is_dx ? "CSMain" :
+                           is_vk ? "main" : "scale";
         info.push_constant_size = 2u * sizeof(float);
-        if (is_dx || is_vk) {
+        if (is_cuda) {
+            // CUDA kernels carry no workgroup size, so the launcher's block size
+            // has to be declared (or taken from `__launch_bounds__(N)`).
+            info.block_size = uint3{64u, 1u, 1u};
+        }
+        if (is_dx || is_vk || is_cuda) {
             auto result = ext->compile(info);
             expect(result.ok()) << result.error.c_str();
             auto metadata = ext->load(result);

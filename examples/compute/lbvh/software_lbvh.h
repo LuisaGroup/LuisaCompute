@@ -52,6 +52,10 @@ public:
                                         size_t max_blas) noexcept {
         return LbvhStorage::estimate(max_triangles, max_instances, max_blas);
     }
+    // The compaction vocabulary lives on the storage; re-export it so a caller
+    // names `SoftwareLbvh::CompactionPolicy` / `CompactResult` directly.
+    using CompactionPolicy = LbvhStorage::CompactionPolicy;
+    using CompactResult = LbvhStorage::CompactResult;
 
     SoftwareLbvh(Device &device, const Sizes &sizes) noexcept;
     SoftwareLbvh(Device &device, size_t max_triangles, size_t max_instances,
@@ -85,6 +89,33 @@ public:
     void build_accel(Stream &stream, const Tlas &tlas,
                      AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE,
                      LbvhBuildTimings *timings = nullptr) noexcept;
+
+    // ---- compaction (the software analogue of an RTX compacted copy) ------
+    // The scene must be fully built, and every BLAS and the TLAS must have been
+    // created with `AccelOption::allow_compaction`: the flag is the caller's
+    // intent (a hint, never a semantic change, exactly as on the hardware
+    // backends), this call is the action that honours it.
+    //
+    // It queries the used node count on the device, reads it back with a hard
+    // synchronise, allocates a node buffer of exactly that size, records the copy
+    // into it, re-registers every bindless heap view onto the dense buffer, and
+    // retires the loose node buffer plus the temporary buffers through a
+    // *completion* callback of the same command list - so nothing the GPU still
+    // reads is destroyed early.  A compacted storage has no spare capacity: a
+    // later full build of the same storage must re-reserve (the `as_built` policy
+    // keeps the indices valid, `subtree_contiguous` does not).
+    //
+    // `release_scratch` (opt-in) also retires the build scratch (the primitive
+    // AABBs, both Morton-key buffers, the block AABBs and the plan) through the
+    // same callback; after that the storage can only be traversed/validated, so a
+    // rebuild needs a new `LbvhStorage`.
+    //
+    // `CompactResult::nodes` hands the dense buffer over; once the call returns
+    // the storage owns it and the field is moved-from - read `nodes()` instead.
+    [[nodiscard]] CompactResult compact(Stream &stream, Tlas &tlas,
+                                        luisa::span<const Blas> blases,
+                                        CompactionPolicy policy = CompactionPolicy::as_built,
+                                        bool release_scratch = false) noexcept;
 
     // ---- traversal -------------------------------------------------------
     // `ray_offset` and `ray_stride` (additive, defaults 0 and 1) let a caller
@@ -123,6 +154,13 @@ public:
     [[nodiscard]] const LbvhStorage::Sizes &sizes() const noexcept { return _storage.sizes(); }
     [[nodiscard]] size_t primitive_count() const noexcept { return _storage.primitive_count(); }
     [[nodiscard]] size_t node_count() const noexcept { return _storage.node_count(); }
+    // Node slots the *live* node buffer holds (the reserved capacity before a
+    // `compact()`, exactly the kept count afterwards).
+    [[nodiscard]] size_t node_capacity() const noexcept { return _storage.node_capacity(); }
+    [[nodiscard]] size_t tree_count() const noexcept { return _storage.tree_count(); }
+    // False once the build scratch has been released (see the `release_scratch`
+    // argument of `compact`): the storage can then only be traversed/validated.
+    [[nodiscard]] bool buildable() const noexcept { return _storage.buildable(); }
     [[nodiscard]] size_t blas_count() const noexcept { return _blas_count; }
 
 private:
