@@ -12,6 +12,18 @@ on_load(function(target)
         target:add("syslinks", "Cfgmgr32", "Advapi32", {
             public = true
         })
+    else
+        -- The CUDA toolchain only contributes $CUDA_PATH/lib, while the Linux
+        -- toolkit packages put the static device/runtime libraries
+        -- (libcudadevrt.a, libcudart_static.a, libnvrtc_static.a) in lib64.
+        -- Publish both directories so the -l flags actually resolve.
+        local cuda_home = os.getenv("CUDA_PATH") or os.getenv("CUDA_HOME") or "/usr/local/cuda"
+        for _, subdir in ipairs({"lib64", "lib"}) do
+            local lib_dir = path.join(cuda_home, subdir)
+            if os.isdir(lib_dir) then
+                target:add("linkdirs", lib_dir, {public = true, force = true})
+            end
+        end
     end
 end)
 target_end()
@@ -68,7 +80,10 @@ on_load(function(target)
             end
         end
     end
-    if has_config('lc_llvm_path') then
+    -- `--lc_llvm_path=` (empty) is Lua-truthy, so test the value, not the key:
+    -- otherwise the LLVM codegen sources are compiled without any LLVM headers.
+    local lc_llvm_path = get_config("lc_llvm_path")
+    if type(lc_llvm_path) == "string" and lc_llvm_path ~= "" then
         target:add("defines", 'LUISA_ENABLE_XIR', 'LUISA_COMPUTE_ENABLE_LLVM')
         target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp'))
     end

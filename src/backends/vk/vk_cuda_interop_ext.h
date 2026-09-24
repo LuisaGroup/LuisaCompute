@@ -50,6 +50,11 @@ public:
     VkCudaInteropImpl(VkCudaInteropImpl &&) = delete;
     ~VkCudaInteropImpl() noexcept override;
     [[nodiscard]] BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+    // CUDA-owned allocation imported into Vulkan; see the interface comment in
+    // vk_cuda_interop.h. Fails closed (invalid BufferCreationInfo) when the
+    // driver cannot export CUDA memory to Vulkan.
+    [[nodiscard]] BufferCreationInfo create_interop_buffer_from_cuda(
+        const Type *element, size_t elem_count, uint64_t *cuda_device_ptr) noexcept override;
     [[nodiscard]] CUDADeviceConfigExt::ExternalVkDevice get_external_vk_device() const noexcept override;
     [[nodiscard]] ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,

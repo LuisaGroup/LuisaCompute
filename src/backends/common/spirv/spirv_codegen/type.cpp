@@ -6,14 +6,14 @@ namespace lc::spirv {
 
 namespace {
 
-void add_u32_decoration(spv::Builder &builder, spv::Id target,
+void add_type_u32_decoration(spv::Builder &builder, spv::Id target,
                         spv::Decoration decoration,
                         uint32_t literal) noexcept {
     builder.addDecoration(target, decoration,
                           std::vector<unsigned>{literal});
 }
 
-void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
+void add_type_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                uint32_t member_index,
                                spv::Decoration decoration,
                                uint32_t literal) noexcept {
@@ -37,7 +37,7 @@ void decorate_matrix_layout(spv::Builder &builder, spv::Id struct_type,
             Type::vector(matrix->element(), matrix->dimension());
         builder.addMemberDecoration(struct_type, member_index,
                                     spv::Decoration::ColMajor);
-        add_u32_member_decoration(
+        add_type_u32_member_decoration(
             builder, struct_type, member_index,
             spv::Decoration::MatrixStride,
             static_cast<uint32_t>(column->size()));
@@ -150,10 +150,10 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             }
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, runtime_array, spv::Decoration::ArrayStride,
                 use_typed ? static_cast<uint32_t>(elem_type->size()) : 4u);
-            add_u32_member_decoration(
+            add_type_u32_member_decoration(
                 _builder, struct_type, 0u,
                 spv::Decoration::Offset, 0u);
             // Matrix elements in Block-decorated structs require ColMajor and
@@ -192,10 +192,10 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             auto uint_type = _builder.makeUintType(32);
             auto runtime_array = _builder.makeRuntimeArray(uint_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "BindlessArray", false);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, runtime_array,
                 spv::Decoration::ArrayStride, 4u);
-            add_u32_member_decoration(
+            add_type_u32_member_decoration(
                 _builder, struct_type, 0u,
                 spv::Decoration::Offset, 0u);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
@@ -287,7 +287,7 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
             // emit the actual unsigned SPIR-V literal ourselves so layouts at
             // the top of uint32_t's range cannot cross a signed boundary.
             id = _builder.makeArrayType(elem_layout, size_id, 1);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, id, spv::Decoration::ArrayStride, stride);
             break;
         }
@@ -308,7 +308,7 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
             for (uint32_t i = 0; i < members.size(); ++i) {
                 auto m = members[i];
                 offset = luisa::align(offset, m->alignment());
-                add_u32_member_decoration(
+                add_type_u32_member_decoration(
                     _builder, id, i, spv::Decoration::Offset,
                     static_cast<uint32_t>(offset));
                 decorate_matrix_layout(_builder, id, i, m);

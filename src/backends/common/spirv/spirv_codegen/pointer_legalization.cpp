@@ -51,13 +51,13 @@ struct StructuredInventory {
     return closure.succeeded() && closure.blocks.size() == 1u;
 }
 
-[[nodiscard]] bool is_indirect_dispatch_type(
+[[nodiscard]] bool is_indirect_dispatch_ptr_type(
     const Type *type) noexcept {
     return type != nullptr && type->is_custom() &&
            type->description() == "LC_IndirectDispatchBuffer";
 }
 
-[[nodiscard]] bool usage_contains(Usage usage, Usage expected) noexcept {
+[[nodiscard]] bool ptr_usage_contains(Usage usage, Usage expected) noexcept {
     return (luisa::to_underlying(usage) &
             luisa::to_underlying(expected)) != 0u;
 }
@@ -79,7 +79,7 @@ struct StructuredInventory {
             return true;
         }
         auto *type = formal->type();
-        if (is_indirect_dispatch_type(type)) { return true; }
+        if (is_indirect_dispatch_ptr_type(type)) { return true; }
         if (formal->is_resource()) {
             auto argument_usage = spirv_function_argument_usage_of(
                 usage, callee, formal);
@@ -92,14 +92,14 @@ struct StructuredInventory {
                 return true;
             }
             if (type->is_accel() &&
-                (usage_contains(argument_usage, Usage::WRITE) ||
+                (ptr_usage_contains(argument_usage, Usage::WRITE) ||
                  spirv_function_argument_requires_accel_instance_buffer(
                      usage, callee, formal))) {
                 return true;
             }
             if (type->is_texture() &&
-                usage_contains(argument_usage, Usage::READ) &&
-                usage_contains(argument_usage, Usage::WRITE)) {
+                ptr_usage_contains(argument_usage, Usage::READ) &&
+                ptr_usage_contains(argument_usage, Usage::WRITE)) {
                 return true;
             }
         }

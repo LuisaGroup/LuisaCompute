@@ -7,7 +7,11 @@ class VkCudaInteropImpl : public VkCudaInterop {
 public:
     VkCudaInterop *impl;
 
-    BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+          BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+      BufferCreationInfo create_interop_buffer_from_cuda(
+          const Type *element, size_t elem_count, uint64_t *cuda_device_ptr) noexcept override {
+          return impl->create_interop_buffer_from_cuda(element, elem_count, cuda_device_ptr);
+      }
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
