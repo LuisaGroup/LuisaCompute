@@ -96,7 +96,7 @@ static_assert(invalid_offset > static_cast<uint>(region_header_bytes() / 16u));
 
 struct ContractBlasRecord {
     uint4 geometry;// (blas_base, node_base, index_base, vertex_base) - all uint4 offsets
-    uint4 misc;    // (triangle_count, flags, reserved, reserved)
+    uint4 misc;    // (triangle_count, flags, heap_slot, reserved)
 };
 static_assert(sizeof(ContractBlasRecord) == 32u);
 static_assert(offsetof(ContractBlasRecord, geometry) == 0u);
@@ -105,6 +105,13 @@ static_assert(offsetof(ContractBlasRecord, geometry) + 0u * sizeof(uint) == 0u);
 static_assert(offsetof(ContractBlasRecord, geometry) + 2u * sizeof(uint) == 8u);
 static_assert(offsetof(ContractBlasRecord, misc) + 0u * sizeof(uint) == 16u,
               "a traversal reads the triangle count at byte 16 of the record");
+// The record's metadata lanes: `misc.z` is the *bindless slot* of the referenced
+// region, which is what a traversal resolves the tree through (the HLSL and CUDA
+// copies read it at byte 24) and what a host-side validator never reads.
+static_assert(bm_triangle_count == 0u && bm_flags == 1u && bm_heap_slot == 2u,
+              "the blas-table metadata lanes are triangle_count, flags, heap_slot");
+static_assert(offsetof(ContractBlasRecord, misc) + bm_heap_slot * sizeof(uint) == 24u,
+              "the bindless heap slot of a blas-table record is at byte 24");
 
 // ---------------------------------------------------------------------------
 // An instance record: three world->object rows, three object->world rows, the

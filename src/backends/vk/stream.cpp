@@ -589,32 +589,37 @@ inline constexpr uint32_t fallback_accel_base_push_offset =
     static_cast<uint32_t>(sizeof(IndirectDispatchPushConstants));
 static_assert(sizeof(IndirectDispatchPushConstants) == 32u);
 
-// The two storage buffers an `accel` argument is bound to, resolved from
+// The bindless heap of a software (fallback) acceleration structure plus the
+// two buffers the fallback's storage keeps, resolved from
 // `FallbackRtxDevice::binding()` at every use and never cached: the fallback
-// storage grows by appending a larger buffer and retiring the old one, so a
-// descriptor written now may have to name the replacement (the library
-// documents the growth).
+// storage grows by appending a larger buffer and retiring the old one, and the
+// TLAS' heap is replaced when it outgrows its slot count (the library documents
+// both).
 //
-// The two views are *not* symmetric (fallback_rtx_header.bytes, "The two views,
-// and why the acceleration view is absolute"):
+// The heap is what the shader-visible ABI is built on: a heap entry is a view
+// that starts at the region it names, so a traversal resolves a BLAS by its slot
+// and indexes every region relatively - there is no absolute-offset descriptor
+// and no backwards descriptor indexing any more
+// (src/backends/common/rtx/fallback_rtx_layout.h).
 //
-//  * the acceleration buffer is bound from its first `uint4` - covering the
-//    whole buffer - because the traversal addresses every node, index, vertex
-//    and referenced BLAS region by its absolute `uint4` offset.  A TLAS may
-//    reference a BLAS laid out *before* it, and a region-relative view would
-//    have to be indexed negatively, which neither a D3D12 SRV nor a Vulkan
-//    descriptor range can express.  The tree's own region is therefore not a
-//    descriptor offset: it is the `accelBase` scalar the generated shader is
-//    handed (`fallback_accel_region_base()` below).
-//  * the instance buffer is bound at this tree's slice, so element 0 is the
-//    tree's first instance record and `instance_u4 * instance` indexes it.
+//  * `heap` is the TLAS' bindless array.  Its slot table is the `accel`
+//    argument's first descriptor, and its slots (the backend's global bindless
+//    heap holds the buffers) are the regions the traversal resolves.
+//  * `accel` / `accel_region_offset` are the *shared acceleration buffer* and the
+//    byte offset of this tree's region inside it.  The GPU path never names them
+//    (the heap does), but the barrier pass still has to put the buffer the heap
+//    will read into its state, and the (debug) validators download it.
+//  * `instances` is the instance buffer bound at this tree's slice, so element 0
+//    is the tree's first instance record and `instance_u4 * instance` indexes it.
 struct FallbackAccelBuffers {
+    BindlessArray const *heap{};
     Buffer const *accel{};
     Buffer const *instances{};
     size_t instance_offset{};
-    // Bytes of the tree's region inside the acceleration buffer, i.e. the
-    // `accelBase` the generated shader needs.
     size_t accel_region_offset{};
+    // The heap slot of the tree's own region (`heap_tlas_slot`), which is the
+    // `accelBase` the generated shader is handed.
+    uint32_t region_slot{};
 };
 
 [[nodiscard]] static FallbackAccelBuffers fallback_accel_buffers(
@@ -626,32 +631,27 @@ struct FallbackAccelBuffers {
         "of handle {}, which has not been built yet. Build the acceleration "
         "structure before dispatching a shader that traces through it.",
         phase, handle);
+    auto *heap = reinterpret_cast<BindlessArray const *>(binding.accel_heap);
     auto *accel = reinterpret_cast<Buffer const *>(binding.accel_buffer);
     auto *instances = reinterpret_cast<Buffer const *>(binding.instance_buffer);
     LUISA_ASSERT(
-        accel != nullptr && instances != nullptr &&
+        heap != nullptr && accel != nullptr && instances != nullptr &&
             binding.accel_offset_bytes <= accel->byte_size() &&
             binding.instance_offset_bytes <= instances->byte_size(),
         "Vulkan {} found an uninitialized software fallback acceleration "
         "structure for handle {}.",
         phase, handle);
     return FallbackAccelBuffers{
-        accel, instances, binding.instance_offset_bytes,
-        binding.accel_offset_bytes};
+        heap, accel, instances, binding.instance_offset_bytes,
+        binding.accel_offset_bytes, binding.accel_slot};
 }
 
-// The region's `accelBase`, the absolute `uint4` offset of the tree's header.
+// The region's `accelBase`: the heap slot of the tree's own region.  It is the
+// only thing that still distinguishes one fallback `accel` argument from
+// another in the push-constant block.
 [[nodiscard]] static uint32_t fallback_accel_region_base(
     const FallbackAccelBuffers &buffers) noexcept {
-    LUISA_ASSERT(
-        buffers.accel_region_offset % fallback_accel_element_stride == 0u &&
-            buffers.accel_region_offset / fallback_accel_element_stride <=
-                std::numeric_limits<uint32_t>::max(),
-        "The Vulkan software ray-tracing fallback region offset {} bytes is "
-        "not an addressable uint4 offset.",
-        buffers.accel_region_offset);
-    return static_cast<uint32_t>(
-        buffers.accel_region_offset / fallback_accel_element_stride);
+    return buffers.region_slot;
 }
 
 // The instance view spans the tree's instance records to the end of the
@@ -1004,6 +1004,13 @@ struct ResourceBarrierVisitor {
                 barrier->record(
                     BufferView{buffers.accel, 0u, buffers.accel->byte_size()},
                     read_usage);
+                // The slot table the traversal indexes is a storage buffer of
+                // its own, and the descriptors it resolves are written by the
+                // bindless-array update command - so the table is read here.
+                auto &index_buffer = buffers.heap->indices_buffer();
+                barrier->record(
+                    BufferView{&index_buffer, 0u, index_buffer.byte_size()},
+                    read_usage);
             }
             if (roles.instance != FallbackAccelRoles::invalid) {
                 barrier->record(
@@ -1353,8 +1360,27 @@ struct BindPropVisitor {
                     nullptr});
             };
             if (roles.accel != FallbackAccelRoles::invalid) {
-                bind_buffer(roles.accel, buffers.accel,
-                            0u, "acceleration");
+                // The `accel` argument's first descriptor is the TLAS' bindless
+                // heap: its *slot table* is a stream of `uint` handles, exactly
+                // the shape a `BindlessArray` argument's index buffer has (the
+                // buffers the slots name live in the device's global bindless
+                // heap, which the shader metadata binds).
+                auto &index_buffer = buffers.heap->indices_buffer();
+                auto index_desc =
+                    cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *index_desc = VkDescriptorBufferInfo{
+                    index_buffer.vk_buffer(), 0u, index_buffer.byte_size()};
+                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    desc_set,
+                    roles.accel,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    index_desc,
+                    nullptr});
             }
             if (roles.instance != FallbackAccelRoles::invalid) {
                 bind_buffer(roles.instance, buffers.instances,

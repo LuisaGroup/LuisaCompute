@@ -385,23 +385,26 @@ void CodegenUtility::CodegenProperties(
                 if (opt->fallback_rtx) {
                     // Software ray tracing.  The two views of
                     // fallback_rtx_layout.h go into the two registers the native
-                    // argument already owns, plus the tree's region base:
+                    // argument already owns, plus the heap slot of the tree's own
+                    // region:
                     //
-                    //   accel            StructuredBuffer<uint4> (the whole
-                    //                    acceleration buffer; a handle is an
-                    //                    absolute uint4 index)
+                    //   accel            StructuredBuffer<uint> (the TLAS'
+                    //                    bindless heap - the slot table of its
+                    //                    `BindlessArray`; a traversal resolves
+                    //                    every region of the tree through it and
+                    //                    indexes each region relatively)
                     //   <argname>Inst    StructuredBuffer<uint4> /
                     //                    RWStructuredBuffer<uint4> (the instance
                     //                    buffer, element 0 = the tree's first
                     //                    record)
-                    //   <argname>Base    uint (the region's absolute uint4
-                    //                    offset)
+                    //   <argname>Base    uint (the heap slot of the tree's own
+                    //                    region, `heap_tlas_slot`)
                     //
-                    // The acceleration view has to be absolute - and not a view
-                    // that starts at the region - because a TLAS region
-                    // references BLAS regions laid out before it and neither a
-                    // D3D12 root SRV nor a Vulkan descriptor range can be
-                    // indexed backwards (fallback_rtx_header.bytes).
+                    // A heap entry is a view that starts at the region it names,
+                    // so a TLAS may reference a BLAS laid out before it without
+                    // indexing a descriptor backwards - the reason the old ABI
+                    // had to bind the whole acceleration buffer at offset 0 and
+                    // carry an absolute region offset (fallback_rtx_header.bytes).
                     if (reads && writes) {
                         LUISA_ERROR(
                             "The fallback ray tracing "

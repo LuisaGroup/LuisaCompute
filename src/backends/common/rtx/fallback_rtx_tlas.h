@@ -23,8 +23,22 @@
 #include "fallback_rtx_storage.h"
 
 #include <luisa/core/stl/memory.h>
+#include <luisa/runtime/bindless_array.h>
 
 namespace lc::fallback_rtx {
+
+// The host-side description of the BLAS one instance refers to.  The device
+// resolves it, because it owns both handle spaces (the fallback BLAS handles and
+// the shared storage); the builder only needs the directory entry for the blas
+// table and the region *view* the TLAS' bindless heap registers.
+struct FallbackTlasBlas {
+    // The blas-directory entry of the BLAS (the builder's private lane).
+    uint directory_entry{};
+    // u4 offset of the BLAS region inside the shared acceleration buffer.
+    uint region_base{};
+    // Payload of that region, in u4: the length of the heap view.
+    uint region_u4{};
+};
 
 // The host-side state of one fallback TLAS.
 struct FallbackTlas {
@@ -42,6 +56,18 @@ struct FallbackTlas {
     // record's reserved uint4 carries, and what the table refresh resolves
     // against the device directory.
     luisa::vector<uint32_t> directory_entry;
+    // The bindless heap of this TLAS (fallback_rtx_layout.h): slot 0 is the null
+    // slot, slot 1 the TLAS' own region and slot 2+i the BLAS region of instance
+    // i.  It is a member, so it is created with the TLAS and released when the
+    // TLAS is destroyed - the lifetime of the heap is the lifetime of the tree
+    // that references it, and nothing outside has to remember to free it.
+    BindlessArray accel_heap;
+    // Heaps this TLAS outgrew.  A rebuild that needs more slots creates a new
+    // `BindlessArray` rather than growing one (a bindless array has a fixed slot
+    // count), and the old one is *retired*, not destroyed: a command that is
+    // still in flight may read it, which is the same promise the storage's
+    // growable buffers make.
+    luisa::vector<BindlessArray> retired_heaps;
     bool built{false};
 };
 
@@ -71,15 +97,15 @@ class FallbackTlasBuilder {
 public:
     explicit FallbackTlasBuilder(FallbackRtxStorage &storage) noexcept;
 
-    // Record the build of `tlas`.  `resolved_directory_entry[i]` is the blas
-    // directory *entry* of `modifications[i].primitive` (the caller resolves it,
-    // because it owns the BLAS handles); it is only read for the modifications
-    // that carry `Modification::flag_primitive`.  With
-    // `update_instance_buffer_only` the instance records and the region's blas
-    // table are refreshed but the radix tree is left as it is.
+    // Record the build of `tlas`.  `resolved[i]` describes the BLAS of
+    // `modifications[i].primitive` (the caller resolves it, because it owns the
+    // BLAS handles); it is only read for the modifications that carry
+    // `Modification::flag_primitive`.  With `update_instance_buffer_only` the
+    // instance records, the region's blas table and the bindless heap are
+    // refreshed but the radix tree is left as it is.
     void build(CommandList &commands, FallbackTlas &tlas, uint instance_count,
                luisa::span<const AccelBuildCommand::Modification> modifications,
-               luisa::span<const uint32_t> resolved_directory_entry,
+               luisa::span<const FallbackTlasBlas> resolved,
                bool update_instance_buffer_only) noexcept;
 
     // The instance buffer slot of one record, and its host copy.
@@ -89,6 +115,11 @@ public:
     }
 
 private:
+    // Make sure `tlas` owns a heap with room for `instance_count` instances (slot
+    // 2 + i is the BLAS of instance i), creating one or retiring the heap it
+    // outgrew.  Both the new heap and the retirement live in `tlas`, so the
+    // lifetime of the heap is the lifetime of the tree (RAII).
+    void ensure_heap(FallbackTlas &tlas, uint instance_count) noexcept;
     // Copy the modified records into the device instance buffer, at their own
     // byte offsets: only the modified slots are uploaded, and each one lands at
     // the byte offset its record already occupies.
@@ -108,7 +139,9 @@ private:
     Shader1D<Buffer<uint4>, uint, uint> _table_clear_kernel;
     // table[row] = directory[entry], for every live instance (row = its
     // `blas_index`, entry = the BLAS it refers to): a refresh of the region's
-    // blas table from the live instance records.
+    // blas table from the live instance records.  The record's private lane also
+    // carries the *bindless slot* of the referenced region, which the refresh
+    // copies into the record's metadata uint4 (fallback_rtx_layout.h).
     Shader1D<Buffer<uint4>, Buffer<uint4>, Buffer<uint4>, uint, uint, uint, uint>
         _table_refresh_kernel;
     // World-space AABB of every instance, from the root AABB of the BLAS its

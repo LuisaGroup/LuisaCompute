@@ -130,36 +130,74 @@ static_assert(lc_fallback_header_u4 * 16u == 64u, "a fallback region header is 6
 }
 
 // ---------------------------------------------------------------------------
-// A view of one region: the descriptor itself plus the header fields a walk
-// needs.  `accel` is element 0 of the region, so `at(h)` is `accel[h - base]`
-// and is the *only* place that knows about the base subtraction.
+// The fallback `accel` argument.
+//
+// A fallback TLAS does not hand a traversal an absolute uint4 offset any more:
+// it owns a *bindless heap* whose slots hold the region buffers, and the blas
+// table carries the *slot* of the tree it references (fallback_rtx_layout.h).
+// The kernel argument therefore carries the heap and the slot of the TLAS' own
+// region instead of the address of one shared buffer.
+//
+// The layout is 32 bytes and mirrors the host-side `FallbackAccelArgument` of
+// cuda_shader_native.cpp byte for byte.
+// ---------------------------------------------------------------------------
+struct alignas(16u) LCFallbackAccel {
+    unsigned long long heap_slots;   // device address of the heap's `LCBindlessSlot` array
+    unsigned long long heap_capacity;// slots of that array
+    unsigned long long instances;    // device address of the instance buffer slice
+    lc_uint region_slot;             // heap slot of this TLAS' own region
+    lc_uint pad;
+};
+
+static_assert(sizeof(LCFallbackAccel) == 32u, "the fallback accel argument is 32 bytes");
+
+[[nodiscard]] __device__ inline LCBindlessArray lc_fallback_heap(LCFallbackAccel accel) noexcept {
+    return LCBindlessArray{reinterpret_cast<const LCBindlessSlot *>(accel.heap_slots),
+                           static_cast<size_t>(accel.heap_capacity)};
+}
+
+// One uint4 of the region a heap slot names.  A heap entry is a *view that
+// starts at the region*, so every index below is region-relative.
+[[nodiscard]] __device__ inline lc_uint4 lc_fallback_region_read(
+    LCFallbackAccel accel, lc_uint slot, lc_uint index) noexcept {
+    return lc_bindless_buffer_read<lc_uint4>(lc_fallback_heap(accel), slot, index);
+}
+
+// ---------------------------------------------------------------------------
+// A view of one region: the heap it lives in (and its slot) plus the header
+// fields a walk needs.  `at(h)` is the *only* place that knows about the base
+// subtraction: a node handle is an absolute uint4 offset, while a heap entry
+// starts at element 0 of the region.
 // ---------------------------------------------------------------------------
 struct LCFallbackRegion {
 
-    const lc_uint4 *accel;  // the region: accel[0] is its own header
-    lc_uint base;           // absolute uint4 offset of accel[0]
-    lc_uint node_base;      // absolute uint4 offset of the node array
+    LCFallbackAccel accel;// the argument that names the heap
+    lc_uint slot;         // the heap slot of this region
+    lc_uint base;         // absolute uint4 offset of element 0 of the region
+    lc_uint node_base;    // absolute uint4 offset of the node array
     lc_uint blas_table_base;// absolute uint4 offset of the blas table (TLAS only)
-    lc_uint index_base;     // absolute uint4 offset of the index array (BLAS only)
-    lc_uint vertex_base;    // absolute uint4 offset of the vertex array (BLAS only)
-    lc_uint root;           // absolute uint4 handle of the root node
-    lc_uint flags;          // region flags (region_flag_tlas for a TLAS)
+    lc_uint index_base;   // absolute uint4 offset of the index array (BLAS only)
+    lc_uint vertex_base;  // absolute uint4 offset of the vertex array (BLAS only)
+    lc_uint root;         // absolute uint4 handle of the root node
+    lc_uint flags;        // region flags (region_flag_tlas for a TLAS)
 
     [[nodiscard]] __device__ inline lc_uint4 at(lc_uint handle) const noexcept {
-        return accel[handle - base];
+        return lc_fallback_region_read(accel, slot, handle - base);
     }
 };
 
-// Read the header of the region `accel` points at.
-[[nodiscard]] __device__ inline LCFallbackRegion lc_fallback_region(const lc_uint4 *accel) noexcept {
+// Read the header of the region the heap slot `slot` names.
+[[nodiscard]] __device__ inline LCFallbackRegion lc_fallback_region(
+    LCFallbackAccel accel, lc_uint slot) noexcept {
     // u4 0 : (base, node_base, node_count, prim_count)
     // u4 1 : (blas_table_base, blas_count, index_base, index_count)
     // u4 2 : (vertex_base, vertex_count, root, flags)
-    auto h0 = accel[0];
-    auto h1 = accel[1];
-    auto h2 = accel[2];
+    auto h0 = lc_fallback_region_read(accel, slot, 0u);
+    auto h1 = lc_fallback_region_read(accel, slot, 1u);
+    auto h2 = lc_fallback_region_read(accel, slot, 2u);
     LCFallbackRegion region;
     region.accel = accel;
+    region.slot = slot;
     region.base = h0.x;
     region.node_base = h0.y;
     region.blas_table_base = h1.x;
@@ -246,12 +284,12 @@ struct LCFallbackRegion {
 // fallback_rtx_header.bytes, whose semantics this copy matches).
 // ---------------------------------------------------------------------------
 [[nodiscard]] __device__ inline bool lc_fallback_walk_blas(
-    const lc_uint4 *desc, lc_uint instance,
+    LCFallbackAccel accel, lc_uint slot, lc_uint instance,
     lc_float3 origin, lc_float3 direction, lc_float t_min,
     lc_float &t_best, lc_uint &inst_best, lc_uint &prim_best, lc_float2 &bary_best) noexcept {
 
     auto improved = false;
-    auto region = lc_fallback_region(desc);
+    auto region = lc_fallback_region(accel, slot);
     auto inv_dir = lc_fallback_safe_reciprocal(direction);
     lc_uint stack[lc_fallback_stack_size];
     lc_uint size = 1u;
@@ -298,11 +336,15 @@ struct LCFallbackRegion {
 // A leaf is an instance; it is descended into through the BLAS it references.
 // ---------------------------------------------------------------------------
 __device__ inline void lc_fallback_walk_tlas(
-    const lc_uint4 *desc, const lc_uint4 *instances, lc_uint mask,
+    LCFallbackAccel accel, lc_uint mask,
     lc_float3 origin, lc_float3 direction, lc_float t_min,
     lc_float &t_best, lc_uint &inst_best, lc_uint &prim_best, lc_float2 &bary_best) noexcept {
 
-    auto region = lc_fallback_region(desc);
+    // The TLAS' own region is the heap slot the argument carries; every index
+    // below is relative to it (a heap entry is a view that starts at the
+    // region).
+    auto region = lc_fallback_region(accel, accel.region_slot);
+    auto instances = reinterpret_cast<const lc_uint4 *>(accel.instances);
     auto inv_dir = lc_fallback_safe_reciprocal(direction);
     auto o4 = lc_make_float4(origin.x, origin.y, origin.z, 1.0f);
     auto d4 = lc_make_float4(direction.x, direction.y, direction.z, 0.0f);
@@ -325,24 +367,24 @@ __device__ inline void lc_fallback_walk_tlas(
             // Visibility: an instance is culled when its mask and the ray's
             // share no bit, exactly like the hardware's instance visibility.
             if ((mask & misc.y) == 0u) { continue; }
-            // The BLAS table record of this instance names the BLAS region.
+            // The BLAS table record of this instance names the tree it refers
+            // to by the *bindless slot* of its region, which the build copied
+            // into the record's metadata lane (fallback_rtx_layout.h).
             auto blas_index = misc.x;
-            auto record0 = region.at(region.blas_table_base +
-                                     lc_fallback_blas_record_u4 * blas_index);
-            auto blas_base = record0.x;
-            // `blas_base == 0` is the *null* reference: the first four uint4 of
-            // the acceleration buffer are a reserved dummy region
-            // (fallback_rtx_storage.h), so a record whose base is 0 is an
-            // instance the caller never gave a mesh.  Descending into it would
-            // walk region 0; skip it instead.
-            if (blas_base == 0u) { continue; }
-            // The BLAS regions of a device are laid out before the TLAS region
-            // they are referenced from, so this offset is *negative*: it has to
-            // be computed signed, because the unsigned wrap of
-            // `blas_base - region.base` would point the descriptor at a wild
-            // address instead of backwards inside the same buffer.
-            auto blas_desc = desc + (static_cast<lc_long>(blas_base) -
-                                     static_cast<lc_long>(region.base));
+            auto row = region.blas_table_base +
+                       lc_fallback_blas_record_u4 * blas_index;
+            auto metadata = region.at(row + 1u);
+            auto blas_slot = metadata.z;
+            // Slot 0 is the *null* slot: the build never registers a region
+            // there, so a row whose slot lane is 0 is an instance the caller
+            // never gave a mesh.  Skip it instead of reading a slot that holds
+            // no buffer.
+            if (blas_slot == 0u) { continue; }
+            // The referenced BLAS region is resolved through the heap; the
+            // descent then indexes that region relatively, exactly like the
+            // TLAS walk indexes its own.  There is no backwards descriptor
+            // arithmetic any more: a heap entry is a view that starts at the
+            // region.
             // World space -> object space: the three to_object rows as an
             // explicit row-major affine.  The direction is *not* renormalized,
             // so the triangle test keeps the world-space ray parameter.
@@ -365,8 +407,8 @@ __device__ inline void lc_fallback_walk_tlas(
             auto inst_instance = inst_best;
             auto prim_instance = prim_best;
             auto bary_instance = bary_best;
-            if (lc_fallback_walk_blas(blas_desc, instance, object_origin, object_dir, t_min,
-                                      t_instance, inst_instance, prim_instance, bary_instance)) {
+            if (lc_fallback_walk_blas(accel, blas_slot, instance, object_origin, object_dir,
+                                      t_min, t_instance, inst_instance, prim_instance, bary_instance)) {
                 t_best = t_instance;
                 inst_best = inst_instance;
                 prim_best = prim_instance;
@@ -390,19 +432,17 @@ __device__ inline void lc_fallback_walk_tlas(
 // tests), its primitive index is `invalid_offset`, its barycentrics are zero and
 // its `t` is the ray's `t_max`.
 [[nodiscard]] __device__ inline LCTriangleHit lc_fallback_trace_closest(
-    LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    LCFallbackAccel accel, LCRay ray, lc_uint mask) noexcept {
     LCTriangleHit hit{lc_fallback_invalid_offset, lc_fallback_invalid_offset,
                       lc_make_float2(0.0f, 0.0f), ray.m3};
-    if (accel.handle == 0ull || accel.instances == nullptr) { return hit; }
-    auto desc = reinterpret_cast<const lc_uint4 *>(accel.handle);
-    auto instances = reinterpret_cast<const lc_uint4 *>(accel.instances);
+    if (accel.heap_slots == 0ull || accel.instances == 0ull) { return hit; }
     auto origin = lc_make_float3(ray.m0[0], ray.m0[1], ray.m0[2]);
     auto direction = lc_make_float3(ray.m2[0], ray.m2[1], ray.m2[2]);
     auto t_best = ray.m3;
     auto inst_best = lc_fallback_invalid_offset;
     auto prim_best = lc_fallback_invalid_offset;
     auto bary_best = lc_make_float2(0.0f, 0.0f);
-    lc_fallback_walk_tlas(desc, instances, mask, origin, direction, ray.m1,
+    lc_fallback_walk_tlas(accel, mask, origin, direction, ray.m1,
                           t_best, inst_best, prim_best, bary_best);
     if (inst_best != lc_fallback_invalid_offset) {
         hit.m0 = inst_best;
@@ -415,17 +455,15 @@ __device__ inline void lc_fallback_walk_tlas(
 
 // Whether *any* triangle of a `mask`-visible instance is hit by `ray`.
 [[nodiscard]] __device__ inline bool lc_fallback_trace_any(
-    LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    if (accel.handle == 0ull || accel.instances == nullptr) { return false; }
-    auto desc = reinterpret_cast<const lc_uint4 *>(accel.handle);
-    auto instances = reinterpret_cast<const lc_uint4 *>(accel.instances);
+    LCFallbackAccel accel, LCRay ray, lc_uint mask) noexcept {
+    if (accel.heap_slots == 0ull || accel.instances == 0ull) { return false; }
     auto origin = lc_make_float3(ray.m0[0], ray.m0[1], ray.m0[2]);
     auto direction = lc_make_float3(ray.m2[0], ray.m2[1], ray.m2[2]);
     auto t_best = ray.m3;
     auto inst_best = lc_fallback_invalid_offset;
     auto prim_best = lc_fallback_invalid_offset;
     auto bary_best = lc_make_float2(0.0f, 0.0f);
-    lc_fallback_walk_tlas(desc, instances, mask, origin, direction, ray.m1,
+    lc_fallback_walk_tlas(accel, mask, origin, direction, ray.m1,
                           t_best, inst_best, prim_best, bary_best);
     return inst_best != lc_fallback_invalid_offset;
 }
@@ -439,7 +477,7 @@ __device__ inline void lc_fallback_walk_tlas(
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] __device__ inline lc_float4x4 lc_fallback_instance_transform(
-    LCAccel accel, lc_uint instance_id) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id) noexcept {
     auto record = reinterpret_cast<const lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     // to_world rows, as the rows of the object->world matrix.
@@ -456,21 +494,21 @@ __device__ inline void lc_fallback_walk_tlas(
 }
 
 [[nodiscard]] __device__ inline lc_uint lc_fallback_instance_user_id(
-    LCAccel accel, lc_uint instance_id) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id) noexcept {
     auto record = reinterpret_cast<const lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     return record[lc_fallback_i_misc][lc_fallback_im_user_id];
 }
 
 [[nodiscard]] __device__ inline lc_uint lc_fallback_instance_visibility(
-    LCAccel accel, lc_uint instance_id) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id) noexcept {
     auto record = reinterpret_cast<const lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     return record[lc_fallback_i_misc][lc_fallback_im_visibility];
 }
 
 __device__ inline void lc_fallback_set_instance_transform(
-    LCAccel accel, lc_uint instance_id, lc_float4x4 m) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id, lc_float4x4 m) noexcept {
     auto record = reinterpret_cast<lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     // to_world: the rows of the object->world matrix, the same twelve floats
@@ -515,7 +553,7 @@ __device__ inline void lc_fallback_set_instance_transform(
 }
 
 __device__ inline void lc_fallback_set_instance_visibility(
-    LCAccel accel, lc_uint instance_id, lc_uint mask) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id, lc_uint mask) noexcept {
     auto record = reinterpret_cast<lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     // The hardware masks the visibility to 8 bits (`lc_accel_set_instance_visibility`).
@@ -523,7 +561,7 @@ __device__ inline void lc_fallback_set_instance_visibility(
 }
 
 __device__ inline void lc_fallback_set_instance_opacity(
-    LCAccel accel, lc_uint instance_id, bool opaque) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id, bool opaque) noexcept {
     auto record = reinterpret_cast<lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     auto flags = record[lc_fallback_i_misc][lc_fallback_im_flags];
@@ -539,7 +577,7 @@ __device__ inline void lc_fallback_set_instance_opacity(
 }
 
 __device__ inline void lc_fallback_set_instance_user_id(
-    LCAccel accel, lc_uint instance_id, lc_uint user_id) noexcept {
+    LCFallbackAccel accel, lc_uint instance_id, lc_uint user_id) noexcept {
     auto record = reinterpret_cast<lc_uint4 *>(accel.instances) +
                   lc_fallback_instance_u4 * instance_id;
     record[lc_fallback_i_misc][lc_fallback_im_user_id] = user_id;

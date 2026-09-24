@@ -2196,7 +2196,11 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
-            _scratch << "const LCAccel ";
+            // Software ray tracing replaces the OptiX traversable handle with
+            // the fallback's heap argument (cuda_builtin/
+            // cuda_device_fallback_rtx.h), which carries the bindless heap the
+            // traversal resolves its regions through.
+            _scratch << (_fallback_rtx ? "const LCFallbackAccel " : "const LCAccel ");
             _emit_variable_name(v);
             break;
         default:

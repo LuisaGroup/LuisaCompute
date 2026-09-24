@@ -138,31 +138,44 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
                 std::memcpy(ptr, &binding, sizeof(binding));
                 break;
             }
-            case Tag::ACCEL: {
-                // The CUDA ABI of an `accel` argument is the 16-byte
-                // `LCAccel { unsigned long long handle; LCAccelInstance *instances; }`.
-                // A *fallback* accel carries the device addresses of the two
-                // regions its traversal reads (the acceleration buffer and the
-                // instance buffer) instead of an OptiX traversable handle; they
-                // are resolved here, on every dispatch, because the fallback
-                // storage may have grown since the last one.
-                if (encoder.stream()->device()->owns_fallback_accel(arg.accel.handle)) {
-                    struct alignas(16) FallbackAccelArgument {
-                        uint64_t handle;
-                        uint64_t instances;
-                    };
-                    auto binding = encoder.stream()->device()->fallback_rtx()->binding(arg.accel.handle);
-                    // Not built yet: bind nulls, which the traversal reports as
-                    // a miss (see `lc_fallback_trace_closest`).
-                    auto argument = binding.valid() ?
-                                        FallbackAccelArgument{
-                                            reinterpret_cast<const CUDABuffer *>(binding.accel_buffer)->device_address() + binding.accel_offset_bytes,
-                                            reinterpret_cast<const CUDABuffer *>(binding.instance_buffer)->device_address() + binding.instance_offset_bytes} :
-                                        FallbackAccelArgument{0ull, 0ull};
-                    auto ptr = allocate_argument(sizeof(argument));
-                    std::memcpy(ptr, &argument, sizeof(argument));
-                    break;
-                }
+              case Tag::ACCEL: {
+                  // A *fallback* accel argument carries the fallback's own heap
+                  // ABI (`LCFallbackAccel`, cuda_builtin/
+                  // cuda_device_fallback_rtx.h): the bindless heap of the TLAS
+                  // - whose slots hold the region buffers its traversal resolves
+                  // - the heap slot of the tree's own region, and the device
+                  // address of the tree's instance slice.  They are resolved
+                  // here, on every dispatch, because the fallback storage may
+                  // have grown and the heap may have been replaced since the
+                  // last one.
+                  if (encoder.stream()->device()->owns_fallback_accel(arg.accel.handle)) {
+                      struct alignas(16) FallbackAccelArgument {
+                          uint64_t heap_slots;
+                          uint64_t heap_capacity;
+                          uint64_t instances;
+                          uint32_t region_slot;
+                          uint32_t pad;
+                      };
+                      static_assert(sizeof(FallbackAccelArgument) == 32u,
+                                    "the fallback accel argument is 32 bytes");
+                      auto binding = encoder.stream()->device()->fallback_rtx()->binding(arg.accel.handle);
+                      // Not built yet: bind nulls, which the traversal reports as
+                      // a miss (see `lc_fallback_trace_closest`).
+                      FallbackAccelArgument argument{0ull, 0ull, 0ull, 0u, 0u};
+                      if (binding.valid()) {
+                          auto *heap = reinterpret_cast<const CUDABindlessArray *>(binding.accel_heap);
+                          auto heap_binding = heap->binding();
+                          argument.heap_slots = heap_binding.slots;
+                          argument.heap_capacity = heap_binding.capacity;
+                          argument.instances =
+                              reinterpret_cast<const CUDABuffer *>(binding.instance_buffer)->device_address() +
+                              binding.instance_offset_bytes;
+                          argument.region_slot = binding.accel_slot;
+                      }
+                      auto ptr = allocate_argument(sizeof(argument));
+                      std::memcpy(ptr, &argument, sizeof(argument));
+                      break;
+                  }
                 auto accel = reinterpret_cast<const CUDAAccel *>(arg.accel.handle);
                 auto binding = accel->binding();
                 auto ptr = allocate_argument(sizeof(binding));

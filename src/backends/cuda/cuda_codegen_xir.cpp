@@ -318,7 +318,7 @@ void CUDACodegenXIR::_emit_type_name(const Type *type) noexcept {
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: _scratch << "LCBindlessArray"; break;
-        case Type::Tag::ACCEL: _scratch << "LCAccel"; break;
+        case Type::Tag::ACCEL: _scratch << (_fallback_rtx ? "LCFallbackAccel" : "LCAccel"); break;
         default: LUISA_ERROR_WITH_LOCATION(
             "Invalid type {} in CUDA codegen.",
             type->description());

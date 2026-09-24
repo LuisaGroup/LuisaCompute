@@ -69,9 +69,10 @@ FallbackTlasBuilder::FallbackTlasBuilder(FallbackRtxStorage &storage) noexcept
           }})},
 
       // table[row] = directory[entry]: the row is read from the *live* instance
-      // record (a shader may have rewritten it), and the entry is the builder's
-      // private use of the record's reserved uint4 - the BLAS an instance refers
-      // to is host bookkeeping, and no shader-side operation ever changes it.
+      // record (a shader may have rewritten it), and the entry plus the bindless
+      // slot are the builder's private use of the record's reserved uint4 - the
+      // BLAS an instance refers to and where its region sits in this TLAS' heap
+      // are host bookkeeping, and no shader-side operation ever changes them.
       _table_refresh_kernel{storage.device().compile(Kernel1D{
           [](BufferVar<uint4> accel, BufferVar<uint4> instances, BufferVar<uint4> directory,
              UInt instance_base, UInt table_base, UInt count, UInt directory_count) noexcept {
@@ -80,7 +81,8 @@ FallbackTlasBuilder::FallbackTlasBuilder(FallbackRtxStorage &storage) noexcept
               $if (i < count) {
                   auto first = instance_base + i * instance_u4;
                   auto row = instances.read(first + i_misc).x;
-                  auto entry = instances.read(first + i_misc + 1u).x * blas_record_u4;
+                  auto private_lanes = instances.read(first + i_misc + 1u);
+                  auto entry = private_lanes.x * blas_record_u4;
                   // A record the caller never filled is a null record: its row
                   // stays clear, and the range checks keep a garbage entry from
                   // turning into an out-of-bounds device read.
@@ -88,8 +90,16 @@ FallbackTlasBuilder::FallbackTlasBuilder(FallbackRtxStorage &storage) noexcept
                       $if (entry + 1u < directory_count) {
                           accel.write(table_base + row * blas_record_u4 + 0u,
                                       directory.read(entry + 0u));
+                          auto metadata = directory.read(entry + 1u);
+                          // The traversal resolves the referenced BLAS through the
+                          // TLAS' bindless heap, so the record has to carry the
+                          // slot of that region (fallback_rtx_layout.h); the slot
+                          // is host-known and travelled in the record's private
+                          // lane.  A slot of 0 is the null slot, which a traverse
+                          // skips exactly like a null `blas_base` used to be.
                           accel.write(table_base + row * blas_record_u4 + 1u,
-                                      directory.read(entry + 1u));
+                                      make_uint4(metadata.x, metadata.y,
+                                                 private_lanes.y, metadata.w));
                       };
                   };
               };
@@ -210,16 +220,32 @@ void FallbackTlasBuilder::upload_every_record(CommandList &commands,
 // Build
 // ---------------------------------------------------------------------------
 
+void FallbackTlasBuilder::ensure_heap(FallbackTlas &tlas,
+                                      uint instance_count) noexcept {
+    // Slot 0 is the null slot, slot 1 the TLAS' own region and slot 2+i the
+    // BLAS of instance i (fallback_rtx_layout.h).
+    auto needed = static_cast<size_t>(instance_count) + heap_first_blas_slot;
+    if (tlas.accel_heap && tlas.accel_heap.size() >= needed) { return; }
+    if (tlas.accel_heap) {
+        // A bindless array has a fixed slot count, so a TLAS that grew gets a new
+        // one.  The heap it outgrew is *retired*, not destroyed: a command that
+        // is still in flight may read it (the same promise `GrowableBuffer`
+        // makes for the storage).
+        tlas.retired_heaps.emplace_back(std::move(tlas.accel_heap));
+    }
+    tlas.accel_heap = _storage->device().create_bindless_array(needed);
+}
+
 void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
                                 uint instance_count,
                                 luisa::span<const AccelBuildCommand::Modification> modifications,
-                                luisa::span<const uint32_t> resolved_directory_entry,
+                                luisa::span<const FallbackTlasBlas> resolved,
                                 bool update_instance_buffer_only) noexcept {
     LUISA_ASSERT(instance_count > 0u, "The fallback RTX TLAS build needs at least one instance.");
-    LUISA_ASSERT(modifications.size() == resolved_directory_entry.size(),
+    LUISA_ASSERT(modifications.size() == resolved.size(),
                  "The fallback RTX TLAS build got {} modifications and {} resolved "
                  "primitives.",
-                 modifications.size(), resolved_directory_entry.size());
+                 modifications.size(), resolved.size());
     // A TLAS that grows (or is built for the first time) gets a *fresh* append:
     // its region and its instance slice are never moved, so an offset a shader
     // descriptor was built with stays valid (see `FallbackRtxStorage`).  The
@@ -242,6 +268,10 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
         // (fallback_rtx_layout.h) instead of descending into a tree that was never
         // built.
         tlas.directory_entry.assign(instance_count, invalid_offset);
+        // The heap this TLAS resolves its regions through.  It is created here,
+        // on the first build (the instance count is only known now), and it is a
+        // member of `tlas`, so destroying the TLAS releases it (RAII).
+        ensure_heap(tlas, instance_count);
     }
 
     // ---- apply the modifications to the host copy ---------------------------
@@ -252,6 +282,9 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
                                  AccelBuildCommand::Modification::flag_user_id;
     luisa::vector<uint32_t> uploaded;
     uploaded.reserve(modifications.size());
+    // Whether the heap gained an entry this build: it decides whether the update
+    // command has to be recorded at all.
+    auto heap_dirty = false;
     for (auto i = 0u; i < modifications.size(); i++) {
         auto &&m = modifications[i];
         if (m.index >= instance_count) {
@@ -281,7 +314,17 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
             // The fallback only has triangle geometry, and this mirrors what the
             // hardware update kernel records for a triangle instance.
             flags |= instance_flag_disable_face_culling;
-            tlas.directory_entry[m.index] = resolved_directory_entry[i];
+            tlas.directory_entry[m.index] = resolved[i].directory_entry;
+            // Register the BLAS region in this TLAS' heap, at its slot
+            // (fallback_rtx_layout.h).  The slot is host-known, and the table
+            // refresh kernel copies it into the record's metadata lane, so it
+            // travels with the record the same way the directory entry does.
+            if (resolved[i].region_u4 != 0u) {
+                tlas.accel_heap.emplace_on_update(
+                    heap_first_blas_slot + m.index,
+                    _storage->accel().view(resolved[i].region_base, resolved[i].region_u4));
+                heap_dirty = true;
+            }
         }
         if ((m.flags & AccelBuildCommand::Modification::flag_visibility) != 0u) {
             record[i_misc].y = m.vis_mask;
@@ -311,7 +354,18 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
         misc.x = m.index;
         misc.w = flags;
         record[i_misc + 1u].x = tlas.directory_entry[m.index];
-        record[i_misc + 1u].y = 0u;
+        // The heap slot of the referenced region.  A modification that carries a
+        // primitive re-registers the region, so the record takes the slot the
+        // heap entry was just written to (or 0 when there is no region); a
+        // modification that does not keeps the slot an earlier build recorded -
+        // the entry that build registered is still live, because a retired
+        // acceleration buffer keeps its content.  Slot 0 is the null slot, and it
+        // is what a traversal skips (fallback_rtx_layout.h).
+        if ((static_cast<uint>(m.flags) & AccelBuildCommand::Modification::flag_primitive) != 0u) {
+            record[i_misc + 1u].y = resolved[i].region_u4 != 0u ?
+                                        heap_first_blas_slot + m.index :
+                                        0u;
+        }
         record[i_misc + 1u].z = 0u;
         record[i_misc + 1u].w = 0u;
         uploaded.push_back(m.index);
@@ -331,6 +385,23 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
     auto &accel = _storage->accel();
     auto &instances = _storage->instances();
     auto &directory = _storage->blas_directory();
+    // The heap: slot 1 is the TLAS' own region, so a traversal reads the tree
+    // header through the heap exactly like it reads a BLAS region, and the ones
+    // registered above are its BLAS regions.  The TLAS entry is (re)written on
+    // every fresh build, because the shared acceleration buffer grows *by
+    // reallocation*: the view has to name the buffer that is current now.
+    if (fresh) {
+        tlas.accel_heap.emplace_on_update(
+            heap_tlas_slot,
+            accel.view(tlas.region.base, tlas.region.region_u4()));
+        heap_dirty = true;
+    }
+    // The update is a command of its own: the heap's slots (and the backend's
+    // global bindless heap) are written by it, and it has to be ordered after
+    // the growth copies `plan_tlas` may have recorded into `commands`.
+    if (heap_dirty) {
+        commands << tlas.accel_heap.update();
+    }
     commands << _table_clear_kernel(accel, tlas.region.blas_table_base, tlas.region.blas_count)
                     .dispatch(tlas.region.blas_count);
     commands << _table_refresh_kernel(accel, instances, directory,

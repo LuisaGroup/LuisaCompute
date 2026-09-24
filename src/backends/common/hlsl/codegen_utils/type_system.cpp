@@ -164,11 +164,15 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         } break;
         case Type::Tag::ACCEL: {
             if (opt->fallback_rtx) {
-                // Software ray tracing: an `accel` argument is a view of the
-                // fallback acceleration buffer, which is a stream of uint4
-                // (fallback_rtx_layout.h).  The instance buffer is declared
-                // next to it by CodegenProperties.
-                str << "StructuredBuffer<uint4>"sv;
+                // Software ray tracing: an `accel` argument is the *bindless
+                // heap* of the TLAS, i.e. the slot table of a `BindlessArray` -
+                // a stream of `uint` handles, exactly the shape a
+                // `BINDLESS_ARRAY` argument has.  The traversal resolves the
+                // region of every tree through it, so there is no shared
+                // acceleration buffer view and no absolute `uint4` handle in the
+                // ABI anymore (fallback_rtx_layout.h).  The instance buffer is
+                // declared next to it by CodegenProperties.
+                str << "StructuredBuffer<uint>"sv;
             } else {
                 str << "RaytracingAccelerationStructure"sv;
             }

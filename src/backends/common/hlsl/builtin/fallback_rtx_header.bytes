@@ -1,140 +1,38 @@
-// Fallback (software) ray tracing: the HLSL device-side traversal.
-//
-// This header is one of the three copies of the fallback acceleration-structure
-// layout (see src/backends/common/rtx/fallback_rtx_layout.h, the single source of
-// truth, and the CUDA copy cuda_builtin/cuda_device_fallback_rtx.h, which this
-// file is a 1:1 port of).  It cannot include that header: every generated shader
-// that traces with the fallback gets this text appended by the HLSL code
-// generator (codegen_utils/entry_points.cpp), and it is compiled by dxc for both
-// the DXIL target (the DX backend) and the SPIR-V target (the Vulkan backend's
-// HLSL route), so it only uses constructs both targets accept:
-//
-//   * no recursion (the walks are iterative with an explicit stack),
-//   * no resource-pointer arithmetic (see "the two views" below),
-//   * no `RayQuery`, no `RaytracingAccelerationStructure` and no ray-tracing
-//     pipeline intrinsics: a fallback trace is an ordinary compute kernel.
-//
-// ---------------------------------------------------------------------------
-// The ABI, restated (see fallback_rtx_layout.h for the authoritative version)
-// ---------------------------------------------------------------------------
-//
-// One *acceleration buffer* (`StructuredBuffer<uint4>`) holds every tree of the
-// device and one *instance buffer* (`StructuredBuffer<uint4>` /
-// `RWStructuredBuffer<uint4>`) holds the TLAS instance records.  A region starts
-// with a 4 x uint4 header whose first lane is the region's own absolute uint4
-// offset:
-//
-//   u4 0 : (base,            node_base,        node_count,  prim_count)
-//   u4 1 : (blas_table_base, blas_count,       index_base,  index_count)
-//   u4 2 : (vertex_base,     vertex_count,     root,        flags)
-//   u4 3 : reserved
-//
-//   node    : 2 x u4, (lo.x, lo.y, lo.z, left), (hi.x, hi.y, hi.z, right)
-//   blas    : 2 x u4, (blas_base, node_base, index_base, vertex_base),
-//                     (triangle_count, flags, reserved, reserved)
-//   index   : 1 x u4, (i0, i1, i2, 0)
-//   vertex  : 1 x u4, (x, y, z, 0)
-//   inst    : 8 x u4, three to_object rows, three to_world rows,
-//                     (blas_index, visibility, user_id, flags), reserved
-//
-// Every float of the ABI travels as the *bit pattern* of its lane (the buffers
-// are uint4), so the loaders below bit-cast; handles are never floats, which is
-// what keeps `_LC_FB_INVALID_OFFSET` alive across the round trip.
-//
-// A node is a leaf when its left handle is `_LC_FB_INVALID_OFFSET`; `right` is
-// then the triangle index inside the BLAS (or the instance index, in a TLAS).  A
-// TLAS leaf names its BLAS through the instance record's `blas_index`, which
-// indexes the BLAS table; the table record names the BLAS region, whose header is
-// re-read exactly like the top-level region (a region is self-describing, which
-// is why it starts with its own base).
-//
-// ---------------------------------------------------------------------------
-// The two views, and why the acceleration view is *absolute*
-// ---------------------------------------------------------------------------
-//
-// Both buffers reach the shader through the two registers the native `accel`
-// argument already owns:
-//
-//   accel : the acceleration buffer, bound so that element 0 is the *first
-//           uint4 of the buffer*, i.e. a handle is used as an ABSOLUTE index.
-//   inst  : the instance buffer, bound at this tree's slice, so element 0 is the
-//           tree's first instance record and `instance_u4 * instance` indexes it.
-//
-// `accelBase` is the absolute uint4 offset of this tree's region: the tree's
-// header is `accel[accelBase + 0 .. 2]` and its root handle is the `root` field
-// of that header.
-//
-// The acceleration view is deliberately absolute (and not a view that starts at
-// the tree's region): a TLAS region may reference a BLAS region laid out *before*
-// it, so a region-relative view would have to be indexed with a negative index,
-// which neither a D3D12 root SRV nor a Vulkan descriptor range can express - the
-// read would simply be out of range.  The CUDA port of this traversal uses raw
-// pointers (`desc + (blas_base - base)`) and gets away with it; with a descriptor
-// the only correct translation is to keep the buffer and address everything
-// absolutely, which is what `accelBase` is for.
-//
-// The traversal therefore never needs a "region base" while it walks: a node
-// handle, an index record, a vertex record and a BLAS region are all addressed by
-// their absolute uint4 offset (which is exactly what the build packs into them).
-//
-// ---------------------------------------------------------------------------
-// The walk
-// ---------------------------------------------------------------------------
-//
-// The walk is the same two-level blind-push depth-first walk as
-// examples/compute/lbvh/{blas,tlas}.cpp and as the CUDA copy: a node is loaded
-// once, when popped, and is tested there, and the instance transform of a TLAS
-// leaf is applied to the ray without renormalizing the direction, which keeps
-// `t` the world-space ray parameter (this is what makes the software result match
-// the hardware one).
-//
-// Limitations, reported rather than hidden:
-//   * `opaque == false` instances are *hits* like opaque ones: the fallback has
-//     no any-hit shading, so there is nothing to call.  The flag is recorded by
-//     the build and honoured by the setters below, but it cannot change the
-//     result of a trace.
-//   * `flip_facing` / `disable_face_culling` do not change the intersection
-//     test: triangles are two-sided here, exactly like the hardware geometry the
-//     backends build.
-//   * ray queries, motion blur, curves and procedural primitives are not
-//     implemented; the HLSL code generator refuses to emit them in fallback mode
-//     (with a message naming `use_fallback_rtx()`) instead of calling into a
-//     missing symbol.
-
-// ---------------------------------------------------------------------------
-// Header slot indices, in uints (four per uint4) - restated from
-// fallback_rtx_layout.h.
-// ---------------------------------------------------------------------------
 #define _LC_FB_HEADER_U4 4u
 #define _LC_FB_NODE_U4 2u
 #define _LC_FB_BLAS_RECORD_U4 2u
 #define _LC_FB_INSTANCE_U4 8u
-// Instance-record lane block of the to_object rows / the misc word.
 #define _LC_FB_I_TO_OBJECT 0u
 #define _LC_FB_I_TO_WORLD 3u
 #define _LC_FB_I_MISC 6u
-// Lanes of the misc word.
 #define _LC_FB_IM_BLAS_INDEX 0u
 #define _LC_FB_IM_VISIBILITY 1u
 #define _LC_FB_IM_USER_ID 2u
 #define _LC_FB_IM_FLAGS 3u
-// Instance flags (mirror of `LC_INSTANCE_FLAG_*`); the build records them so the
-// traversal can honour the same two behaviours the hardware does.
+
+#define _LC_FB_BM_TRIANGLE_COUNT 0u
+#define _LC_FB_BM_FLAGS 1u
+#define _LC_FB_BM_HEAP_SLOT 2u
+
+#define _LC_FB_HEAP_NULL_SLOT 0u
+#define _LC_FB_HEAP_TLAS_SLOT 1u
+#define _LC_FB_HEAP_FIRST_BLAS_SLOT 2u
 #define _LC_FB_INSTANCE_FLAG_DISABLE_FACE_CULLING 1u
 #define _LC_FB_INSTANCE_FLAG_FLIP_FACING 2u
 #define _LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT 4u
 #define _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT 8u
 #define _LC_FB_INSTANCE_FLAG_OPAQUE 16u
-// The left handle of a leaf node, and the "no hit" marker of a traversal.
 #define _LC_FB_INVALID_OFFSET 0xFFFFFFFFu
-// Depth of the software traversal stack.  A Morton-code radix tree over the
-// primitives of one tree is far shallower than this (the LBVH example uses the
-// same bound).
 #define _LC_FB_STACK_SIZE 64u
 
-// ---------------------------------------------------------------------------
-// Lane loaders: the ABI stores floats as the bit pattern of a uint lane.
-// ---------------------------------------------------------------------------
+#ifdef _LC_OOB_CHECK
+#define _LC_FB_HEAP_READ(heap, slot, index) \
+    _READ_BUFFER(heap, slot, (index), 16u, uint4, bdls, 0xFFFFFFFFu)
+#else
+#define _LC_FB_HEAP_READ(heap, slot, index) \
+    _READ_BUFFER(heap, slot, (index), 16u, uint4, bdls)
+#endif
+
 float _LCFbAsFloat(uint u) { return asfloat(u); }
 uint _LCFbAsUint(float f) { return asuint(f); }
 float2 _LCFbFloat2Of(uint4 v) { return float2(asfloat(v.x), asfloat(v.y)); }
@@ -142,10 +40,6 @@ float3 _LCFbFloat3Of(uint4 v) { return float3(asfloat(v.x), asfloat(v.y), asfloa
 float4 _LCFbFloat4Of(uint4 v) { return float4(asfloat(v.x), asfloat(v.y), asfloat(v.z), asfloat(v.w)); }
 uint4 _LCFbUint4Of(float4 v) { return uint4(asuint(v.x), asuint(v.y), asuint(v.z), asuint(v.w)); }
 
-// ---------------------------------------------------------------------------
-// A region's header fields.  `accel` is the whole acceleration buffer, so every
-// field is loaded from the region's *absolute* offset `base`.
-// ---------------------------------------------------------------------------
 struct _LCFbRegion {
     uint base;
     uint node_base;
@@ -156,10 +50,10 @@ struct _LCFbRegion {
     uint flags;
 };
 
-_LCFbRegion _LCFbRegionOf(StructuredBuffer<uint4> accel, uint base) {
-    uint4 h0 = accel[base];
-    uint4 h1 = accel[base + 1u];
-    uint4 h2 = accel[base + 2u];
+_LCFbRegion _LCFbRegionOf(StructuredBuffer<uint> heap, uint slot) {
+    uint4 h0 = _LC_FB_HEAP_READ(heap, slot, 0u);
+    uint4 h1 = _LC_FB_HEAP_READ(heap, slot, 1u);
+    uint4 h2 = _LC_FB_HEAP_READ(heap, slot, 2u);
     _LCFbRegion region;
     region.base = h0.x;
     region.node_base = h0.y;
@@ -171,24 +65,16 @@ _LCFbRegion _LCFbRegionOf(StructuredBuffer<uint4> accel, uint base) {
     return region;
 }
 
-// ---------------------------------------------------------------------------
-// Ray intersection helpers (the same maths as examples/compute/lbvh).
-// ---------------------------------------------------------------------------
-
-// Reciprocal of one lane that never produces an infinity from a zero direction
-// (the same clamp the LBVH example uses).
 float _LCFbReciprocalLane(float x) {
     return 1.0f / (abs(x) < 1.0e-20f ? 1.0e-20f : x);
 }
 
-// Reciprocal that never produces a NaN from a zero direction.
 float3 _LCFbSafeReciprocal(float3 d) {
     return float3(_LCFbReciprocalLane(d.x),
                   _LCFbReciprocalLane(d.y),
                   _LCFbReciprocalLane(d.z));
 }
 
-// Slab test of an AABB, bounded by the current best hit.
 bool _LCFbAabbTest(float3 lo, float3 hi, float3 origin, float3 inv_dir,
                    float t_min, float t_max) {
     float3 t0 = (lo - origin) * inv_dir;
@@ -200,10 +86,6 @@ bool _LCFbAabbTest(float3 lo, float3 hi, float3 origin, float3 inv_dir,
     return t_near <= t_far;
 }
 
-// Two-sided Moller-Trumbore.  Returns `true` and fills `t` / `bary` on a hit;
-// `bary` follows the Luisa convention (`w0 = 1 - u - v`, `w1 = u`, `w2 = v`),
-// which is what the hardware path's `CommittedTriangleBarycentrics()` reports
-// too.  The transaction is not kept when it is not closer than `t_max`.
 bool _LCFbTriangleTest(float3 v0, float3 v1, float3 v2,
                        float3 origin, float3 direction,
                        float t_min, float t_max,
@@ -230,26 +112,12 @@ bool _LCFbTriangleTest(float3 v0, float3 v1, float3 v2,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// The bottom-level walk: blind-push depth first over the nodes of one BLAS.
-//
-// `base` is the absolute uint4 offset of the BLAS region (element 0 of the region
-// is its header), `instance` is the instance index the hit is reported with, and
-// the ray is already in the object space of that instance.  `t_best` /
-// `prim_best` / `bary_best` carry the best hit found so far (in world space) and
-// are updated in place.
-// ---------------------------------------------------------------------------
-bool _LCFbWalkBlas(StructuredBuffer<uint4> accel, uint base, uint instance,
+bool _LCFbWalkBlas(StructuredBuffer<uint> heap, uint slot, uint instance,
                    float3 origin, float3 direction, float t_min,
                    inout float t_best, inout uint prim_best, inout float2 bary_best) {
-    // The walk reports whether it improved the best hit.  The caller (the TLAS
-    // walk) uses that to decide whether the hit it just found is the one to
-    // report, because two instances of the same mesh can be hit on the *same*
-    // local triangle: comparing the primitive index instead (which is what the
-    // CUDA copy of this traversal does) silently drops the nearer of the two and
-    // reports the farther one.
     bool improved = false;
-    _LCFbRegion region = _LCFbRegionOf(accel, base);
+    _LCFbRegion region = _LCFbRegionOf(heap, slot);
+    uint base = region.base;
     float3 inv_dir = _LCFbSafeReciprocal(direction);
     uint stack[_LC_FB_STACK_SIZE];
     uint size = 1u;
@@ -257,20 +125,18 @@ bool _LCFbWalkBlas(StructuredBuffer<uint4> accel, uint base, uint instance,
     while (size != 0u) {
         size = size - 1u;
         uint handle = stack[size];
-        // One 32-byte node, read as its two uint4 planes.
-        uint4 node_lo = accel[handle];
-        uint4 node_hi = accel[handle + 1u];
+        uint4 node_lo = _LC_FB_HEAP_READ(heap, slot, handle - base);
+        uint4 node_hi = _LC_FB_HEAP_READ(heap, slot, handle - base + 1u);
         float3 lo = _LCFbFloat3Of(node_lo);
         float3 hi = _LCFbFloat3Of(node_hi);
         if (!_LCFbAabbTest(lo, hi, origin, inv_dir, t_min, t_best)) { continue; }
         uint left = node_lo.w;
         if (left == _LC_FB_INVALID_OFFSET) {
-            // ---- triangle leaf: `right` is the local triangle index ----
             uint prim = node_hi.w;
-            uint4 index = accel[region.index_base + prim];
-            float3 v0 = _LCFbFloat3Of(accel[region.vertex_base + index.x]);
-            float3 v1 = _LCFbFloat3Of(accel[region.vertex_base + index.y]);
-            float3 v2 = _LCFbFloat3Of(accel[region.vertex_base + index.z]);
+            uint4 index = _LC_FB_HEAP_READ(heap, slot, region.index_base - base + prim);
+            float3 v0 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.x));
+            float3 v1 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.y));
+            float3 v2 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.z));
             float t;
             float2 bary;
             if (_LCFbTriangleTest(v0, v1, v2, origin, direction, t_min, t_best, t, bary)) {
@@ -280,7 +146,6 @@ bool _LCFbWalkBlas(StructuredBuffer<uint4> accel, uint base, uint instance,
                 improved = true;
             }
         } else {
-            // ---- internal node: push both children (blind push) ----
             if (size + 2u < _LC_FB_STACK_SIZE) {
                 stack[size] = left;
                 size = size + 1u;
@@ -292,17 +157,13 @@ bool _LCFbWalkBlas(StructuredBuffer<uint4> accel, uint base, uint instance,
     return improved;
 }
 
-// ---------------------------------------------------------------------------
-// The top-level walk: the same blind-push walk over the instances of a TLAS.
-// A leaf is an instance; it is descended into through the BLAS it references
-// (`inst` is the instance buffer, element 0 = this tree's first instance record).
-// ---------------------------------------------------------------------------
 template<typename I>
-void _LCFbWalkTlas(StructuredBuffer<uint4> accel, I inst, uint base, uint mask,
+void _LCFbWalkTlas(StructuredBuffer<uint> heap, I inst, uint accel_slot, uint mask,
                    float3 origin, float3 direction, float t_min,
-                   inout float t_best, inout uint inst_best,
-                   inout uint prim_best, inout float2 bary_best) {
-    _LCFbRegion region = _LCFbRegionOf(accel, base);
+                   inout float t_best, inout uint inst_best, inout uint prim_best,
+                   inout float2 bary_best) {
+    _LCFbRegion region = _LCFbRegionOf(heap, accel_slot);
+    uint base = region.base;
     float3 inv_dir = _LCFbSafeReciprocal(direction);
     float4 o4 = float4(origin.x, origin.y, origin.z, 1.0f);
     float4 d4 = float4(direction.x, direction.y, direction.z, 0.0f);
@@ -312,36 +173,22 @@ void _LCFbWalkTlas(StructuredBuffer<uint4> accel, I inst, uint base, uint mask,
     while (size != 0u) {
         size = size - 1u;
         uint handle = stack[size];
-        uint4 node_lo = accel[handle];
-        uint4 node_hi = accel[handle + 1u];
+        uint4 node_lo = _LC_FB_HEAP_READ(heap, accel_slot, handle - base);
+        uint4 node_hi = _LC_FB_HEAP_READ(heap, accel_slot, handle - base + 1u);
         float3 lo = _LCFbFloat3Of(node_lo);
         float3 hi = _LCFbFloat3Of(node_hi);
         if (!_LCFbAabbTest(lo, hi, origin, inv_dir, t_min, t_best)) { continue; }
         uint left = node_lo.w;
         if (left == _LC_FB_INVALID_OFFSET) {
-            // ---- instance leaf ----
             uint instance = node_hi.w;
             uint record_base = _LC_FB_INSTANCE_U4 * instance;
             uint4 misc = inst[record_base + _LC_FB_I_MISC];
-            // Visibility: an instance is culled when its mask and the ray's share
-            // no bit, exactly like the hardware's instance visibility.
             if ((mask & misc.y) == 0u) { continue; }
-            // The BLAS table record of this instance names the BLAS region.  The
-            // build keeps one record per instance, so the instance index and the
-            // record's `blas_index` select the same row; the record's own lane is
-            // used, as the CUDA port does.
             uint blas_index = misc.x;
-            uint4 record0 = accel[region.blas_table_base + _LC_FB_BLAS_RECORD_U4 * blas_index];
-            uint blas_base = record0.x;
-            // `blas_base == 0` is the *null* reference: the first four uint4 of
-            // the acceleration buffer are a reserved dummy region, so a record
-            // whose base is 0 is an instance the caller never gave a mesh.
-            // Descending into it would walk region 0; skip it instead
-            // (fallback_rtx_layout.h).
-            if (blas_base == 0u) { continue; }
-            // World space -> object space: the three to_object rows as an
-            // explicit row-major affine.  The direction is *not* renormalized, so
-            // the triangle test keeps the world-space ray parameter.
+            uint row = region.blas_table_base - base + _LC_FB_BLAS_RECORD_U4 * blas_index;
+            uint4 metadata = _LC_FB_HEAP_READ(heap, accel_slot, row + 1u);
+            uint blas_slot = metadata[_LC_FB_BM_HEAP_SLOT];
+            if (blas_slot == _LC_FB_HEAP_NULL_SLOT) { continue; }
             uint4 to_object_0 = inst[record_base + _LC_FB_I_TO_OBJECT + 0u];
             uint4 to_object_1 = inst[record_base + _LC_FB_I_TO_OBJECT + 1u];
             uint4 to_object_2 = inst[record_base + _LC_FB_I_TO_OBJECT + 2u];
@@ -353,8 +200,8 @@ void _LCFbWalkTlas(StructuredBuffer<uint4> accel, I inst, uint base, uint mask,
             float t_instance = t_best;
             uint prim_instance = prim_best;
             float2 bary_instance = bary_best;
-            if (_LCFbWalkBlas(accel, blas_base, instance, object_origin, object_dir, t_min,
-                              t_instance, prim_instance, bary_instance)) {
+            if (_LCFbWalkBlas(heap, blas_slot, instance, object_origin, object_dir,
+                              t_min, t_instance, prim_instance, bary_instance)) {
                 t_best = t_instance;
                 prim_best = prim_instance;
                 bary_best = bary_instance;
@@ -371,17 +218,8 @@ void _LCFbWalkTlas(StructuredBuffer<uint4> accel, I inst, uint base, uint mask,
     }
 }
 
-// ---------------------------------------------------------------------------
-// The ABI entry points the code generator emits.  The two views and `accelBase`
-// are described at the top of this file.
-// ---------------------------------------------------------------------------
-
-// Closest hit of `ray` against `mask`-visible instances.  On a miss the hit's
-// instance index is `_LC_FB_INVALID_OFFSET` (the marker the DSL's
-// `SurfaceHit::miss()` tests), its primitive index is `_LC_FB_INVALID_OFFSET`,
-// its barycentrics are zero and its `t` is the ray's `t_max`.
 template<typename R, typename I>
-_Hit1 _FallbackTraceClosest(StructuredBuffer<uint4> accel, R rayDesc, uint mask,
+_Hit1 _FallbackTraceClosest(StructuredBuffer<uint> heap, R rayDesc, uint mask,
                             I inst, uint accelBase) {
     _Hit1 hit = (_Hit1)0;
     hit.v0 = _LC_FB_INVALID_OFFSET;
@@ -394,7 +232,7 @@ _Hit1 _FallbackTraceClosest(StructuredBuffer<uint4> accel, R rayDesc, uint mask,
     uint inst_best = _LC_FB_INVALID_OFFSET;
     uint prim_best = _LC_FB_INVALID_OFFSET;
     float2 bary_best = float2(0.0f, 0.0f);
-    _LCFbWalkTlas(accel, inst, accelBase, mask, origin, direction, rayDesc.v1,
+    _LCFbWalkTlas(heap, inst, accelBase, mask, origin, direction, rayDesc.v1,
                   t_best, inst_best, prim_best, bary_best);
     if (inst_best != _LC_FB_INVALID_OFFSET) {
         hit.v0 = inst_best;
@@ -405,9 +243,8 @@ _Hit1 _FallbackTraceClosest(StructuredBuffer<uint4> accel, R rayDesc, uint mask,
     return hit;
 }
 
-// Whether *any* triangle of a `mask`-visible instance is hit by `ray`.
 template<typename R, typename I>
-bool _FallbackTraceAny(StructuredBuffer<uint4> accel, R rayDesc, uint mask,
+bool _FallbackTraceAny(StructuredBuffer<uint> heap, R rayDesc, uint mask,
                        I inst, uint accelBase) {
     float3 origin = float3(rayDesc.v0.v[0], rayDesc.v0.v[1], rayDesc.v0.v[2]);
     float3 direction = float3(rayDesc.v2.v[0], rayDesc.v2.v[1], rayDesc.v2.v[2]);
@@ -415,32 +252,21 @@ bool _FallbackTraceAny(StructuredBuffer<uint4> accel, R rayDesc, uint mask,
     uint inst_best = _LC_FB_INVALID_OFFSET;
     uint prim_best = _LC_FB_INVALID_OFFSET;
     float2 bary_best = float2(0.0f, 0.0f);
-    _LCFbWalkTlas(accel, inst, accelBase, mask, origin, direction, rayDesc.v1,
+    _LCFbWalkTlas(heap, inst, accelBase, mask, origin, direction, rayDesc.v1,
                   t_best, inst_best, prim_best, bary_best);
     return inst_best != _LC_FB_INVALID_OFFSET;
 }
 
-// ---------------------------------------------------------------------------
-// Instance accessors (RAY_TRACING_INSTANCE_*) and their setters
-// (RAY_TRACING_SET_INSTANCE_*).  They read and write the instance buffer, i.e.
-// the records the build uploaded; the row convention of `_InstMatrix` is
-// reproduced exactly, so a shader that reads back what it wrote sees the same
-// matrix on both paths.
-// ---------------------------------------------------------------------------
-
 template<typename I>
 float4x4 _FallbackInstMatrix(I inst, uint index) {
     uint record_base = _LC_FB_INSTANCE_U4 * index;
-    // to_world rows, as the rows of the object->world matrix.
     float4 w0 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 0u]);
     float4 w1 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 1u]);
     float4 w2 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 2u]);
-    // Identical to `_InstMatrix`, which unpacks the same three rows.
-    return float4x4(
-        float4(w0.x, w1.x, w2.x, 0.0f),
-        float4(w0.y, w1.y, w2.y, 0.0f),
-        float4(w0.z, w1.z, w2.z, 0.0f),
-        float4(w0.w, w1.w, w2.w, 1.0f));
+    return float4x4(float4(w0.x, w1.x, w2.x, 0.0f),
+                    float4(w0.y, w1.y, w2.y, 0.0f),
+                    float4(w0.z, w1.z, w2.z, 0.0f),
+                    float4(w0.w, w1.w, w2.w, 1.0f));
 }
 
 template<typename I>
@@ -455,19 +281,12 @@ uint _FallbackInstVis(I inst, uint index) {
 
 void _FallbackSetAccelTransform(RWStructuredBuffer<uint4> inst, uint index, float4x4 m) {
     uint record_base = _LC_FB_INSTANCE_U4 * index;
-    // to_world: the rows of the object->world matrix, the same twelve floats
-    // `AccelBuildCommand::Modification::set_transform` packs.
     float4 w0 = float4(m[0][0], m[1][0], m[2][0], m[3][0]);
     float4 w1 = float4(m[0][1], m[1][1], m[2][1], m[3][1]);
     float4 w2 = float4(m[0][2], m[1][2], m[2][2], m[3][2]);
     inst[record_base + _LC_FB_I_TO_WORLD + 0u] = _LCFbUint4Of(w0);
     inst[record_base + _LC_FB_I_TO_WORLD + 1u] = _LCFbUint4Of(w1);
     inst[record_base + _LC_FB_I_TO_WORLD + 2u] = _LCFbUint4Of(w2);
-    // to_object: the traversal transforms the ray with these rows, so they have
-    // to follow the transform the caller just set.  The affine inverse of a
-    // rotation/scale/translation is computed explicitly (3x3 inverse + the
-    // negated transformed translation); a singular matrix leaves them as they
-    // were, which culls nothing but also invents no geometry.
     float a00 = w0.x, a01 = w0.y, a02 = w0.z, t0 = w0.w;
     float a10 = w1.x, a11 = w1.y, a12 = w1.z, t1 = w1.w;
     float a20 = w2.x, a21 = w2.y, a22 = w2.z, t2 = w2.w;
@@ -477,7 +296,6 @@ void _FallbackSetAccelTransform(RWStructuredBuffer<uint4> inst, uint index, floa
     float det = a00 * c00 + a01 * c01 + a02 * c02;
     if (abs(det) > 1.0e-20f) {
         float inv_det = 1.0f / det;
-        // rows of the inverse linear part
         float i00 = c00 * inv_det;
         float i01 = (a02 * a21 - a01 * a22) * inv_det;
         float i02 = (a01 * a12 - a02 * a11) * inv_det;
@@ -499,7 +317,6 @@ void _FallbackSetAccelTransform(RWStructuredBuffer<uint4> inst, uint index, floa
 void _FallbackSetAccelVis(RWStructuredBuffer<uint4> inst, uint index, uint mask) {
     uint slot = _LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC;
     uint4 misc = inst[slot];
-    // The hardware masks the visibility to 8 bits (`_SetAccelVis`).
     misc[_LC_FB_IM_VISIBILITY] = mask & 0xffu;
     inst[slot] = misc;
 }
@@ -508,15 +325,9 @@ void _FallbackSetAccelOpaque(RWStructuredBuffer<uint4> inst, uint index, bool op
     uint slot = _LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC;
     uint4 misc = inst[slot];
     uint flags = misc[_LC_FB_IM_FLAGS];
-    // `_LC_FB_INSTANCE_FLAG_DISABLE_FACE_CULLING` marks a triangle mesh
-    // (procedural primitives ignore the opaque flag), exactly like the hardware
-    // setter.  The fallback has no any-hit shading, so this only records the
-    // flag: a non-opaque instance is still a hit (documented limitation above).
     if ((flags & _LC_FB_INSTANCE_FLAG_DISABLE_FACE_CULLING) != 0u) {
-        flags = flags & ~(_LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT |
-                          _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
-        flags = flags | (opaque ? _LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT
-                                : _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
+        flags = flags & ~(_LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT | _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
+        flags = flags | (opaque ? _LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT : _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
         misc[_LC_FB_IM_FLAGS] = flags;
         inst[slot] = misc;
     }

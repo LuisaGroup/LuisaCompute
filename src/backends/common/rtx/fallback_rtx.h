@@ -55,20 +55,32 @@ using namespace luisa::compute;
 // How a shader argument of type `accel` is bound.
 //
 // The GPU ABI keeps the two-descriptor shape the native acceleration-structure
-// arguments already use: one read-only view of the acceleration buffer and one
-// view of the instance buffer.  Both views start at the tree's own region, so a
-// traversal indexes them from zero (`fallback_rtx_layout.h`).
+// arguments already use: one view of the TLAS' *bindless heap* (the slot table
+// of a `BindlessArray`, a stream of `uint` handles) and one view of the instance
+// buffer.  The heap's slots hold the region buffers of the tree
+// (`fallback_rtx_layout.h`), so a traversal resolves a BLAS by its slot instead
+// of by an absolute offset inside one shared buffer, and every index inside a
+// region is region-relative (a heap entry is a view that starts at the region).
 struct FallbackAccelBinding {
+    // Luisa handle of the TLAS' bindless array (`BindlessArray`); the backend
+    // binds its slot table as the `accel` argument's first descriptor.
+    uint64_t accel_heap{};
+    // Heap slot of the TLAS' own region (`heap_tlas_slot`): the `accelBase`
+    // scalar the generated shader is handed.
+    uint32_t accel_slot{};
     // Luisa buffer handle of the shared acceleration buffer (`Buffer<uint4>`).
+    // The GPU path resolves every region through the heap and never names this
+    // buffer, but the backends still have to put the buffer the heap will read
+    // into their barrier state, and the (debug) validators download it.
     uint64_t accel_buffer{};
-    // Byte offset of the tree's region inside it; the shader's element 0 is the
-    // region's first `uint4`.
+    // Byte offset of the tree's region inside it.
     size_t accel_offset_bytes{};
     // Luisa buffer handle of the instance buffer (`Buffer<uint4>`).
     uint64_t instance_buffer{};
+    // Byte offset of the tree's instance slice inside it.
     size_t instance_offset_bytes{};
     // `false` before the first build: the backend then binds a null descriptor.
-    [[nodiscard]] bool valid() const noexcept { return accel_buffer != 0u; }
+    [[nodiscard]] bool valid() const noexcept { return accel_heap != 0u; }
 };
 
 class FallbackRtxDevice {

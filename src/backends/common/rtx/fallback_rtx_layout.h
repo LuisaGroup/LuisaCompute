@@ -42,10 +42,13 @@
 //   vertex array    : vertex_count `(x, y, z, 0)` u4 entries       (BLAS only)
 //   -----------------------------------------------------------------------
 //
-// `base` is the absolute uint4 offset of u4 0 of this region: a traversal loads
-// it once (`base = accel[0].x`) and reads every other absolute handle `h` as
-// `accel[h - base]`, because the descriptor handed to the shader starts at the
-// region and not at the buffer.
+// `base` is the absolute uint4 offset of u4 0 of this region.  A node handle is
+// stored as an absolute uint4 offset too, but the descriptor a traversal is
+// handed is the *heap view that starts at the region*, so a traversal loads
+// `base = accel[0].x` once and reads every handle `h` as `accel[h - base]`.
+// That conversion is region-local and never negative - which is exactly what a
+// bindless view buys: a TLAS may reference a BLAS laid out before it without
+// indexing a descriptor backwards.
 //
 // A node (32 bytes, two u4 - one L2 sector) packs its AABB planes and its child
 // handles exactly like the hardware-shaped LBVH of examples/compute/lbvh:
@@ -62,13 +65,13 @@
 // shader source.
 //
 // A blas-table record describes the tree an instance refers to:
-//
-//   record[2i + 0] = (blas_base, node_base, index_base, vertex_base)
-//   record[2i + 1] = (triangle_count, flags, reserved, reserved)
-//
-// `blas_base` is the base of the referenced BLAS region, so a traversal that
-// descends into it can load `base = accel[blas_base - base].x` and continues with
-// the BLAS' own frame of reference.
+// record[2i + 0] = (blas_base, node_base, index_base, vertex_base)
+// record[2i + 1] = (triangle_count, flags, heap_slot, reserved)
+// `blas_base` is the base of the referenced BLAS region (which a host-side
+// validator resolves against the one acceleration buffer), and `heap_slot` is
+// the *bindless slot* the referenced region occupies in the TLAS' heap.  A
+// traversal resolves the tree through that heap and never does the arithmetic
+// of `blas_base` (see "The bindless heap of a TLAS" below).
 //
 // `blas_base == 0` is the *null* reference: the build reserves the four uint4 at
 // the front of the acceleration buffer as a dummy region, so no real tree ever
@@ -166,6 +169,37 @@ inline constexpr uint instance_flag_opaque = 1u << 4u;
 // A BLAS region (no blas table) and a TLAS region differ only by this bit and by
 // the fields the build fills in.
 inline constexpr uint region_flag_tlas = 1u << 0u;
+// Lanes of a blas-table record's *second* uint4, i.e. the record's metadata.
+// `bm_heap_slot` is the builder's private copy of the bindless slot of the
+// referenced region (see "The bindless heap of a TLAS"): a traversal reads it
+// instead of resolving an absolute offset, and no host-side operation reads it.
+inline constexpr uint bm_triangle_count = 0u;
+inline constexpr uint bm_flags = 1u;
+inline constexpr uint bm_heap_slot = 2u;
+// -----------------------------------------------------------------------
+// The bindless heap of a TLAS.
+//
+// A TLAS does not hand a traversal an absolute uint4 offset of the tree it
+// references any more.  It owns a *bindless array* (a `BindlessArray` of the
+// backend) whose slots hold the region buffers, and a blas-table row carries the
+// slot of the region it names.  A traversal resolves a region through the heap
+// exactly like any other bindless buffer read, which is what removes both the
+// absolute-offset arithmetic and the backwards descriptor indexing from the
+// shader: a heap entry is a *view that starts at the region*, so every index
+// inside a region is region-relative and never negative.
+//
+// The slot assignment is fixed, so a shader can name the TLAS' own region
+// without a second descriptor:
+// -----------------------------------------------------------------------
+// slot 0 : the null slot - no region.  A blas-table row whose slot lane is 0
+//          is an instance the caller never gave a mesh, which is the same
+//          "null reference" `blas_base == 0` used to mean.
+// slot 1 : the TLAS' own region (the `accelBase` a shader is handed).
+// slot 2 + i : the BLAS region of instance `i`.
+// -----------------------------------------------------------------------
+inline constexpr uint heap_null_slot = 0u;
+inline constexpr uint heap_tlas_slot = 1u;
+inline constexpr uint heap_first_blas_slot = 2u;
 
 // ---------------------------------------------------------------------------
 // Host-side region sizes.

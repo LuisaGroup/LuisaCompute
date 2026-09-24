@@ -164,10 +164,12 @@ FallbackAccelBinding FallbackRtxDevice::binding(uint64_t accel) noexcept {
     auto &impl = *_impl;
     std::lock_guard lock{impl.mutex};
     auto it = impl.tlases.find(accel);
-    // Before the first build there is no region to point a descriptor at, which
-    // is exactly what `valid()` reports.
+    // Before the first build there is no heap and no region to point a descriptor
+    // at, which is exactly what `valid()` reports.
     if (it == impl.tlases.end() || !it->second.built) { return {}; }
     FallbackAccelBinding binding;
+    binding.accel_heap = it->second.accel_heap.handle();
+    binding.accel_slot = heap_tlas_slot;
     binding.accel_buffer = impl.storage.accel().handle();
     binding.accel_offset_bytes = static_cast<size_t>(it->second.region.base) * 16u;
     binding.instance_buffer = impl.storage.instances().handle();
@@ -210,8 +212,10 @@ CommandList FallbackRtxDevice::build_accel(
     // The mesh handle of a fallback device *is* the handle of its fallback BLAS
     // (`create_blas` hands out what `create_mesh` returns), so a modification's
     // primitive is a BLAS handle and resolves here - with a clear error when it
-    // is not one, instead of a table row that points nowhere.
-    luisa::vector<uint32_t> resolved_directory_entry(modifications.size(), 0u);
+    // is not one, instead of a table row that points nowhere.  The resolution
+    // carries everything the TLAS build needs about the BLAS: its blas-directory
+    // entry, and the region *view* it registers in the TLAS' bindless heap.
+    luisa::vector<FallbackTlasBlas> resolved(modifications.size());
     for (auto i = 0u; i < modifications.size(); i++) {
         auto &&m = modifications[i];
         if ((m.flags & AccelBuildCommand::Modification::flag_primitive) == 0u) { continue; }
@@ -226,11 +230,13 @@ CommandList FallbackRtxDevice::build_accel(
                         "been built yet.",
                         m.index, m.primitive);
         }
-        resolved_directory_entry[i] = blas->second.directory_entry;
+        resolved[i].directory_entry = blas->second.directory_entry;
+        resolved[i].region_base = blas->second.region.base;
+        resolved[i].region_u4 = blas->second.region.region_u4();
     }
     CommandList commands;
     impl.tlas_builder.build(commands, it->second, instance_count, modifications,
-                            luisa::span{resolved_directory_entry},
+                            luisa::span{resolved},
                             update_instance_buffer_only);
     impl.accel_builds++;
     return commands;

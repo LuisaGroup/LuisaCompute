@@ -103,17 +103,18 @@ groupshared uint _vk_wg_copy_buf[4096];
 )";
     }
     size_t immutable_size = builder.size();
-    if (fallback_rtx) {
-        // Software ray tracing: the traversal of builtin/fallback_rtx_header.bytes
-        // replaces both the inline-query header (there is no `RayQuery` and no
-        // `RaytracingAccelerationStructure` on a device without hardware ray
-        // tracing) and the instance-accessor header.  It is added only when the
-        // shader actually traces or reads an instance, and only in fallback
-        // mode, so a shader of a hardware device is byte-for-byte unchanged.
-        if (ops.uses_raytracing() || uses_accel_intrinsics(ops)) {
-            builder << CodegenUtility::ReadInternalHLSLFile("fallback_rtx_header");
-        }
-    } else if (ops.uses_raytracing()) {
+    // Software ray tracing: the traversal of builtin/fallback_rtx_header.bytes
+    // replaces both the inline-query header (there is no `RayQuery` and no
+    // `RaytracingAccelerationStructure` on a device without hardware ray tracing)
+    // and the instance-accessor header.  It is *not* appended here: the traversal
+    // resolves the regions of its acceleration structure through the device's
+    // global bindless heap (`bdls`, declared by GenerateBindless), which is part
+    // of the per-shader binding block, so `Codegen` appends it there - right after
+    // the declarations and before the generated body.  `bindless_common` is then
+    // not added below either.
+    auto fallback_traversal =
+        fallback_rtx && (ops.uses_raytracing() || uses_accel_intrinsics(ops));
+    if (!fallback_rtx && ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");
     }
     if (ops.test(CallOp::DETERMINANT)) {
@@ -151,7 +152,7 @@ groupshared uint _vk_wg_copy_buf[4096];
         ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE)) {
         useBindless = true;
     }
-    if (useBindless) {
+    if (useBindless && !fallback_traversal) {
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common");
     }
     if (!fallback_rtx && uses_accel_intrinsics(ops)) {
@@ -187,6 +188,22 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
+    auto fallback_traversal = false;
+    if (fallback_rtx) {
+        // A software (fallback) acceleration structure reaches the shader as a
+        // *bindless heap* - the traversal resolves the region of a referenced
+        // BLAS by its slot (fallback_rtx_layout.h) - so a shader that traces or
+        // touches instances declares the device's global bindless heap
+        // (`bdls`, `GenerateBindless`).  A hardware-path shader never sets this,
+        // so its generated source, its hash and its cached artifact are
+        // unchanged.
+        auto builtin_ops = kernel.propagated_builtin_callables();
+        fallback_traversal =
+            builtin_ops.uses_raytracing() || detail::uses_accel_intrinsics(builtin_ops);
+        if (fallback_traversal) {
+            opt->useBufferBindless = true;
+        }
+    }
 #ifndef NDEBUG
     // Out-of-range access detection is a debug-build-only feature. It turns a
     // silent D3D12 device removal (caused by an out-of-range buffer / bindless
@@ -341,6 +358,16 @@ uint4 v;
     PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer || enable_debug_info, false, isSpirV, bind_count);
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
+    if (fallback_traversal) {
+        // The software (fallback) traversal is appended to the binding block, not
+        // to the immutable header: it resolves the regions of its acceleration
+        // structure through the device's global bindless heap (`bdls`), which is
+        // declared by `GenerateBindless` above, and it has to precede the
+        // generated body that calls into it.  `bindless_common` is added here for
+        // the same reason (and `AddHeader` then leaves it out).
+        varData << CodegenUtility::ReadInternalHLSLFile("bindless_common");
+        varData << CodegenUtility::ReadInternalHLSLFile("fallback_rtx_header");
+    }
     finalResult << varData << incrementalFunc << codegenData;
     if (!isSpirV) {
         // https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signature-limits

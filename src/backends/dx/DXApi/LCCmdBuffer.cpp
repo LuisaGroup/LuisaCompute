@@ -275,11 +275,21 @@ public:
                                 "acceleration structure that has not been built yet "
                                 "(build it with Accel::build() first).");
                 }
+                // Software ray tracing: the argument binds the TLAS' bindless
+                // heap (whose slots hold the regions its traversal resolves),
+                // the tree's slice of the instance buffer, and the heap slot of
+                // the tree's own region.  The shared acceleration buffer is not
+                // a descriptor any more, but it is what the heap reads, so the
+                // barrier state still has to cover it.
                 auto accel_buffer = reinterpret_cast<Buffer const *>(binding.accel_buffer);
                 auto inst_buffer = reinterpret_cast<Buffer const *>(binding.instance_buffer);
                 self->state_tracker->Record(
                     BufferView{accel_buffer, 0u,
                                static_cast<uint64>(accel_buffer->GetByteSize())},
+                    accel_read_usage);
+                auto heap = reinterpret_cast<BindlessArray const *>(binding.accel_heap);
+                self->state_tracker->Record(
+                    BufferView(heap->BindlessBuffer()),
                     accel_read_usage);
                 if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
                     self->state_tracker->Record(
@@ -833,16 +843,21 @@ public:
                                 "acceleration structure that has not been built yet "
                                 "(build it with Accel::build() first).");
                 }
-                auto accel_buffer = reinterpret_cast<Buffer const *>(binding.accel_buffer);
                 auto inst_buffer = reinterpret_cast<Buffer const *>(binding.instance_buffer);
                 if ((static_cast<uint>(arg->var_usage) & static_cast<uint>(Usage::WRITE)) == 0) {
-                    self->bind_props->emplace_back(BufferView(accel_buffer, 0u));
+                    // The `accel` argument's first descriptor is the TLAS'
+                    // bindless heap: its *slot table* is a stream of `uint`
+                    // handles, the shape a `BindlessArray` argument binds (the
+                    // buffers the slots name live in the device's global
+                    // bindless heap, which the shader metadata binds).
+                    auto heap = reinterpret_cast<BindlessArray const *>(binding.accel_heap);
+                    self->bind_props->emplace_back(BufferView(heap->BindlessBuffer()));
                 }
                 self->bind_props->emplace_back(
                     BufferView(inst_buffer, binding.instance_offset_bytes));
                 self->bind_props->emplace_back(std::pair<uint, uint4>{
                     1u,
-                    make_uint4(static_cast<uint>(binding.accel_offset_bytes / 16u), 0u, 0u, 0u)});
+                    make_uint4(binding.accel_slot, 0u, 0u, 0u)});
                 ++arg;
                 return;
             }
@@ -1521,12 +1536,30 @@ void LCCmdBuffer::Execute(
                          "A fallback build must only contain commands (no callbacks "
                          "or presents), got {} callbacks and {} presents.",
                          list.callbacks().size(), list.presents().size());
-            auto cmds = list.steal_commands();
-            for (auto &&c : cmds) {
-                if (c->tag() == Command::Tag::EShaderDispatchCommand) {
-                    account_size(static_cast<ShaderDispatchCommand const *>(c.get()));
-                }
-            }
+              auto cmds = list.steal_commands();
+              for (auto &&c : cmds) {
+                  if (c->tag() == Command::Tag::EShaderDispatchCommand) {
+                      account_size(static_cast<ShaderDispatchCommand const *>(c.get()));
+                  } else if (c->tag() == Command::Tag::EBindlessArrayUpdateCommand) {
+                      // The software RTX fallback drives the bindless heap of a
+                      // TLAS from inside its own build list: the regions a
+                      // traversal resolves live there, so the update has to be
+                      // ordered with the build kernels.  That list is replayed at
+                      // the build command instead of being submitted by the user,
+                      // so the command reorder planner never visits this command -
+                      // and `Bind()`, the pass that allocates the descriptors and
+                      // publishes them into the heap's slot table, would never run
+                      // (the table would stay at its default `n_pos` handles).
+                      // Run it here, exactly once per collected build.
+                      auto *update =
+                          static_cast<BindlessArrayUpdateCommand const *>(c.get());
+                      auto *array =
+                          reinterpret_cast<BindlessArray *>(update->handle());
+                      update->visit_modifications([&](auto const &t) {
+                          array->Bind(luisa::span{t});
+                      });
+                  }
+              }
             fallback_builds.emplace_back(std::move(cmds));
         };
         auto build_fallback_blas = [&](MeshBuildCommand const *c) {
