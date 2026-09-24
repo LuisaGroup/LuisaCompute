@@ -6,7 +6,8 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         device.cpp device.h
         dstorage_ext_impl.cpp dstorage_ext_impl.h
         dx_hdr_ext_impl.cpp dx_hdr_ext_impl.h
-        native_res_ext_impl.cpp native_res_ext_impl.h
+                  native_res_ext_impl.cpp native_res_ext_impl.h
+          native_shader_ext_impl.cpp native_shader_ext_impl.h
         event.h
         mesh.h
         curve.cpp curve.h

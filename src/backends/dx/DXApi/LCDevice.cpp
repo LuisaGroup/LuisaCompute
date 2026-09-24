@@ -14,6 +14,7 @@
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include <DXApi/dx_hdr_ext.hpp>
+#include <DXApi/native_shader_ext.h>
 #include "ext.h"
 #include "../../common/hlsl/hlsl_codegen.h"
 #include <luisa/ast/function_builder.h>
@@ -173,6 +174,19 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
                 delete static_cast<DxPinnedMemoryExt *>(ext);
             });
     }
+
+    exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{NativeShaderExt::name},
+#else
+        NativeShaderExt::name,
+#endif
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxNativeShaderExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxNativeShaderExt *>(ext);
+        });
 
     exts.try_emplace(
 #ifdef LUISA_USE_SYSTEM_STL

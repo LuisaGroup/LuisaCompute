@@ -397,6 +397,14 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             CustomDispatchArgumentVisitor visitor{this};
             c->traverse_arguments(visitor);
         } break;
+        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+            // The declared per-argument usages are the synchronization contract
+            // (see the header of native_shader_ext.h); mark every resource with
+            // them so that misuse is reported like any other dispatch.
+            auto c = static_cast<CustomDispatchCommand *>(cmd);
+            CustomDispatchArgumentVisitor visitor{this};
+            c->traverse_arguments(visitor);
+        } break;
         default: break;
     }
 }
@@ -549,6 +557,9 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                         Device::check_stream(handle(), StreamFunc::Custom, custom_cmd->custom_cmd_uuid());
                         break;
                     case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL):
+                        Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
+                        break;
+                    case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
                         Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
                         break;
                 }

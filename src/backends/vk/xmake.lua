@@ -93,6 +93,10 @@ _config_project({
     project_kind = "shared",
     batch_size = 8
 })
+-- The native shader extension compiles GLSL at runtime through the bundled
+-- glslang (`glslang_compiler.cpp`), so the backend links the glslang library
+-- that the StandAlone tool already depends on.
+add_deps("lc-glslang")
 add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen",
          "lc-glslang-standalone", "lc-vk-validate-spirv",
            "lc-vk-embed-device-lib", "lc-tile")

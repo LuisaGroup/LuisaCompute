@@ -52,7 +52,12 @@ public:
         uint shaderModel,
         bool enableUnsafeMath,
         bool spirv,
-        bool debug) const;
+        bool debug,
+        // Entry point to compile. Empty keeps the historical behaviour: DXC's
+        // default entry point, i.e. a function named "main". Native shaders
+        // routinely declare a differently named entry point (CSMain, ...) and
+        // are compiled through this overload.
+        vstd::string_view entry_point = {}) const;
     RasterBin compile_raster(
         vstd::string_view code,
         bool optimize,

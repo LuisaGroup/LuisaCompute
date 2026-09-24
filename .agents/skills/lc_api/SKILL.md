@@ -1586,6 +1586,50 @@ stream << cmdlist.commit() << synchronize();
 
 > Prefer merging dispatch + transfers into one `CommandList` + single commit/synchronize over separate stream submissions.
 
+### Native Shader Injection (`NativeShaderExt`)
+
+Injects **native HLSL/GLSL compute shaders** (bypassing the DSL/AST codegen) through
+`include/luisa/backends/ext/native_shader_ext.h`:
+
+```cpp
+#include <luisa/backends/ext/native_shader_ext.h>
+auto ext = device.extension<NativeShaderExt>();   // nullptr on backends without it
+
+NativeShaderCompileInfo info;
+info.language = NativeShaderLanguage::HLSL;        // or GLSL (vk only)
+info.source = hlsl_source;
+info.entry_point = "CSMain";                       // any name (dx), "main" for GLSL
+info.push_constant_size = 2u * sizeof(float);      // uniform block the launcher feeds
+NativeShaderCompileResult result = ext->compile(info);
+if (!result.ok()) { /* result.error */ }
+NativeShader shader{*ext, ext->load(result)};      // RAII: destroys the shader at scope exit
+
+NativeShaderLauncher launcher = shader.launcher();
+launcher.add_buffer_by_index(0u, a.view(), Usage::READ)
+        .add_buffer_by_index(1u, b.view(), Usage::WRITE)
+        .add_uniform(scale);
+stream << std::move(launcher).build(thread_count) << synchronize();
+```
+
+* **Backends/formats**: `dx` = HLSL -> DXIL; `vk` = GLSL -> SPIR-V (glslang) and HLSL -> SPIR-V (DXC).
+  dx rejects GLSL fail-closed. Compute shaders only; native shaders are JIT-only (no AOT/`LUISA_DUMP_SOURCE`).
+* **Bindings**: buffers and uniform blocks in this iteration. Constant buffers, structured/byte-address/typed
+  buffers are bindable; textures, samplers and acceleration structures are reflected but rejected by `load()`.
+  Bind resources by reflection index (`add_buffer_by_index`, index = position in `NativeShader::bindings()`),
+  by `(register, space)` (`add_buffer(reg, space, ...)`), or positionally in the canonical (space, register) order.
+  On dx, `register(t0)` and `register(b0)` share one bind point, so prefer the index form.
+* **Uniforms**: `add_uniform` values become root 32-bit constants at `register(b0)` (dx: the shader must declare
+  `cbuffer ... : register(b0)`, which the launcher's block replaces) or push constants (vk: `layout(push_constant)`
+  in GLSL, `[[vk::push_constant]] ConstantBuffer<T>` in HLSL), sized by `NativeShaderCompileInfo::push_constant_size`.
+* **Correct synchronization needs a correct `Usage`**: the per-argument usage is the contract the command-reorder
+  pass and the backend barriers rely on (a UAV declared `READ` is a data race). `launcher.validate()` returns the
+  contract error that `build()` asserts (SRV/CBV+WRITE and UAV+READ without `set_allow_usage_override(true)`).
+* **Workgroup size**: reflection reports `[numthreads]`/`local_size_*`; the launcher asserts the dispatch block size
+  matches it.
+* See `examples/compute/native_shader.cpp` for a runnable reorder-safety example, and
+  `src/tests/unit/ext/test_native_shader_{command,reflection}.cpp` /
+  `src/tests/integration/runtime/test_native_shader.cpp` for the contract tests.
+
 ### Complete Runtime Example
 
 ```cpp

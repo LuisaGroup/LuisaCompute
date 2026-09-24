@@ -1,8 +1,17 @@
 if (LUISA_COMPUTE_ENABLE_VULKAN)
     message(STATUS "Build with Vulkan backend")
-    file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
-    luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
-    target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen luisa::tile-xir)
+      file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
+      luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
+      target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen luisa::tile-xir)
+      # The native shader extension (native_shader_ext.cpp / glslang_compiler.cpp)
+      # compiles GLSL at runtime through the bundled glslang and needs its
+      # default resource limits, exactly like the standalone glslang tool.
+      if (TARGET glslang)
+          target_link_libraries(luisa-compute-backend-vk PRIVATE glslang)
+      endif ()
+      if (TARGET glslang-default-resource-limits)
+          target_link_libraries(luisa-compute-backend-vk PRIVATE glslang-default-resource-limits)
+      endif ()
 
 # The software ray-tracing fallback (src/backends/common/rtx): the library that
 # answers `create_mesh` / `create_accel` when the user asked for the fallback

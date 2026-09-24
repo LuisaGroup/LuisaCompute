@@ -93,11 +93,15 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     CommandReorderSwitch _command_reorder;
     CommandReorderExtImpl _command_reorder_ext{this};
     std::mutex _ext_mtx;
-    vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::unordered_set<Stream *> _streams;
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     VkInstance _instance{};
     vstd::optional<vks::VulkanDevice> _vk_device;
+    // Declared *after* `_vk_device` and therefore destroyed *before* it:
+    // extensions may own GPU objects (shader instances, pipelines, descriptor
+    // pools, ...) whose destructors need a live logical device. Destroying the
+    // extension map first keeps that ordering safe.
+    vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::vector<vstd::string> _enable_device_exts;
     VkQueue _graphics_queue{};
     VkQueue _compute_queue{};

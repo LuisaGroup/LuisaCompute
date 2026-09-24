@@ -12,6 +12,7 @@
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
 #include "compute_shader.h"
+#include "native_shader_ext.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
 #include "../common/hlsl/binding_to_arg.h"
@@ -945,6 +946,18 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         },
         [](DeviceExtension *ext) {
             delete static_cast<VkNativeResourceExt *>(ext);
+        });
+    _exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{NativeShaderExt::name},
+#else
+        NativeShaderExt::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkNativeShaderExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkNativeShaderExt *>(ext);
         });
 
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP

@@ -103,8 +103,17 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 | **Vulkan** (`vk/`) | Vulkan + SPIR-V |
 | **HIP** (`hip/`) | AMD HIP |
 | **Fallback** (`fallback/`) | Native C++ LLVM JIT + Embree |
-| **Common** (`common/`) | `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
+| **Common** (`common/`) | `hlsl/`, `spirv/`, `spirv_llvm/`, `native_shader/`, Vulkan swapchain helpers |
 | **Validation** (`validation/`) | Debug layer |
+
+**Native shader injection** (`NativeShaderExt`): `include/luisa/backends/ext/native_shader_ext.h` (public API),
+`src/backends/common/native_shader/native_shader_reflection.h` (shared SPIR-V reflection parser),
+`src/backends/dx/DXApi/native_shader_ext.{h,cpp}` (HLSL→DXIL + DXC reflection),
+`src/backends/vk/native_shader_ext.{h,cpp}`, `native_shader.{h,cpp}`, `glslang_compiler.{h,cpp}`
+(GLSL/HLSL→SPIR-V, Tier-B pipeline built from reflection), `src/backends/validation/native_shader_ext_impl.*`,
+`examples/compute/native_shader.cpp`, and the `test_native_shader*` tests. Dispatch goes through
+`CustomCommandUUID::NATIVE_SHADER_DISPATCH` (`CustomDispatchCommand`), so the reorder pass and the per-backend
+barriers use the declared per-argument `Usage`.
 
 ### `src/py/` — Python
 - `lcapi.cpp` — pybind11 entry; `export_*.cpp` — per-component bindings

@@ -137,7 +137,8 @@ CompileResult ShaderCompiler::compile_compute(
     uint shaderModel,
     bool enableUnsafeMath,
     bool spirv,
-    bool debug) const {
+    bool debug,
+    vstd::string_view entry_point) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -146,6 +147,14 @@ CompileResult ShaderCompiler::compile_compute(
     vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"cs_" << GetSM(shaderModel);
+    // The entry-point name must outlive the argument vector below.
+    vstd::wstring entry_str;
+    if (!entry_point.empty()) {
+        entry_str.resize(entry_point.size());
+        for (size_t i = 0; i < entry_point.size(); ++i) {
+            entry_str[i] = static_cast<wchar_t>(entry_point[i]);
+        }
+    }
     if (spirv) {
         args.emplace_back(L"-spirv");
         args.emplace_back(L"/DSPV");
@@ -154,6 +163,10 @@ CompileResult ShaderCompiler::compile_compute(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
+    }
+    if (!entry_str.empty()) {
+        args.emplace_back(L"-E");
+        args.emplace_back(entry_str.c_str());
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());

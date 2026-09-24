@@ -28,6 +28,7 @@
 #include "../common/argument_block_layout.h"
 #include "../common/shader_print_formatter.h"
 #include "raster_shader.h"
+#include "native_shader_ext.h"
 #include <bit>
 #include <limits>
 namespace lc::vk {
@@ -3193,6 +3194,31 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 }
                             });
                         } break;
+                        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+                            // A native shader dispatch declares its resource usages
+                            // through traverse_arguments; they are the barrier
+                            // contract (see the header of native_shader_ext.h).
+                            auto cmd = static_cast<NativeShaderDispatchCommand const *>(c);
+                            cmd->traverse_arguments([&]<typename T>(T const &arg, Usage usage) noexcept {
+                                auto barrier_usage =
+                                    (luisa::to_underlying(usage) &
+                                     luisa::to_underlying(Usage::WRITE)) != 0u ?
+                                        ResourceBarrier::Usage::kComputeUAV :
+                                        ResourceBarrier::Usage::kComputeRead;
+                                if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Native shader dispatch contains a null buffer handle.");
+                                    auto buffer = reinterpret_cast<Buffer const *>(arg.handle);
+                                    resource_barrier->record(
+                                        BufferView(buffer, arg.offset, arg.size),
+                                        barrier_usage);
+                                } else {
+                                    LUISA_ERROR_WITH_LOCATION(
+                                        "Native shader dispatches only support buffer "
+                                        "arguments on the Vulkan backend.");
+                                }
+                            });
+                        } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.
                         default: {
@@ -4534,6 +4560,11 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 "built with lc_vk_cuda_interop (xmake) / "
                                 "LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP (cmake).");
 #endif
+                        } break;
+                        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+                            encode_native_shader_dispatch(
+                                device(), _state.get(), _cmdbuffer,
+                                static_cast<NativeShaderDispatchCommand const *>(c));
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.

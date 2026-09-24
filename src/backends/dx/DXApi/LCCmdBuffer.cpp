@@ -19,6 +19,7 @@
 #include <luisa/runtime/swapchain.h>
 #include <Resource/SparseTexture.h>
 #include <luisa/backends/ext/dx_custom_cmd.h>
+#include <DXApi/native_shader_ext.h>
 #include "../../common/shader_print_formatter.h"
 #ifdef LCDX_ENABLE_WINPIX
 #include <WinPixEventRuntime/pix3.h>
@@ -555,9 +556,51 @@ public:
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
+            case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
+                preprocess_native_shader_dispatch(
+                    static_cast<NativeShaderDispatchCommand const *>(cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
+    }
+
+    // Native shader dispatch: record the declared resource states so that the
+    // enhanced-barrier tracker inserts the right transitions. The declared
+    // usages are the same contract the command-reorder pass relies on. Only
+    // buffers are supported by the DirectX native-shader route (textures are
+    // rejected at load()), so a texture argument is a hard error.
+    void preprocess_native_shader_dispatch(
+        NativeShaderDispatchCommand const *cmd) noexcept {
+        cmd->traverse_arguments([&]<typename T>(T const &argument, Usage usage) noexcept {
+            auto is_write = (luisa::to_underlying(usage) &
+                             luisa::to_underlying(Usage::WRITE)) != 0u;
+            if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                LUISA_ASSERT(argument.handle != 0u,
+                             "Native shader dispatch contains a null buffer handle.");
+                auto buffer = reinterpret_cast<Buffer const *>(argument.handle);
+                if (is_write) {
+                    LUISA_ASSERT(is_device_buffer(buffer),
+                                 "An unordered-access buffer can not be a "
+                                 "host buffer.");
+                    state_tracker->Record(
+                        BufferView{buffer, argument.offset, argument.size},
+                        EnhancedBarrierTracker::Usage::ComputeUAV);
+                } else if (is_device_buffer(buffer)) {
+                    state_tracker->Record(
+                        BufferView{buffer, argument.offset, argument.size},
+                        EnhancedBarrierTracker::Usage::ComputeRead);
+                } else {
+                    LUISA_ASSERT(buffer->get_tag() == Resource::Tag::UploadBuffer,
+                                 "Only an upload buffer may be read as a host "
+                                 "buffer by a native shader dispatch.");
+                }
+            } else {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Native shader dispatch arguments other than buffers are "
+                    "not supported by the DirectX backend.");
+            }
+        });
     }
 
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
@@ -1275,6 +1318,11 @@ public:
                 break;
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
+                break;
+            case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
+                encode_native_shader_dispatch(
+                    lc_device, bd,
+                    static_cast<NativeShaderDispatchCommand const *>(cmd));
                 break;
             default:
                 LUISA_ERROR("Custom command not supported by this queue.");

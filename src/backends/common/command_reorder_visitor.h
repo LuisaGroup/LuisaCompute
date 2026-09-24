@@ -1191,6 +1191,11 @@ public:
             case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL):
                 visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
                 break;
+            case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
+                // Native shader dispatch: a plain CustomDispatchCommand that
+                // declares its resource usages through traverse_arguments.
+                visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");
         }

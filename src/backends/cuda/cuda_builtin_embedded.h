@@ -9,6 +9,9 @@ extern "C" const unsigned char luisa_compute_cuda_builtin_kernels[];
 extern "C" const unsigned long long luisa_compute_cuda_device_coop_size;
 extern "C" const unsigned char luisa_compute_cuda_device_coop[];
 
+extern "C" const unsigned long long luisa_compute_cuda_device_fallback_rtx_size;
+extern "C" const unsigned char luisa_compute_cuda_device_fallback_rtx[];
+
 extern "C" const unsigned long long luisa_compute_cuda_device_half_size;
 extern "C" const unsigned char luisa_compute_cuda_device_half[];
 

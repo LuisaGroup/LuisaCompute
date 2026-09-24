@@ -108,6 +108,7 @@ example_proj("example_software_lbvh_test", "compute/lbvh/test/lbvh_test.cpp", fa
     add_files("compute/lbvh/*.cpp")
 end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
+example_proj("example_native_shader", "compute/native_shader.cpp", false)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
             example_proj(name, source, gui_dep, function()
