@@ -99,12 +99,11 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     // Resolve FilePath sources: read the file into `source_storage`; NVRTC's
     // program name becomes the file path (diagnostics + quoted-include base).
     luisa::string source_storage;
-    auto source = info.source;
-    if (info.source_type == NativeShaderSourceType::FilePath) {
-        if (!detail::native_shader_read_source_file(info.source, source_storage, result.error)) {
-            return result;
-        }
-        source = source_storage;
+    luisa::string_view source;
+    luisa::vector<luisa::filesystem::path> include_dirs;
+    if (!detail::native_shader_resolve_source_and_include_dirs(
+            info, source_storage, source, include_dirs, result.error)) {
+        return result;
     }
     auto compiler = _device->compiler();
     if (compiler == nullptr) {
@@ -122,23 +121,16 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     // NVRTC options. The generated PTX is loaded by the driver of the very same
     // device, so the architecture is the device's compute capability.
     luisa::vector<luisa::string> option_storage;
-    option_storage.reserve(8u + info.include_dirs.size() + 1u);// keep the `c_str()` pointers below stable
+    option_storage.reserve(8u + include_dirs.size());// keep the `c_str()` pointers below stable
     option_storage.emplace_back(luisa::format(
         "-arch=compute_{}", _device->handle().compute_capability()));
     option_storage.emplace_back("--std=c++17");
     if (!info.optimize) { option_storage.emplace_back("-G"); }
     if (info.enable_fast_math) { option_storage.emplace_back("-use_fast_math"); }
     if (info.enable_debug_info) { option_storage.emplace_back("-lineinfo"); }
-    // `#include` search paths: the source file's own directory first (FilePath
-    // mode), then the user-supplied include directories.
-    if (info.source_type == NativeShaderSourceType::FilePath) {
-        luisa::filesystem::path source_path{luisa::string{info.source}};
-        if (auto parent = source_path.parent_path(); !parent.empty()) {
-            option_storage.emplace_back(
-                luisa::format("-I{}", luisa::to_string(parent)));
-        }
-    }
-    for (auto &&dir : info.include_dirs) {
+    // `#include` search paths: the source file's own directory first
+    // (FilePath mode), then the user-supplied include directories.
+    for (auto &&dir : include_dirs) {
         option_storage.emplace_back(luisa::format("-I{}", luisa::to_string(dir)));
     }
     luisa::vector<const char *> options;

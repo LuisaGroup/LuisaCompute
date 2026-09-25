@@ -66,34 +66,6 @@ namespace {
     return false;
 }
 
-// Resolves a FilePath source to text (reading the file) and leads the include
-// search with the source file's own directory, so quoted includes next to the
-// shader resolve like the compiler CLIs do.
-[[nodiscard]] bool resolve_source_and_include_dirs(
-    const NativeShaderCompileInfo &info, luisa::string &source_storage,
-    luisa::string_view &source,
-    luisa::vector<luisa::filesystem::path> &include_dirs,
-    luisa::string &error) noexcept {
-    source = info.source;
-    include_dirs.clear();
-    if (info.source_type == NativeShaderSourceType::FilePath) {
-        if (!luisa::compute::detail::native_shader_read_source_file(
-                info.source, source_storage, error)) {
-            return false;
-        }
-        source = source_storage;
-        auto parent =
-            luisa::filesystem::path{luisa::string{info.source}}.parent_path();
-        // An empty parent means the file was named relative to the current
-        // working directory, which the compilers' "header name as-is" fallback
-        // already covers, so there is nothing to prepend.
-        if (!parent.empty()) { include_dirs.emplace_back(std::move(parent)); }
-    }
-    include_dirs.insert(include_dirs.end(), info.include_dirs.begin(),
-                        info.include_dirs.end());
-    return true;
-}
-
 [[nodiscard]] NativeShaderCompileResult compile_hlsl(
     Device *device, const NativeShaderCompileInfo &info) noexcept {
     NativeShaderCompileResult result;
@@ -111,8 +83,8 @@ namespace {
     luisa::string source_storage;
     luisa::string_view source;
     luisa::vector<luisa::filesystem::path> include_dirs;
-    if (!resolve_source_and_include_dirs(info, source_storage, source,
-                                         include_dirs, result.error)) {
+    if (!luisa::compute::detail::native_shader_resolve_source_and_include_dirs(
+            info, source_storage, source, include_dirs, result.error)) {
         return result;
     }
     auto compiled = compiler->compile_compute(
@@ -141,8 +113,8 @@ namespace {
     luisa::string source_storage;
     luisa::string_view source;
     luisa::vector<luisa::filesystem::path> include_dirs;
-    if (!resolve_source_and_include_dirs(info, source_storage, source,
-                                         include_dirs, result.error)) {
+    if (!luisa::compute::detail::native_shader_resolve_source_and_include_dirs(
+            info, source_storage, source, include_dirs, result.error)) {
         return result;
     }
     auto compiled = compile_glsl_to_spirv(

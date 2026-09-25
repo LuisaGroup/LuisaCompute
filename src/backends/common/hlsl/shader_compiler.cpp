@@ -31,20 +31,23 @@ class FileSystemIncludeHandler final : public IDxcIncludeHandler {
     [[nodiscard]] bool try_load(
         const std::filesystem::path &path,
         IDxcBlob **ppIncludeSource) const {
-        std::error_code ec;
-        auto size = std::filesystem::file_size(path, ec);
-        if (ec) return false;
-        std::ifstream file{path, std::ios::in | std::ios::binary};
+        // The ate-open doubles as the existence test and the size probe.
+        std::ifstream file{path, std::ios::in | std::ios::binary | std::ios::ate};
         if (!file.is_open()) return false;
+        auto end = file.tellg();
+        if (end < 0) return false;
         luisa::string content;
-        content.resize(size);
-        if (size > 0 && !file.read(content.data(), static_cast<std::streamsize>(size))) {
+        content.resize(static_cast<size_t>(end));
+        file.seekg(0, std::ios::beg);
+        if (!content.empty() &&
+            !file.read(content.data(), static_cast<std::streamsize>(content.size()))) {
             return false;
         }
         // CreateBlob copies the content, so the local buffer may die here.
         IDxcBlobEncoding *blob{nullptr};
         if (FAILED(_utils->CreateBlob(
-                content.data(), (UINT32)content.size(), DXC_CP_ACP, &blob))) {
+                content.empty() ? "" : content.data(), (UINT32)content.size(),
+                DXC_CP_ACP, &blob))) {
             return false;
         }
         *ppIncludeSource = blob;
@@ -80,11 +83,9 @@ public:
         _In_z_ LPCWSTR pFilename,
         _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override {
         *ppIncludeSource = nullptr;
-        std::error_code ec;
-        // Absolute paths and cwd-relative spellings resolve as-is.
-        if (std::filesystem::exists(pFilename, ec) && !ec) {
-            if (try_load(pFilename, ppIncludeSource)) return S_OK;
-        }
+        // Absolute paths and cwd-relative spellings resolve as-is; the open
+        // inside try_load doubles as the existence test.
+        if (try_load(pFilename, ppIncludeSource)) return S_OK;
         for (auto &&dir : _include_dirs) {
             auto candidate = dir / pFilename;
             if (try_load(candidate, ppIncludeSource)) return S_OK;

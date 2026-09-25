@@ -273,10 +273,35 @@ namespace detail {
     }
     return true;
 }
-
-}// namespace detail
-
-struct NativeShaderMetadata {
+// Resolves `info` for compilation, in the way every backend shares: in
+// FilePath mode the source file is read into `source_storage` (returning
+  // false and filling `error` on failure) and its directory leads the include
+  // search list, followed by the user-supplied `include_dirs`; SourceCode
+  // mode borrows `info.source` and copies the include directories unchanged.
+  [[nodiscard]] inline bool native_shader_resolve_source_and_include_dirs(
+      const NativeShaderCompileInfo &info, luisa::string &source_storage,
+      luisa::string_view &source,
+      luisa::vector<luisa::filesystem::path> &include_dirs,
+      luisa::string &error) noexcept {
+      source = info.source;
+      include_dirs.clear();
+      if (info.source_type == NativeShaderSourceType::FilePath) {
+          if (!native_shader_read_source_file(info.source, source_storage, error)) {
+              return false;
+          }
+          source = source_storage;
+          auto parent = luisa::filesystem::path{luisa::string{info.source}}.parent_path();
+          // An empty parent means the file was named relative to the current
+          // working directory, which the compilers' "header name as-is"
+          // fallback already covers, so there is nothing to prepend.
+          if (!parent.empty()) { include_dirs.emplace_back(std::move(parent)); }
+      }
+      include_dirs.insert(include_dirs.end(), info.include_dirs.begin(),
+                          info.include_dirs.end());
+      return true;
+  }
+  }// namespace detail
+  struct NativeShaderMetadata {
     uint64_t handle{invalid_resource_handle}; // backend shader instance pointer
     uint3 block_size{0u, 0u, 0u};
     luisa::vector<NativeShaderResourceBinding> bindings; // canonical order

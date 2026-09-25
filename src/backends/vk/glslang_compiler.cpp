@@ -106,13 +106,13 @@ private:
         std::ifstream file{path, std::ios::binary | std::ios::ate};
         if (!file) { return nullptr; }
         auto end = file.tellg();
-        if (end <= 0) { return nullptr; }
+        if (end < 0) { return nullptr; }
         auto length = static_cast<size_t>(end);
         // One extra NUL keeps the payload safe for consumers treating the
         // buffer as a C string; the explicit headerLength stays authoritative.
         auto *content = new char[length + 1u];
         file.seekg(0, std::ios::beg);
-        if (!file.read(content, static_cast<std::streamsize>(length))) {
+        if (length > 0 && !file.read(content, static_cast<std::streamsize>(length))) {
             delete[] content;
             return nullptr;
         }
