@@ -261,16 +261,43 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
 
 void DefaultBinaryIO::clear_shader_cache() const noexcept {
     std::lock_guard lck{_global_mtx};
+    std::error_code ec;
+    // The cache directory may not exist yet: headless contexts deliberately
+    // skip directory creation in the constructor, and the adapter-mismatch
+    // path of a cold cache is exactly where this is called. Everything below
+    // must stay noexcept — an exception escaping this function terminates
+    // the process.
+    std::filesystem::create_directories(_cache_dir, ec);
+    if (ec) [[unlikely]] {
+        LUISA_WARNING(
+            "Failed to create shader cache directory '{}': {}.",
+            to_string(_cache_dir), ec.message());
+        return;
+    }
     if (_use_lmdb) {
         _cache_lmdb.destroy();
     }
-    std::error_code ec;
-    for (auto &&dir : std::filesystem::directory_iterator(_cache_dir)) {
-        std::filesystem::remove_all(dir, ec);
+    // Entries can appear or vanish while we iterate: another process may be
+    // clearing or populating the same shared cache directory concurrently
+    // (e.g. multiple headless compiler processes started together on a cold
+    // cache). A leftover entry is only stale cache data, so degrade every
+    // failure to a warning and keep going.
+    std::filesystem::directory_iterator iter{_cache_dir, ec};
+    std::filesystem::directory_iterator end;
+    while (!ec && iter != end) {
+        std::filesystem::remove_all(iter->path(), ec);
         if (ec) [[unlikely]] {
-            LUISA_ERROR(
-                "Failed to remove dir '{}': {}.",
-                to_string(dir), ec.message());
+            LUISA_WARNING(
+                "Failed to remove '{}': {}.",
+                to_string(iter->path()), ec.message());
+            ec.clear();
+        }
+        iter.increment(ec);
+        if (ec) [[unlikely]] {
+            LUISA_WARNING(
+                "Failed to iterate shader cache directory '{}': {}.",
+                to_string(_cache_dir), ec.message());
+            break;
         }
     }
     if (_use_lmdb) {
