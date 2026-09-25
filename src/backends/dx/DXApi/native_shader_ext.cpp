@@ -138,6 +138,27 @@ NativeShaderCompileResult DxNativeShaderExt::compile(
         result.error = "Native shader compile requires a non-empty source.";
         return result;
     }
+    // Resolve FilePath sources: read the file into `source_storage`; its
+    // directory leads the include search so quoted includes next to the file work.
+    luisa::string source_storage;
+    auto source = info.source;
+    if (info.source_type == NativeShaderSourceType::FilePath) {
+        if (!luisa::compute::detail::native_shader_read_source_file(info.source, source_storage, result.error)) {
+            return result;
+        }
+        source = source_storage;
+    }
+    // The source file's own directory leads the search list; user-provided
+    // include directories follow. A combined copy keeps the common compiler
+    // API a simple span; the copy is tiny.
+    luisa::vector<luisa::filesystem::path> include_dirs;
+    if (info.source_type == NativeShaderSourceType::FilePath) {
+        if (auto parent = luisa::filesystem::path{luisa::string{info.source}}.parent_path();
+            !parent.empty()) {
+            include_dirs.emplace_back(parent);
+        }
+    }
+    include_dirs.insert(include_dirs.end(), info.include_dirs.begin(), info.include_dirs.end());
     if (info.push_constant_size % sizeof(uint32_t) != 0u) {
         result.error = "Native shader push-constant size must be a multiple of "
                        "4 bytes (a root 32-bit constant is 4 bytes wide).";
@@ -154,9 +175,9 @@ NativeShaderCompileResult DxNativeShaderExt::compile(
         return result;
     }
     auto compiled = compiler->compile_compute(
-        info.source, info.optimize, info.shader_model,
+        source, info.optimize, info.shader_model,
         info.enable_fast_math, /*spirv*/ false, info.enable_debug_info,
-        info.entry_point);
+        info.entry_point, include_dirs);
     if (compiled.is_type_of<vstd::string>()) {
         result.error = luisa::string{compiled.get<1>()};
         return result;

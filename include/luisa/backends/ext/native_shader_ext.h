@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <new>
 
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
@@ -188,15 +190,29 @@ struct NativeShaderResourceBinding {
     uint32_t size_bytes{0u}; // constant-buffer size in bytes (0 when unknown)
 };
 
+// How `NativeShaderCompileInfo::source` is interpreted: the shader source text
+// itself, or the path of a source file the backend reads before compiling.
+enum class NativeShaderSourceType : uint8_t {
+    SourceCode,
+    FilePath,
+};
+
 struct NativeShaderCompileInfo {
     NativeShaderLanguage language{NativeShaderLanguage::HLSL};
+    // Meaning depends on `source_type`: the shader source text, or the path of
+    // a source file the backend reads before compiling.
     luisa::string_view source;
+    NativeShaderSourceType source_type{NativeShaderSourceType::SourceCode};
+    // Directories the backend compiler searches for `#include`d headers, in
+    // addition to the directory a `FilePath` source lives in. HLSL resolves
+    // them through DXC, GLSL through glslang's includer, and CUDA C++ through
+    // NVRTC `-I` options.
+    luisa::vector<luisa::filesystem::path> include_dirs;
     // Entry point of the compiled module: the HLSL function name, `main` for
     // GLSL, or the `__global__` function name for the CUDA route (where the
     // default `main` is understood as "the only kernel in the source", and is
     // rejected when the source declares several of them).
     luisa::string_view entry_point{"main"};
-    luisa::string_view file_name; // diagnostics only
     uint shader_model{65u}; // DX SM for HLSL (ignored by GLSL and CUDA)
     // Optional workgroup size: 0 => take `[numthreads]` / `local_size_*`
     // (HLSL/GLSL) or the kernel's `__launch_bounds__` (CUDA).
@@ -226,6 +242,39 @@ struct NativeShaderCompileResult {
     luisa::string entry_point;
     [[nodiscard]] bool ok() const noexcept { return error.empty() && !binary.empty(); }
 };
+
+namespace detail {
+
+// Reads an entire source file for a `FilePath` compile. Never throws; returns
+// false and fills `error` when the file cannot be opened or read.
+[[nodiscard]] inline bool native_shader_read_source_file(
+    luisa::string_view path, luisa::string &content,
+    luisa::string &error) noexcept {
+    content.clear();
+    std::ifstream file{luisa::filesystem::path{luisa::string{path}},
+                       std::ios::in | std::ios::binary};
+    if (!file.is_open()) {
+        error = luisa::format("Cannot open native shader source file '{}'.", path);
+        return false;
+    }
+    file.seekg(0, std::ios::end);
+    auto size = file.tellg();
+    if (size < 0) {
+        error = luisa::format("Cannot determine the size of native shader "
+                              "source file '{}'.", path);
+        return false;
+    }
+    content.resize(static_cast<size_t>(size));
+    file.seekg(0, std::ios::beg);
+    if (size > 0 && !file.read(content.data(), static_cast<std::streamsize>(size))) {
+        error = luisa::format("Failed to read native shader source file '{}'.", path);
+        content.clear();
+        return false;
+    }
+    return true;
+}
+
+}// namespace detail
 
 struct NativeShaderMetadata {
     uint64_t handle{invalid_resource_handle}; // backend shader instance pointer

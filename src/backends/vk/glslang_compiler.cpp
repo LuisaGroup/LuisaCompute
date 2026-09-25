@@ -1,6 +1,7 @@
 #include "glslang_compiler.h"
 
 #include <cstring>
+#include <fstream>
 #include <mutex>
 
 #include <glslang/Public/ShaderLang.h>
@@ -51,11 +52,84 @@ uint32_t glsl_version_number(luisa::string_view source) noexcept {
     return version;
 }
 
+// File-system includer backing `#include` directives in GLSL sources. GLSL
+// only resolves includes when the source declares
+// `#extension GL_GOOGLE_include_directive : require`; without it glslang
+// rejects the directive itself. The search order mirrors the compiler CLIs:
+// quoted includes look in the directory of the includer first (so nested
+// includes resolve relative to the file that names them), then each external
+// include directory, then the header name as-is (the current working
+// directory); angle-bracket includes skip the includer directory. The
+// includer borrows the caller's `include_dirs` and is attached to every
+// parse, so a missing header reports a "could not find" error instead of
+// glslang's default "not supported".
+class GlslFileIncluder final : public glslang::TShader::Includer {
+public:
+    explicit GlslFileIncluder(
+        luisa::span<const luisa::filesystem::path> include_dirs) noexcept
+        : _include_dirs{include_dirs} {}
+
+    IncludeResult *includeLocal(const char *header_name,
+                                const char *includer_name,
+                                size_t /*inclusion_depth*/) override {
+        if (includer_name != nullptr) {
+            if (auto *result = read_file(luisa::filesystem::path{
+                    luisa::string{includer_name}}.parent_path() /
+                                         header_name)) {
+                return result;
+            }
+        }
+        return includeSystem(header_name, includer_name, 0u);
+    }
+
+    IncludeResult *includeSystem(const char *header_name,
+                                 const char * /*includer_name*/,
+                                 size_t /*inclusion_depth*/) override {
+        for (auto &&dir : _include_dirs) {
+            if (auto *result = read_file(dir / header_name)) { return result; }
+        }
+        // Fallback: the header name as-is, relative to the current working
+        // directory, matching the compiler CLIs' last-resort behaviour.
+        return read_file(luisa::filesystem::path{header_name});
+    }
+
+    void releaseInclude(IncludeResult *result) override {
+        if (result != nullptr) {
+            delete[] static_cast<char *>(result->userData);
+            delete result;
+        }
+    }
+
+private:
+    [[nodiscard]] static IncludeResult *read_file(
+        const luisa::filesystem::path &path) {
+        std::ifstream file{path, std::ios::binary | std::ios::ate};
+        if (!file) { return nullptr; }
+        auto end = file.tellg();
+        if (end <= 0) { return nullptr; }
+        auto length = static_cast<size_t>(end);
+        // One extra NUL keeps the payload safe for consumers treating the
+        // buffer as a C string; the explicit headerLength stays authoritative.
+        auto *content = new char[length + 1u];
+        file.seekg(0, std::ios::beg);
+        if (!file.read(content, static_cast<std::streamsize>(length))) {
+            delete[] content;
+            return nullptr;
+        }
+        content[length] = '\0';
+        return new IncludeResult{
+            path.generic_string(), content, length, content};
+    }
+
+    luisa::span<const luisa::filesystem::path> _include_dirs;
+};
+
 }// namespace
 
 GlslCompileResult compile_glsl_to_spirv(
     luisa::string_view source, luisa::string_view entry_point,
-    bool optimize, bool debug) noexcept {
+    bool optimize, bool debug,
+    luisa::span<const luisa::filesystem::path> include_dirs) noexcept {
     GlslCompileResult result;
     if (source.empty()) {
         result.error = "GLSL source is empty.";
@@ -73,6 +147,9 @@ GlslCompileResult compile_glsl_to_spirv(
         return result;
     }
     std::array<const char *, 1u> strings{source.data()};
+    // Lives next to the shader so it outlives parse/link; it is always
+    // attached, even with an empty search path (see GlslFileIncluder).
+    GlslFileIncluder includer{include_dirs};
     glslang::TShader shader{EShLangCompute};
     shader.setStrings(strings.data(), static_cast<int>(strings.size()));
     auto resources = *GetDefaultResources();
@@ -80,7 +157,8 @@ GlslCompileResult compile_glsl_to_spirv(
     if (debug) {
         messages = static_cast<EShMessages>(messages | EShMsgDebugInfo);
     }
-    if (!shader.parse(&resources, glsl_version_number(source), false, messages)) {
+    if (!shader.parse(&resources, glsl_version_number(source), false, messages,
+                      includer)) {
         result.error = luisa::string{"GLSL parse failed: "};
         result.error.append(shader.getInfoLog() == nullptr ? "unknown error" :
                                                             shader.getInfoLog());

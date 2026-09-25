@@ -1,4 +1,6 @@
 #include "shader_compiler.h"
+#include <atomic>
+#include <fstream>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/vstl/string_utility.h>
 #include <luisa/core/logging.h>
@@ -14,6 +16,85 @@ namespace lc::hlsl {
         LUISA_ASSERT(hr_ == S_OK, "bad HRESULT."); \
     }
 #endif
+namespace {
+
+// Resolves `#include`d files against the raw include spelling first (absolute
+// paths and cwd-relative names) and then against each registered include
+// directory, in order. Plain reference-counted IUnknown: the handler lives on
+// the stack for the synchronous `IDxcCompiler3::Compile` call and is never
+// deleted through the interface.
+class FileSystemIncludeHandler final : public IDxcIncludeHandler {
+    IDxcUtils *_utils;
+    luisa::span<const std::filesystem::path> _include_dirs;
+    std::atomic<ULONG> _ref_count{1};
+
+    [[nodiscard]] bool try_load(
+        const std::filesystem::path &path,
+        IDxcBlob **ppIncludeSource) const {
+        std::error_code ec;
+        auto size = std::filesystem::file_size(path, ec);
+        if (ec) return false;
+        std::ifstream file{path, std::ios::in | std::ios::binary};
+        if (!file.is_open()) return false;
+        luisa::string content;
+        content.resize(size);
+        if (size > 0 && !file.read(content.data(), static_cast<std::streamsize>(size))) {
+            return false;
+        }
+        // CreateBlob copies the content, so the local buffer may die here.
+        IDxcBlobEncoding *blob{nullptr};
+        if (FAILED(_utils->CreateBlob(
+                content.data(), (UINT32)content.size(), DXC_CP_ACP, &blob))) {
+            return false;
+        }
+        *ppIncludeSource = blob;
+        return true;
+    }
+
+public:
+    FileSystemIncludeHandler(
+        IDxcUtils *utils,
+        luisa::span<const std::filesystem::path> include_dirs) noexcept
+        : _utils{utils}, _include_dirs{include_dirs} {}
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) override {
+        if (ppvObject == nullptr) return E_POINTER;
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDxcIncludeHandler)) {
+            *ppvObject = static_cast<IDxcIncludeHandler *>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObject = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return _ref_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        return _ref_count.fetch_sub(1, std::memory_order_relaxed) - 1;
+    }
+
+    HRESULT STDMETHODCALLTYPE LoadSource(
+        _In_z_ LPCWSTR pFilename,
+        _COM_Outptr_result_maybenull_ IDxcBlob **ppIncludeSource) override {
+        *ppIncludeSource = nullptr;
+        std::error_code ec;
+        // Absolute paths and cwd-relative spellings resolve as-is.
+        if (std::filesystem::exists(pFilename, ec) && !ec) {
+            if (try_load(pFilename, ppIncludeSource)) return S_OK;
+        }
+        for (auto &&dir : _include_dirs) {
+            auto candidate = dir / pFilename;
+            if (try_load(candidate, ppIncludeSource)) return S_OK;
+        }
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    }
+};
+
+}// namespace
+
 static vstd::wstring GetSM(uint shaderModel) {
     vstd::string smStr;
     smStr << vstd::to_string(shaderModel / 10) << '_' << vstd::to_string(shaderModel % 10);
@@ -67,7 +148,8 @@ ShaderCompiler::ShaderCompiler(std::filesystem::path const &path, bool is_spirv)
 }
 CompileResult ShaderCompiler::compile(
     vstd::string_view code,
-    vstd::span<LPCWSTR> args) const {
+    vstd::span<LPCWSTR> args,
+    IDxcIncludeHandler *include_handler) const {
     DxcBuffer buffer{
         code.data(),
         code.size(),
@@ -80,7 +162,7 @@ CompileResult ShaderCompiler::compile(
             &buffer,
             args.data(),
             args.size(),
-            nullptr,
+            include_handler,
             IID_PPV_ARGS(&ptr));
         LC_DXC_THROW_IF_FAILED(compile_result);
         compileResult = ComUniquePtr<IDxcResult>{ptr};
@@ -138,7 +220,8 @@ CompileResult ShaderCompiler::compile_compute(
     bool enableUnsafeMath,
     bool spirv,
     bool debug,
-    vstd::string_view entry_point) const {
+    vstd::string_view entry_point,
+    luisa::span<const std::filesystem::path> include_dirs) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -177,7 +260,14 @@ CompileResult ShaderCompiler::compile_compute(
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
-    return compile(code, args);
+    if (include_dirs.empty()) {
+        // Historical behaviour: no include handler is registered at all.
+        return compile(code, args);
+    }
+    // Stack-lifetime handler; the synchronous Compile call below never
+    // outlives it. The handler searches the directories, so no `-I` args.
+    FileSystemIncludeHandler handler{utils(), include_dirs};
+    return compile(code, args, &handler);
 }
 RasterBin ShaderCompiler::compile_raster(
     vstd::string_view code,

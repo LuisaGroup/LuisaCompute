@@ -8,6 +8,14 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -63,9 +71,42 @@ typedef struct str_buffer {
     char *data;
 } str_buffer;
 
+// Reads exactly `size` bytes from the parent's pipe. The stdin handle is a
+// reproc socket pipe; on Windows it is read directly with recv(), because
+// CRT stdio buffering over a socket handle can stall indefinitely once more
+// than one protocol frame is in flight.
+static size_t read_stdin(void *buffer, size_t size) {
+#ifdef _WIN32
+    // The inherited stdin handle is a reproc socket pipe; direct recv() needs
+    // Winsock initialised in this process (the CRT stdio path used before did
+    // that internally).
+    static int winsock_ready = 0;
+    if (!winsock_ready) {
+        WSADATA data;
+        WSAStartup(MAKEWORD(2, 2), &data);
+        winsock_ready = 1;
+    }
+    SOCKET pipe = (SOCKET)GetStdHandle(STD_INPUT_HANDLE);
+    // The reproc socket pipe is inherited in non-blocking mode; make it
+    // blocking so the frame reads below wait like the old stdio path did.
+    u_long blocking = 0;
+    ioctlsocket(pipe, FIONBIO, &blocking);
+    char *out = (char *)buffer;
+    size_t total = 0;
+    while (total < size) {
+        int r = recv(pipe, out + total, (int)(size - total), 0);
+        if (r <= 0) { break; }
+        total += (size_t)r;
+    }
+    return total;
+#else
+    return fread(buffer, 1, size, stdin);
+#endif
+}
+
 static str_buffer read(const char *name) {
     char size_str[16] = {};
-    if (fread(size_str, 1, 16, stdin) != 16) {
+    if (read_stdin(size_str, 16) != 16) {
         report_error("Failed to read %s size from stdin.\n", name);
     }
     str_buffer s = {};
@@ -86,7 +127,7 @@ static str_buffer read(const char *name) {
     if (s.data == NULL) {
         report_error("Failed to allocate %s memory (%" PRIu64 "B).\n", name, s.size);
     }
-    if (!fread(s.data, s.size, 1, stdin)) {
+    if (read_stdin(s.data, s.size) != s.size) {
         free(s.data);
         report_error("Failed to read %s data from stdin.\n", name);
     }

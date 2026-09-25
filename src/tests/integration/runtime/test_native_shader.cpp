@@ -21,6 +21,7 @@
 #include <luisa/backends/ext/command_reorder_ext.h>
 #include <luisa/backends/ext/native_shader_ext.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/command_list.h>
@@ -83,6 +84,56 @@ constexpr auto cuda_source = R"(
 extern "C" __global__ void scale(const float *src, float *dst, float k, float c) {
     auto i = blockIdx.x * blockDim.x + threadIdx.x;
     dst[i] = src[i] * k + c;
+}
+)";
+
+// The include-directory tests below compile sources that `#include` a header
+// from a scratch directory. The helper is a plain free function - valid HLSL,
+// GLSL 450 and CUDA C++ alike. NVRTC's JIT mode only allows
+// execution-space-annotated functions, so under `__CUDACC__` the helper is
+// marked `__host__ __device__ inline`.
+constexpr auto math_header = R"(
+#if defined(__CUDACC__)
+#define LUISA_TEST_TRANSFORM __host__ __device__ inline
+#else
+#define LUISA_TEST_TRANSFORM
+#endif
+LUISA_TEST_TRANSFORM float luisa_test_transform(float x, float k, float c) { return x * k + c; }
+#undef LUISA_TEST_TRANSFORM
+)";
+
+constexpr auto hlsl_include_source = R"(
+#include "native_shader_test_math.h"
+StructuredBuffer<float> src : register(t0);
+RWStructuredBuffer<float> dst : register(u0);
+cbuffer Uniforms : register(b0) { float k; float c; };
+[numthreads(64, 1, 1)]
+void CSMain(uint3 tid : SV_DispatchThreadID) {
+    dst[tid.x] = luisa_test_transform(src[tid.x], k, c);
+}
+)";
+
+// GLSL requires `#extension GL_GOOGLE_include_directive` (after `#version`,
+// before any `#include`) to enable the include directive.
+constexpr auto glsl_include_source = R"(
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "native_shader_test_math.h"
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, binding = 0) readonly buffer A { float a[]; } src;
+layout(set = 0, binding = 1) buffer B { float b[]; } dst;
+layout(push_constant) uniform Push { float k; float c; } uniforms;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    dst.b[i] = luisa_test_transform(src.a[i], uniforms.k, uniforms.c);
+}
+)";
+
+constexpr auto cuda_include_source = R"(
+#include "native_shader_test_math.h"
+extern "C" __global__ void include_scale(const float *src, float *dst, float k, float c) {
+    auto i = blockIdx.x * blockDim.x + threadIdx.x;
+    dst[i] = luisa_test_transform(src[i], k, c);
 }
 )";
 
@@ -596,6 +647,109 @@ __global__ void mangled(float *dst) { dst[0] = 1.0f; }
                 LUISA_INFO("leaving native shader instance {:#x} for the device "
                            "teardown to release (expected warning)",
                            m.handle);
+            };
+        }
+    }
+
+    // ---- include directories & file sources ------------------------------
+    if (is_dx || is_vk || is_cuda) {
+        namespace fs = luisa::filesystem;
+        std::error_code ec;
+        auto scratch_dir = fs::temp_directory_path(ec) /
+                           "luisa_test_native_shader_include";
+        expect(!ec);
+        fs::create_directories(scratch_dir, ec);
+        expect(!ec);
+        {
+            std::ofstream out{scratch_dir / "native_shader_test_math.h",
+                              std::ios::out | std::ios::trunc};
+            expect(static_cast<bool>(out));
+            out << math_header;
+        }
+        luisa::string_view include_source = is_dx ? luisa::string_view{hlsl_include_source} :
+                                            is_vk ? luisa::string_view{glsl_include_source} :
+                                                    luisa::string_view{cuda_include_source};
+        auto source_name = is_dx ? "native_shader_test_include.hlsl" :
+                           is_vk ? "native_shader_test_include.glsl" :
+                                   "native_shader_test_include.cu";
+        // `info.source` is a string_view: the path string must outlive the
+        // compile call.
+        auto source_path = luisa::to_string(scratch_dir / source_name);
+        {
+            std::ofstream out{fs::path{source_path},
+                              std::ios::out | std::ios::trunc};
+            expect(static_cast<bool>(out));
+            out.write(include_source.data(),
+                      static_cast<std::streamsize>(include_source.size()));
+        }
+        // Mirrors the per-backend `language`/`entry_point`/`push_constant_size`/
+        // `block_size` selection above (the explicit `uint3` avoids the file-
+        // level `block_size` constant shadowing the DSL builtin).
+        auto setup_include_info = [&](luisa::string_view source) {
+            NativeShaderCompileInfo info;
+            info.language = is_dx ? NativeShaderLanguage::HLSL :
+                            is_vk ? NativeShaderLanguage::GLSL :
+                                    NativeShaderLanguage::CUDA_NVRTC;
+            info.source = source;
+            info.entry_point = is_dx ? "CSMain" :
+                               is_vk ? "main" : "include_scale";
+            info.push_constant_size = 2u * sizeof(float);
+            if (is_cuda) {
+                info.block_size = uint3{64u, 1u, 1u};
+            }
+            return info;
+        };
+
+        "native_shader_include_dirs"_test = [&] {
+            auto info = setup_include_info(include_source);
+            info.include_dirs = {scratch_dir};
+            auto result = ext->compile(info);
+            expect(result.ok()) << result.error.c_str();
+            auto metadata = ext->load(result);
+            expect(metadata.valid());
+            if (!metadata.valid()) { return; }
+            NativeShader shader{*ext, std::move(metadata)};
+            Stream stream = device.create_stream();
+            luisa::vector<float> host_a(element_count);
+            for (auto i = 0u; i < element_count; i++) {
+                host_a[i] = static_cast<float>(i);
+            }
+            Buffer<float> a = device.create_buffer<float>(element_count);
+            Buffer<float> b = device.create_buffer<float>(element_count);
+            stream << a.copy_from(luisa::span{host_a});
+            stream << make_dispatch(shader, a.view(), b.view(), 2.0f, 1.0f,
+                                    element_count)
+                   << synchronize();
+            luisa::vector<float> host_b(element_count);
+            stream << b.copy_to(luisa::span{host_b}) << synchronize();
+            for (auto i = 0u; i < element_count; i++) {
+                expect(host_b[i] == host_a[i] * 2.0f + 1.0f)
+                    << "include-dir dispatch mismatch at " << i << ": " << host_b[i]
+                    << " vs " << host_a[i] * 2.0f + 1.0f;
+            }
+        };
+
+        "native_shader_file_path_source"_test = [&] {
+            auto info = setup_include_info(luisa::string_view{});
+            info.source_type = NativeShaderSourceType::FilePath;
+            info.source = luisa::string_view{source_path};
+            // `include_dirs` stays empty: the source file's own directory
+            // must resolve the `#include`.
+            auto result = ext->compile(info);
+            expect(result.ok()) << result.error.c_str();
+        };
+
+        // A bogus include directory must fail closed. Only the DXC (dx/vk) and
+        // glslang (vk) routes are exercised: the standalone NVRTC compiler
+        // process aborts on compile errors, so the CUDA route has no graceful
+        // error message to check.
+        if (!is_cuda) {
+            "native_shader_bogus_include_dir"_test = [&] {
+                auto info = setup_include_info(include_source);
+                info.include_dirs = {scratch_dir / "no_such_directory"};
+                auto result = ext->compile(info);
+                expect(!result.ok());
+                expect(!result.error.empty());
             };
         }
     }

@@ -96,6 +96,16 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
         result.error = "Native shader compile requires a non-empty source.";
         return result;
     }
+    // Resolve FilePath sources: read the file into `source_storage`; NVRTC's
+    // program name becomes the file path (diagnostics + quoted-include base).
+    luisa::string source_storage;
+    auto source = info.source;
+    if (info.source_type == NativeShaderSourceType::FilePath) {
+        if (!detail::native_shader_read_source_file(info.source, source_storage, result.error)) {
+            return result;
+        }
+        source = source_storage;
+    }
     auto compiler = _device->compiler();
     if (compiler == nullptr) {
         result.error = "The CUDA backend has no NVRTC compiler instance.";
@@ -104,7 +114,7 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     // The parameter roles (buffer vs scalar, read-only vs writable) only exist
     // in the source, so parse it first: the entry-point name this returns also
     // selects the kernel in the compiled module.
-    auto reflection = native_shader::reflect_source(info.source, info.entry_point);
+    auto reflection = native_shader::reflect_source(source, info.entry_point);
     if (!reflection.ok()) {
         result.error = reflection.error;
         return result;
@@ -112,20 +122,34 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     // NVRTC options. The generated PTX is loaded by the driver of the very same
     // device, so the architecture is the device's compute capability.
     luisa::vector<luisa::string> option_storage;
-    option_storage.reserve(8u);// keep the `c_str()` pointers below stable
+    option_storage.reserve(8u + info.include_dirs.size() + 1u);// keep the `c_str()` pointers below stable
     option_storage.emplace_back(luisa::format(
         "-arch=compute_{}", _device->handle().compute_capability()));
     option_storage.emplace_back("--std=c++17");
     if (!info.optimize) { option_storage.emplace_back("-G"); }
     if (info.enable_fast_math) { option_storage.emplace_back("-use_fast_math"); }
     if (info.enable_debug_info) { option_storage.emplace_back("-lineinfo"); }
+    // `#include` search paths: the source file's own directory first (FilePath
+    // mode), then the user-supplied include directories.
+    if (info.source_type == NativeShaderSourceType::FilePath) {
+        luisa::filesystem::path source_path{luisa::string{info.source}};
+        if (auto parent = source_path.parent_path(); !parent.empty()) {
+            option_storage.emplace_back(
+                luisa::format("-I{}", luisa::to_string(parent)));
+        }
+    }
+    for (auto &&dir : info.include_dirs) {
+        option_storage.emplace_back(luisa::format("-I{}", luisa::to_string(dir)));
+    }
     luisa::vector<const char *> options;
     options.reserve(option_storage.size());
     for (auto &&option : option_storage) { options.emplace_back(option.c_str()); }
-    auto filename = info.file_name.empty() ?
-                        luisa::string{"native_shader.cu"} :
-                        luisa::string{info.file_name};
-    auto ptx = compiler->compile(luisa::string{info.source}, filename,
+    // The NVRTC program name shows up in diagnostics and resolves quoted
+    // `#include`s relative to the source file's directory (FilePath mode).
+    auto filename = info.source_type == NativeShaderSourceType::FilePath ?
+                        luisa::string{info.source} :
+                        luisa::string{"native_shader.cu"};
+    auto ptx = compiler->compile(luisa::string{source}, filename,
                                  options, nullptr);
     if (ptx.empty()) {
         result.error = luisa::format(
