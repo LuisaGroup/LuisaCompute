@@ -51,8 +51,8 @@ Distinguish hang types by CPU usage first:
 - **Zero-CPU hang** is a genuine wait (GPU fence, deadlocked mutex).
 
 For multi-test binaries, isolate by running each test alone (Boost.UT takes
-positional name patterns after the backend arg: `test.exe vk my_test`, i.e.
-`xmake run <test_target> vk my_test`). When a
+positional name patterns after the backend arg: `bin/debug/test_basic_types.exe vk test_vector_construction`, i.e.
+`xmake run test_basic_types vk test_vector_construction`). When a
 fix candidate emerges, A/B it with `git stash` — a failure that persists with
 the fix stashed is pre-existing and out of scope; do not chase it.
 

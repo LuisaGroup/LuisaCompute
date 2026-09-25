@@ -27,21 +27,21 @@ The server auto-discovers `compile_commands.json` in `.vscode/`, `build/`, or pr
 
 ### Check Syntax
 ```bash
-python scripts/cpp_lsp_client.py check src/foo.cpp -v
+python scripts/cpp_lsp_client.py check src/core/logging.cpp -v
 # Override content ad-hoc:
-python scripts/cpp_lsp_client.py check src/foo.cpp --content "int main() { return 0; }"
+python scripts/cpp_lsp_client.py check src/core/logging.cpp --content "int main() { return 0; }"
 ```
 
 ### Symbol Navigation
 ```bash
 # Go to definition at line 10, character 5 (0-based)
-python scripts/cpp_lsp_client.py symbol src/foo.cpp 10 5 --action definition
+python scripts/cpp_lsp_client.py symbol src/core/logging.cpp 10 5 --action definition
 
 # Hover info
-python scripts/cpp_lsp_client.py symbol src/foo.cpp 10 5 --action hover
+python scripts/cpp_lsp_client.py symbol src/core/logging.cpp 10 5 --action hover
 
 # Document-level symbols
-python scripts/cpp_lsp_client.py symbol src/foo.cpp --action documentSymbol
+python scripts/cpp_lsp_client.py symbol src/core/logging.cpp --action documentSymbol
 ```
 
 Available actions: `definition`, `declaration`, `typeDefinition`, `implementation`, `references`, `hover`, `documentSymbol`.

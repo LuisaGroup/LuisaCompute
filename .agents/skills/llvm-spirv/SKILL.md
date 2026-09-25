@@ -34,6 +34,11 @@ builds against LLVM 22 (`lc_llvm_path` in `scripts/options.lua`), but
 (`LUISA_COMPUTE_DOWNLOAD_LLVM`, official LLVM 19.1.5, reached from the fallback
 backend only) is not this route's LLVM.
 
+No clang or `LLVMExts` component is required by this route: `clang_target` and
+`LLVMExts` have zero hits in `src/backends/common/spirv_llvm/CMakeLists.txt` and
+`src/backends/common/spirv_llvm/xmake.lua` — verify with
+`git grep -c "clang_target" -- src/backends/common/spirv_llvm` (no match).
+
 The public entry is deliberately LLVM-header-free:
 
 ```cpp

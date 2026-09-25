@@ -336,6 +336,13 @@ argument:
 xmake build test_xir_passes
 xmake run test_xir_passes
 ~~~
+There is a second, older test location: `src/xir/tests/test_<name>.cpp`
+(`dce`, `mem2reg`, `debug_printer`, `ray_query`, `aggregate_field_bitmasks`) is built
+as `xir_test_<name>` by `luisa_compute_xir_add_test()` only when
+`-DLUISA_COMPUTE_ENABLE_XIR_TESTS` is passed (`src/xir/CMakeLists.txt:177-189`). That
+variable is never declared with `option()`, so it does not appear in the generated help,
+and those targets are plain `add_executable` — not CTest-registered. Prefer
+`src/tests/unit/xir/` for new pass tests.
 
 Use CMake/Ninja when the Metal4 integration tests are in scope (they are
 registered only in `src/tests/CMakeLists.txt`):

@@ -67,7 +67,7 @@ SSA IR with basic blocks, instructions, optimization passes. Receives AST via `a
 - `passes/` — 89 pass sources: DCE, mem2reg, SROA, autodiff, outline, dom-tree, GEP tracing, local load/store elimination, ray-query lowering, unused callable removal, LICM, GVN, SCCP, inlining, CFG simplification (plus coro_*, loop_*, vectorization, alias/uniformity analysis)
 - `translators/` — `ast2xir`, `xir2json`, `json2xir`, `xir2text`, `xir2ast`, `xir_interchange`
 - `metadata/` — source locations, names, comments, curve basis
-- `tests/` — XIR unit tests (enabled by `LUISA_COMPUTE_ENABLE_XIR_TESTS`)
+- `tests/` — XIR unit tests: `luisa_compute_xir_add_test(<name>)` builds `xir_test_<name>` from `tests/test_<name>.cpp` (aggregate_field_bitmasks, mem2reg, debug_printer, dce, ray_query) when `LUISA_COMPUTE_ENABLE_XIR_TESTS` is set. The variable is read at `src/xir/CMakeLists.txt:177` but never declared via `option()`, so it only takes effect when passed explicitly with `-D`; the targets are plain `add_executable` — no CTest registration.
 - Key classes: `Module`, `Function`, `BasicBlock`, `Instruction`, `Value`, `Use`, `Builder`
 
 ### `src/dsl/` — Embedded DSL

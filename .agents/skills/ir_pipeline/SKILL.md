@@ -638,6 +638,17 @@ path; do not accept the pre-Apple9 compatibility bridge there. Keep the
 host-AOT SHA comparison and macOS conformance run as distinct regressions
 rather than substituting either for the runtime-linked device run.
 
+Whole-pipeline composition against a real backend is covered by
+`test_dsl_xir_optimize_vk` (`src/tests/unit/runtime/test_dsl_xir_optimize_vk.cpp`): it
+is registered with `test_proj(...)` in `src/tests/xmake.lua:416` and by
+`luisa_compute_add_test` WITHOUT LABELS in `src/tests/CMakeLists.txt:1161`, so it has no
+CTest entry and must be run directly with the backend as `argv[1]`:
+
+~~~sh
+xmake build test_dsl_xir_optimize_vk
+xmake run test_dsl_xir_optimize_vk vk
+~~~
+
 Use the `unit_xir` CTest label when a change can affect more than one XIR pass.
 For another Metal4 runtime test, invoke the binary with the `metal4` backend;
 no AIR-selection environment is required. Add `LUISA_DUMP_XIR=1` or
