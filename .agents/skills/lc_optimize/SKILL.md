@@ -9,7 +9,7 @@ description: Optimize LuisaCompute DSL kernels using warp/wave primitives, share
 
 ## 1. Available Warp/Wave Primitives
 
-LuisaCompute exposes the following warp-level (subgroup) intrinsics via `luisa/dsl/builtin.h`. All operate on *active lanes within the current warp*.
+LuisaCompute exposes the following warp-level (subgroup) intrinsics via `luisa/dsl/builtin.h`. All operate on *active lanes within the current warp*. This list is complete: `builtin.h` defines exactly 19 collective/communication entry points, one per `CallOp::WARP_*` kind, plus `warp_lane_count()`, `warp_lane_id()` and `set_warp_size()` (which are `FunctionBuilder` builtins, not call ops). There is **no** `wave_*` alias, no `warp_write_lane`, and no `warp_reduce_*` in the DSL.
 
 ### 1.1 Query / Metadata
 
@@ -17,9 +17,9 @@ LuisaCompute exposes the following warp-level (subgroup) intrinsics via `luisa/d
 |---|---|---|
 | `warp_lane_count()` | `UInt` | Total lanes in the warp (e.g. 32 or 64). |
 | `warp_lane_id()` | `UInt` | Current lane index `[0, warp_lane_count())`. |
-| `warp_is_first_active_lane()` | `Bool` | True if this lane is the first active lane in the warp. |
-| `warp_first_active_lane()` | `UInt` | Lane index of the first active lane. |
-| `device.compute_warp_size()` | `uint` | Host-side query for backend's native warp size. |
+| `warp_is_first_active_lane()` | `Bool` | True if this lane is the first active lane in the warp. Lowers to `WaveIsFirstLane` (HLSL) / `OpGroupNonUniformElect` (SPIR-V) / `__ffs(__activemask())-1 == laneid` (CUDA). |
+| `warp_first_active_lane()` | `UInt` | Lane index of the first active lane. **Not implemented in the HLSL codegen path** (`src/backends/common/hlsl/codegen_utils/function_codegen.cpp:1985` → `LUISA_NOT_IMPLEMENTED()`); prefer `warp_is_first_active_lane()`, or `ctz(warp_active_bit_mask(true).x)`. |
+| `device.compute_warp_size()` | `uint` | Host-side query for the backend/device's native warp size (see section 6). |
 
 ### 1.2 Active-Lane Reductions (All-Reduce)
 
@@ -38,13 +38,15 @@ Each lane receives the same reduced value.
 | `warp_active_bit_or(v)` | `Int -> Int` | Bitwise OR across active lanes. |
 | `warp_active_bit_xor(v)` | `Int -> Int` | Bitwise XOR across active lanes. |
 | `warp_active_count_bits(v)` | `Bool -> UInt` | Population count of true predicates. |
-| `warp_active_bit_mask(v)` | `Bool -> UInt4` | 128-bit ballot mask of true predicates. |
+| `warp_active_bit_mask(v)` | `Bool -> UInt4` | Ballot mask of true predicates — `spv::OpGroupNonUniformBallot` (uvec4) / DX `WaveActiveBallot` / CUDA `__ballot_sync` packed into `uint4(ballot,0,0,0)`, so `.y/.z/.w` are only meaningful for subgroup widths above 32. |
 
-All accept scalar or vector types (except bit ops which require integral types).
+`warp_active_sum/product/min/max` take a scalar or vector operand and *reject* booleans (`is_scalar_expr_v || is_vector_expr_v`, `&& !is_boolean_or_vector_expr_v`); `warp_active_bit_and/or/xor` require integral or vector-of-integral (`is_integral_or_vector_expr_v`); `warp_active_all_equal` takes any scalar or vector and returns one `Bool` per component.
+
+"Active" means lanes that actually executed the call — an irregular (sparse) subset is legal, and `src/tests/unit/runtime/test_warp_sparse_collectives.cpp` pins the expected results for the non-contiguous mask `{0, 1, 6}` across reductions, exclusive scans, vector `all_equal` and 16-bit/matrix shuffles.
 
 ### 1.3 Prefix (Exclusive Scan)
 
-Each lane receives the exclusive prefix of all *preceding* active lanes. Lane 0 receives identity (0 for sum, 1 for product, 0u for count_bits).
+Each lane receives the exclusive prefix of all *preceding active* lanes. The first active lane receives the identity (0 for sum, 1 for product, 0u for count_bits — see `lc_warp_prefix_sum_impl`/`lc_warp_prefix_product_impl`, `src/backends/cuda/cuda_builtin/cuda_device_resource.h:3130-3137`). Exclusive (not inclusive) is asserted by `test_warp_prefix_scan.cpp:36-44`: with only even lanes active, lane `2n` must observe `n` preceding contributions.
 
 | DSL Call | Signature | Description |
 |---|---|---|
@@ -63,8 +65,8 @@ Each lane receives the exclusive prefix of all *preceding* active lanes. Lane 0 
 
 | DSL Call | Description |
 |---|---|
-| `set_warp_size(uint8_t)` | Must be a power-of-two in [8,128]. Call *inside* kernel lambda before compilation. |
-| `sync_block()` | Full block barrier. All threads in the block must reach it. |
+| `set_warp_size(uint8_t)` | Asserted by `luisa_compute_validate_warp_size` (`src/dsl/builtin.cpp:10`): must be `1`, `2`, or a power of two in `[4, 128]` — i.e. one of 1, 2, 4, 8, 16, 32, 64, 128. Call *inside* kernel lambda before compilation; it sets `Function::allowed_warp_size()`, an **exact** width requirement the backend can refuse (CUDA and both Metal backends `LUISA_ERROR` on anything but 32, the CPU fallback on anything but 1, the SIMD backend on anything but its configured width, and Vulkan errors if subgroup-size control is unavailable or out of `[minSubgroupSize, maxSubgroupSize]`). |
+| `sync_block()` | Full block barrier. All threads in the block must reach it (`CallOp::SYNCHRONIZE_BLOCK`). |
 
 **Critical rule:** Warp operations only communicate within the *same warp*. No `sync_block()` is needed for warp collectives — they are guaranteed to complete within the warp without barriers.
 
@@ -102,16 +104,18 @@ Kernel2D mat_mul = [&](BufferFloat lhs, BufferFloat rhs, BufferFloat result, UIn
     }
 
     $if (warp_lane == 0) {
-        result.write(rhs_x * /*M*/ ...  + lhs_y, acc);
+        // Row-major [M x N] result: N == dispatch_size().x / warp_size
+        // (test_warp.cpp's rhs_matrix_size.x).
+        result.write((dispatch_size().x / warp_size) * lhs_y + rhs_x, acc);
     };
 };
 ```
 
-**Key insight:** Warp-active reductions eliminate the need for shared memory entirely. All lanes in a warp already execute in lockstep, so `warp_active_sum` is a single hardware instruction on most GPUs.
+**Key insight:** Warp-active reductions eliminate the need for shared memory entirely. All lanes in a warp already execute in lockstep, so `warp_active_sum` is one `WaveActiveSum` intrinsic on DX and one `OpGroupNonUniform{I,F}Add` on SPIR-V; on CUDA it is `__reduce_add_sync` for the integer types but a 5-step `__shfl_xor_sync` butterfly for float/half (`src/backends/cuda/cuda_builtin/cuda_device_resource.h:2772-2780`, `:2981-2997`) — still cheaper than shared memory plus a barrier.
 
 ### 2.2 Butterfly Reduction via `warp_read_lane`
 
-For finding the maximum across a logical group smaller than the warp, use pairwise `warp_read_lane` with XOR lane masks (butterfly / tree-reduction pattern):
+For finding the maximum across a logical group smaller than the warp, use pairwise `warp_read_lane` with XOR lane masks (butterfly / tree-reduction pattern; `lane` here is `warp_lane_id()`):
 
 ```cpp
 // 8-lane max reduction within a group of 8
@@ -151,34 +155,36 @@ auto prev_incl = warp_read_lane(inclusive, prev_last);
 auto group_sum = incl_last - ite(group_id == 0u, make_float2(0.f), prev_incl);
 ```
 
-This avoids separate `warp_prefix_sum` calls per group and instead uses a single warp-wide prefix plus lane reads to extract group boundaries.
+This avoids separate `warp_prefix_sum` calls per group and instead uses a single warp-wide prefix plus lane reads to extract group boundaries. Pattern from `src/tests/unit/runtime/test_mha_warp_reduction.cpp:38-62` (grouped `float2` scan) and `:110-127` (grouped scalar softmax); note the pinned `set_warp_size(kWarpSize)` and `set_block_size(256u, 1u, 1u)` in that kernel.
 
 ### 2.4 Warp-Polling Decoupled Look-Back
 
 For inter-block scan, tiles publish their status and other tiles poll via warp collectives:
 
 ```cpp
-// Poll across warp: any lane sees INVALID?
+// Poll across warp: any lane sees INVALID? (ScanTileStateViewer::WaitForValid,
+// test_decoupled_look_back.cpp:223-229 — `delay` is a caller-supplied host
+// lambda, not a DSL builtin; `volatile_read` is BufferView's)
 $while (warp_active_any(status == SCAN_TILE_INVALID)) {
     delay();
     status = tile_status.volatile_read(predecessor_idx);
 };
 
-// All lanes agree predecessor is inclusive?
+// All lanes agree predecessor is inclusive? (:320-336)
 $while (warp_active_all(predecessor_status != SCAN_TILE_INCLUSIVE)) {
-    predecessor_idx -= 32;
+    predecessor_idx -= compute::Int(32);
     // poll next window...
-    exclusive = scan_op(window_aggregate, exclusive);
+    exclusive_prefix = scan_op(windows_aggregate, exclusive_prefix);
 };
 ```
 
-Also uses `warp_active_bit_mask` for segmented reductions within warps:
+Also uses `warp_active_bit_mask` for segmented reductions within warps (`test_decoupled_look_back.cpp:82-95`; `get_lane_mask_ge` is a `static Callable` there, `LOGIC_WARP_SIZE` a template parameter):
 
 ```cpp
 UInt warp_flags = warp_active_bit_mask(flag == 1u).x;
 warp_flags >>= 1;  // for HEAD_SEGMENT mode
 warp_flags &= get_lane_mask_ge();  // mask of lanes with id >= mine
-warp_flags |= 1u << (LOGIC_WARP_SIZE - 1u);  // sentinel
+warp_flags |= 1u << (UInt(LOGIC_WARP_SIZE) - 1u);  // sentinel
 UInt last_lane = ctz(warp_flags);  // first set bit = end of my segment
 ```
 
@@ -187,10 +193,15 @@ UInt last_lane = ctz(warp_flags);  // first set bit = end of my segment
 A software implementation of warp reduce using `warp_read_lane` with increasing offsets:
 
 ```cpp
+// WarpReduceShfl::ReduceStep in test_decoupled_look_back.cpp: a shuffle-down
+// butterfly. warp_read_lane takes exactly (value, src_lane) — the out-of-range
+// fix-up is a separate guarded assignment (see ShuffleDown, same file:24-34).
 Var<T> result = input;
 UInt offset = 1u;
 $while (offset < warp_lane_count()) {
-    Var<T> temp = warp_read_lane(result, lane_id + offset, valid_item);
+    UInt src_lane = lane_id + offset;
+    Var<T> temp = warp_read_lane(result, src_lane);
+    $if (src_lane > valid_item) { temp = result; };  // ShuffleDown fix-up
     $if (lane_id + offset <= valid_item) {
         result = reduce_op(result, temp);
     };
@@ -202,7 +213,7 @@ This is a fallback pattern; prefer `warp_active_sum` / `warp_active_min` / `warp
 
 ### 2.6 Quantized Matmul with Warp
 
-Warp-level GEMM where each warp computes one output tile. Threads cooperatively load quantized weights via `warp_read_lane` to assemble dequantized values, then accumulate with `warp_active_sum`:
+Warp-level GEMM where each warp computes one output tile. Threads cooperatively load quantized weights via `warp_read_lane` to assemble dequantized values, then accumulate with `warp_active_sum` (pattern from `src/tests/unit/runtime/test_fp8_quantization.cpp:225-256`; the same shape appears in `test_fp4_quantization.cpp`):
 
 ```cpp
 auto warp_lane = warp_lane_id();
@@ -210,11 +221,12 @@ UInt tile_count = (K + warp_size - 1) / warp_size;
 for (auto t : dynamic_range(tile_count)) {
     UInt tile_begin = t * warp_size;
     UInt tile_size = min(warp_size, K - tile_begin);
+    UInt k = tile_begin + warp_lane;
 
-    // Each lane loads one quantized word, then shares via warp_read_lane
-    UInt rel_byte = warp_lane * kElementByteSize;
+    // Each lane loads one packed 4-byte word, then shares it via warp_read_lane
+    UInt rel_byte = k - tile_begin;
     UInt word = warp_read_lane(warp_word, rel_byte / 4u);
-    // ... dequantize and multiply ...
+    // ... dequantize (word >> (byte_offset % 4u) * 8u) & 0xff ... and multiply ...
 
     acc += warp_active_sum(local_v);
 }
@@ -241,16 +253,16 @@ $if (thread_x() == 0u) {
 **After:** Use `warp_active_sum` per warp, then one lane writes.
 ```cpp
 // Each warp computes its own partial sum
-Int warp_partial = warp_active_sum(1);
-// First lane of each warp writes to shared
+Int warp_partial = warp_active_sum(1);   // a raw literal is a valid Expr argument
+// First lane of each warp writes that warp's slot in the block
 $if (warp_is_first_active_lane()) {
-    shared.atomic(warp_lane_id() / warp_size).fetch_add(warp_partial);
+    shared.atomic(thread_x() / warp_lane_count()).fetch_add(warp_partial);
 };
 sync_block();
 // One thread (e.g. thread 0) combines across warps
 $if (thread_x() == 0u) {
     Int block_total = 0;
-    for (auto w : range(num_warps_per_block)) {
+    for (auto w : dynamic_range(num_warps_per_block)) {
         block_total += shared.read(w);
     };
     global_counter.atomic(0u).fetch_add(block_total);
@@ -276,11 +288,11 @@ for (uint stride = block_size / 2; stride > 0; stride >>= 1) {
 ```cpp
 // Phase 1: warp-level reduction (no shared memory, no barrier)
 Float warp_sum = warp_active_sum(value);
-
-// Phase 2: cross-warp reduction in shared memory (much smaller)
+// One slot per warp, declared in the kernel body (not inside a divergent $if)
+UInt warp_in_block = thread_x() / warp_lane_count();
+Shared<float> warp_results{num_warps_per_block};
 $if (warp_is_first_active_lane()) {
-    Shared<float> warp_results{num_warps_per_block};
-    warp_results[warp_id()] = warp_sum;
+    warp_results[warp_in_block] = warp_sum;
 };
 sync_block();
 // Only num_warps_per_block threads participate in phase 2
@@ -312,10 +324,10 @@ Float m = warp_active_max(value);
 
 ### 3.4 Sequential Lane Reads → `warp_prefix_sum`
 
-**Before:** Manually accumulating values from lower lanes via a loop of `warp_read_lane`.
+**Before:** Manually accumulating values from lower lanes via a loop of `warp_read_lane` (a device loop, so `dynamic_range`, and a host `for` over `warp_lane_id()` is invalid because the bound is a device value).
 ```cpp
 Float prefix = 0.f;
-for (uint i = 0; i < warp_lane_id(); i++) {
+for (auto i : dynamic_range(warp_lane_id())) {
     prefix += warp_read_lane(value, i);
 };
 ```
@@ -402,7 +414,7 @@ $if (item_idx < num_items) { /* ... work on item_idx with lanes `lane` ... */ };
 - **Pin the warp size.** If the algorithm assumes 32 lanes per item, call `set_warp_size(32)` (host: `device.compute_warp_size()`). Without pinning, a backend may choose a wider wave/subgroup (e.g. 64), which shrinks `warp_in_block` and silently skips items.
 - **Keep the tail guard.** `$if (item_idx < num_items)` makes idle warps in the last block harmless, so the host dispatch needs no change: `dispatch(num_items * warp_size)` still covers every item.
 - **When each thread owns an item** (no cross-lane cooperation), the same block-size increase is simpler: keep `dispatch_id().x` indexing and just raise `set_block_size`; the total thread count is unchanged.
-- **Verify on multiple backends.** Warp intrinsics lower to different hardware ops (WaveIntrinsics on DX, subgroup ops on Vulkan/SPIR-V, `__shfl*` on CUDA). Re-run the same correctness cases — including tail/partial-item sizes that exercise idle warps and boundary lanes — on at least two backends after the change.
+- **Verify on multiple backends.** Warp intrinsics lower to different hardware ops (`Wave*` intrinsics on DX, `OpGroupNonUniform*` subgroup ops on Vulkan/SPIR-V, `__shfl*`/`__reduce_*_sync` on CUDA). Re-run the same correctness cases — including tail/partial-item sizes that exercise idle warps and boundary lanes — on at least two backends after the change.
 
 ---
 
@@ -410,16 +422,18 @@ $if (item_idx < num_items) { /* ... work on item_idx with lanes `lane` ... */ };
 
 Warp collectives (section 3) only communicate *within one warp*. When cooperation must span the **whole thread block** (multiple warps), or you need persistent per-block scratch, arbitrary cross-thread indexing, or block-local privatization of a global atomic, use a **shared array** (`Shared<T>` / `$shared<T>`). Shared memory is on-chip and orders of magnitude faster than global memory, so staging data there once and reusing it, or aggregating locally before touching global memory, is a core optimization. (For the reverse direction — replacing *lane-local* shared memory with warp intrinsics — see section 3.7.)
 
-### 4.1 API (`include/luisa/dsl/shared.h`, `include/luisa/dsl/sugar.h:105`)
+### 4.1 API (`include/luisa/dsl/shared.h`, `include/luisa/dsl/atomic.h`; `$shared` macro = `include/luisa/dsl/sugar.h:497`)
 
 | DSL | Description |
 |---|---|
-| `Shared<T> s{n}` / `$shared<T> s{n}` | Allocate `n` elements of `T` in workgroup memory. Must be constructed **inside** the kernel/callable body (uses `FunctionBuilder::current()`). |
-| `s[i]` | Reference access (read or write); `i` must be an integral expr. |
-| `s.read(i)` / `s.write(i, v)` | Explicit read / write helpers (alias for `s[i]`). |
-| `s.atomic(i).fetch_add(v)` / `.compare_exchange(e, v)` / ... | Atomic ops on a shared slot. Available for scalar/vector element types (disabled for custom structs). |
-| `s.size()` | Element count. |
-| `new Shared<T>{n}` | Heap-allocate so helper classes can *own* shared scratch (`Shared<T>` is move-only, non-copyable). Lifetime is tied to the enclosing kernel's function builder. See `WarpReduce` in `test_decoupled_look_back.cpp`. |
+| `Shared<T> s{n}` / `$shared<T> s{n}` | Allocate `n` elements of `T` in workgroup memory (`explicit Shared(size_t n)`, shared.h:42). Must be constructed **inside** the kernel/callable body (uses `FunctionBuilder::current()->shared()`). |
+| `s[i]` | Returns `Var<T>&` — a temporary reference for read or write; `i` must be an integral expr (`requires is_integral_expr_v<U>`, shared.h:57-58). |
+| `s.read(i)` / `s.write(i, v)` | Explicit read / write helpers (`read` returns `s[i]`, `write` does `s[i] = v`; shared.h:68, 74). |
+| `s.atomic(i)` | Returns `detail::AtomicRef<T>` for that slot (shared.h:17, via the `detail::SharedAsAtomic<T>` base). It is **not** a no-op: it must be followed by a scalar op — `.fetch_add(v)`, `.fetch_sub`, `.fetch_min/max`, `.fetch_and/or/xor`, `.exchange`, `.compare_exchange(e, v)` (atomic.h:63-122). `fetch_and/or/xor` exist only on the int/uint/slong/ulong specialization, not on the `float` one (atomic.h:128-175). |
+| vector / array / matrix / tuple elements | `AtomicRef<Vector<T,N>>` exposes no aggregate op — reach the scalar lanes first: `s.atomic(i).x.fetch_add(v)` or `s.atomic(i)[k]` (atomic.h:204-249); same for `std::array` (`operator[]`), `Matrix<float,N>` and `std::tuple` (`get<i>()`). |
+| custom-struct elements | Unavailable: `detail::SharedAsAtomic<T>` has an empty `requires is_custom_struct_v<T>` specialization (shared.h:26-28), so `s.atomic(i)` does not exist. |
+| `s.size()` | Element count (`size_t`, host-side constant; shared.h:53). |
+| `new Shared<T>{n}` | Heap-allocate so helper classes can *own* shared scratch. `Shared<T>` deletes copy-construction and **both** assignment operators and only defaults the move constructor (shared.h:47-50), so it cannot be stored by value in a container. The shared variable itself is registered on the enclosing `FunctionBuilder`, which is why the pointer form works. See `WarpReduce` in `test_decoupled_look_back.cpp:122`. |
 
 Always `set_block_size(...)` and size the array to the block (`Shared<T> s{block_size}`). Use `sync_block()` to make writes visible across warps.
 
@@ -521,16 +535,17 @@ sync_block();                                 // publish to the whole block
 // ... now reuse s_src[...] / read neighbors' values without touching global memory ...
 ```
 
-`test_async_copy.cpp` fills a shared staging buffer with `async_copy(...)` (thread 0 issues the copy, then `sync_block()` before consumers read). `test_mipmap.cpp` writes 2×2 block averages into `Shared<float3>` and reduces level-by-level with a `sync_block()` between levels.
+`test_async_copy.cpp` fills a shared staging buffer with `async_copy(scope, dst_lvalue, src_addr, elem_bytes, num, stride, event)` — **every** thread issues its own copy (thread 0 alone would leave the rest unfilled), then `pipeline_commit()`, `pipeline_wait_prior(0u)` and `sync_block()` before consumers read (`src/tests/unit/dsl/test_async_copy.cpp:53-57`; the builtin and its `OpGroupAsyncCopy`/`cp.async` semantics are documented at `include/luisa/dsl/builtin.h:2053-2063`). `test_mipmap.cpp` writes 2×2 block averages into `Shared<float3>` and reduces level-by-level with a `sync_block()` between levels (`src/tests/unit/runtime/test_mipmap.cpp:106`).
 
 ### 4.7 Correctness & Performance Rules
 
-1. **Construct inside the kernel body.** `Shared<T>` needs `FunctionBuilder::current()`; declaring it outside a kernel/callable is invalid.
+1. **Construct inside the kernel body.** `Shared<T>` needs `FunctionBuilder::current()` (shared.h:43); declaring it outside a kernel/callable is invalid. Declare it in the function body, not inside a divergent `$if` you later read from outside that `$if` (C++ scope).
 2. **Barrier discipline.** A `sync_block()` is required (a) after initializing/filling shared before other threads read, and (b) between the read and write-back phases of each reduction step. Unlike warp collectives, **shared memory is NOT self-synchronizing across warps**.
-3. **Size to the block.** Match the array length to `set_block_size(...)`; use a power-of-two block for the halving tree reduction, and pad out-of-range lanes with the reduction identity (e.g. `0.f` for sum) — see the `$if (id < size) {...} $else { value = 0.f; }` guards in `test_softmax.cpp`.
+3. **Size to the block.** Match the array length to `set_block_size(...)`; use a power-of-two block for the halving tree reduction, and pad out-of-range lanes with the reduction identity (e.g. `0.f` for sum) — see the `$if (index < size) {...} $else {...}` guards in `test_softmax.cpp:46-51`.
 4. **Register-then-write.** In tree reductions, compute into a `Var`/register and write back only after a barrier to avoid RAW/WAR hazards.
-5. **Move-only ownership.** `Shared<T>` cannot be copied; store `Shared<T> *` (via `new`) when a helper class must hold shared scratch.
-6. **Prefer warp collectives when they suffice.** Shared memory costs a barrier and on-chip capacity; only reach for it when cooperation exceeds one warp or needs privatization/staging/arbitrary indexing.
+5. **Move-construct only.** `Shared<T>` deletes copy construction and both assignment operators; store `Shared<T> *` (via `new`) when a helper class must hold shared scratch.
+6. **Stay inside the 32 KiB HLSL floor.** The HLSL codegen path asserts total shared size `<= 32768` bytes per group (`src/backends/common/hlsl/hlsl_codegen.cpp:798`); the Vulkan path allows more (`Device::compute_max_shared_memory_size()`).
+7. **Prefer warp collectives when they suffice.** Shared memory costs a barrier and on-chip capacity; only reach for it when cooperation exceeds one warp or needs privatization/staging/arbitrary indexing.
 
 ---
 
@@ -540,17 +555,19 @@ Choosing `set_block_size(x, y, z)` is one of the most impactful tuning decisions
 
 ### 5.1 Hardware Constraints
 
-A thread group cannot be split across CUs: every wave/warp of a group must fit into **one CU's resources simultaneously** before the group can begin executing. The binding limits (DX11+ / modern GPUs):
+A thread group cannot be split across CUs: every wave/warp of a group must fit into **one CU's resources simultaneously** before the group can begin executing. The limits LuisaCompute itself enforces (`luisa_compute_validate_block_size`, `src/dsl/builtin.cpp:19-27`) are:
 
-| Limit | Value |
-|---|---|
-| Max threads per group | 1024 (X×Y×Z) |
-| Max shared memory (LDS) per group | 32 KiB (DX11-era floor; backend/device-dependent on Vulkan/DX12 — verify against the target API) |
-| Hardware wave/warp size | 64 (AMD), 32 (NVIDIA), 8 (Intel) |
+| Limit | Value | Enforced by |
+|---|---|---|
+| Each block dimension | `[1, 1024]` | `LUISA_ASSERT(all(size >= 1u && size <= 1024u), ...)` |
+| Threads per group (x·y·z) | `<= 1024` **and** a multiple of 32 | `LUISA_ASSERT(thread_count <= 1024u && thread_count % 32u == 0u, ...)` |
+| Shared memory per group | `<= 32768` B on the HLSL (DX) path; backend-queried on Vulkan | `src/backends/common/hlsl/hlsl_codegen.cpp:798`; `Device::compute_max_shared_memory_size()` (per-backend, `src/backends/vk/device.cpp:626`) |
 
-Never hardcode the wave width: query `device.compute_warp_size()` on the host and `warp_lane_count()` on the device. Because all waves of a group must fit simultaneously, a larger group can reduce the number of resident groups per CU, lowering occupancy and the GPU's ability to hide memory latency.
+Hardware wave/warp widths are not a repo constant — see section 6 for the per-backend query. Because all waves of a group must fit simultaneously, a larger group can reduce the number of resident groups per CU, lowering occupancy and the GPU's ability to hide memory latency.
 
 ### 5.2 Memory/IO-Bound Kernels
+
+> **Scope note:** §5.2–§5.5 are vendor architecture guidance (GCN/RDNA wave counts, VGPR budgets, profiler names), not facts asserted by this repo — the only repo-enforced limits are the ones tabulated in §5.1, and the only repo-measured numbers are in §5.7. Treat the rest as priors to confirm with a sweep.
 
 **Characteristic:** the kernel spends most of its time waiting for global memory loads/stores; arithmetic intensity (FLOPs per byte moved) is low.
 
@@ -604,9 +621,9 @@ The right size is found empirically:
 - Group size interacts with warp collectives: when cooperation is per-warp, enlarging the block packs more warps per CU (`item_idx = block_id().x * warps_per_block + thread_x() / warp_lane_count()`, section 3.8). Both `set_block_size(...)` and `set_warp_size(...)` are called inside the kernel lambda.
 - The LDS budget (section 4) caps how large a shared tile can be while keeping ≥2 groups resident.
 
-5.7 Empirical Benchmark Results (Measured, Not Theoretical)
+### 5.7 Empirical Benchmark Results (Measured, Not Theoretical)
 
-Measured with the block-size sweep harness `src/tests/unit/runtime/test_block_size_bench.cpp` (8 workload archetypes × block sizes 32–1024, constant total work, correctness-checked before timing, release build only). Device: NVIDIA GeForce RTX 5060 (warp 32, ~448 GB/s DRAM), Windows, LuisaCompute `vk` and `dx` backends. Every number below reproduced twice within 2.6% by an independent re-run; full data in `benchmark_results/<backend>_block_size_bench.csv`.
+Measured with the block-size sweep harness `src/tests/unit/runtime/test_block_size_bench.cpp` (8 workload archetypes × block sizes 32–1024, constant total work, correctness-checked before timing; run it against a release build). Device: NVIDIA GeForce RTX 5060 (warp 32, ~448 GB/s DRAM), Windows, LuisaCompute `vk` and `dx` backends. Every number below reproduced twice within 2.6% by an independent re-run; the harness writes the raw rows to `benchmark_results/<backend>_block_size_bench.csv` (`src/tests/unit/runtime/test_block_size_bench.cpp:976`).
 
 Per-case winners (block size → throughput, VK / DX):
 
@@ -624,38 +641,40 @@ Per-case winners (block size → throughput, VK / DX):
 Cross-cutting measured findings:
 
 1. "Optimal" sizes cluster at 64–256. Not a single measured case was fastest at 512 or 1024; 1024 was worst or near-worst in every case except histogram-at-scale. This strongly confirms §5.2–5.3: start at 64/128/256 and only grow when the algorithm's tile demands it.
-2. Non-multiple-of-bundle sizes: the DSL hard-asserts block_size % 32 == 0, so a true 100-thread group is impossible. Emulated as a 128-thread block with 28 idle lanes ("100e"), it *beat* the full 128 block on the streaming case (514 vs 404 GB/s) — the partial warp leaves scheduling headroom. Do not chase this: it also wastes lanes on compute-bound work, and idle-lane groups are not portable. Just never deliberately pick non-multiples on hardware that allows them; here the API forces you into the right choice.
+2. Non-multiple-of-bundle sizes: the DSL hard-asserts `block_size % 32 == 0` (`src/dsl/builtin.cpp:25`), so a true 100-thread group is impossible. Emulated as a 128-thread block with 28 idle lanes (`"100e"`, i.e. `case_elementwise_partial<128, 100>`), it *beat* the full 128 block on the streaming case (514 vs 404 GB/s) — the partial warp leaves scheduling headroom. Do not chase this: it also wastes lanes on compute-bound work, and idle-lane groups are not portable. Just never deliberately pick non-multiples on hardware that allows them; here the API forces you into the right choice.
 3. VK vs DX on identical DSL kernels: streaming cases within ~4%, warp_reduce 12% apart, divergent 2.6× apart, GEMM ±30%. There is no universal winner — re-run the sweep on both backends when shipping cross-backend.
 4. Measured bandwidths: effective (L2-inclusive) numbers can slightly exceed DRAM peak on repeated back-to-back dispatches; compare sizes within one case, not against theoretical peaks.
 
 LuisaCompute-specific traps hit while building the harness (verified in source — read the harness before writing your own sweep):
 
 1. `dispatch(n)` takes a *total thread count*, not a block count — the runtime computes grid = ceil(n / block_size). Dispatching n/block_size silently under-dispatches by BS× and every case "passes" with ~0 ms.
-2. D3D12 caps dispatch dimensions at 65535; a 1D grid over >65535 groups fails on DX with "Dispatch size X out of range". Split into a 2D grid (round dim0 to a multiple of the block size) and flatten with `dispatch_id().y * dispatch_size().x + dispatch_id().x`.
-3. The DX/HLSL path asserts shared memory ≤ 32 KiB per group; the VK path allows more. Size shared tiles for the 32 KiB floor for portability.
+2. D3D12 caps dispatch *group* dimensions at `D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION` (65535); a 1D grid over >65535 groups fails on DX with `"Dispatch size X out of range"` (`src/backends/dx/DXRuntime/CommandBuffer.cpp:82`). Split into a 2D grid (round dim0 to a multiple of the block size) and flatten with `dispatch_id().y * dispatch_size().x + dispatch_id().x`.
+3. The DX/HLSL path asserts shared memory ≤ 32 KiB per group (`src/backends/common/hlsl/hlsl_codegen.cpp:798`); the VK path reports a larger `VkPhysicalDeviceLimits::maxComputeSharedMemorySize` via `compute_max_shared_memory_size()` (`src/backends/vk/device.cpp:626`). Size shared tiles for the 32 KiB floor for portability.
 4. `warp_active_sum(v)` of a warp-uniform v returns 32×v — chained collectives compound this (32^k). Scale back by 1/lane_count or reduce non-uniform values.
-
-6. Hardware Mapping
 
 ## 6. Hardware Mapping
 
-| GPU Backend | Warp/Lane Terminology | Native Width |
-|---|---|---|
-| CUDA | Warp (32 lanes) | 32 |
-| HIP | Wavefront (32/64 lanes) | 32 or 64 |
-| Vulkan | Subgroup | Varies (usually 32 or 64) |
-| DirectX | Wave | 32 or 64 |
-| Metal | SIMD group | 32 |
+Every backend implements `DeviceInterface::compute_warp_size()` (`include/luisa/runtime/rhi/device_interface.h:116`), exposed as `Device::compute_warp_size()` (`include/luisa/runtime/device.h:128`). Each one's source of truth:
 
-Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on the device rather than hardcoding 32.
+| Backend | Terminology | How `compute_warp_size()` is obtained | Anchored value / behaviour |
+|---|---|---|---|
+| CUDA | warp | `return 32u;` | `src/backends/cuda/cuda_device.h:199`; `create_shader` hard-rejects any other pinned size ("CUDA backend only support warp size 32.", `src/backends/cuda/cuda_device.cpp:949`) |
+| HIP | wavefront | `hipDeviceGetAttribute(hipDeviceAttributeWarpSize)` | `src/backends/hip/hip_device.cpp:1015` (queried, not assumed) |
+| Vulkan | subgroup | `VkPhysicalDeviceSubgroupProperties.subgroupSize` | `src/backends/vk/device.cpp:617`; a pinned size becomes `requiredSubgroupSize` and errors if subgroup-size control is unavailable (`src/backends/vk/compute_shader.cpp:69-85`) |
+| DirectX | wave | D3D12 `WaveLaneCountMax` (`feature_check.wave_lane_count_max()`) | `src/backends/dx/DXApi/LCDevice.cpp:935` → `src/backends/dx/DXRuntime/Device.cpp:442`, `src/backends/dx/Resource/FeatureCheck.cpp:44` — note this is the **maximum** wave width the device supports, not the width a given dispatch uses; pin with `set_warp_size`, which emits `[WaveSize(n)]` and raises the target to shader model 6.6 (`src/backends/common/hlsl/codegen_utils/entry_points.cpp:819`, `src/backends/dx/DXApi/LCDevice.cpp:417`) |
+| Metal / Metal4 | SIMD-group | `[MTLDevice threadExecutionWidth]` | `src/backends/metal/metal_device.cpp:210`, `src/backends/metal4/metal_device.cpp:373`; both reject a pinned size other than 32 (`metal_device.cpp:391`, `metal4/metal_device.cpp:568`) |
+| SIMD (CPU) | configured lane width | device-created `_warp_width` | `src/backends/simd/runtime/simd_device.cpp:181`; a mismatching `set_warp_size` errors (`src/backends/simd/runtime/simd_shader.cpp:297`) |
+| Fallback (CPU) | — | `return 1;` | `src/backends/fallback/fallback_device.cpp:142`; warp collectives degenerate to one lane |
+
+Never hardcode a width. Query `device.compute_warp_size()` on the host and `warp_lane_count()` on the device (it lowers to the *hardware* lane count: `WaveGetLaneCount()` in HLSL, `spv::BuiltIn::SubgroupSize` in SPIR-V, CUDA's `warpSize` — `src/backends/common/hlsl/codegen_utils/variable.cpp:72`, `src/backends/common/spirv/spirv_codegen/emit.cpp:647`, `src/backends/cuda/cuda_builtin/cuda_device_resource.h:2691`). `set_warp_size(n)` is a *request* the backend can reject, not a guarantee.
 
 ---
 
 ## 7. Rules of Thumb
 
-1. **Prefer warp collectives over shared memory.** `warp_active_sum`, `warp_active_max`, `warp_prefix_sum` compile to single hardware instructions (e.g. `__shfl_xor_sync` on CUDA, `OpGroupNonUniformFAdd` on SPIR-V). No barrier needed.
+1. **Prefer warp collectives over shared memory.** `warp_active_sum`, `warp_active_max`, `warp_prefix_sum` lower to native group operations: one DX `WaveActive*` / `WavePrefix*` intrinsic each (`src/backends/common/hlsl/codegen_utils/function_codegen.cpp:1924-1975`), one SPIR-V `OpGroupNonUniform*` (`…FAdd`/`…IAdd` at `src/backends/common/spirv/spirv_codegen/instruction.cpp:5010`, `ExclusiveScan` at `:4869`), but on CUDA they are built in the builtin header — a 5-step `__shfl_xor_sync` butterfly for the reductions (`src/backends/cuda/cuda_builtin/cuda_device_resource.h:2772-2780`) and a `__shfl_sync` + 5-step `__shfl_up_sync` chain for the prefixes (`:3117-3129`), except integer min/max/sum which use `__reduce_*_sync` on SM 8.0+ (`:2981-2997`). Either way: no barrier needed.
 
-2. **Set warp size explicitly** when using warp collectives: `set_warp_size(device.compute_warp_size())` inside the kernel lambda.
+2. **Set warp size explicitly** when using warp collectives: `set_warp_size(device.compute_warp_size())` inside the kernel lambda (see section 6 for which sizes a backend will accept).
 
 3. **Don't mix warp and block assumptions.** `warp_active_sum` only reduces within the current warp. If you have multiple warps per block, use a two-level reduction (warp → shared → block).
 
@@ -665,7 +684,7 @@ Always query `device.compute_warp_size()` on the host and `warp_lane_count()` on
 
 6. **`warp_prefix_sum` is exclusive** (not inclusive). Lane 0 always gets 0 (for sum) or 1 (for product).
 
-7. **Vector types work.** All warp collectives accept `float2`, `float3`, `float4`, `int2`, etc. The operation applies component-wise.
+7. **Vector types work.** The reductions and prefixes (`warp_active_sum/product/min/max`, `warp_prefix_sum/product`, `warp_active_all_equal`, `warp_read_lane`, `warp_read_first_active_lane`) accept `float2`, `float3`, `float4`, `int2`, … and apply component-wise (CUDA expands them per component via the `LC_WARP_ACTIVE_REDUCE_VECTOR2/3/4` and `LC_WARP_PREFIX_REDUCE_VECTOR2/3/4` macros in `src/backends/cuda/cuda_builtin/cuda_device_resource.h:3059-3103,3145`), and the lane index of `warp_read_lane` must be an integral expr. `warp_read_lane` / `warp_read_first_active_lane` also accept **matrix** operands. The vote/ballot ops (`warp_active_all/any/count_bits/prefix_count_bits/bit_mask`) take a **scalar** `Expr<bool>` only.
 
 8. **Logic warp size.** You can logically group lanes (e.g. 4 groups of 8 within a 32-lane warp) using `lane % kGroupLanes` and `lane / kGroupLanes` arithmetic. Use `warp_read_lane` to communicate across groups.
 
@@ -692,15 +711,15 @@ GPU kernel optimization (sections 1–7) focuses on what happens *inside* a sing
 `CommandList` lets you batch multiple commands into a single submission. Commands are recorded into a `CommandList` object, then committed to the stream in one shot:
 
 ```cpp
-CommandList cmdlist = CommandList::create();
-cmdlist << upload_command
-        << dispatch_a
-        << dispatch_b
-        << download_command;
-stream << cmdlist.commit() << synchronize();
+auto cmdlist = CommandList::create();   // static CommandList create(size_t reserved_cmds, size_t reserved_cbs)
+cmdlist << buffer.view().copy_from(luisa::span{upload_data})
+        << kernel_a(dst.view(), src.view(), scale).dispatch(n)
+        << kernel_b(dst.view(), src.view(), scale).dispatch(n)
+        << buffer.view().copy_to(luisa::span{download_data});
+stream << cmdlist.commit() << synchronize();   // Commit operator<<(CommandList::Commit&&)
 ```
 
-All commands execute in FIFO order on the GPU, exactly as if they were submitted individually — but with a single driver round-trip instead of many.
+Ordering is preserved for everything that *matters*: `commit()` keeps record order, and the Vulkan/DX backends then run a command-reorder pass that groups consecutive commands whose resource accesses do not alias into one barrier-free layer, so independent commands may overlap instead of being serialized by a barrier between every pair (`include/luisa/backends/ext/command_reorder_ext.h:7-14`, `src/backends/common/command_reorder_visitor.h:314-334`). Alias hazards (WAW/RAW/WAR) on overlapping ranges force separate layers, so a producer→consumer chain still runs in the recorded order. Do not assume anything about the *relative timing of unrelated* commands, and do not assume strict FIFO either — see 8.9 for the switch.
 
 ### 8.2 When to Use
 
@@ -718,9 +737,9 @@ All commands execute in FIFO order on the GPU, exactly as if they were submitted
 
 1. **Identify the hot loop** — look for repeated `stream <<` statements inside a loop or per-frame function.
 2. **Group dependent commands** — all commands that form an in-order GPU pipeline (upload → kernel A → kernel B → download) belong in the same `CommandList`.
-3. **Create and fill** — call `CommandList::create()` once at the start of the group, then append commands with `<<`.
+3. **Create and fill** — call `CommandList::create()` once at the start of the group, then append commands with `<<` (`operator<<(luisa::unique_ptr<Command>&&)`) or `append()`; merge a sub-list with `add_range()` / `operator<<(CommandList&&)`.
 4. **Commit once** — `stream << cmdlist.commit()` submits the batch; follow with a single `synchronize()` if host-readback is needed.
-5. **Verify correctness** — ensure the sequence of operations inside the CommandList matches the dependency order (commands execute in FIFO order on the GPU).
+5. **Verify correctness** — ensure the sequence of operations inside the CommandList matches the dependency order (each command sees the effect of earlier ones).
 
 ### 8.5 Performance Impact
 
@@ -728,7 +747,7 @@ Batching N separate `stream << cmd` submissions into one `CommandList` reduces:
 - **Driver submission overhead**: Each stream submission incurs a kernel transition / command-queue flush cost. With CommandList, that cost is paid once per batch.
 - **Host-device synchronization points**: A single `commit() + synchronize()` replaces N pairs of `stream << ... << synchronize()`.
 
-In practice, replacing 5+ stream submissions per iteration with a single `CommandList::create()` → `commit()` can yield measurable wall-clock speedups in offline rendering or training-data export loops, where the CPU-side submission overhead is a meaningful fraction of the iteration time.
+In practice, replacing 5+ stream submissions per iteration with a single `CommandList::create()` → `commit()` can yield measurable wall-clock speedups in offline rendering or training-data export loops, where the CPU-side submission overhead is a meaningful fraction of the iteration time. The repo has no benchmark for that ratio; the closest measured harness is `src/tests/benchmark/benchmark_command_reorder_host.cpp`, which times **pure host submission cost** of a batch (`usage: benchmark_command_reorder_host <backend:dx|vk> [mode] [dispatches] [batches] [threads] [rounds] [verbose]`) and shows how that cost scales with the number of hazard layers, not with the number of commands — so a batch that merges into one layer is cheap to submit, while a same-range WAW batch pays a barrier per command.
 
 ### 8.6 Comparison with Other Optimizations
 
@@ -743,8 +762,8 @@ CommandList batching is orthogonal to kernel-level optimizations. Apply both: op
 ### 8.7 Key Rules
 
 1. **One CommandList, one commit, one sync.** Create a single `CommandList` for a group of dependent commands, commit it once, and synchronize once rather than submitting each command separately.
-2. **FIFO ordering preserved.** Commands execute in record order — no need for explicit barriers between kernel dispatches and buffer copies inside the same CommandList (GPU pipeline dependencies are handled automatically).
-3. **Don't reuse a committed CommandList.** After `commit()` the list is consumed; create a fresh one for the next batch.
+2. **Record order is the dependency order.** No explicit barriers between kernel dispatches and buffer copies inside one CommandList; hazards are what the reorder pass uses to insert layer boundaries. When commands touch disjoint resources they may overlap — that is the point of the pass, not a bug.
+3. **Don't reuse a committed CommandList.** `commit()` moves the list into the returned `Commit` (`src/runtime/command_list.cpp:92`), leaving the source empty; build a fresh one for the next batch. Destructing a non-empty, uncommitted list asserts (`src/runtime/command_list.cpp:9`).
 4. **Prefer CommandList over chaining on `stream <<`.** Batched submission is more efficient than long chains of `stream << a << b << c << synchronize()` because it reduces internal queue flushes.
 5. **Combine with kernel optimization.** Host-side batching and kernel-level warp/shared-memory optimization are complementary — use both.
 
@@ -754,24 +773,29 @@ CommandList batching is orthogonal to kernel-level optimizations. Apply both: op
 
 ```cpp
 // Runs AFTER all GPU commands in this CommandList finish.
-cmdlist.add_callback([](auto &&... captured) noexcept {
+// Signature is add_callback(luisa::move_only_function<void()> &&) — a nullary
+// move-only callable, not a variadic one.
+cmdlist.add_callback([/* by-value captures */]() noexcept {
     // GPU work is done — safe to read back buffers, write files, etc.
 });
 
-// Runs when the CommandList is committed/destructed, BEFORE GPU starts.
-cmdlist.add_dtor_callback([](auto &&... captured) noexcept {
-    // Host-side cleanup of resources no longer needed.
+// Runs when the recorded CommandList is DESTROYED (~CommandList), i.e. right
+// after the submission consumed it — still on the host, still before completion.
+cmdlist.add_dtor_callback([/* by-value captures */]() noexcept {
+    // Host-side cleanup of resources no longer needed by the recorded commands.
 });
 ```
+
+Both take `luisa::move_only_function<void()> &&` (`include/luisa/runtime/command_list.h:47,49`).
 
 #### 8.8.1 Understanding the Two Callbacks
 
 | Callback | When it fires | GPU status | Typical use |
 |---|---|---|---|
-| `add_dtor_callback` | At `commit()` (or when `Commit` object is destroyed) | **Not started yet** | Release temporary host buffers, close files, or free staging memory that was only needed to construct the commands. |
-| `add_callback` | After all GPU commands in the list have completed | **Done** | Read back downloaded buffers, write output files, signal host work queues, or launch dependent host tasks. |
+| `add_dtor_callback` | From `~CommandList` (`src/runtime/command_list.cpp:8-15`) — after `commit()` has moved the list into the `Commit` and the backend has consumed it | Commands already recorded/submitted; **completion not implied** | Release temporary host buffers, close files, or free staging memory that was only needed to construct the commands (see `fill_buffer`'s use in `include/luisa/runtime/builtin_kernel.h:59`). |
+| `add_callback` | After all GPU commands in the list have completed (backend completion/worker thread — e.g. `Stream::_thd` on Vulkan, `CommandQueue::_execute_thread` on DX) | **Done** | Read back downloaded buffers, write output files, signal host work queues, or launch dependent host tasks. |
 
-**Critical difference:** `add_dtor_callback` runs *before* GPU execution begins — it is not a completion callback. Only `add_callback` guarantees GPU work is finished.
+**Critical difference:** `add_dtor_callback` is a destruction hook, not a completion callback — it gives no ordering guarantee against GPU execution. Only `add_callback` guarantees GPU work is finished. Note also that dtor callbacks travel with a *move-constructed* `CommandList` (`src/runtime/command_list.cpp:103`) but are **not** transferred by `add_range()` / `operator<<(CommandList&&)` — that path moves only commands, callbacks and presents and then `clear()`s the source, dropping its dtor callbacks (`src/runtime/command_list.cpp:44-58,27`).
 
 #### 8.8.2 Avoiding `synchronize()` Stalls
 
@@ -807,11 +831,13 @@ The classic pattern for hiding latency: overlap GPU execution of iteration N+1 w
 // Host-side buffers must outlive the GPU work.
 // Use double-buffering or shared ownership (e.g., shared_ptr).
 for (int i = 0; i < num_iterations; i++) {
-    auto host_buf = std::make_shared<std::vector<float>>(size);
-    CommandList cmdlist = CommandList::create();
+    auto host_buf = std::make_shared<luisa::vector<float>>(size);
+    auto cmdlist = CommandList::create();
 
-    // Record GPU commands (upload, dispatch, download into host_buf)
-    cmdlist << upload << kernel.dispatch(...) << download(host_buf->data());
+    // Record GPU commands (upload, dispatch, download into *host_buf)
+    cmdlist << src.copy_from(luisa::span{src_data})
+            << kernel(dst.view(), src.view(), scale).dispatch(n)
+            << dst.view().copy_to(luisa::span{*host_buf});
 
     // Install the completion callback — captures host_buf by shared_ptr
     cmdlist.add_callback([host_buf, i]() noexcept {
@@ -838,19 +864,19 @@ Lambdas passed to `add_callback` / `add_dtor_callback` must own their captured r
 
 ```cpp
 // ✅ Shared ownership (recommended for buffers)
-auto data = std::make_shared<std::vector<float>>(size);
+auto data = std::make_shared<luisa::vector<float>>(size);
 cmdlist.add_callback([data]() noexcept { /* safe */ });
 
 // ✅ Move semantics for unique resources
-auto data = std::make_unique<std::vector<float>>(size);
-cmdlist.add_callback([data = std::move(data)]() noexcept { /* safe */ });
+auto owned = std::make_unique<luisa::vector<float>>(size);
+cmdlist.add_callback([data = std::move(owned)]() noexcept { /* safe */ });
 
 // ❌ Capturing raw pointers or references to stack/local variables is UAF.
 float *raw = ...;
 cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 ```
 
-`add_dtor_callback` has the same ownership rules, despite running earlier — it still fires after `commit()` returns, so stack variables captured by reference would be invalid.
+`add_dtor_callback` has the same ownership rules — it runs from `~CommandList`, which is after the submitting expression has finished, so stack variables captured by reference would be invalid.
 
 #### 8.8.5 When to Use Which
 
@@ -865,10 +891,25 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 #### 8.8.6 Key Rules
 
 1. **`add_callback` fires after GPU completion** — it is the non-blocking replacement for `synchronize()`.
-2. **`add_dtor_callback` fires before GPU starts** — use only for host-side cleanup, never for reading back GPU results.
+2. **`add_dtor_callback` is a destruction hook** — it carries no GPU-ordering guarantee at all; use it only for host-side cleanup, never for reading back GPU results.
 3. **Always capture by value** (shared_ptr, unique_ptr, or copy). Raw pointers and references to stack variables are dangling by the time the callback runs.
 4. **One final `synchronize()` is still needed** at the end of a pipeline to ensure the last iteration's callbacks have fired before the program exits.
 5. **Callbacks execute on an internal worker thread** — they should not throw, block on the GPU, or perform GPU API calls on the same stream.
+
+### 8.9 Command Reordering (the contract behind 8.1)
+
+The Vulkan and DirectX backends run a reorder pass over every batch. It is on by default and queryable/toggleable at runtime:
+
+```cpp
+#include <luisa/backends/ext/command_reorder_ext.h>
+if (auto *ro = device.extension<CommandReorderExt>()) {
+    ro->set_command_reorder_enabled(false);  // strict submission order (A/B baseline)
+}
+// process-wide kill switch, cannot be re-enabled from code:
+//   LUISA_DISABLE_COMMAND_REORDER=1
+```
+
+Seeded from `VulkanDeviceConfigExt::enable_command_reorder()` / `DirectXDeviceConfigExt::EnableCommandReorder()` (`include/luisa/backends/ext/vk_config_ext.h:104`, `include/luisa/backends/ext/dx_config_ext.h:67`), sampled when a backend starts a batch (a change applies to the next submission only) — `include/luisa/backends/ext/command_reorder_ext.h:16-27`, `src/backends/common/command_reorder_switch.h`. Related harnesses/tests: `src/tests/benchmark/benchmark_command_reorder.cpp`, `src/tests/benchmark/benchmark_command_reorder_host.cpp`, `src/tests/unit/ext/test_command_reorder_ranges.cpp`, `src/tests/unit/ext/test_command_reorder_bindless.cpp`.
 
 ---
 
@@ -919,6 +960,18 @@ Classify each branch by *how often it runs at runtime*, then hint accordingly:
 
 Sections 1–9 optimize hand-written kernels. When you instead write or optimize **kernel-generating code** (a lowering pass, a DSL emitter, or host code that builds kernels from an IR), a different class of opportunities appears: the generator runs on the host and knows things the device compiler cannot (compile-time extents, divisibility, launch shape). Exploit that knowledge; the device binary should contain only work that is genuinely runtime-dependent.
 
+Before adding a transformation of your own, check whether an existing XIR pass already covers it (`src/xir/passes/`, headers in `include/luisa/xir/passes/`):
+
+| Recipe below | Real XIR pass / analysis | Test coverage |
+|---|---|---|
+| 10.2 defer stores | `dead_store_elimination`, `local_store_forward`, `defer_local_aggregate_load` | `src/tests/unit/xir/test_xir_pass_defer_local_aggregate_load.cpp` |
+| 10.3 guard/branch hoisting | `loop_unswitch` (invariant-condition cloning; `include/luisa/xir/passes/loop_unswitch.h`) | `src/tests/unit/xir/test_xir_passes.cpp` (also `src/tests/unit/simd/test_llvm_schedule_codegen.cpp`) |
+| 10.4 batched loads/stores | `slp_vectorization`, `fuse_consecutive_buffer_reads` | `src/tests/unit/runtime/test_dsl_slp_vectorization.cpp`, `test_dsl_fuse_buffer_reads.cpp` |
+| 10.6 address strength reduction | `indvar_simplify` ("Strength reduction is plain-CFG-only", `include/luisa/xir/passes/indvar_simplify.h`) | `src/tests/unit/runtime/test_dsl_indvar_strength_reduce.cpp`, `src/tests/unit/xir/test_xir_pass_indvar_simplify.cpp` |
+| 10.7 / hoisting & const-folding | `licm`, `early_cse`, `sccp`, `const_fold` | `src/tests/unit/xir/test_xir_pass_licm.cpp`, `test_xir_pass_early_cse.cpp`, `test_xir_pass_sccp.cpp` |
+
+Caveat from `src/xir/passes/pass_pipeline.cpp:280-282`: the structured loop transforms (`loop_fusion`, `loop_rotation`, `loop_vectorization`) are deliberately **excluded from the default pipelines** — treat them as opt-in (`test_xir_pass_loop_rotation.cpp`, `test_xir_pass_loop_fusion.cpp`, `test_xir_pass_loop_vectorization.cpp` exercise them directly), not as something that will clean up after the emitter. There is no loop-unroll pass and no `lower_switch` pass in this repo; if you need unrolling the generator must do it (10.6), and a `SwitchInst` reaches raw-CFG `IndexedBranchInst` only through `destructure_cfg`.
+
 ### 10.1 Audit for replicated work first
 
 The most pathological slowdowns come from **each thread redundantly doing the whole tile's work** instead of a partitioned slice:
@@ -942,7 +995,7 @@ Partitioned loops usually carry a bounds guard (`if (idx < total)`) that is fals
 - Emit **unguarded full chunks** plus **one guarded tail chunk**; the tail is a uniform branch, not a per-element predicate.
 - When extents and block/warp size are host-known, prove `total % stride == 0` at generation time and **omit the tail entirely** — same for per-lane guards in warp-strided loops (`k < K` vanishes when `K % lanes == 0`).
 - Apply the same elision to identity-initialization of accumulators: if the guard is gone, the "else: identity" path is gone too.
-- Never elide based on the *runtime* warp size unless it was pinned with `set_warp_size`; eliding against a fixed host constant is only sound because warp sizes are powers of two within the DSL's contract.
+- Never elide based on the *runtime* warp size unless it was pinned with `set_warp_size`; eliding against a fixed host constant is only sound because warp sizes are powers of two within the DSL's contract (`luisa_compute_validate_warp_size` accepts 1, 2, 4, 8, 16, 32, 64, 128 only — `src/dsl/builtin.cpp:10-16`).
 
 ### 10.4 Memory-level parallelism in generated copy loops
 
@@ -961,7 +1014,7 @@ Per-element index computation (div/mod decompositions, stride multiplies) is inv
 
 - Decompose multi-dimensional coordinates **once per thread** (from the linear thread id), then stride both axes — never per element.
 - Hoist loop-invariant base addresses (block offsets, row bases) out of the `$for`; a codegen bug where an outer-loop induction variable leaks into a hoisted offset silently scatters all writes.
-- Unroll inner loops by a small host-known factor (`k_pack` = 4–8) when the trip count divides evenly; unrolled iterations need no guards.
+- Unroll inner loops by a small host-known factor (`k_pack` = 4–8) when the trip count divides evenly; unrolled iterations need no guards. There is **no loop-unroll XIR pass** in `src/xir/passes` (unrolling happens only inside `autodiff.cpp` for fixed-trip loops), so this must be done at emission time — and there is no `lower_switch` pass either; `SwitchInst` is lowered to raw-CFG `IndexedBranchInst` by `destructure_cfg`.
 
 ### 10.7 Barriers in generated code
 

@@ -1,6 +1,6 @@
 ---
 name: spv-opt
-description: SPIRV-Tools optimizer pass development, IR manipulation, and PassTest registration.
+description: SPIRV-Tools optimizer pass development, IR manipulation, PassTest registration, and LuisaCompute spvtools::Optimizer integration (presets, LUISA_SPIRV_OPT_* env knobs).
 ---
 
 # SPIRV-Tools Optimizer
@@ -52,7 +52,7 @@ Pass::Status MyPass::Process() {
 **Rules**:
 - `name()` must match the `--my-pass` CLI flag used in `RegisterPassFromFlag` (no leading hyphens).
 - `Process()` must return `Status::Failure` only on real errors.
-- If you modify the module, return `Status::SuccessWithChange`; the pass manager invalidates analyses not listed in `GetPreservedAnalyses()`.
+- If you modify the module, return `Status::SuccessWithChange`; `Pass::Run()` invalidates analyses not listed in `GetPreservedAnalyses()` (source/opt/pass.cpp).
 - A single pass instance may only run once; internal state does not reset.
 
 ### MemPass base class
@@ -104,7 +104,7 @@ inst->NumInOperands();
 inst->SetResultId(new_id);
 inst->SetResultType(new_type_id);
 inst->SetInOperand(idx, {new_val});
-inst->ToBinary(&words);
+inst->ToBinaryWithoutAttachedDebugInsts(&words);
 
 // Predicates
 inst->IsBranch();
@@ -131,7 +131,7 @@ for (auto& block : func) {  // func is a Function&
   block.ForEachInst([](Instruction* i){ }, true);  // true = include debug lines
 
   // Terminator helpers
-  block.ForEachSuccessorLabels([](uint32_t id){ });
+  block.ForEachSuccessorLabel([](uint32_t* id){ });  // NOTE: callback takes uint32_t*
   bool is_loop_header = block.IsLoopHeader();
   uint32_t merge_id = block.MergeBlockIdIfAny();
   uint32_t continue_id = block.ContinueBlockIdIfAny();
@@ -142,10 +142,10 @@ for (auto& block : func) {  // func is a Function&
 ### Function
 
 ```cpp
-for (auto& func : *get_module()) {
-  uint32_t func_id = func->DefInst().result_id();
-  bool is_declaration = func->IsDeclaration();
-  func->ForEachParam([](Instruction* param){ });
+for (auto& func : *get_module()) {  // func is a Function&
+  uint32_t func_id = func.DefInst().result_id();
+  bool is_declaration = func.IsDeclaration();
+  func.ForEachParam([](Instruction* param){ });
   // iterate blocks (func is a Function& from the module loop)
   for (auto& block : func) { }
 }
@@ -260,7 +260,8 @@ TEST_F(MyPassTest, Basic) {
 OpCapability Shader
 OpMemoryModel Logical GLSL450
 %void = OpTypeVoid
-%main = OpFunction %void None %void
+%fn = OpTypeFunction %void
+%main = OpFunction %void None %fn
 %entry = OpLabel
 OpReturn
 OpFunctionEnd
@@ -288,7 +289,8 @@ const std::string assembly = R"(
 OpCapability Shader
 OpMemoryModel Logical GLSL450
 %void = OpTypeVoid
-%main = OpFunction %void None %void
+%fn = OpTypeFunction %void
+%main = OpFunction %void None %fn
 %entry = OpLabel
 OpReturn
 OpFunctionEnd
@@ -370,7 +372,7 @@ Available `IRContext::Analysis` bits:
 - `kAnalysisIdToFuncMapping`, `kAnalysisConstants`, `kAnalysisTypes`
 - `kAnalysisDebugInfo`, `kAnalysisLiveness`, `kAnalysisIdToGraphMapping`
 
-After `Process()` returns `SuccessWithChange`, the pass manager automatically calls:
+After `Process()` returns `SuccessWithChange`, `Pass::Run()` itself (not `PassManager`) automatically calls:
 ```cpp
 ctx->InvalidateAnalysesExceptFor(GetPreservedAnalyses());
 ```
@@ -394,6 +396,15 @@ opt.Run(binary.data(), binary.size(), &optimized);
 Built-in recipes:
 - `RegisterPerformancePasses()` / `RegisterSizePasses()` / `RegisterLegalizationPasses()`
 - All three also have overloads taking a `bool preserve_interface` argument.
+
+## Repo Integration (LuisaCompute)
+
+LuisaCompute consumes SPIRV-Tools as a vendored library and registers **no custom `Pass` subclasses of its own** — the "Registering a Pass" workflow above only applies when editing `src/ext/SPIRV-Tools` itself. The integration point is `lc::spirv::optimize_spirv()` in `src/backends/common/spirv/spirv_codegen/optimizer.cpp` (called from `entry.cpp`):
+
+- Builds a `spvtools::Optimizer` for `SPV_ENV_VULKAN_1_2` and registers only built-in `spvtools::Create*Pass()` factories, then runs the pipeline in a fixed-point loop until the binary stops changing.
+- Presets (`SpirvOptimizerOptions`, default level 2 → `compute`): `none`; `lightweight` = adce, block-merge, simplification, dead-branch-elim; `compute` = `register_compute_passes()` (DXC-like pipeline; `loop-unroll` is registered only when the input already carries an explicit `Unroll` `OpLoopMerge` control bit); `full` = `RegisterPerformancePasses()` + private-to-local + copy-propagate-arrays + spread-volatile-semantics + compact-ids. `trim-capabilities` is appended only for modules within the audited capability allowlist (`can_safely_trim_capabilities`).
+- Env knobs read in the same file: `LUISA_SPIRV_OPT_LEVEL` (int), `LUISA_SPIRV_OPT_PASSES` (preset name), `LUISA_SPIRV_OPT_PASS_FLAGS` (comma/space-separated `--pass[=arg]` flags appended after the preset via `Optimizer::RegisterPassesFromFlags`; an invalid flag fails closed and keeps the input binary), `LUISA_SPIRV_OPT_MAX_ITERATIONS` (fixed-point cap, 1–10, default 5), `LUISA_SPIRV_OPT_SROA_LIMIT` (scalar-replacement limit, default 100, 0 = unlimited), `LUISA_SPIRV_OPT_MAX_ID_BOUND`, `LUISA_SPIRV_OPT_PRESERVE_BINDINGS` (`1`/`true`/`0`/`false`).
+- To exercise any upstream pass (or the whole registry) on a built runtime without code changes, set e.g. `LUISA_SPIRV_OPT_PASS_FLAGS=--strength-reduction`.
 
 ## File Map
 

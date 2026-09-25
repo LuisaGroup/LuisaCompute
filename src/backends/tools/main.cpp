@@ -1277,6 +1277,18 @@ struct ToolRunResult {
     int exit_code;
     std::string output;
     [[nodiscard]] bool ok() const noexcept { return exit_code == 0; }
+    /**
+     * \brief The exit code as a log string.
+     *
+     * A host tool that crashes terminates with an NTSTATUS (0xC0000005 for an access
+     * violation, for example), which is negative as an `int` and meaningless when
+     * printed as a decimal -- show the hex value in that case.
+     */
+    [[nodiscard]] luisa::string exit_code_text() const {
+        return exit_code < 0
+                   ? luisa::format("{} ({:#010x})", exit_code, static_cast<uint32_t>(exit_code))
+                   : luisa::format("{}", exit_code);
+    }
 };
 [[nodiscard]] ToolRunResult run_tool(const std::filesystem::path &program, const std::vector<std::string> &arguments) {
     auto argv = std::vector<std::string>{};
@@ -1358,7 +1370,7 @@ struct ToolRunResult {
     arguments.emplace_back(scratch_source.string());
     auto compiled = run_tool(glslang, arguments);
     if (!compiled.ok()) {
-        LUISA_ERROR("glslang failed for builtin '{}' (exit {}):\n{}", opt.name, compiled.exit_code, compiled.output);
+        LUISA_ERROR("glslang failed for builtin '{}' (exit {}):\n{}", opt.name, compiled.exit_code_text(), compiled.output);
     }
     auto module = read_bytes(scratch_module);
     if (module.empty()) {
@@ -1370,7 +1382,7 @@ struct ToolRunResult {
         auto validated = run_tool(validator, {scratch_module.string()});
         if (!validated.ok()) {
             LUISA_ERROR("SPIR-V validation failed for builtin '{}' (exit {}):\n{}",
-                        opt.name, validated.exit_code, validated.output);
+                        opt.name, validated.exit_code_text(), validated.output);
         }
     }
     {
@@ -1405,7 +1417,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
     }
     auto result = run_tool(embedder, arguments);
     if (!result.ok()) {
-        LUISA_ERROR("luisa-embed-device-lib failed (exit {}):\n{}", result.exit_code, result.output);
+        LUISA_ERROR("luisa-embed-device-lib failed (exit {}):\n{}", result.exit_code_text(), result.output);
     }
     if (!std::filesystem::is_regular_file(opt.embedded_source)) {
         LUISA_ERROR("luisa-embed-device-lib did not write {}.", opt.embedded_source.string());

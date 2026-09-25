@@ -11,12 +11,28 @@ and asks LLVM's native SPIR-V target to emit a
 `spirv64-unknown-vulkan1.2` module.
 
 This is not the native XIR-to-SPIR-V path. The two Vulkan codegen selections
-are mutually exclusive:
+are mutually exclusive, and enabling both fails at configure time:
 
-- CMake: `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV=ON` and
-  `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV=OFF`;
-- XMake: `lc_vk_backend_use_ast_llvm_spirv=true`, with `lc_llvm_path`
-  pointing to an LLVM installation/build prefix or its `llvm-config`.
+- CMake: `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV=ON` (default `OFF`) and
+  `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV=OFF` (default `ON`); the combination
+  `message(FATAL_ERROR)`s in the root `CMakeLists.txt`,
+  `src/backends/CMakeLists.txt` and `src/backends/vk/CMakeLists.txt`.
+- XMake: `lc_vk_backend_use_ast_llvm_spirv=true` (default `false`), with
+  `lc_llvm_path` pointing to an LLVM installation/build prefix or its
+  `llvm-config`. Root `xmake.lua` `raise()`s on the conflict and
+  `scripts/xmake_func.lua` `raise()`s when `lc_llvm_path` is unset. Both xmake
+  route options default to `false`, so there the native route is opt-in too.
+
+The selected route arrives as a compile definition on the Vulkan plugin:
+`LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV`
+(`src/backends/vk/CMakeLists.txt`, `src/backends/vk/xmake.lua`);
+`src/backends/vk/device.cpp` `#error`s if both are defined. This repository
+builds against LLVM 22 (`lc_llvm_path` in `scripts/options.lua`), but
+`src/backends/common/spirv_llvm/CMakeLists.txt` pins no version:
+`find_package(LLVM CONFIG REQUIRED)` only requires the `SPIRV` target and
+`llvm/IR/IntrinsicsSPIRV.h`. `scripts/download_and_patch_llvm.cmake`
+(`LUISA_COMPUTE_DOWNLOAD_LLVM`, official LLVM 19.1.5, reached from the fallback
+backend only) is not this route's LLVM.
 
 The public entry is deliberately LLVM-header-free:
 
@@ -49,10 +65,22 @@ runtime support, and do not bypass this preflight merely because LLVM happens
 to emit some SPIR-V for an address-space global.
 
 Unsupported AST operations call `LUISA_NOT_IMPLEMENTED` or otherwise fail
-closed. Returning zero, `undef`, or a no-op is not an acceptable way to claim
-support. When expanding the backend, implement the LLVM IR lowering, extend
-the property preflight, validate the Vulkan runtime binding shape, and add an
-end-to-end SPIR-V validator test together.
+closed: unimplemented builtin call ops hit
+`LUISA_ERROR_WITH_LOCATION("Unimplemented CallOp in LLVM backend: {}")` in
+`LLVMStateVisitor::_codegen_builtin_call`, resource-shaped kernels hit the
+`LUISA_ASSERT` in `LLVMCodegenUtility::GenerateProperties`, and software
+(`use_fallback_rtx()`) ray traversal is refused in `Device::create_shader`.
+`LUISA_ERROR` is `[[noreturn]]` (`include/luisa/core/logging.h`), so those
+paths abort instead of emitting a shader. Returning zero, `undef`, or a no-op
+is not an acceptable way to claim support.
+
+This route is also the only SPIR-V producer in that build: the
+`_create_shader_hlsl` compatibility dispatch in `Device::create_shader` sits
+inside `#ifdef LUISA_XIR_TO_SPIRV`, so an `LUISA_AST_LLVM_TO_SPIRV` build never
+re-routes a kernel to HLSL/DXC: printing and unimplemented call ops must fail
+in the facade instead. When expanding the backend, implement the LLVM IR
+lowering, extend the property preflight, validate the Vulkan runtime binding
+shape, and add an end-to-end SPIR-V validator test together.
 
 ## Source map
 
@@ -103,6 +131,11 @@ uses the backend's conservative SPIR-V artifact feature requirements.
   provisional global-variable lowering for arguments, but the property
   preflight rejects those kernels until a real descriptor ABI exists.
 - Callable arguments remain LLVM function parameters.
+- Only `DISPATCH_ID`, `THREAD_ID` and `BLOCK_ID` are lowered, through
+  `llvm::Intrinsic::spv_thread_id`, `spv_thread_id_in_group` and
+  `spv_group_id`; every other builtin variable currently stores `llvm::UndefValue`
+  into an alloca in `LLVMCodegenUtility::CodegenFunction`. That is a stub, not
+  support.
 - Save and restore the builder insertion point, current function, and variable
   map around recursive callable generation.
 - Probe incomplete blocks through `llvm_compat.h::terminator_or_null`; do not
@@ -195,16 +228,28 @@ but it is a distinct `LLVM_SPIRV` dialect:
   to LLVM artifacts;
 - constants are embedded in SPIR-V, so there is no constant-UBO payload;
 - saved arguments use the legacy/unspecified resource-role sentinel;
-- loaded modules are still integrity-checked and Vulkan-validated before
-  pipeline creation.
+- loaded artifacts keep the codec's MD5 section-digest and
+  `CODEGEN_DIALECT_MISMATCH` checks, and their SPIR-V header/entry point
+  is re-verified, but `validate_spirv_artifact_modules` runs SPIRV-Tools
+  validation and capability reconciliation only for
+  `ShaderCodegenDialect::XIR_SPIRV` and returns early for every other
+  dialect; LLVM artifacts depend on the facade's own compile-time
+  `SPV_ENV_VULKAN_1_2` validation.
 
 ## Tests
 
-`test_spirv_llvm_facade` is registered only when the LLVM facade target exists.
-It compiles a no-argument kernel through the public header, checks the fixed
-sampler property, and independently validates/disassembles the returned module
-for Vulkan 1.2. `test_vk_shader_binary_contract` separately covers the common
-artifact boundary under the `LUISA_AST_LLVM_TO_SPIRV` dialect define.
+`test_spirv_llvm_facade` is registered only when the LLVM facade target exists
+(`if (TARGET luisa-compute-spirv-llvm)` in `src/tests/CMakeLists.txt`, CTest
+labels `unit;unit_ext;spirv;spirv_llvm`; on xmake it needs `lc_vk_backend` plus
+`lc_vk_backend_use_ast_llvm_spirv`). It compiles a no-argument kernel through
+the public header, checks the fixed sampler property, and independently
+validates/disassembles the returned module for Vulkan 1.2.
+`test_vk_shader_binary_contract` separately covers the common artifact boundary
+under the `LUISA_AST_LLVM_TO_SPIRV` dialect define. Both are host-only tests:
+neither calls `luisa::test::create_device`, so `argv[1]` is not a backend name
+here and `xmake run test_spirv_llvm_facade` is the whole command.
+`test_spirv_llvm_facade` is the only test that calls `compile_spirv`; no
+runtime Vulkan test exercises this route yet.
 
 When adding support, include at least:
 

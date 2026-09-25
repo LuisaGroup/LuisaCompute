@@ -5,20 +5,30 @@ description: High-performance C JSON parsing, creation, and modification with yy
 
 # yyjson Usage Guide
 
-Single-header ANSI C (`yyjson.h` + `yyjson.c`). Two data models: immutable (`yyjson_doc`/`yyjson_val`) and mutable (`yyjson_mut_doc`/`yyjson_mut_val`). Free the doc to free all values. Arrays/objects are linked lists; index/key lookup is O(n) — prefer iterators.
+Single-header ANSI C (`yyjson.h` + `yyjson.c`). Two data models: immutable (`yyjson_doc`/`yyjson_val`) and mutable (`yyjson_mut_doc`/`yyjson_mut_val`). Free the doc to free all values. Mutable arrays/objects are intrusive circular lists (`yyjson_mut_val.next`); immutable ones are contiguous 16-byte slots — either way index/key lookup is a linear search, so prefer iterators.
 
 **Ownership rule of thumb**: the document owns everything it allocated, and *borrows* every string you hand it unless you use a `cpy` API. See [Memory Management](#memory-management).
 
 ## Project Notes
 
-- The bundled copy is in `src/ext/yyjson` (currently **0.12.0**). The build option `lc_yyjson_use_xrepo` switches to the xmake-repo package.
-- Luisa code commonly supplies a custom `yyjson_alc` that forwards to `luisa::detail::allocator_allocate/reallocate/deallocate` with 16-byte alignment.
+- The bundled copy is in `src/ext/yyjson` (currently **0.13.0**, `YYJSON_VERSION_STRING` at
+  `src/ext/yyjson/src/yyjson.h:590`). The xmake option `lc_yyjson_use_xrepo`
+  (`xmake.lua:147`, used at `src/ext/xmake.lua:36`) switches to the xmake-repo package; the CMake
+  counterpart is `LUISA_COMPUTE_USE_SYSTEM_YYJSON` (`CMakeLists.txt:186`).
+- The only custom `yyjson_alc` in-tree is `make_allocator()` in
+  `src/xir/translators/xir2json.cpp:10-17`: it forwards to
+  `luisa::detail::allocator_allocate/reallocate/deallocate` (`include/luisa/core/stl/memory.h:68-70`
+  — all three take an explicit `alignment`) with 16-byte alignment and a `NULL` `ctx`.
 - `yyjson_write()` / `yyjson_mut_write()` / `yyjson_val_write()` allocate their output string with the default allocator. Use the `_opts` variants and pass an allocator if the output must use the same allocator as the document.
-- The bundled target compiles `yyjson.c` with `/utf-8` on MSVC.
-- Where it is used today (good patterns to copy): `src/ast/json2ast.cpp` (reader + budget-limited
-  custom `yyjson_alc`, frees the doc on every exit), `src/xir/translators/xir2json.cpp` (builder +
-  `_opts` writer sharing one 16-byte-aligned `yyjson_alc`), `dgm_ao_render/baker/ao_bake_meta.cpp`
-  (builder with the default allocator, literal keys, `yyjson_mut_strcpy` values).
+- The bundled target compiles `yyjson.c` with `/utf-8` on MSVC (xmake `lc-yyjson`,
+  `src/ext/xmake.lua:47-49`); the CMake `luisa-compute-ext-yyjson` object target instead defines
+  `YYJSON_EXPORTS=1` / `YYJSON_IMPORTS=1` (`src/ext/CMakeLists.txt:464-470`).
+- Where it is used today (the only yyjson call sites outside `src/ext/yyjson`; good patterns to
+  copy): `src/ast/json2ast.cpp:2406-2430` (reader + budget-limited custom `yyjson_alc`, frees the
+  doc on every exit), `src/xir/translators/xir2json.cpp` (the only builder: literal keys,
+  `_opts` writer sharing one 16-byte-aligned `yyjson_alc`), and the readers
+  `src/tests/unit/xir/test_xir_translators.cpp:920-939` and
+  `src/tests/unit/xir/test_ast_to_xir.cpp:201-207` (default allocator, `yyjson_doc_free` on every path).
 - Read [Memory Management](#memory-management) before adding or freeing anything: most yyjson bugs
   in this repo are borrowed-string lifetime bugs, not syntax bugs.
 
@@ -30,7 +40,7 @@ yyjson_doc *doc = yyjson_read_file("path", 0, NULL, &err);
 yyjson_doc *doc = yyjson_read_opts((char*)dat, len, flg, alc, &err);
 yyjson_doc *doc = yyjson_read_fp(fp, flg, alc, &err);
 
-// Incremental
+// Incremental (standard JSON only: non-standard-feature flags are ignored)
 yyjson_incr_state *s = yyjson_incr_new(buf, len, flg, alc);
 yyjson_doc *doc = yyjson_incr_read(s, read_len, &err);
 yyjson_incr_free(s);
@@ -53,8 +63,9 @@ yyjson_is_arr(v)   yyjson_is_obj(v)   yyjson_is_raw(v)
 // Getters
 bool b = yyjson_get_bool(v);          uint64_t u = yyjson_get_uint(v);
 int64_t s = yyjson_get_sint(v);       int i = yyjson_get_int(v);
-double d = yyjson_get_real(v);        const char *str = yyjson_get_str(v);
-size_t len = yyjson_get_len(v);       const char *raw = yyjson_get_raw(v);
+double d = yyjson_get_real(v);        double n = yyjson_get_num(v);   // any number type
+const char *str = yyjson_get_str(v);  size_t len = yyjson_get_len(v);
+const char *raw = yyjson_get_raw(v);  yyjson_type t = yyjson_get_type(v);
 
 // Array (linear by index)
 size_t sz = yyjson_arr_size(arr);
@@ -166,24 +177,31 @@ be released via `alc.free(alc.ctx, json)`.
 ## JSON Pointer / Patch (RFC 6901/6902/7386)
 
 ```c
-// Query
+// Query (value-level variants: yyjson_ptr_get(val, ptr) / yyjson_mut_ptr_get(mval, ptr))
 yyjson_val *v = yyjson_doc_ptr_get(doc, "/users/0/name");
 
-// Modify (mutable)
-yyjson_mut_doc_ptr_set(doc, "/a", yyjson_mut_int(doc, 9));
-yyjson_mut_doc_ptr_add(doc, "/b/-", val);    // "-" appends to array
+// Modify (mutable): set/add return bool; remove returns the removed value (or NULL)
+yyjson_mut_doc_ptr_set(doc, "/a", yyjson_mut_int(doc, 9));  // replaces if the key exists
+yyjson_mut_doc_ptr_add(doc, "/b/-", val);                   // "-" appends to an array
 yyjson_mut_doc_ptr_remove(doc, "/b");
 
-// Error variants: _getx takes yyjson_ptr_err; _setx/_addx/_removex take yyjson_ptr_ctx + yyjson_ptr_err
+// n-variants: (doc, ptr, len). x-variants add (yyjson_ptr_ctx *, yyjson_ptr_err *):
+//   yyjson_doc_ptr_getx(doc, ptr, len, &err)
+//   yyjson_mut_doc_ptr_getx(doc, ptr, len, &ctx, &err)
+//   yyjson_mut_doc_ptr_setx/addx(doc, ptr, len, new_val, bool create_parent, &ctx, &err)
+//   yyjson_mut_doc_ptr_removex(doc, ptr, len, &ctx, &err)
+// ctx records the parent so yyjson_ptr_ctx_remove/append/replace can undo-edit it.
+// There is also a replace family (yyjson_mut_doc_ptr_replace returns the old value).
 
-// Patch
-yyjson_mut_val *out = yyjson_patch(doc, orig, patch, &err);     // RFC 6902
-yyjson_mut_val *out = yyjson_merge_patch(doc, orig, patch);     // RFC 7386
+// Patch (doc is a yyjson_mut_doc *; orig/patch are immutable values;
+// all-mutable inputs: yyjson_mut_patch / yyjson_mut_merge_patch)
+yyjson_mut_val *out = yyjson_patch(doc, orig, patch, &err);   // RFC 6902, err: yyjson_patch_err
+yyjson_mut_val *out = yyjson_merge_patch(doc, orig, patch);   // RFC 7386 (recursive: stack risk)
 ```
 ## Memory Management
 
 Everything below was checked against the bundled sources (`src/ext/yyjson/src/yyjson.h`,
-`yyjson.c`, v0.12.0).
+`yyjson.c`, v0.13.0).
 
 ### Who owns what
 
@@ -192,12 +210,14 @@ Everything below was checked against the bundled sources (`src/ext/yyjson/src/yy
   through it. Values have exactly the lifetime of their document: no per-value free, no
   refcounting. Release with `yyjson_doc_free()` / `yyjson_mut_doc_free()` (both no-ops on `NULL`)
   and treat every `yyjson_val *`, `yyjson_mut_val *`, and every `const char *` returned by
-  `yyjson_get_str()` / `yyjson_get_raw()` as dangling afterwards.
+  `yyjson_get_str()` / `yyjson_get_raw()` (mutable: `yyjson_mut_get_str()` /
+  `yyjson_mut_get_raw()`) as dangling afterwards.
 - **Immutable doc layout:** one block containing the `yyjson_doc` header followed by all
   `yyjson_val` slots (grown with `alc.realloc` *during* the read, so don't cache `yyjson_val *`
   across a read call; stable once it returns), plus one block holding the input-text copy
   (`doc->str_pool`). `yyjson_doc_free()` = at most two `alc.free` calls.
-- **Mutable doc layout:** two bump arenas — `val_pool` (16-byte `yyjson_mut_val` slots) and
+- **Mutable doc layout:** two bump arenas — `val_pool` (24-byte `yyjson_mut_val` slots: `tag`,
+  `uni`, `next`) and
   `str_pool` (bytes for *copied* strings and raw values). Chunks double in size (start
   `0x100` B / 16 values, capped at `0x10000000` B / `0x1000000` values) and nothing is returned
   until `yyjson_mut_doc_free()`. `*_remove`, `*_iter_remove`, `*_clear` unlink values but reclaim
@@ -228,13 +248,14 @@ is copied and held by doc").
 Consequences:
 
 - There is **no** copy-the-key convenience. For a dynamic key build the pair yourself:
-  `yyjson_mut_obj_add(doc, yyjson_mut_strcpy(doc, key.c_str()), value)`.
+  `yyjson_mut_obj_add(obj, yyjson_mut_strcpy(doc, key.c_str()), value)`.
 - `yyjson_mut_obj_add_strncpy(doc, o, "k", sv.data(), sv.size())` is the way to add a
   `luisa::string_view` / `std::string` that may embed no NUL terminator: length-delimited **and**
   copied.
 - Borrowed content is aliased, not snapshotted — mutating the source buffer afterwards rewrites
   the JSON. Worse, "does this string need escaping?" is decided and cached in the value's tag at
-  creation (`YYJSON_SUBTYPE_NOESC`, computed by `unsafe_yyjson_set_str`): `yyjson_mut_str`,
+  creation (`YYJSON_SUBTYPE_NOESC`, decided by `unsafe_yyjson_is_str_noesc`;
+  `unsafe_yyjson_set_str` wraps it for the NUL-terminated cases): `yyjson_mut_str`,
   `yyjson_mut_strcpy`, the **key** of every `yyjson_mut_obj_add_*`, and the value of
   `yyjson_mut_obj_add_str` — so mutating a borrowed string to later contain `"`, `\` or a control
   character emits **invalid** JSON instead of escaping it. The `n`-family (`yyjson_mut_strn`,
@@ -271,10 +292,10 @@ yyjson_mut_obj_add_strncpy(doc, root, "lightmap", sv.data(), sv.size());
 
 Safe to borrow: string literals and other static storage (keys like `"schema"`, `"version"`), and
 buffers of objects *known* to outlive the document. Default to copying for anything computed — one
-bump-arena allocation per string is cheaper than the bug. Real examples:
-`src/xir/translators/xir2json.cpp` (literal keys + `add_strncpy` for dynamic values) and
-`dgm_ao_render/baker/ao_bake_meta.cpp` (literal keys + `yyjson_mut_strcpy` for filenames and
-names).
+bump-arena allocation per string is cheaper than the bug. Real example:
+`src/xir/translators/xir2json.cpp` — `:40-45` borrows string literals only (`"schema"`,
+`"luisa.xir.debug"`), `:76-78` switches to `yyjson_mut_obj_add_strncpy` for every computed string
+(`module->name()`, the serialized text).
 
 ### Reader memory
 
@@ -299,7 +320,8 @@ names).
   way: `free()` for a `NULL` alc, otherwise `alc.free(alc.ctx, json)` — see
   `write_document()` in `src/xir/translators/xir2json.cpp`.
 - The non-`_opts` helpers (`yyjson_write`, `yyjson_mut_write`, `yyjson_val_write`) always use the
-  **libc default** allocator, so `free()` is the only correct release; with a custom `yyjson_alc`
+  library's **default** allocator — libc `malloc`/`free` unless `YYJSON_CUSTOM_ALC` is defined — so
+  `free()` is the only correct release; with a custom `yyjson_alc`
   for the document, output and document then live in two different heaps (that is also where
   mismatched free bugs come from). Use the `_opts` variant to keep one allocator.
 - `yyjson_write_file` / `yyjson_mut_write_file` / `yyjson_write_fp` allocate their temp buffer with
@@ -331,7 +353,9 @@ yyjson_alc MY_ALC = { my_malloc, my_realloc, my_free, my_ctx };
 - Both documents and readers **copy** the `yyjson_alc` struct (`doc->alc = *alc`), so the struct
   itself may be a stack temporary, but everything it references — a pool's buffer, the `ctx`
   object — must outlive the document (and, for writers, the output string).
-- `NULL` alc ⇒ `YYJSON_DEFAULT_ALC` (libc `malloc`/`realloc`/`free`).
+- `NULL` alc ⇒ yyjson's internal default allocator — libc `malloc`/`realloc`/`free`
+  (`YYJSON_DEFAULT_ALC`, a *private* `static` in `src/ext/yyjson/src/yyjson.c:2242`; it becomes a
+  null allocator under `YYJSON_FREESTANDING` and can be replaced by defining `YYJSON_CUSTOM_ALC`).
 - In this repo: `xir2json.cpp` forwards to `luisa::detail::allocator_allocate/reallocate/deallocate`
   with 16-byte alignment; `json2ast.cpp` wraps libc with a `YYJsonBudget` `ctx` that returns `NULL`
   past `max_parse_memory_bytes`, turning a hostile/large document into a clean
@@ -347,8 +371,9 @@ yyjson_alc MY_ALC = { my_malloc, my_realloc, my_free, my_ctx };
 - `yyjson_read_opts` / `yyjson_write_opts` are thread-safe when `alc` is thread-safe (or `NULL`)
   and the input data isn't modified concurrently (guaranteed unless `INSITU`).
 - A finished `yyjson_doc` can be read concurrently (`yyjson_get_*`, iterators are stack-local
-  state), but never mutate values from two threads (`yyjson_val_set_*` / `yyjson_set_str_noesc`
-  change tags in place) and never read while another thread frees it.
+  state), but never mutate values from two threads (the in-place setters `yyjson_set_*` /
+  `yyjson_mut_set_*`, e.g. `yyjson_set_str_noesc`, change tags) and never read while another
+  thread frees it.
 - `yyjson_alc_pool_init` and `yyjson_alc_dyn_new` allocators are explicitly documented as
   **not thread-safe**.
 
@@ -356,19 +381,24 @@ yyjson_alc MY_ALC = { my_malloc, my_realloc, my_free, my_ctx };
 
 - Wrap the document: `std::unique_ptr<yyjson_mut_doc, void (*)(yyjson_mut_doc*)>` (or a scope
   guard) instead of hand-writing `yyjson_mut_doc_free()` before each `return`. Manual frees are
-  easy to miss on early returns — `ao_bake_meta.cpp` frees on both paths, which is the fragile
-  version.
-- `LUISA_ERROR*` / `luisa::log_error` is `[[noreturn]] noexcept` and calls `std::abort()`, so it
-  does **not** unwind; what does unwind is ordinary C++ work inside the build loop (`std::string`,
-  `luisa::format`, `vector` growth ⇒ `std::bad_alloc`). Keep the loop body between `doc_new` and
-  `doc_free` allocation-light, or hold the doc in a guard.
+  easy to miss on early returns — `src/tests/unit/xir/test_xir_translators.cpp:920-939` frees on
+  both paths, which is the fragile version.
+- `LUISA_ERROR` / `luisa::log_error` is `[[noreturn]] noexcept` and calls `std::abort()`
+  (`include/luisa/core/logging.h:110,133`), so it does **not** unwind. Nothing else throws in the
+  yyjson users either: xmake compiles them with `exceptions="no-cxx"` + `_HAS_EXCEPTIONS=0`
+  (`scripts/xmake_func.lua:346-353` — only `src/py` opts back in, `src/py/xmake.lua:23`), so a
+  failing `std::string` / `luisa::format` / `vector` growth aborts instead of unwinding. The real
+  early exits are plain `return`s — keep the loop body between `doc_new` and `doc_free`
+  allocation-light anyway (CMake/clang-cl does add `/EHsc`, `src/CMakeLists.txt:34`), or hold the
+  doc in a guard.
 - Nothing in the doc needs `free()`-ing individually: not values, not copied strings, not keys.
   Mixing `free()` / `luisa::detail::allocator_deallocate` with yyjson-owned memory is a bug; only
   the writer's returned string (and `yyjson_alc_dyn_new`'s allocator) is ever freed by hand.
 - `yyjson_mut_doc_set_str_pool_size(doc, total_string_bytes)` and
   `yyjson_mut_doc_set_val_pool_size(doc, value_count)` set the *next* chunk size (no immediate
   allocation) — worth it for large, predictable dumps (many `strcpy`ed strings or many values) to
-  avoid the doubling-realloc churn. Note the string pool is only used by copied strings/raw values.
+  avoid the doubling-chunk `malloc` churn (the pools grow by linking new chunks, never by
+  `realloc`-ing the old one). Note the string pool is only used by copied strings/raw values.
 
 ## Number & Compile-time
 
@@ -378,7 +408,14 @@ yyjson_mut_set_fp_to_float(val, true);
 yyjson_mut_set_fp_to_fixed(val, 6);
 ```
 
-Compile-time defines: `YYJSON_DISABLE_READER`, `YYJSON_DISABLE_WRITER`, `YYJSON_DISABLE_INCR_READER`, `YYJSON_DISABLE_UTILS` (Pointer/Patch), `YYJSON_DISABLE_FAST_FP_CONV`, `YYJSON_DISABLE_NON_STANDARD`, `YYJSON_DISABLE_UTF8_VALIDATION`, `YYJSON_DISABLE_UNALIGNED_MEMORY_ACCESS`. `YYJSON_READER_DEPTH_LIMIT`.
+Compile-time defines (`src/ext/yyjson/src/yyjson.h:35-133`): `YYJSON_DISABLE_READER`,
+`YYJSON_DISABLE_WRITER`, `YYJSON_DISABLE_INCR_READER`, `YYJSON_DISABLE_FILE` (file/fp read+write
+APIs), `YYJSON_DISABLE_UTILS` (Pointer/Patch), `YYJSON_DISABLE_FAST_FP_CONV`,
+`YYJSON_DISABLE_NON_STANDARD`, `YYJSON_DISABLE_UTF8_VALIDATION`,
+`YYJSON_DISABLE_UNALIGNED_MEMORY_ACCESS` (auto-detected when left undefined),
+`YYJSON_READER_DEPTH_LIMIT` / `YYJSON_WRITER_DEPTH_LIMIT` (0 = no limit), and
+`YYJSON_FREESTANDING` (build without libc; then `NULL` is no longer a usable `alc` — pass one per
+call or define `YYJSON_CUSTOM_ALC`). None of them is set by this repo's build files.
 
 ## Null Safety
 

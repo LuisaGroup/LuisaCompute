@@ -7,7 +7,7 @@ description: Manual AST construction with FunctionBuilder for kernels and callab
 
 Two approaches: **DSL** (`Kernel2D<>`, `Callable<>` lambdas) vs **Manual AST** (`FunctionBuilder`). Use manual AST for codegen, metaprogramming, programmatic kernel building.
 
-**Header**: `#include <luisa/ast/function_builder.h>`
+**Header**: `#include <luisa/ast/function_builder.h>` (plus `#include <luisa/ast/atomic_ref_node.h>` for atomics; it is not pulled in by `function_builder.h`)
 
 ## FunctionBuilder
 
@@ -17,9 +17,10 @@ using FuncBuilder = luisa::compute::detail::FunctionBuilder;
 auto kernel   = FuncBuilder::define_kernel([&]() { auto &cur = *FuncBuilder::current(); ... });
 auto callable = FuncBuilder::define_callable([&]() { ... });
 auto raster   = FuncBuilder::define_raster_stage([&]() { ... });
+auto coro = FuncBuilder::define_coroutine([&]() { ... }); // use suspend_() inside
 ```
 
-All three return `luisa::shared_ptr<const FuncBuilder>`. `define_kernel` may duplicate the builder if outlined functions leak locals, so keep the returned pointer.
+All four return `luisa::shared_ptr<const FuncBuilder>` (tags: `Function::Tag::KERNEL/CALLABLE/RASTER_STAGE/COROUTINE`). `define_kernel` may duplicate the builder if outlined functions leak locals, so keep the returned pointer.
 
 ### Built-in Variables
 
@@ -32,20 +33,31 @@ cur.block_id();           // uint3
 cur.kernel_id();          // uint  (indirect kernels only)
 cur.warp_lane_id();       // uint
 cur.warp_lane_count();    // uint
+cur.coro_id();            // uint3 (alias of dispatch_id(), for coroutines)
+cur.coro_token();         // uint  (a fresh local(uint), for coroutines)
 
 // Rasterization stage only
 cur.raster_object_id();   // uint
-cur.raster_barycentrics();// uint
+cur.raster_barycentrics(); // float3
+cur.raster_is_front_face(); // bool
+cur.raster_base_instance(); // uint
 ```
+
+That is the complete list: `Variable::Tag` (`include/luisa/ast/variable.h:19-46`) has no cluster, tensor, or device-index builtin. Read the configured block size with `cur.block_size()`; cluster work is `CallOp::CLUSTER_LAUNCH_CONTROL_*` / `MBARRIER_*` (`op.h:573-584`).
 
 ### Config
 
 ```cpp
-cur.set_block_size(uint3(16, 16, 1));
-cur.set_name("my_kernel");
+cur.set_block_size(uint3(16, 16, 1)); // kernels only; total in [1, 1024], z <= 64
+cur.set_name("my_kernel"); // non-alnum characters are replaced by '_'
 cur.set_variable_name(var_uid, "my_var");
 auto name = cur.get_variable_name(var_uid);
+auto usage = cur.variable_usage(var_uid);
 cur.mark_variable_usage(var_uid, Usage::READ_WRITE);
+cur.mark_noinline(); // retain the call boundary
+cur.set_allowed_warp_size(32u); // or cur.clear_allowed_warp_size()
+cur.func_attributes()["key"] = 1; // Function::FunctionAttribute is a literal-value variant (no string payload)
+auto f = cur.function(); // same as Function(builder.get())
 ```
 
 ## Variables
@@ -67,14 +79,14 @@ auto c = cur.constant(cdata);
 // Resources
 cur.buffer(Type::of<Buffer<float>>());       // buffer
 cur.texture(Type::of<Image<float>>());       // 2D texture
-cur.texture(Type::of<Image3D<float>>());     // 3D texture
+cur.texture(Type::of<Volume<float>>()); // 3D texture (Volume, not Image3D)
 cur.accel();                                 // acceleration structure
 cur.bindless_array();                        // bindless array
 ```
 
 ### Bindings
 
-Binding methods create a bound argument and return its `RefExpr*`. Use that expression directly in the function body.
+Binding methods create a bound argument and return its `const RefExpr *`. Use that expression directly in the function body.
 
 ```cpp
 auto bound_buf = cur.buffer_binding(Type::of<Buffer<float>>(), handle, offset_bytes, size_bytes);
@@ -152,7 +164,7 @@ cur.swizzle(Type::of<float4>(), vec, 4, 0x3210u);
 
 ```cpp
 // Built-in
-cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {r, g, b, a});
+cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {r, g, b, a}); // also for (float3, float)
 cur.call(CallOp::TEXTURE_WRITE, {texture, coord, color});
 cur.call(Type::of<float4>(), CallOp::TEXTURE_READ, {texture, coord});
 
@@ -160,13 +172,22 @@ cur.call(Type::of<float4>(), CallOp::TEXTURE_READ, {texture, coord});
 cur.call(Type::of<float>(), CallOp::BUFFER_READ, {buffer, index});
 cur.call(CallOp::BUFFER_WRITE, {buffer, index, value});
 
-// Atomic (use AtomicRefNode)
+// Atomic (use AtomicRefNode; needs #include <luisa/ast/atomic_ref_node.h>)
+// root ref must be a buffer or shared variable, indices must be int32/uint32,
+// and exactly one value is allowed (two for ATOMIC_COMPARE_EXCHANGE)
 auto ref = luisa::compute::detail::AtomicRefNode::create(buffer)
                 ->access(index);
 auto old = ref->operate(CallOp::ATOMIC_EXCHANGE, {new_value});
 
 // Custom callable
-cur.call(Function(callable.get()), {arg1, arg2});
+auto f = cur.call(Function(callable.get()), {arg1, arg2}); // typed form
+cur.call(Function(callable.get()), {arg1, arg2}); // void form
+
+// External function (implemented outside the AST)
+auto ext = luisa::make_shared<ExternalFunction>("my_ext", Type::of<float>(),
+    luisa::vector<const Type *>{Type::of<float>()}, luisa::vector<Usage>{Usage::READ});
+const Expression *args[]{arg};
+auto result = cur.call(Type::of<float>(), ext, args); // void form: cur.call(ext, args)
 ```
 
 ### Other Expressions
@@ -174,12 +195,15 @@ cur.call(Function(callable.get()), {arg1, arg2});
 ```cpp
 cur.cast(Type::of<float>(), CastOp::STATIC, int_value);          // type cast
 cur.cast(Type::of<float>(), CastOp::BITWISE, int_value);         // bitwise reinterpretation
-cur.access(Type::of<float>(), buffer_expr, index_expr);          // array/buffer access
+cur.access(Type::of<float>(), array_expr, index_expr);           // array/shared element access (buffers use CallOp::BUFFER_READ)
 cur.member(Type::of<float>(), struct_expr, member_index);        // struct member
-cur.make_vector(Type::of<float4>(), luisa::vector{x, y, z, w});  // vector construction
+cur.make_vector(Type::of<float4>(), luisa::vector<const Expression *>{x, y, z, w}); // vector construction (see note below)
+cur.func_ref(Function(callable.get()));                          // function reference -> uint64
 cur.string_id("my_string");                                      // string ID -> uint64
 cur.type_id(Type::of<float3>());                                 // type ID -> uint64
 ```
+
+`Type::of<void>()` is `nullptr` (the `call` overloads document "nullptr for void"). Prefer explicit `CallOp::MAKE_*` through `cur.call(...)` for vector construction: `make_vector` derives its op from the element type (`src/ast/function_builder.cpp:395-428`) and is never called by repo code except `assign`'s swizzle write-back (`:387`); the built-in kernels and tests spell the op (`src/runtime/builtin_kernel.cpp:97`, `src/tests/unit/ast/test_manual_ast.cpp:42`).
 
 ## Statements
 
@@ -200,7 +224,7 @@ cur.with(if_stmt->false_branch(), [&] { /* else */ });
 auto loop_stmt = cur.loop_();
 cur.with(loop_stmt->body(), [&] { /* loop body */ });
 
-auto for_stmt = cur.for_(var, cond, step);
+auto for_stmt = cur.for_(var, cond, step); // step is the increment: lowers to var += step
 cur.with(for_stmt->body(), [&] { /* for body */ });
 
 auto switch_stmt = cur.switch_(expr);
@@ -220,12 +244,18 @@ cur.with(ray_query_stmt->on_procedural_candidate(), [&] { ... });
 auto ad_stmt = cur.autodiff_();
 cur.with(ad_stmt->body(), [&] { ... });
 
+// Coroutine suspend (coroutine or callable builders only)
+cur.suspend_(); // auto token
+cur.suspend_(token, "name"); // explicit token + name
+
 // Print
 cur.print_("value = {}", luisa::vector<const Expression *>{value_expr});
 
 // Comment
 cur.comment_("marker");
 ```
+
+Underlying statement classes: `AssignStmt`, `IfStmt`, `LoopStmt`, `ForStmt`, `SwitchStmt`, `SwitchCaseStmt`, `SwitchDefaultStmt`, `ReturnStmt`, `BreakStmt`, `ContinueStmt`, `SuspendStmt`, `ExprStmt`, `CommentStmt`, `PrintStmt`, `RayQueryStmt`, `AutoDiffStmt`, `DebugBreakStmt`, `ScopeStmt` (`include/luisa/ast/statement.h:65-85`). There is no `VarDeclStmt`, `AsnStmt`, or `CaseDefaultStmt`: variables come from `local`/`shared`/`argument`/... and only assignments are statements.
 
 ## Type System
 
@@ -250,9 +280,11 @@ Type::of<float2x2>(); Type::of<float3x3>(); Type::of<float4x4>();
 
 // Resources
 Type::of<Buffer<float>>();
-Type::of<Image<float>>(); Type::of<Image3D<float>>();
+Type::of<Image<float>>(); Type::of<Volume<float>>();
 Type::of<Accel>(); Type::of<BindlessArray>();
 ```
+
+`Image<T>` is the 2D texture type and `Volume<T>` the 3D one (`TypeDesc<Image<float>>` = `"texture<2,float>"`, `TypeDesc<Volume<float>>` = `"texture<3,float>"`, `include/luisa/ast/type_registry.h:170-213`). There is no `Image3D`.
 
 ### Constructing Types
 
@@ -266,7 +298,12 @@ Type::texture(Type::of<float>(), 2);                        // 2D texture
 Type::texture(Type::of<float>(), 3);                        // 3D texture
 Type::custom("MyOpaqueType");
 Type::from("vector<float,4>");                              // from string
+Type::cooperative_vector(Type::of<float>(), 8); // coopvec<float,8>
+Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 8); // shared-memory coopvec reference
+Type::cooperative_matrix_ref(CoopRefVecType::FLOAT32, 8, 8); // shared-memory coopmat reference
 ```
+
+`Type::custom` names must be `[a-zA-Z_][a-zA-Z0-9_]*` and must not collide with a builtin description (`src/ast/type.cpp:163-200`). `Type::texture` requires a `float`/`int`/`uint` element and dimension 2 or 3 (`src/ast/type.cpp:793-799`). `Type::from` descriptions take no spaces.
 
 ## Operators
 
@@ -288,7 +325,7 @@ PLUS, MINUS, NOT, BIT_NOT
 
 ### CallOp
 
-The full set is defined in `include/luisa/ast/op.h`. Common groups:
+The full set is defined in `include/luisa/ast/op.h` (408 enumerators, `CUSTOM` .. `UNDEFINED`). Common groups:
 
 ```
 // Vector construction
@@ -326,12 +363,16 @@ ABS, MIN, MAX, CLZ, CTZ, POPCOUNT, REVERSE
 ISINF, ISNAN
 SIN, COS, TAN, ASIN, ACOS, ATAN, ATAN2, SINH, COSH, TANH, ASINH, ACOSH, ATANH
 EXP, EXP2, EXP10, LOG, LOG2, LOG10, POW, SQRT, RSQRT
-CEIL, FLOOR, FRACT, TRUNC, ROUND, FMA, COPYSIGN
+CEIL, FLOOR, FRACT, TRUNC, ROUND, RINT, FMA, COPYSIGN
 
 // Vector/Matrix
-DOT, CROSS, LENGTH, LENGTH_SQUARED, NORMALIZE, FACEFORWARD, REFLECT, REFRACT
+DOT, CROSS, LENGTH, LENGTH_SQUARED, NORMALIZE, FACEFORWARD, REFLECT
 OUTER_PRODUCT, MATRIX_COMPONENT_WISE_MULTIPLICATION
 DETERMINANT, TRANSPOSE, INVERSE
+REDUCE_SUM, REDUCE_PRODUCT, REDUCE_MIN, REDUCE_MAX
+
+// Value / memory
+ZERO, ONE, PACK, UNPACK, ADDRESS_OF, UNDEFINED
 
 // Warp/Wave
 WARP_IS_FIRST_ACTIVE_LANE, WARP_FIRST_ACTIVE_LANE, WARP_ACTIVE_ALL_EQUAL
@@ -341,7 +382,25 @@ WARP_PREFIX_SUM, WARP_PREFIX_PRODUCT, WARP_PREFIX_COUNT_BITS
 WARP_READ_LANE, WARP_READ_FIRST_ACTIVE_LANE
 
 // Sync
-SYNCHRONIZE_BLOCK
+SYNCHRONIZE_BLOCK, SHADER_EXECUTION_REORDER
+
+// Async copy / pipeline (CUDA LDGSTS)
+ASYNC_COPY, PIPELINE_COMMIT, PIPELINE_WAIT_PRIOR
+
+// Cluster launch control / mbarrier (Blackwell SM 10.0+)
+CLUSTER_LAUNCH_CONTROL_TRY_CANCEL, CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST,
+CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED, CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X/Y/Z
+MBARRIER_INIT, MBARRIER_ARRIVE_EXPECT_TX, MBARRIER_TRY_WAIT_PARITY
+FENCE_PROXY_ASYNC_ACQUIRE, FENCE_PROXY_ASYNC_RELEASE
+
+// Cooperative vector / matrix
+COOPERATIVE_MUL_ADD, COOPERATIVE_MUL, COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,
+COOPERATIVE_VECTOR_ACCUMULATE, COOPERATIVE_VECTOR_LOAD/STORE/SPLAT/CAST,
+COOPERATIVE_VECTOR_WORKGROUP_LOAD/STORE, plus the element-wise
+COOPERATIVE_VECTOR_ADD/SUB/MUL/DIV/DOT/... family (op.h:522-564)
+
+// Auto differentiation
+REQUIRES_GRADIENT, GRADIENT, GRADIENT_MARKER, ACCUMULATE_GRADIENT, BACKWARD, DETACH
 
 // Rasterization
 RASTER_DISCARD, RASTER_SET_Z_DEPTH,
@@ -356,6 +415,9 @@ INDIRECT_SET_DISPATCH_KERNEL, INDIRECT_SET_DISPATCH_COUNT
 // Debugging/optimization
 ASSERT, ASSUME, UNREACHABLE, FLATTEN, BRANCH, FORCE_CASE
 
+// Callees
+CUSTOM, EXTERNAL
+
 // Clock
 CLOCK
 ```
@@ -368,13 +430,13 @@ enum struct Usage : uint32_t {
 };
 ```
 
-References must be marked explicitly:
+Statements and builtin calls mark usage automatically: `assign` marks lhs `WRITE` / rhs `READ` (`statement.h:204-208`), and `CallExpr::_mark` marks call arguments by op (`src/ast/expression.cpp:42+`; `TEXTURE_WRITE` marks arg 0 `WRITE`, later args only `READ`). A `reference()` argument passed through therefore stays `READ`, so in/out parameters need an explicit mark:
 
 ```cpp
 cur.mark_variable_usage(ref->variable().uid(), Usage::READ_WRITE);
 ```
 
-`mark_variable_usage` ORs flags, so it is safe to call multiple times.
+`mark_variable_usage` ORs flags, so it is safe to call multiple times (`src/ast/function_builder.cpp:675-679`). Read the result back with `cur.variable_usage(uid)` / `Function{...}.variable_usage(uid)`.
 
 ## Examples
 
@@ -402,8 +464,7 @@ auto callable = FuncBuilder::define_callable([&]() {
     cur.mark_variable_usage(coord_ref->variable().uid(), Usage::READ_WRITE);
     auto color = cur.argument(Type::of<float3>());
     auto alpha = cur.literal(Type::of<float>(), 1.0f);
-    auto value = cur.make_vector(Type::of<float4>(),
-                                  luisa::vector<const Expression *>{color, alpha});
+    auto value = cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {color, alpha});
     cur.call(CallOp::TEXTURE_WRITE, {tex, coord_ref, value});
 });
 ```
@@ -434,7 +495,7 @@ auto kernel = FuncBuilder::define_kernel([&]() {
     uint64_t swizzle_xyz = (0ull) | (1ull << 4ull) | (2ull << 8ull);
     auto xyz = cur.swizzle(Type::of<float3>(), input, 3, swizzle_xyz);
     auto w = cur.swizzle(Type::of<float>(), input, 1, 3ull); // .w
-    cur.assign(output, cur.make_vector(Type::of<float4>(), luisa::vector{x, w}));
+    cur.assign(output, cur.call(Type::of<float4>(), CallOp::MAKE_FLOAT4, {xyz, w}));
 });
 ```
 
@@ -485,6 +546,7 @@ auto kernel = FuncBuilder::define_kernel([&]() {
 5. Statements and expressions are owned by `FunctionBuilder`; do not delete them.
 6. Set block size for compute kernels (typically `uint3(16, 16, 1)` for 2D).
 7. Use `cur.with(scope, body)` to append statements into `if`/`loop`/`for`/`switch`/`ray_query`/`autodiff` bodies.
-8. Atomic operations require `AtomicRefNode`, not raw buffer variables.
+8. Atomic operations require `AtomicRefNode` rooted at a buffer or `shared` reference; raw buffer variables are rejected.
 9. `print_` takes a format string and a `luisa::span`/`vector` of expressions, not an initializer list.
 10. `BinaryOp` comparison names are `EQUAL`, `NOT_EQUAL`, `LESS`, `GREATER`, `LESS_EQUAL`, `GREATER_EQUAL`.
+11. No refraction op exists: `CallOp::REFRACT` is not in `op.h` (the geometric helpers are `FACEFORWARD` and `REFLECT` only).

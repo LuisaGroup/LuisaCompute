@@ -9,28 +9,37 @@ Tests are standalone executables using [Boost.UT](https://github.com/boost-ext/u
 
 ## Layout
 
-All test source files live in `src/tests/` under one of the directories below. Nothing else belongs at the root of `src/tests/`. Shared assets stay at the root only when they are loaded by binaries via CWD-relative paths (e.g. `SRGBToFourierEvenPacked.dat`, `genshin_start.jpg`, `logo.png`).
+All test source files live in `src/tests/` under one of the directories below. Nothing else belongs at the root of `src/tests/` (only `CMakeLists.txt`, `xmake.lua`, and the shared data assets). The assets are addressed relative to the repo root or embedded at build time: `examples/gui/win_hdr.cpp` loads `genshin_start.jpg` from CWD, `swapchain_static.cpp`/`swapchain_wx.cpp` load `src/tests/logo.png`, `unit/runtime/test_texture_compress.cpp` resolves `logo.png` through `__FILE__`, and `SRGBToFourierEvenPacked.dat` is compiled into `example_path_tracing_spectrum` / `test_path_tracing_spectrum` (`examples/CMakeLists.txt:36-45`).
 
 | Directory | Content | Needs Device |
 |---|---|---|
 | `unit/core/` | core library units: types/traits, math, IO, containers, hash, logging, platform utilities, fiber, dynamic module, pool, spin mutex, etc. | No (CTest-registered) |
 | `unit/ext/` | external integrations (e.g. glslang/SPIR-V) | No (CTest-registered) |
-| `unit/ast/` | AST construction, builtin kernels, manual AST | Yes |
-| `unit/dsl/` | DSL syntax/sugar, structs, callables, SoA, polymorphic, autodiff, device math, variables, matrices, 8-bit/quantization, normal encoding, etc. | Yes |
-| `unit/runtime/` | buffers, textures, streams, copy, atomics, warp operations, printer, sampler, pinned memory, mipmap, bindless, matrix multiply, softmax, buffer/byte IO, external buffers, FP4/FP8 quantization, etc. | Yes |
+| `unit/ast/` | AST construction, builtin kernels, manual AST | Mixed (`test_ast`, `test_ast_basic`, `test_builtin_kernel`, `test_manual_ast`, `test_cooperative_vector` need a device; `test_ast_json_serde`, `test_async_copy_ast`, `test_bindless_write_usage`, `test_function_builder_dag` are CTest-registered) |
+| `unit/dsl/` | DSL syntax/sugar, structs, callables, SoA, polymorphic, autodiff, device math, variables, matrices, 8-bit/quantization, normal encoding, coroutine front-end tests, etc. | Mostly yes |
+| `unit/runtime/` | buffers, textures, streams, copy, atomics, warp operations, printer, sampler, pinned memory, mipmap, bindless, matrix multiply, softmax, buffer/byte IO, external buffers, FP4/FP8 quantization, plus per-backend (`test_hip_*`, `test_vk_*`, `test_remote_*`, `test_metal*`) suites | Mostly yes |
+| `unit/coro/` | device coroutine tests via `coro_test_utils.h` (`state_machine`, `wavefront`, `persistent`, pipelines, radix sort) plus 9 host-only CFG/graph tests | Mixed — the host-only ones are CTest-registered under `unit;unit_coro` |
 | `unit/xir/` | XIR builder, module, translators, and pass tests (early-cse, licm, simplify-cfg, restructure-cfg, etc.) | No (CTest-registered) |
-| `integration/runtime/` | bindless, curves, RTX, motion blur, AOT, indirect, denoiser, dstorage, present/swapchain, select device, runtime, texture3d, native include, procedural callable, device debugger, mesh tests, transient resource, plus backend-specific tests (CUDA graph, raster, memory compact, HIPRT) | Yes |
-| `integration/xir/` | XIR↔AST roundtrip integration coverage | Yes |
+| `unit/tile/` | Tile IR/DSL/layout/memory/values tests plus `bridge/` (XIR↔Tile, TIRx) | Mostly no (CTest-registered `unit_tile`); the device ones are `test_tile_cuda_ptx` (`ARGS cuda`), `test_tile_native_runtime` (`ARGS metal`), and the `bridge/` GPU tests `test_tile_xir_ranking` / `_llm` / `_metal` / `_runtime` / `_runtime_gpu_dx` / `_runtime_gpu_vk` |
+| `unit/fallback/` | Fallback-backend host tests: command queue, coro arena, LLVM ABI/native math | No (CTest-registered; CMake-only — `src/tests/xmake.lua` has no `unit/fallback` target) |
+| `unit/simd/` | SIMD CPU backend: Schedule IR / scheduler-model / reference collectives (no device) plus `simd`-backend runtime tests (`test_simd_*`, benchmarks) | Mixed; runtime tests create the `simd` device internally. CMake registers all of them; xmake builds only `benchmark_simd_gemm` |
+| `integration/runtime/` | bindless, curves, RTX, motion blur, AOT, indirect, denoiser, dstorage, present/swapchain, select device, runtime, texture3d, native include, procedural callable, device debugger, mesh tests, transient resource, plus backend-specific tests (CUDA graph, DX raster, memory compact, Metal4 AIR / `test_metal_xir_air*`) | Yes |
+| `integration/xir/` | XIR↔AST roundtrip integration coverage (`test_xir2ast_roundtrip.cpp`) | No (CTest-registered under `unit;unit_xir`) |
+| `benchmark/` | `benchmark_*` executables (command reorder, tile migrated/native/xir/tirx/system/mpp/manual, metal4) — none are CTest-registered | Yes |
+| `cuda/` | `test_cuda_tensor_dispatch.cpp` — raw CUDA driver/NVRTC host probe (xmake-only target; not in `src/tests/CMakeLists.txt`) | No (needs the CUDA SDK) |
 | `ios/` | Shared Metal4 device conformance, iOS path-tracing kernel, signed test bundle, and host-AOT oracle | Physical iPhone for acceptance |
-| `common/` | shared headers: `test_device.h`, `ut/` (Boost.UT), `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `reference_image.h` | — |
+| `ut/` | vendored Boost.UT single header (`ut/ut.hpp`) — included as `"ut/ut.hpp"` | — |
+| `common/` | shared headers: `test_device.h`, `reference_image.h`, `coro_test_utils.h`, `xir_cfg_test_utils.h`, `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `tile_*_test_utils.h`, plus `metal*_benchmark.h` | — |
 | `python/` | Python frontend tests (run directly with `python src/tests/python/test_xxx.py [backend]`) | — |
-| `cxx_shaders/` | `clangcxx` source shaders consumed by tests/extension examples | — |
+| `cxx_shaders/` | `luisa::shader` clangcxx sources plus their vendored `luisa/` and `std/` header shims; a parallel copy lives in `examples/extension/cxx_shaders/`. Neither copy is referenced by any CMake/xmake file (they are inputs for the clangcxx tooling, compiled on demand) | — |
 
-Include path setup (in both CMakeLists.txt and xmake.lua) exposes `src/tests/` and `src/tests/common/`, so test sources just write `#include "test_device.h"`, `#include "ut/ut.hpp"`, `#include "reference_image.h"`, `#include "cornell_box.h"`, etc. Do **not** use `../../` relative paths and do **not** wrap includes in `__has_include` guards — `ut/ut.hpp` and the `common/` headers are vendored and always present.
+Include path setup (in both CMakeLists.txt and xmake.lua) exposes `src/tests/` and `src/tests/common/`, so test sources just write `#include "test_device.h"`, `#include "ut/ut.hpp"`, `#include "reference_image.h"`, `#include "cornell_box.h"`, etc. Do **not** use `../../` relative paths and do **not** guard these vendored includes with `__has_include` — `ut/ut.hpp` and the `common/` headers are always present. (`__has_include` *is* used legitimately for optional system headers, e.g. `#if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)` in `unit/core/test_type.cpp` and `<vulkan/vulkan_core.h>` in `integration/runtime/test_memory_compact.cpp`.)
 
-Some integration and XIR tests are only built when the corresponding option is enabled (e.g. `LUISA_COMPUTE_ENABLE_GUI`, `LUISA_COMPUTE_ENABLE_XIR`, and `lc_enable_xir`).
+The whole tree is gated by `LUISA_COMPUTE_BUILD_TESTS` (CMake, `src/CMakeLists.txt`) or `lc_enable_tests` (xmake, `src/xmake.lua`). Inside it, individual tests are additionally gated on `LUISA_COMPUTE_ENABLE_GUI` / `lc_enable_gui`, on `if has_config("lc_enable_xir")` for the XIR/coro-XIR targets (`src/tests/xmake.lua`), and — in CMake — on the backend being built, i.e. `if (TARGET luisa-compute-backend-<name>)` or `if (LUISA_COMPUTE_ENABLE_<BACKEND>)`. There is no `LUISA_COMPUTE_ENABLE_XIR` option.
 
 ## Adding a Test
+
+Register a new test in **both** build systems — `src/tests/CMakeLists.txt` and `src/tests/xmake.lua` coexist and are maintained in parallel, and a target added to only one is invisible to the other. (Deliberate exceptions exist: `test_cuda_tensor_dispatch` is xmake-only, while `test_metal4_device_conformance`, the `test_metal_xir_air*` / `test_metal4_air_*` entries, `unit/fallback/`, and most of `unit/simd/` are CMake-only, as are the mirrored `test_<example>` targets.)
 
 CMake (`src/tests/CMakeLists.txt`) — use the `luisa_compute_add_test` helper:
 ```cmake
@@ -41,17 +50,21 @@ luisa_compute_add_test(test_my_feature unit/runtime/test_my_feature.cpp)
 # CPU-only test, auto-registered with CTest under the given labels:
 luisa_compute_add_test(test_my_pure unit/core/test_my_pure.cpp LABELS "unit;unit_core")
 
-# Passing fixed arguments to CTest (e.g. forcing the DX backend):
-luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp
-    LABELS "integration" ARGS dx)
+# Real example of passing fixed arguments to CTest (forcing one backend):
+luisa_compute_add_test(test_tile_native_runtime
+    unit/tile/test_tile_native_runtime.cpp
+    LABELS "integration;integration_tile_native" ARGS metal)
 ```
+
+A device test only runs meaningfully under CTest when its backend argument is supplied through `ARGS` (see the `ARGS metal4` / `ARGS vk` / `ARGS cuda` registrations in `src/tests/CMakeLists.txt`); without `LABELS` it is built but never auto-run.
 
 xmake (`src/tests/xmake.lua`):
 ```lua
--- Signature: test_proj(name, source, gui_dep, callable, kind)
---   gui_dep:  if true, built only when lc_enable_gui=true and defines LUISA_ENABLE_GUI
---   callable: optional config callback for deps/includes/defines
---   kind:     optional target kind (default "binary")
+-- Signature: test_proj(name, source, gui_dep, callable, kind, cxx_standard)
+-- gui_dep:      if true, built only when lc_enable_gui=true and defines LUISA_ENABLE_GUI
+-- callable:     optional config callback for deps/includes/defines
+-- kind:         optional target kind (default "binary")
+-- cxx_standard: optional per-target standard, e.g. "cxx23"
 test_proj("test_my_feature", "unit/runtime/test_my_feature.cpp")
 
 -- With GUI dependency:
@@ -61,26 +74,35 @@ test_proj("test_name", "integration/runtime/test_name.cpp", true)
 test_proj("test_with_dep", "unit/ext/test_with_dep.cpp", false, function()
     add_deps("lc-glslang")
 end)
+
+-- Extra config plus a non-default C++ standard (positional args after `callable`):
+test_proj("test_tile_values_cpp23", "unit/tile/test_tile_values.cpp", false, function()
+    add_deps("lc-tile")
+end, nil, "cxx23")
 ```
 
 ## Example ↔ Test Mirror Targets
 
-Auto-checkable examples in `examples/` (rendering w/ reference image, deterministic sims, headless compute) are built as **two executables sharing one source file**: `example_<name>` and `test_<name>`. Opt in with the `MIRROR_AS_TEST` flag on `luisa_compute_add_example` in `examples/CMakeLists.txt`:
+Auto-checkable examples in `examples/` (rendering w/ reference image, deterministic sims, headless compute) are built as **two executables sharing one source file**: `example_<name>` and `test_<name>`. Mirroring is **CMake-only** (`examples/xmake.lua` defines `example_proj` targets and no `test_` mirrors). Opt in with the `MIRROR_AS_TEST` flag on `luisa_compute_add_example` in `examples/CMakeLists.txt`:
 
 ```cmake
-luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
-# Produces both bin/example_path_tracing and bin/test_path_tracing.
+luisa_compute_add_example(example_path_tracing
+        rendering/path_tracing.cpp
+        rendering/path_tracing_test.h
+        MIRROR_AS_TEST)
+# Produces both bin/example_path_tracing and bin/test_path_tracing (same sources).
+# The mirror name is derived by replacing the leading "example_" with "test_".
 ```
 
-When extra `target_link_libraries` are needed, use `luisa_example_pair_link` so both targets get the libs:
+When extra `target_link_libraries` are needed, use `luisa_example_pair_link` so both targets get the libs (it links `name`, and also its `test_` mirror when one exists):
 ```cmake
-luisa_compute_add_example(example_cuda_lcub extension/cuda_lcub.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_cuda_lcub extension/cuda_lcub.cpp)
 luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
 ```
 
 **Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
 
-**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer` and `example_sdf_renderer_xir2ast` (the latter gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
+**Mirrored set** (rendering + simulation + headless compute; `examples/CMakeLists.txt`): all `example_path_tracing*` (`_camera`, `_cutout`, `_hdr`, `_nested_callable`, `_ray_masks`, `_spectrum`, plus `example_path_tracing_xir2ast` when the XIR target exists — all inside `if (LUISA_COMPUTE_ENABLE_GUI)`), `example_sdf_renderer` and `example_sdf_renderer_xir2ast` (the latter gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_gdeflate`, `example_cluster_launch_control`, `example_async_copy_prefetch`, `example_software_lbvh`, `example_software_lbvh_test`, `example_multi_head_attention`.
 
 GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
 
@@ -88,7 +110,7 @@ GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/i
 
 ### Template 1: No-Device Unit Test (CTest-registered)
 
-For tests in `unit/core/`, `unit/ext/`, and `unit/xir/` — no GPU backend needed.
+For tests in `unit/core/`, `unit/ext/`, `unit/xir/`, `unit/fallback/`, the host-side `unit/tile/` + `unit/simd/` tests, `integration/xir/`, and the host-only CFG tests in `unit/coro/` — no GPU backend needed.
 
 **Option A — static registration with standalone test functions** (preferred for many small tests):
 
@@ -170,12 +192,20 @@ static auto test_clock_registration = [] {
     };
     return 0;
 }();
-// No main() — Boost.UT auto-generates one
+
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+}
 ```
+
+The vendored `src/tests/ut/ut.hpp` defines **no** `main()`; every test *executable* needs its own `main` (the two shapes above). A translation unit may omit `main` only when it is an extra source of another test target, e.g. `unit/core/test_hip_late_inline.cpp`, which is compiled into `test_hip_callable_abi` via `target_sources` (`src/tests/CMakeLists.txt:360-365`).
 
 ### Template 2: Device-Needed Test (manual backend arg)
 
-For tests in `unit/ast/`, `unit/dsl/`, `unit/runtime/`, `integration/` — GPU backend required.
+For tests in `unit/ast/`, `unit/dsl/`, `unit/runtime/`, `unit/coro/`, and `integration/runtime/` — GPU backend required.
+
+The shape below (static `"name"_test` registration + `create_device_from_ut()` with no arguments + `int main() {}`) is used by exactly one device test, `unit/runtime/test_cluster_launch_control.cpp`; `int main() {}` also appears in the no-device `unit/ext/test_command_reorder_ranges.cpp` (where the static registration runs without any device). Prefer the explicit-`main` shape shown after it.
 
 ```cpp
 // Test for <feature>.
@@ -237,7 +267,7 @@ static inline const auto reg = [] {
 int main() {}
 ```
 
-**Alternate device pattern — `main()` calls test directly** (used by `test_callable.cpp`, `test_bindless.cpp`, `test_gemm.cpp`):
+**Device pattern used by most device tests — `main()` creates the device and calls the tests directly** (`test_callable.cpp`, `test_bindless.cpp`, `test_gemm.cpp`; `test_gemm.cpp` omits the `parse_arg_with_fallback` line and just calls `test_gemm(dc->device)`):
 
 ```cpp
 void test_my_feature(Device &device) { /* ... */ }
@@ -258,11 +288,13 @@ int main(int argc, char *argv[]) {
 
 ### Includes — canonical order
 
-1. Test framework: `"ut/ut.hpp"` and `"test_device.h"` (when needed)
+1. Test framework: `"ut/ut.hpp"` and `"test_device.h"` (when needed) — near-universally first
 2. Project core headers: `<luisa/core/...>`
 3. Project runtime/DSL headers: `<luisa/runtime/...>`, `<luisa/dsl/...>`
 4. Project XIR headers: `<luisa/xir/...>`
 5. Standard library: `<cmath>`, `<vector>`, `<numeric>`, etc.
+
+Only rule 1 is consistently followed in-tree; the standard-library block goes before the `<luisa/...>` headers about as often as after (e.g. `unit/core/test_hash.cpp` puts `<cstring>` first, `unit/runtime/test_gemm.cpp` puts `<cmath>` last). Do not churn existing files over it.
 
 Do **not** use `../../` relative paths. Include paths `src/tests/` and `src/tests/common/` are already exposed by the build system. Use `"ut/ut.hpp"`, `"test_device.h"`, `"cornell_box.h"`, `"reference_image.h"` directly.
 
@@ -270,7 +302,7 @@ Do **not** use `../../` relative paths. Include paths `src/tests/` and `src/test
 
 ```cpp
 // No-device tests:
-using namespace luisa;           // always
+using namespace luisa;           // in most tests (355/432 .cpp files)
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
@@ -306,6 +338,10 @@ expect(static_cast<bool>(a == 1 && b == 2));
 
 // Float comparison — always use epsilon, never direct ==
 expect(std::abs(result - expected) < 1e-4f);
+
+// Vendored ut.hpp is Boost.UT v2_3_1: `expect`, `that`, `eq`, `throws`,
+// `"name"_test`, `test("name")`, `log`, and `skip` exist; `must` does NOT
+// (zero occurrences in src/tests/ut/ut.hpp) — do not write `must(...)`, use `expect`.
 
 // For complex DSL validation — accumulate errors, expect once
 bool all_correct = true;
@@ -405,17 +441,18 @@ int main(int argc, char *argv[]) {
 
 ### Build registration
 
-**CMake** (`src/tests/CMakeLists.txt`):
+**CMake** (`src/tests/CMakeLists.txt`) — real registrations from the file:
 ```cmake
 # No-device, CTest auto-run:
-luisa_compute_add_test(test_name unit/core/test_name.cpp LABELS "unit;unit_core")
+luisa_compute_add_test(test_hash unit/core/test_hash.cpp LABELS "unit;unit_core")
 
 # Device-needed, NOT auto-run:
-luisa_compute_add_test(test_name unit/runtime/test_name.cpp)
+luisa_compute_add_test(test_buffer unit/runtime/test_buffer.cpp)
 
-# With extra link deps:
-luisa_compute_add_test(test_name unit/ext/test_name.cpp LABELS "unit;unit_ext")
-target_link_libraries(test_name PRIVATE some-lib)
+# Registered test that needs extra link deps:
+luisa_compute_add_test(test_metal4_xir_preflight unit/ext/test_metal4_xir_preflight.cpp
+    LABELS "unit;unit_ext;unit_metal4")
+target_link_libraries(test_metal4_xir_preflight PRIVATE luisa-compute-metal4-air-codegen)
 
 # Multi-source test: use luisa_compute_add_executable directly and add includes:
 luisa_compute_add_executable(test_transient_resource
@@ -429,25 +466,31 @@ target_include_directories(test_transient_resource PRIVATE ./ ./common)
 
 **xmake** (`src/tests/xmake.lua`):
 ```lua
-test_proj("test_name", "unit/core/test_name.cpp")
+test_proj("test_hash", "unit/core/test_hash.cpp")
+test_proj("test_buffer", "unit/runtime/test_buffer.cpp")
 -- With GUI dependency:
-test_proj("test_name", "integration/runtime/test_name.cpp", true)
+test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 -- With extra config:
-test_proj("test_name", "unit/ext/test_name.cpp", false, function()
+test_proj("test_glslang_spirv", "unit/ext/test_glslang_spirv.cpp", false, function()
     add_deps("lc-glslang")
 end)
 ```
 
+**Label strings actually in use** (`src/tests/CMakeLists.txt`; `ctest -L <label>` matches them): most registrations use the family prefix (`unit` or `integration`) plus scope labels — `unit_core`, `unit_ext`, `unit_ast`, `unit_dsl`, `unit_runtime`, `unit_coro`, `unit_xir`, `unit_tile`, `unit_simd`, `unit_fallback`, `unit_metal`, `unit_metal4`, `unit_cuda`, `unit_gui`, `unit_llvm`, `integration_runtime`, `integration_coro`, `integration_render`, `integration_validation`, `integration_metal`, `integration_metal4`, `integration_codegen`, `integration_tile_cuda` / `_native` / `_xir` / `_tirx` / `_timing`, `integration_simd`, plus backend tags built by loops (`hip`, `fallback`, and the `integration_<backend>` forms for `dx`/`vk`/`metal4`/`simd`) and route tags `hlsl`, `spirv`, `spirv_llvm`, `remote`. A few registrations use their own scheme instead (e.g. `integration_simd;runtime_simd`, `runtime;runtime_<backend>`, `unit_coro_runtime`).
+
 ## Device Helpers (`common/test_device.h`)
 
-- `luisa::test::create_device(argc, argv)` — call from `main()`; prints usage and exits on missing backend arg.
-- `luisa::test::create_device_from_ut()` — call from a UT registration lambda; returns `std::nullopt` when no backend was passed so the test is silently skipped.
+All helpers live in `namespace luisa::test` and return/take `DeviceContext { compute::Context context; compute::Device device; }`.
 
-Backend is passed as the first positional arg: `cuda`, `dx`, `cpu`, `metal`, `vk`. The exact set available depends on which backends were built (e.g. `LUISA_COMPUTE_ENABLE_CUDA`, `LUISA_COMPUTE_ENABLE_DX`, etc.).
+- `DeviceContext create_device(int argc, char *argv[])` — call from `main()`; prints usage and `exit(1)`s when no backend arg is given.
+- `std::optional<DeviceContext> create_device_from_ut()` — no-arg form for a UT registration lambda; reads the argc/argv Boost.UT stored in `boost::ut::detail::cfg::largc`/`largv` (set by `parse_arg_with_fallback`, directly or through ut.hpp's platform fallback), and returns `std::nullopt` when no backend was passed so the test is silently skipped.
+- `std::optional<DeviceContext> create_device_from_ut(int argc, char *argv[], const compute::DeviceConfig *config = nullptr, bool enable_validation = false)` — explicit-args form (the one most device tests call from `main()`); `enable_validation` wraps the device in the validation layer.
+
+All three take the backend from `argv[1]`; there is no backend environment variable. Valid names are the installed backend plugin names — `cuda`, `dx`, `fallback`, `hip`, `metal`, `metal4`, `simd`, `vk` (`src/tests/ut/ut.hpp:862-865`; `print_device_usage` advertises "cuda, dx, fallback, hip, metal, vk"). The exact set available depends on which backends were built (e.g. `LUISA_COMPUTE_ENABLE_CUDA`, `LUISA_COMPUTE_ENABLE_DX`, …). The CPU/software backend is `fallback` (or `simd` for the SIMD backend) — there is no `cpu` backend.
 
 ## Coroutine Scheduler Tests
 
-Coroutine unit tests in `src/tests/unit/coro/` use `src/tests/common/coro_test_utils.h`. They must require an explicit backend as the first positional argument, e.g. `test_coro_pipeline_1suspend vk`; do not default the backend or hard-code `vk`/`cuda` in the test source.
+Coroutine unit tests in `src/tests/unit/coro/` use `src/tests/common/coro_test_utils.h` (`luisa::test::coro_test::parse_options`, which errors out when `argv[1]` is missing and forwards the remaining args to Boost.UT). They must require an explicit backend as the first positional argument, e.g. `test_coro_pipeline_1suspend vk`; do not default the backend or hard-code `vk`/`cuda` in the test source. In xmake, the device-side coroutine tests inside the `if has_config("lc_enable_xir")` block are declared through the local `coro_xir_test_proj(name, source, needs_bigobj)` helper (`src/tests/xmake.lua:441`), which forwards to `test_proj` and adds `LUISA_ENABLE_XIR` + `lc-coro` (plus `/bigobj` on MSVC when needed). Four coroutine targets sit outside that helper and use plain `test_proj` (`src/tests/xmake.lua:434-437`: `test_coro_scheduler_base`, `test_coro_multisplit`, `test_coro_compaction`, `test_coro_radix_sort`).
 
 For scheduler-agnostic coroutine behavior, run all schedulers inside the test body (`state_machine`, `wavefront`, and `persistent`) instead of accepting a test-side `--scheduler` option. Keep scheduler-specific option matrices in scheduler-specific tests such as `test_coro_wavefront.cpp` and `test_coro_persistent_opt.cpp`.
 
@@ -460,7 +503,7 @@ expect(condition);
 expect(condition) << "message";
 expect(a == b) << "values differ";
 ```
-For floats: `expect(std::abs(a - b) < eps)` or use the helpers in `common/test_device.h` / individual tests.
+For floats: `expect(std::abs(a - b) < eps)`, or a local helper defined in the test file itself — e.g. `approx_eq` in `src/tests/unit/dsl/test_dsl_mathematic.cpp:38-46` or `check_floatx_equal` in `src/tests/unit/runtime/test_buffer.cpp`. `common/test_device.h` provides no comparison helpers.
 
 ## Running
 
@@ -469,6 +512,8 @@ Before running any test binary or `ctest`, complete a full build of the selected
 ```bash
 cmake --build <build-dir> --parallel
 ```
+
+`<build-dir>` (and the `cmake-build-debug` / `cmake-build-release` / `build` names used in examples below) is a local convention — `.gitignore` covers `cmake-build-*/`, `/build`, `/build-*`; CI configures `build` (`.github/workflows/build-cmake.yml:72`), and the iOS scripts use `cmake-build-llvm22-ios` / `cmake-build-ios-metal4-device-air-xcode`.
 
 A target-only build is useful for compilation diagnostics but does not satisfy this gate. If source changes after the full build starts, repeat the full build before resuming tests.
 
@@ -498,14 +543,14 @@ Window/Swapchain output, `success: true`, every supported feature marked
 `passed`, and retrieved nondegenerate JSON/PNG evidence. Do not infer device
 execution from installation, bundle names, GPU-family queries, or CI success.
 
-CMake build:
+CMake build (the `cmake-build-*` / `build-cmake-ninja-*` names below are local build-dir conventions — `.gitignore` covers `cmake-build-*/`, `/build-*`, `/build`; CI configures a plain `build`):
 ```bash
 cmake --build cmake-build-debug --parallel
 ./cmake-build-debug/bin/test_dsl_mathematic dx
-ctest --test-dir cmake-build-debug -L unit_core    # run CTest-registered unit tests
+ctest --test-dir cmake-build-debug -L unit_core # run CTest-registered unit tests
 ```
 
-The Vulkan native-route guard is device-dependent and therefore runs manually in both Vulkan configurations after their respective full builds:
+The Vulkan native-route guard is device-dependent and therefore runs manually in both Vulkan configurations after their respective full builds (`build-cmake-ninja-xir-llvm` and `build-cmake-ninja-vk-llvm-gfx1201` are example local build-dir names):
 
 ```bash
 LUISA_VULKAN_VALIDATION=1 build-cmake-ninja-xir-llvm/bin/test_vk_native_route_guard vk
@@ -514,12 +559,14 @@ LUISA_VULKAN_VALIDATION=1 build-cmake-ninja-vk-llvm-gfx1201/bin/test_vk_native_r
 
 xmake build:
 ```bash
-xmake                              # build all enabled targets (tests included when lc_enable_tests=true)
+xmake # build all enabled targets (tests included when lc_enable_tests=true)
 xmake build test_dsl_mathematic
 xmake run test_dsl_mathematic dx
-./build/bin/test_dsl_mathematic dx
-./build/bin/test_basic_types "vector*"   # filter by name (Boost.UT CLI)
+./bin/debug/test_dsl_mathematic.exe dx # lc_bin_dir="bin" + per-mode subdir
+./bin/debug/test_basic_types.exe test_vector_construction # run one named test
+./bin/debug/test_basic_types.exe --list-test-names-only   # list names
 ```
+The CLI name filter is a plain literal match: `cfg::parse` converts a positional pattern into `query_regex_pattern` (`src/tests/ut/ut.hpp:931-947`) and `utility::regex_match` (`:255-271`) has no `*` or escape handling, so `"vector*"` matches nothing and patterns containing `.`/`*` are unusable — pass the exact `"name"_test` string. (`utility::is_match` at `:174-192` does implement `*`/`?` globs, but it is only used for the tag/suite filter path, not the CLI query.) `--list-test-names-only` / `-l` list the real names.
 
 Python tests:
 ```bash
@@ -528,11 +575,15 @@ python src/tests/python/test-helloworld.py dx
 
 ## Dependencies
 
-Tests link `lc-runtime`, `lc-dsl`, `lc-vstl`, `stb-image`, and optionally `lc-gui`. The dummy backend `lc-backends-dummy` is added as a non-linking build dependency so all backends get rebuilt before tests run.
+xmake (`test_proj`): tests link `lc-runtime`, `lc-dsl`, `lc-vstl`, `stb-image`, and additionally `lc-gui` when `lc_enable_gui` is on. The dummy backend `lc-backends-dummy` is added as a non-linking build dependency (`add_deps("lc-backends-dummy", {inherit = false, links = false})`) so all backends get rebuilt before tests run.
+
+CMake: `luisa_compute_add_test` → `luisa_compute_add_executable` links the aggregate `luisa::compute` interface target, which already pulls in core/ast/xir/dsl/runtime/gui/backends (`src/CMakeLists.txt:54-70,77-80`).
 
 ## Reference Image Comparison (Opt-In)
 
 Tests and mirrored examples that produce images compare against reference PNGs using PSNR. Comparison is **opt-in via an explicit CLI arg** — there is no auto-discovery of a reference directory and no implicit reference creation. A missing reference file FAILS the comparison; it is never silently created.
+
+A pass requires all of: `psnr >= threshold`, luminance `correlation >= 0.5` (`DEFAULT_CORRELATION_THRESHOLD`), and `contrast_ratio` inside `[0.25, 4.0]` (`MIN_CONTRAST_RATIO`/`MAX_CONTRAST_RATIO`), with all metrics finite — see `examples/common/reference_compare.h:484-529` and `src/tests/common/reference_image.h:99-145`. PSNR alone is not the gate.
 
 CLI: pass the backend first, then offline/comparison flags: `<test_binary> <backend> --offline --compare <path.png>` or `<test_binary> <backend> --offline -c <path.png>`. Without `--compare`/`-c`, the test/example only renders and **does not validate against the reference image**.
 
@@ -566,19 +617,19 @@ cmake-build-release/bin/test_path_tracing_nested_callable vk --offline --spp 102
 cmake-build-release/bin/test_path_tracing_hdr vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_hdr.png
 cmake-build-release/bin/test_path_tracing_camera vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_camera.png
 cmake-build-release/bin/test_path_tracing_spectrum vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_spectrum.png
-cmake-build-release/bin/test_path_tracing_ir vk --offline --spp 1024 --compare docs/gallery/test_path_tracing.png
+cmake-build-release/bin/test_path_tracing_ray_masks vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_ray_masks.png
 ```
 If a reference PNG is missing, the comparison is a real failure and should be reported as `reference not found`; do not count a render-only run as a validation pass.
 
 Examples-side header: `examples/common/reference_compare.h` (namespace `luisa::ref`).
 - `luisa::ref::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`
-- `luisa::ref::compare_with_reference_file(pixels, w, h, channels, ref_path, threshold=30.0) -> CompareResult`
-- `luisa::ref::ExampleOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>` / `-c <path.png>`, `--spp <n>`, and `--out_ref write <path.png>` / `--out_ref read <path.png>`.
+- `luisa::ref::compare_with_reference_file(pixels, w, h, channels, ref_path, threshold=30.0) -> CompareResult` (`CompareResult{passed, psnr, message, correlation, contrast_ratio}`)
+- `luisa::ref::ExampleOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>` / `-c <path.png>`, `--spp <n>`, `--iterations <n>`, `--max-spp-per-dispatch <n>`, and `--out_ref write <path.png>` / `--out_ref read <path.png>` (unknown flags are intentionally left in `argv` for extension parsers).
 
 Tests-side header: `src/tests/common/reference_image.h` (namespace `luisa::test`) follows the same opt-in contract:
 - `luisa::test::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`
 - `luisa::test::compare_with_reference_file(..., threshold=30.0) -> ReferenceCompareResult`
-- `luisa::test::ImageTestOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>`, and `--output-dir <dir>`.
+- `luisa::test::ImageTestOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>` / `-c <path.png>`, `--output-dir <dir>`, and `--input <path>`.
 
 Typical usage:
 ```cpp
@@ -596,16 +647,16 @@ Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pas
 
 ## Common Build Breaks & Fixes
 
-### `Buffer::copy_from` / `copy_to` no longer accept raw pointers
+### `Buffer::copy_from` / `copy_to` raw-pointer calls break in safe-mode builds
 
-When the runtime `Buffer` API is tightened to take `luisa::span<U>` instead of a raw pointer, existing call sites that pass `.data()` will fail to compile:
+The raw-pointer overloads still exist, but they are compiled out when `LUISA_ENABLE_SAFE_MODE` is defined (`include/luisa/runtime/buffer.h:164-193` for `Buffer<T>`, `:300-307` for `BufferView<T>`); only the `luisa::span<U, Extent>` overloads at `:153-163` remain. The macro is set from CMake `LUISA_COMPUTE_ENABLE_SAFE_MODE` (`src/runtime/CMakeLists.txt:53-55`) or xmake `lc_safe_mode` (`src/runtime/xmake.lua:12-13`). Call sites that pass `.data()` therefore fail to compile in safe-mode builds:
 
 ```
 error: no matching member function for call to 'copy_from'
 note: candidate template ignored: could not match 'luisa::span<U>' against 'pointer'
 ```
 
-**Fix:** wrap the container (or pointer + size) in `luisa::span`:
+**Fix:** wrap the container (or pointer + size) in `luisa::span`; that form compiles in both modes and is the dominant convention in the tree:
 
 ```cpp
 // Before — breaks after the API change
@@ -620,6 +671,8 @@ stream << buf.copy_to(luisa::span{host}) << synchronize();
 stream << buf.copy_from(luisa::span{arr, std::size(arr)}) << synchronize();
 stream << buf.copy_from(luisa::span{ptr, n}) << synchronize();
 ```
+
+Note `copy_to` requires a non-const element type (`requires(!std::is_const_v<U>)`), and the command only asserts the byte-size match under `#ifndef NDEBUG`.
 
 This affects both **tests** (e.g. `src/tests/unit/coro/test_coro_persistent_opt.cpp`) and **examples** (e.g. `examples/rendering/coro_path_tracing.cpp`). When patching, search the repo for existing `copy_from(luisa::span{...})` / `copy_to(luisa::span{...})` usage to match the local convention, then apply a bulk `replace_all` across the affected file(s).
 

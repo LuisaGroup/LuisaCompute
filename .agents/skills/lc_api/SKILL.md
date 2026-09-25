@@ -51,7 +51,9 @@ stream << shader2d(img).dispatch(width, height); // 2D
 // Compile a raw lambda directly as a 2D kernel
 auto shader2 = device.compile<2>(kernel_lambda);
 
-kernel.function_builder()->set_name("my_kernel"); // debug name
+kernel.function()->set_name("my_kernel"); // debug name (Kernel::function() returns the builder)
+// Callables expose function_builder() instead:
+// add.function_builder()->set_name("my_function_add");
 // Or inline:
 Kernel2D k = []() noexcept { set_name("my_kernel"); /* ... */ };
 ```
@@ -174,18 +176,21 @@ Kernel1D k = [](BufferVar<float> buf, BufferFloat fb, BufferUInt ub) noexcept {
 ### Control Flow
 
 ```cpp
-// If / elif / else
+// If / else. IfStmtBuilder has else_ (and operator/), but no elif_ member:
 if_(cond, [] { /* then */ });
 if_(cond, [] {}).else_([] {});
-if_(c1, [] {}).elif_(c2, [] {}).else_([] {});
+// elif chains through IfStmtBuilder::operator* (lazy condition) + operator%:
+if_(c1, [] {}) * ([] { return c2; }) % [] {} / [] {};  // if / else-if / else
+// Nested if_ inside else_ is the plain alternative:
+if_(c1, [] {}).else_([] { if_(c2, [] {}); });
 
 // Switch
 switch_(val).case_(1, [] {}).case_(2, [] {}).default_([] {});
 
 // Loops
 loop([] { if_(true, break_); });
-for (auto v : dynamic_range(count)) { /* v is Var<int>, 0..count-1 */ }
-for (auto v : dynamic_range(begin, end, step)) { /* begin..end-1 with step */ }
+for (auto v : dynamic_range(count)) { /* v is Var<T>, 0..count-1, matching count's value type */ }
+for (auto v : dynamic_range(begin, end, step)) { /* begin..end-1 with step (same value type for all three) */ }
 loop(begin, end, step, [](auto i) { /* body */ });
 
 // Ternary & min/max
@@ -220,7 +225,7 @@ To emit a real GPU branch, use the DSL form with a device expression:
 
 ```cpp
 Kernel1D k = [&]() noexcept {
-    Var<bool> visible = read_some_flag();  // DSL bool
+    Var<bool> visible = thread_x() < 16u; // DSL bool
     Var<uint> x = 0u;
     $if (visible) {
         x = 1u;
@@ -273,17 +278,18 @@ Reserve native C++ loops for small, compile-time-known unrolling (for example, a
 ### Atomic Operations
 
 ```cpp
-Kernel1D k = [](BufferUInt buf) noexcept {
+Kernel1D k = [](BufferUInt buf, BufferFloat fbuf) noexcept {
     buf.atomic(3u).fetch_add(1u);
-    buf.atomic(0u).fetch_sub(-1.f);
+    buf.atomic(4u).fetch_sub(1u);
     buf.atomic(0u).fetch_max(100u);
-    buf.atomic(0u).compare_exchange(expected, new_value);
+    buf.atomic(1u).compare_exchange(17u, 99u);
+    fbuf.atomic(0u).fetch_sub(-1.f); // fetch_sub with a negative = addition
 };
 
-// Vector component:  buf.atomic(0u).x.fetch_add(1.f);
-// Matrix element: buf.atomic(0u)[1].x.fetch_add(1.f);  // [col][row]
-// Nested array: buf.atomic(0u)[1][2][3].fetch_add(1.f);
-// Struct member: auto a = buf.atomic(0u); a.v.x.fetch_max(1.f);
+// Vector component:  fbuf3.atomic(0u).x.fetch_add(1.f);
+// Matrix element: fbuf2x2.atomic(0u)[1].x.fetch_add(1.f);  // [col][row]
+// Nested array: buf_atomic_array.atomic(0u)[1][2][3].fetch_add(1.f);
+// Struct member (Something { uint x; float3 v; }): auto a = buf.atomic(0u); a.v.x.fetch_max(1.f);
 ```
 
 ### Shared Memory
@@ -293,8 +299,12 @@ Kernel1D k = []() noexcept {
     Shared<float4> s{16}; // 16 float4 elements
     s[thread_x()] = make_float4(1.0f);
     Var<float4> v = s[thread_x()];
-    s.atomic(0).compare_exchange(0.f, 1.f);
-    s.atomic(0).fetch_add(1.f);
+    // AtomicRef exposes scalar components, not whole-vector atomics:
+    s.atomic(0u).x.fetch_add(1.f);
+    s.atomic(0u).y.compare_exchange(0.f, 1.f);
+    // Scalar shared arrays can be atomic-ed directly:
+    Shared<uint> histogram{2u};
+    histogram.atomic(thread_x()).fetch_add(1u);
 };
 ```
 
@@ -443,7 +453,7 @@ Kernel1D k = []() noexcept {
     Constant floats = {1.0f, 2.0f};
     Constant ints = std::vector<int>{1, 2, 3, 4};
     Var<float> v = floats.read(0);
-    Var<int> iv = ints[idx];
+    Var<int> iv = ints[thread_x()];  // operator[](uint)
 };
 
 // Captured outside:
@@ -474,11 +484,14 @@ $int a; $float b; $float3 c; $uint2 d;
 $ v = 10; // $int
 $ f = 1.0f; // $float
 
-// $constant, $shared, $array, $buffer, $image, $volume, $bindless, $accel, $atomic
+// $constant, $shared, $array, $buffer, $image, $volume, $bindless, $accel
+// (note: a `$atomic` macro exists in sugar.h but expands to `AtomicVar`,
+//  which is not defined anywhere in the repo -> it is unusable; use
+//  `Var<T>`/`Shared<T>`/`BufferVar<T>` plus `.atomic(i)` instead)
 $constant floats = {1.0f, 2.0f};
 $shared<float4> s{16};
 $array<float, 5> arr;
-Kernel1D k = &[$]($buffer<float> buf, $uint count) { /* ... */ };
+Kernel1D k = [&]($buffer<float> buf, $uint count) noexcept { /* ... */ };
 
 // Control flow
 $if (w.x < 5) { } $elif (w.x > 0) { } $else { };
@@ -486,7 +499,7 @@ $loop { $break; };
 $while (i > 0u) { i = i / b; };
 $switch (123) { $case (1) { }; $default { }; };
 $for (x, n) { /* x is Var<uint>, 0..n-1 */ };
-$for (i, 0, n, 2) { /* i is Var<int>, step 2 */ };
+$for (i, 0u, n, 2u) { /* i is Var<uint>, step 2 */ };   // range with step (all three args must share one value type)
 
 // Return/break/continue/unreachable
 $return(x + y);
@@ -591,7 +604,7 @@ ULong t = device_clock();
 
 Coroutine examples that expose scheduler selection should use `--scheduler <state_machine|wavefront|persistent>` after the explicit backend argument, with `state_machine` as the default unless the example has a documented reason to choose otherwise. Prefer the shared parser in `examples/common/coro_scheduler_options.h` over per-example parsing.
 
-Coroutine frames reserve four scalar `uint` fields: frame indices 0, 1, and 2 store `coro_id.x/y/z`, and frame index 3 stores `target_token`. User frame fields start at `CoroFrameDesc::reserved_field_count` (currently 4). Do not reintroduce a skip flag; it was only needed by the old structured-CFG replay path, and XIR coroutine splitting now uses unstructured CFG continuations directly.
+Coroutine frames reserve seven scalar `uint` fields: frame indices 0, 1, and 2 store `coro_id.x/y/z`, indices 3, 4, and 5 store `dispatch_size.x/y/z`, and index 6 stores `target_token`. User frame fields start at `CoroFrameDesc::reserved_field_count` (currently 7). Do not reintroduce a skip flag; it was only needed by the old structured-CFG replay path, and XIR coroutine splitting now uses unstructured CFG continuations directly.
 
 Rendering coroutine examples should keep the real fine-grained coroutine topology. Wavefront rebuilds or sorts work queues per suspend phase, so inner-loop suspends can dominate runtime even when the generated code is functionally correct; do not hide that by silently removing or coarsening suspends in the main example/test. If a coarser coroutine is useful for profiling, add it as a separate focused debug case. Log `coro.frame().total_size()`, `coro.frame().frame_type()->size()`, frame field count, subroutine count, and graph node count after compiling complex coroutines.
 
@@ -645,9 +658,10 @@ Cooperative vectors are thread-local vectors of uniform size that participate in
 
 #### Backend Support
 
-> **⚠️ Currently cooperative vector operations only support the Vulkan (`vk`) backend.**
-> The DX backend requires Shader Model 6.8 with experimental features, which is not widely available.
-> Check `src/tests/unit/ast/test_cooperative_vector.cpp` for the `create_test_device()` helper.
+> **⚠️ Cooperative vector operations are exercised on the Vulkan (`vk`), DirectX (`dx`) and Metal4 (`metal4`) backends only.**
+> On `dx`, cooperative-vector kernels are always compiled to **Shader Model 6.9** (`kTensorShaderModel`) because their
+> long-vector types require it, and the DX device needs experimental features enabled (see below).
+> See `src/tests/unit/ast/test_cooperative_vector.cpp` for the `create_test_device()` helper (`dx|vk|metal4`).
 
 #### Type System
 
@@ -662,7 +676,7 @@ auto cvr_type = Type::cooperative_vector_ref(CoopRefVecType::FLOAT32, 16);  // c
 auto cmr_type = Type::cooperative_matrix_ref(CoopRefVecType::FLOAT32, 4, 8);  // coopmat_ref<4,8,5>
 ```
 
-Available `CoopRefVecType` values: `FLOAT16`, `FLOAT32`, `INT8`, `UINT8`, `INT32`, `UINT32`.
+Available `CoopRefVecType` values (`include/luisa/ast/type.h`): `UINT8`, `INT8`, `UINT32`, `INT32`, `FLOAT16`, `FLOAT32`, `FLOAT8_E4M3`, `FLOAT8_E5M2`.
 
 #### DSL Object Construction
 
@@ -884,7 +898,7 @@ auto r_shr = cooperative_vector_shift_right(v, 4u);  // element-wise >>
 
 #### Device Compilation Considerations
 
-- Backends: DX (Shader Model 6.8 with experimental features) or Vulkan.
+- Backends: DX (**Shader Model 6.9** with experimental features), Vulkan, or Metal4.
 - For DX, enable experimental features via `DirectXDeviceConfigExt`:
 
 ```cpp
@@ -946,7 +960,7 @@ auto load_shader = device.compile(load_kernel);
 | File | Contents |
 |------|----------|
 | `include/luisa/dsl/coop_vector.h` | `CoopVector<T>`, `CoopVectorRef`, `CoopMatrixRef` DSL type definitions |
-| `include/luisa/dsl/resource.h` (lines 880–1322) | All free functions: `cooperative_vector_*`, `cooperative_mat_*`, `bindless_cooperative_*`, `cooperative_outer_product_*` |
+| `include/luisa/dsl/resource.h` (lines 959–1392) | All free functions: `cooperative_vector_*`, `cooperative_mat_*`, `bindless_cooperative_*`, `cooperative_outer_product_*` |
 | `include/luisa/dsl/expr.h` (lines 151–155) | `Expr<CoopVector<T>>` template specialization with subscript access |
 | `src/tests/unit/ast/test_cooperative_vector.cpp` | AST construction, DSL sugar, and device execution tests for all cooperative operations |
 
@@ -964,13 +978,13 @@ auto load_shader = device.compile(load_kernel);
 | Shared | `Shared<T> s{n}` |
 | Constant | `Constant c = { ... }` |
 | Cast | `cast<T>(val)` / `val.cast<T>()` / `as<T>(val)` |
-| If | `if_(cond, [] {})` / `.elif_(cond, [] {})` / `.else_([] {})` / `$if ... $elif ... $else` |
+| If | `if_(cond, [] {})` / `.else_([] {})` / `$if ... $elif ... $else` (no `.elif_` member; `$elif` uses `operator*`) |
 | Switch | `switch_(val).case_(v, [] {})...default_([] {})` / `$switch ... $case ... $default` |
 | Loop | `loop([] {})` / `$loop` / `$while` / `$for (i, n)` / `$for (i, begin, end, step)` |
 | Dispatch ID | `dispatch_id().xy()` / `dispatch_x()` |
 | Thread ID | `thread_id().x` / `thread_x()` |
 | Bindless | `heap.buffer<T>(slot).read(idx)` / `heap.tex2d(slot).read(uv)` |
-| RTX | `make_ray(...)`, `accel.intersect(ray, {})`, `TriangleHit` |
+| RTX | `make_ray(...)`, `accel.intersect(ray, {})` → `Var<SurfaceHit>` (legacy alias `TriangleHit`), `hit.bary`, `triangle_interpolate` |
 | Indirect | `Var<IndirectDispatchBuffer>` / `.set_dispatch_count` / `.set_kernel` |
 | Compose | `compose(v1, v2)` → `.get<0>()`, `.get<1>()` |
 | Warp Config | `set_warp_size(32)` / `warp_lane_id()` / `warp_lane_count()` |
@@ -1122,6 +1136,8 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
             case CallOp::PACK:
+                LUISA_ASSERT(_arguments.size() == 3u,
+                             "PACK expects (value, buffer<uint>, offset).");
                 _arguments[0]->mark(Usage::READ);
                 _arguments[1]->mark(Usage::WRITE);
                 _arguments[2]->mark(Usage::READ);
@@ -1129,6 +1145,9 @@ void CallExpr::_mark() const noexcept {
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:
             case CallOp::BINDLESS_BUFFER_WRITE:
+            case CallOp::UNIFORM_BINDLESS_BUFFER_WRITE:
+            case CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_WRITE:
+            case CallOp::TYPED_BINDLESS_BUFFER_WRITE:
             case CallOp::BYTE_BUFFER_VOLATILE_WRITE:
             case CallOp::BYTE_BUFFER_WRITE:
             case CallOp::TEXTURE_WRITE:
@@ -1158,9 +1177,37 @@ void CallExpr::_mark() const noexcept {
             case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
             case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
             case CallOp::COOPERATIVE_VECTOR_STORE:
+            case CallOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            case CallOp::TYPED_BINDLESS_COOPERATIVE_VECTOR_STORE:
             case CallOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
                 _arguments[0]->mark(Usage::WRITE);
                 for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL:
+            case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST:
+                _arguments[0]->mark(Usage::WRITE);
+                _arguments[1]->mark(Usage::READ_WRITE);
+                break;
+            case CallOp::MBARRIER_INIT:
+            case CallOp::MBARRIER_ARRIVE_EXPECT_TX:
+                _arguments[0]->mark(Usage::WRITE);
+                for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            case CallOp::MBARRIER_TRY_WAIT_PARITY:
+                _arguments[0]->mark(Usage::READ_WRITE);
+                for (size_t i = 1; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
+            case CallOp::ASYNC_COPY:
+                // args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                for (size_t i = 2; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;
@@ -1192,6 +1239,9 @@ void CallExpr::_mark() const noexcept {
 
 - **Default builtin**: every argument marked `READ`.
 - **Write-style builtins** (list above): argument 0 marked `WRITE`; remaining arguments marked `READ`.
+- **Cluster-launch-control try-cancel**: argument 0 (the result) `WRITE`, argument 1 (the smem buffer) `READ_WRITE`.
+- **`MBARRIER_INIT` / `MBARRIER_ARRIVE_EXPECT_TX`**: argument 0 `WRITE`, rest `READ`; **`MBARRIER_TRY_WAIT_PARITY`**: argument 0 `READ_WRITE`, rest `READ`.
+- **`ASYNC_COPY`**: argument 0 (scope) `READ`, argument 1 (shared-memory destination) `WRITE`, rest `READ`.
 - **`PACK(value, words, offset)`**: value and offset are `READ`; the destination `buffer<uint>` is `WRITE`. Do not put `PACK` in the ordinary argument-0 write group.
 - **`UNPACK(words, offset)`**: follows the default rule, so both arguments are `READ`.
 - Atomic ops mark their target reference (argument 0) as `WRITE`; `AtomicRefNode::operate()` builds the `CallExpr` with the target as `_arguments[0]` (`src/ast/atomic_ref_node.cpp`).
@@ -1254,8 +1304,9 @@ AST-to-XIR wraps the packed value in a one-member Luisa structure whose alignmen
 | Atomic op construction | `src/ast/atomic_ref_node.cpp` |
 | AST-to-XIR calls, IDs, bindless aliases, ray queries, PACK/UNPACK | `src/xir/translators/ast2xir.cpp` |
 | PACK/UNPACK usage regression | `src/tests/unit/xir/test_ast_pack_usage.cpp` |
-| Typed bindless lowering regression | `src/tests/unit/xir/test_ast_typed_bindless_lowering.cpp` |
-| Direct ray-query proceed regression | `src/tests/unit/xir/test_xir_pass_lower_ray_query_loop.cpp` |
+| Typed bindless usage marking | `src/tests/unit/ast/test_bindless_write_usage.cpp` |
+| Typed bindless lowering regression | `src/tests/integration/runtime/test_metal_xir_air_typed_bindless.cpp` |
+| Direct ray-query proceed regression | `src/tests/unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp` |
 | External lowering regression | `src/tests/unit/xir/test_ast_external_lowering.cpp` |
 | Manual AST skill doc | `.agents/skills/ast/SKILL.md` |
 
@@ -1266,7 +1317,7 @@ AST-to-XIR wraps the packed value in a one-member Luisa structure whose alignmen
 - **Query usage after building**: call `Function::variable_usage(uid)` or `FunctionBuilder::variable_usage(uid)`.
 - **Custom callable reference/resource/custom args**: explicitly mark the callee variable with its real usage so callers propagate it correctly.
 - **Change external lowering**: update declaration form and call operand form together, then run `test_ast_external_lowering` and the `unit_xir` CTest label.
-- **Change bindless aliases or direct ray queries**: preserve ordinary XIR op normalization and lvalue identity, then run `test_ast_typed_bindless_lowering` and `test_xir_pass_lower_ray_query_loop`.
+- **Change bindless aliases or direct ray queries**: preserve ordinary XIR op normalization and lvalue identity, then run `test_bindless_write_usage`, `test_metal_xir_air_typed_bindless`, and `test_xir_pass_reconstruct_ray_query_loop`.
 
 ### Broader AST Changes
 
@@ -1375,7 +1426,7 @@ stream << readback.view().copy_from(src); // BufferView::copy_from(BufferView)
 
 #### SAFE Build Mode (`LUISA_ENABLE_SAFE_MODE`)
 
-Define `LUISA_ENABLE_SAFE_MODE` at build time to **disable unsafe raw-pointer overloads**, enabling runtime validation of buffer creation. This is controlled by the cmake option `ENABLE_SAFE_MODE` in the project.
+Define `LUISA_ENABLE_SAFE_MODE` at build time to **disable unsafe raw-pointer overloads**, enabling runtime validation of buffer creation. The CMake option is `LUISA_COMPUTE_ENABLE_SAFE_MODE` (root `CMakeLists.txt`); the xmake option is `lc_safe_mode`.
 
 **What is excluded in SAFE mode** (`#ifndef LUISA_ENABLE_SAFE_MODE` blocks in `include/luisa/runtime/buffer.h`):
 
@@ -1437,13 +1488,13 @@ Kernel2D k = [&](ImageFloat img) {
 #include <luisa/runtime/bindless_array.h>
 BindlessArray heap = device.create_bindless_array(64);
 heap.emplace_on_update(slot, buffer);
-heap.emplace_on_update(slot, image, TextureSampler::linear_linear_mirror());
+heap.emplace_on_update(slot, image, Sampler::linear_linear_mirror());
 stream << heap.update() << synchronize();
 
 // Kernel:
 Kernel1D k = [&](Var<BindlessArray> heap) {
     auto v = heap.buffer<float>(slot).read(idx);
-    auto c = heap.texture2d(slot).sample(uv);
+    auto c = heap.tex2d(slot).sample(uv);
 };
 ```
 
@@ -1461,7 +1512,7 @@ Swapchain swapchain = device.create_swapchain(stream, SwapchainOption{
 stream << swapchain.present(image);
 ```
 
-On iOS, UIKit owns the `UIView`/`CAMetalLayer`; rendering sources should still construct the ordinary `Window` and `Swapchain`. The app host installs a process-wide `Window::set_native_handle_provider(...)` before entering the example. The provider returns the native layer/display handles, and platform touch/keyboard/resize events are queued through the `post_native_*` functions and delivered by `Window::poll_events()` on the rendering thread. Clear the provider only after every provider-backed window has been destroyed. Do not teach each rendering example about UIKit or bypass `Window -> Swapchain`.
+On iOS, UIKit owns the `UIView`/`CAMetalLayer`; rendering sources should still construct the ordinary `Window` and `Swapchain`. The app host installs a process-wide `Window::set_native_handle_provider(...)` before entering the example. The provider returns the native layer/display handles, and platform mouse/keyboard/scroll/resize events are queued through the `post_native_*` functions (`post_native_mouse_button_event`, `post_native_cursor_position_event`, `post_native_key_event`, `post_native_scroll_event`, `post_native_window_size_event` in `include/luisa/gui/window.h`; there is no touch-event entry point) and delivered by `Window::poll_events()` on the rendering thread. Clear the provider only after every provider-backed window has been destroyed. Do not teach each rendering example about UIKit or bypass `Window -> Swapchain`.
 
 ### Ray Tracing (Host Resources)
 
@@ -1528,7 +1579,15 @@ Kernel2D trace = [&](AccelVar accel, BufferFloat4 img) {
 
 DepthBuffer depth = device.create_depth_buffer(DepthFormat::D32, size);
 auto raster_shader = device.compile(raster_kernel, mesh_format);
-RasterScene scene = device.create_raster_scene(vertex_buffer, index_buffer);
+
+// There is no persistent scene object: draws take a luisa::vector<RasterMesh>
+// built per frame from VertexBufferView + an index BufferView<uint>.
+VertexBufferView vbs{vertex_buffer};
+luisa::vector<RasterMesh> meshes;
+meshes.emplace_back(luisa::span<VertexBufferView const>{&vbs, 1u}, index_buffer.view(),
+                    instance_count, object_id);
+stream << std::move(raster_shader(args...))
+              .draw(std::move(meshes), mesh_format, Viewport{0, 0, w, h}, state, &depth);
 ```
 
 `RasterMesh` carries both an instance count and an optional base instance. The base defaults to zero; pass it after `vertex_offset` when a vertex shader uses `raster_base_instance()`. The runtime forwards it to indexed and non-indexed Metal4, DX12, and Vulkan draws, and the ordinary instance ID starts at that base value.
@@ -1720,7 +1779,7 @@ stream << buf.copy_to(luisa::span{host_data}) << synchronize();
 | `luisa/runtime/rtx/curve.h` | Curve |
 | `luisa/runtime/rtx/ray.h` | Ray, hit types |
 | `luisa/runtime/raster/raster_shader.h` | RasterShader |
-| `luisa/runtime/raster/raster_scene.h` | RasterScene |
+| `luisa/runtime/raster/raster_scene.h` | RasterMesh, VertexBufferView |
 
 ## VSTL: Containers and Utilities
 
@@ -1755,7 +1814,7 @@ vstd::push_back_all(vec, some_span);
 
 ### HashMap
 
-`#include <luisa/vstl/hash_map.h>`. Power-of-2 capacity, open addressing, per-bucket red-black trees.
+`#include <luisa/vstl/hash_map.h>`. Power-of-2 capacity; a dense node-pointer array (iteration order) plus a per-bucket small red-black tree (`SmallTreeMap`, `include/luisa/vstl/tree_map_base.h`) for lookup.
 
 ```cpp
 vstd::HashMap<Key, Value> map;           // default
@@ -1763,7 +1822,7 @@ vstd::HashMap<Key, Value> map(capacity); // pre-sized
 vstd::HashMap<Key> set;                  // HashSet when V=void
 ```
 
-Template: `HashMap<K, V=void, Hash=HashValue, Compare=compare<K>, allocType=VEngine>`
+Template: `HashMap<K, V=void, Hash=HashValue, Compare=compare<K>, VEngine_AllocType allocType=VEngine_AllocType::VEngine>`
 
 #### API
 
@@ -1793,17 +1852,18 @@ for (auto&& kv : std::move(map)) { } // move: MoveIterator → MoveNodePair&&
 
 ```cpp
 vstd::ArenaHashMap<ArenaType, Key, Value> map(capacity, std::move(arena));
-// API: try_emplace, force_emplace, emplace, find, remove, clear, reserve
-// No custom Index/remove(Index); key-based removal only.
+// API: try_emplace (pair<Index,bool>), force_emplace, emplace, find, get_index,
+//      clear, reserve, size, empty, capacity — it does expose an `Index` type,
+//      but there is NO removal API at all (no remove/erase).
 ```
 
 ### Object Pool
 
-`#include <luisa/vstl/pool.h>`. Free-list pool using `vengine_malloc`.
+`#include <luisa/vstl/pool.h>`. Free-list pool using `vengine_malloc`. `template<typename T, bool noCheckBeforeDispose = std::is_trivially_destructible_v<T>>`.
 
 ```cpp
 vstd::Pool<MyType> pool(initial_capacity, initialize=true);
-// Pool<T, true>  — trivially destructible, lightweight
+// Pool<T, true>  — no dispose check (default for trivially destructible T)
 // Pool<T, false> — tracks live objects, supports iteration
 
 T* obj = pool.create(args...);
@@ -1886,7 +1946,7 @@ v.visit([&](auto& x) {});
 v.multi_visit([&](int&){}, [&](float&){}, [&](std::string&){});
 auto r = v.visit_or(fallback, [](auto& x) { return process(x); });
 
-v.reset_as<int>(123); v.reset_as<2>(args...);  // reset by index
+v.reset_as<int>(123); v.reset_as(2u, args...);  // reset by type, or by runtime index
 ```
 
 ### Optional & StackObject
@@ -1905,7 +1965,7 @@ T val = opt.value_or(default_val);
 
 ### String Utilities
 
-`#include <luisa/vstl/vstring.h>`, `<luisa/vstl/string_builder.h>`
+`#include <luisa/vstl/vstring.h>`, `<luisa/vstl/string_builder.h>`, `<luisa/vstl/string_utility.h>`
 
 ```cpp
 // vstd::string
@@ -1932,7 +1992,8 @@ vstd::StringUtil::to_hex_string(binary_span, result, upper=true);
 ```cpp
 size_t h = vstd::hash<MyType>{}(value);
 int32_t c = vstd::compare<MyType>{}(a, b);  // -1,0,1
-// vstd::HashValue delegates to hash<T>; vstd::Hash::binary_hash uses xxHash64
+// vstd::HashValue delegates to hash<T>; vstd::Hash::binary_hash wraps
+// vstd_xxhash_gethash -> luisa::hash64 (XXH3 64-bit; include/luisa/core/stl/hash.h)
 // compare uses memcmp for non-arithmetic non-enum types
 ```
 
@@ -1956,10 +2017,11 @@ for (int64_t i : vstd::range(end)) { }            // 0..end-1
 for (T& x : vstd::ptr_range(ptr, count)) { }
 for (auto& x : vstd::ite_range(container)) { }
 
-// Chain
-auto r = vstd::make_ite_range(container)
-    | filter_range([](auto& x) { return x.active; })
-    | transform_range([](auto& x) { return x.value; });
+// Chain (no `operator|`; combine with range_linker)
+auto r = vstd::range_linker{
+    vstd::make_ite_range(container),
+    vstd::filter_range{[](auto &x) { return x.active; }},
+    vstd::transform_range{[](auto &x) { return x.value; }}};
 
 // Erased heap range: i_range()
 ```
@@ -1968,13 +2030,14 @@ auto r = vstd::make_ite_range(container)
 
 ```cpp
 // Scope guard
-auto guard = vstd::scope_exit([&] { cleanup(); });
+auto guard = vstd::scope_exit([&] { cleanup(); });   // meta_lib.h
 
 // Macros
-KILL_COPY_CONSTRUCT(ClassName)  KILL_MOVE_CONSTRUCT(ClassName)
-VSTD_TRIVIAL_COMPARABLE(ClassName)  // memcmp-based == != > <
+KILL_COPY_CONSTRUCT(ClassName)  KILL_MOVE_CONSTRUCT(ClassName)   // memory.h
+VSTD_TRIVIAL_COMPARABLE(ClassName)  // memcmp-based == != > <     // meta_lib.h
 
-// Allocation (#include <luisa/vstl/memory.h>)
+// Allocation (#include <luisa/vstl/memory.h>; the vengine_* malloc/realloc/free
+// primitives themselves live in <luisa/vstl/meta_lib.h>)
 void* p = vengine_malloc(size); void* p = vengine_realloc(old, size); vengine_free(p);
 T* obj = vengine_new<T>(args...); T* arr = vengine_new_array<T>(count, args...); vengine_delete(obj);
 
@@ -2109,12 +2172,15 @@ luisa::BinaryFileStream s2(std::move(stream));  // move semantics
 **Header**: `<luisa/core/binary_io.h>`
 
 ```cpp
-luisa::BinaryBlob blob{ptr, size, [](void* p) { ::operator delete(p); }};
+luisa::BinaryBlob blob{
+    static_cast<std::byte *>(ptr), size,
+    [](void *p) { ::operator delete(p); }};
 luisa::BinaryBlob empty;
 std::byte* d = blob.data(); size_t sz = blob.size(); bool e = blob.empty();
 luisa::span<std::byte> sp = static_cast<luisa::span<std::byte>>(blob);
 luisa::BinaryBlob b2(std::move(blob)); b3 = std::move(b2);
-void* raw = blob.release();  // blob becomes empty; manual delete required
+// No release(): the disposer always runs in ~BinaryBlob. To hand ownership out,
+// move the blob into a luisa::move_only_function disposer you control.
 ```
 
 ### Clock
@@ -2185,10 +2251,10 @@ Format: `{}` (default), `{:x}` (hex), `{:b}` (binary), `{:e}` (scientific), `{:.
 
 `LUISA_ERROR("...")` (and `LUISA_ERROR_WITH_LOCATION`) logs a fatal message and **aborts** the process — it is the project's error signal, not something you recover from.
 
-- **Never use `try`/`catch`/`throw`.** The whole codebase compiles with C++ exceptions **disabled** (MSVC `_HAS_EXCEPTIONS=0` + `/EHs-c-`, GCC/Clang `-fno-exceptions`) and virtually every public API is `noexcept`. A `try` block fails to compile (`error: cannot use 'try' with exceptions disabled`) and a `catch` can never fire, so exception-based control flow is dead by construction.
+- **Never throw.** Project-owned C++ must not use `throw`, rethrow, or an exception-raising substitute (`python scripts/check_cpp_no_throw.py` scans for it; it is also run by CI). LuisaCompute's own targets build with `exceptions = "no-cxx"` plus `_HAS_EXCEPTIONS=0` on Windows (`scripts/xmake_func.lua`), and virtually every public API is `noexcept`, so a throwing STL/`try` block is not portable across those targets.
 - **Signal failure with return values, not exceptions.** A `noexcept` `[[nodiscard]]` factory (device/stream/resource/`Shader`) reports "couldn't create" by returning an **invalid handle** — test it with `operator bool` (`if (!device) LUISA_ERROR(...)`); check `Shader::compile_ok()` for a compile that failed to recover from. Prefer `std::optional`/invalid objects / an out status over throwing.
 - **Fatal vs. recoverable.** Use `LUISA_ERROR` only for unrecoverable/programming errors (it aborts). For an expected, skippable failure inside a loop, log `LUISA_WARNING` and continue; never wrap it in `try`/`catch`.
-- **Isolated need for exceptions** (rare — e.g. a throwing STL call or a third-party/test framework that requires them): enable it on the *specific build target* via `enable_exception = true`, or keep it compiling under the global no-exceptions default by guarding with `#if defined(__cpp_exceptions)` (throw in the `#if`, `LUISA_ERROR`/abort in the `#else`). Do **not** rely on catching a throw in normal project code.
+- **Isolated need for exceptions** (rare — e.g. a throwing third-party/test framework that requires them): enable it on the *specific build target* via `enable_exception = true` (see `src/py/xmake.lua`), or keep it compiling under the global no-exceptions default by guarding with `#if defined(__cpp_exceptions)` (throw in the `#if`, `LUISA_ERROR`/abort in the `#else`). Catching a third-party exception at an integration boundary is allowed; do not enable exceptions on an otherwise exception-free target just to accommodate project-owned raising code.
 
 ### Mathematics
 
@@ -2240,7 +2306,7 @@ luisa::fma(a, b, c);                                // a*b+c
 
 #### Constants
 ```cpp
-luisa::constants::pi, pi_over_2, pi_over_4, two_pi, inv_pi, e
+luisa::constants::pi, pi_over_two, pi_over_four, inv_pi, two_over_pi, sqrt_two, inv_sqrt_two, one_minus_epsilon
 ```
 
 ### Pool Allocator

@@ -5,13 +5,17 @@ description: XMake build configuration, options, commands, and patterns for Luis
 
 # XMake Build System
 
-Primary build system. Requires XMake 3.0.6+. Optional: CUDA Toolkit, Vulkan SDK, LLVM 20, and Embree.
+Primary build system. Requires XMake 3.0.6+ (`set_xmakever("3.0.6")` in root `xmake.lua`). Optional: CUDA Toolkit, LLVM 22 (`--lc_llvm_path=`, used by `lc_enable_clangcxx`/`lc_tvm_llvm`), and Embree (`--lc_embree_path=`). The DX/VK shader-compiler SDKs are downloaded automatically into `SDKs/` by the `lc_backend_sdk` target (`scripts/find_sdk.lua`; override the directory with `--lc_sdk_dir=`, an empty string disables installation).
 
 ## Quick Start
 
 ```bash
 xmake f -m debug -c -y
-xmake build
+# explicit plat/arch (the form AGENTS.md prescribes):
+xmake f -p windows -a x64 -m debug -c
+xmake build              # build all default targets
+xmake build <target>     # one target, e.g. lc-runtime, test_dsl, example_path_tracing
+xmake run <target> <args>
 # Update compile_commands.json:
 xmake project -k compile_commands --lsp=clangd .vscode
 ```
@@ -28,20 +32,62 @@ xmake project -k compile_commands --lsp=clangd .vscode
 | macOS Clang | `xmake f -p macosx -a arm64 --toolchain=clang -m release -c` |
 
 ### Flags
-`-c` clean cache, `-m <mode>` (release/debug/releasedbg/check/profile/coverage), `-p <plat>` (linux/windows/macosx), `-a <arch>` (x86_64/x64/arm64), `--check` check before building, `-y` auto-accept all prompts and skip interaction (useful in scripts/CI).
+`-c` clean the cached user configs and the detection cache, `-m <mode>` (`release`/`debug`/`releasedbg` — the only modes this project declares, see `add_rules("mode.release", "mode.debug", "mode.releasedbg")` in root `xmake.lua`), `-p <plat>` (linux/windows/macosx/android), `-a <arch>` (x86_64/x64/arm64 — the values `_lc_check_env` accepts, `scripts/xmake_func.lua`), `--check` drop the detection cache and re-check everything while keeping the cached user configs, `-y` auto-accept all prompts and skip interaction (useful in scripts/CI).
 
-In this project `debug` mode automatically enables AddressSanitizer (ASan). To enable ASan for other modes, use `--policies=build.sanitizer.address`.
+`debug` does **not** enable sanitizers here: xmake's `mode.debug` rule only sets `symbols = "debug"` and `optimize = "none"` (`-G` for CUDA), and this project adds `/GS /Gd` plus the debug CRT (`MDd`) in `lc_basic_settings`. To build with ASan, set the policy explicitly: `xmake f -m debug --policies=build.sanitizer.address -c`.
+
+### Project Options
+
+Every option is declared as `option("lc_*")` in root `xmake.lua` — including the internal `lc_scripts_path` and `lc_ext_path` (defaults below are the `{default = ...}` values there); `scripts/xmake_func.lua` adds the underscore-prefixed `_lc_check_env`, `_lc_bin_dir` and `_lc_enable_py` options. There are no other valid option names — pass them as `--lc_name=value`.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `lc_dx_backend`, `lc_vk_backend`, `lc_cuda_backend`, `lc_metal_backend` | true | GPU backends → targets `lc-backend-dx`, `lc-backend-vk`, `lc-backend-cuda`, `lc-backend-metal` |
+| `lc_fallback_backend` | false | CPU fallback backend `lc-backend-fallback`; needs `lc_llvm_path` + `lc_embree_path` |
+| `lc_enable_xir` | true | XIR support; also pulls in `lc-coro` (`src/xmake.lua`) and gates `lc_vk_backend_use_xir_spirv` |
+| `lc_vk_backend_use_xir_spirv` | false | native XIR→SPIR-V codegen for Vulkan (the CMake side, `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV`, defaults ON) |
+| `lc_vk_backend_use_ast_llvm_spirv` | false | experimental AST→LLVM→SPIR-V route; requires `lc_llvm_path`, mutually exclusive with the row above |
+| `lc_vk_backend_enable_dxc_compatibility` | true | keep the legacy runtime DXC route for unsupported Vulkan shader features |
+| `lc_vk_min_api_version` | `"auto"` | Vulkan API floor for device negotiation (`auto`, `1.2`, `1.3`) |
+| `lc_vk_bindless_heap_capacity` | 262144 | requested update-after-bind heap capacity (0 disables bindless) |
+| `lc_cuda_ext_lcub` | false | CUDA CUB extension (`lc-compute-cuda-ext-lcub`), off by default due to compile time |
+| `lc_dx_cuda_interop`, `lc_vk_cuda_interop` | false | auto-enabled when both sides of the interop are enabled |
+| `lc_enable_dsl`, `lc_enable_gui`, `lc_enable_imgui`, `lc_enable_osl`, `lc_enable_py`, `lc_enable_tests` | true | module switches; `lc_enable_clangcxx` defaults to false |
+| `lc_enable_simd` | true | `avx`+`avx2` (x64) / `neon` vectorexts applied by `lc_basic_settings` |
+| `lc_enable_unity_build`, `lc_enable_pch` | true | compile-speed rules (`c/c++.unity_build`, `lc_set_pcxxheader`) |
+| `lc_enable_mimalloc` | true | switches bundled EASTL (and SPIRV-Tools) onto the mimalloc override (`src/ext/xmake.lua`) |
+| `lc_enable_custom_malloc` | false | custom allocator instead of the system allocator |
+| `lc_external_marl` | false | external marl instead of the bundled `src/ext/marl` |
+| `lc_use_lto` | false | declared in `xmake.lua`, but `lc_basic_settings` reads the **`lto`** key (`_get_or("lto")` → `lc_lto`), so `--lc_use_lto=true` alone changes nothing; set LTO per target with `_config_project({lto = true})`, which applies the `build.optimization.lto` policy |
+| `lc_rtti`, `lc_safe_mode` | false | RTTI (off: `-fno-rtti` / `/GR-`), runtime safe mode |
+| `lc_cxx_standard`, `lc_c_standard` | `'cxx20'`, `'clatest'` | language standards applied by `lc_basic_settings` |
+| `lc_bin_dir` | `"bin"` | output directory root; the mode is appended (`bin/debug`) |
+| `lc_win_runtime`, `lc_optimize` | false | override the Windows CRT (`MD`/`MT`/…) and the `optimize` setting |
+| `lc_toolchain` | false | toolchain applied to every target (`target:set("toolchains", ...)`) |
+| `lc_sdk_dir` | false | SDK download directory; an empty string disables SDK installation |
+| `lc_llvm_path`, `lc_embree_path`, `lc_ndk` | false | external LLVM / Embree / Android NDK locations |
+| `lc_py_include`, `lc_py_linkdir`, `lc_py_libs` | false | manual Python binding locations (needed for `lc_enable_py` to take effect) |
+| `lc_use_system_stl` | false | defines `LUISA_USE_SYSTEM_STL` (system STL instead of bundled EASTL) |
+| `lc_spdlog_use_xrepo`, `lc_reproc_use_xrepo`, `lc_lmdb_use_xrepo`, `lc_imgui_use_xrepo`, `lc_glfw_use_xrepo`, `lc_yyjson_use_xrepo` | false | use xmake-repo packages instead of the bundled `src/ext/*` submodules |
+| `lc_disable_win_message_box` | true | defines `LUISA_DISABLE_WIN_MESSAGE_BOX` (Windows, debug mode) |
+| `lc_tile_tirx_bridge`, `lc_tvm_stack`, `lc_tvm_llvm` | false | TileIR→TVM TIRx bridge, bundled TVM stack, TVM LLVM codegen |
+
+`scripts/options.lua` holds the per-machine defaults: it assigns `lc_options = { toolchain = "...", lc_<name> = <value>, ... }` and root `xmake.lua` applies each entry with `set_config(k, v)` before the targets are loaded, so command-line `--lc_*=` values win over the file. Generate a starter file with `xmake lua scripts/write_options.lua`.
+
+### Internal options and target names
+
+`_lc_check_env` (`scripts/xmake_func.lua`) validates `-a`/`-m` and gates the `includes("src")`/`examples`/`tutorials` at the bottom of root `xmake.lua`; `_lc_bin_dir` collects the mode-suffixed output directory. Library/target names to build against are `lc-core`, `lc-runtime`, `lc-dsl`, `lc-vstl`, `lc-tile`, `lc-gui`, `lc-coro`, `lc-osl`, `lc-clangcxx`, `lcapi`, the `lc-backend-*` targets, `lc-backends-dummy` (phony, depends on the enabled backends) and `lc-validation-layer`.
 
 ## Sanitizer Modes
 
-XMake supports sanitizer builds through sanitizer policies. Policies propagate the sanitizer configuration to dependent packages and avoid the deprecation warnings produced by the legacy `mode.asan`/`mode.tsan`/`mode.lsan`/`mode.ubsan` rules.
+XMake supports sanitizer builds through sanitizer policies. Policies propagate the sanitizer configuration to dependent packages and avoid the deprecation warnings produced by the legacy `mode.asan`/`mode.tsan`/`mode.msan`/`mode.lsan`/`mode.ubsan` rules.
 
 ### ASan in debug mode
 
-Configure and build with debug mode as usual:
+`-m debug` on its own produces an unsanitized build (xmake's `mode.debug` rule only sets `symbols`/`optimize`), and the legacy `-m asan` mode is rejected here because `_lc_check_env` accepts only `debug`/`release`/`releasedbg` (`scripts/xmake_func.lua`). Combine debug with the address-sanitizer policy instead:
 
 ```bash
-xmake f -m debug -c -y
+xmake f -m debug --policies=build.sanitizer.address -c -y
 xmake build
 xmake run <target>
 ```
@@ -87,22 +133,29 @@ xmake f --policies=build.sanitizer.address,build.sanitizer.undefined -c -y
 | `xmake build <target>` | Build target |
 | `xmake run <target>` | Run target |
 | `xmake run <target> <args>` | Run target with arguments |
-| `xmake -l` | List targets |
+| `xmake -a` | Build all targets, not only the default ones (no `-l`/list-targets command exists; target names come from `target("...")` in the `xmake.lua` files) |
+| `xmake lua <script.lua>` | Run a Lua script inside the xmake sandbox, e.g. `xmake lua scripts/write_options.lua` |
 | `xmake install -o <dir>` | Install binaries to `<dir>` |
 | `xmake -y` | Auto-accept all prompts (downloads, overwrites, etc.), skip interaction |
 | `xmake project -k compile_commands --lsp=clangd .vscode` | Generate `compile_commands.json` |
 
 ## Common Issues
 
-- `-v`, `-D`, `--diagnosis` invalid; use `--verbose`
-- Boolean options: `--lc_option=true`/`=false`
+- `-v`/`--verbose` (verbose user output) and `-D`/`--diagnosis` (developer diagnostics) are both valid xmake flags and can be combined (`xmake -vD`); `xmake --verbose` is simply the long form of `-v`
+- Boolean options: `--lc_option=true`/`=false`; value options: `--lc_option=<value>` (e.g. `--lc_cxx_standard=cxx23`, `--lc_bin_dir=out`)
 - Use `-c` to clean cache when reconfiguring with different options
 - Use `-y` to auto-accept all prompts and skip interaction — essential in automated scripts and CI pipelines
 - `lc_fallback_backend` requires both `lc_llvm_path` and `lc_embree_path`
 - `lc_dx_backend` is silently disabled on non-Windows platforms
 - `lc_metal_backend` is silently disabled on non-macOS platforms
 - `lc_cuda_backend` is silently disabled outside Windows/Linux
-- PCH (precompiled header) error like `has been modified since the precompiled header` / `redefinition of ...` means the target's PCH is stale — use `xmake build -r <target>` to force a clean rebuild of that target.
+- PCH (precompiled header) error like `has been modified since the precompiled header` / `redefinition of ...` means the target's PCH is stale — use `xmake build -r <target>` to force a clean rebuild of that target. PCH is emitted by `lc_set_pcxxheader()` (root `xmake.lua`), which applies it only while `lc_enable_pch` is on.
+- `lc_vk_backend_use_xir_spirv` and `lc_vk_backend_use_ast_llvm_spirv` are mutually exclusive: enabling both raises at configure time (root `xmake.lua`). `lc_vk_backend_use_ast_llvm_spirv` also requires `lc_llvm_path` and force-disables the XIR→SPIR-V option (`scripts/xmake_func.lua`).
+- `lc_enable_tests=false` makes the `test_*`, `benchmark_*`, `example_*` and `tutorial_*` targets disappear — `src/tests`, `examples` and `tutorials` are only `includes()`-ed when it is enabled (`src/xmake.lua`, root `xmake.lua`). They are created by the local helpers `test_proj(...)`, `example_proj(...)` and `tutorial_proj(...)`.
+- Dependent options are force-applied at configure time (`scripts/xmake_func.lua`): `lc_enable_tests` forces `lc_enable_dsl` on; `lc_fallback_backend` or `lc_llvm_path` force `lc_enable_xir` on; Python bindings only activate when `lc_enable_py` *and* a non-empty `lc_py_include` are set; `lc_dx_cuda_interop`/`lc_vk_cuda_interop` are auto-enabled when both sides are present.
+- Windows builds need the Windows SDK ≥ 10.0.22000.0; the phony target `lc-check-winsdk` (`scripts/xmake_func.lua`) raises otherwise.
+- `-p android` requires the NDK: pass `--lc_ndk=<dir>` (auto-detected with `detect.sdks.find_ndk` when unset).
+- Binaries land in `<lc_bin_dir>/<mode>` — default `bin/debug`, `bin/release` or `bin/releasedbg` (`lc_bin_dir` defaults to `bin`).
 
 # Xmake Target Writing Tutorial
 
@@ -416,10 +469,12 @@ set_pcxxheader("precompiled.hpp") -- C++ PCH
 Enable conditionally with:
 
 ```lua
-if has_config("enable_pch") then
+if has_config("lc_enable_pch") then
     set_pcxxheader("mypch.hpp")
 end
 ```
+
+This project wraps exactly that check in `lc_set_pcxxheader(...)` (root `xmake.lua`), which only forwards to `set_pcxxheader(...)` while `lc_enable_pch` is on — use it instead of `set_pcxxheader` in `src/**/xmake.lua`.
 
 ---
 
@@ -484,7 +539,7 @@ if is_mode("debug") then ... end      -- Current build mode
 if is_os("windows") then ... end      -- Target OS (e.g., "ios", "android")
 if is_host("windows") then ... end    -- Host OS running xmake
 if is_subhost("msys") then ... end    -- Subsystem (e.g., "msys", "cygwin")
-if is_subarch(...) then ... end       -- Subsystem architecture
+if os.is_subarch(...) then ... end -- Subsystem architecture (only as `os.is_subarch`, there is no bare `is_subarch`)
 if is_cross() then ... end            -- Cross-compilation check
 if is_kind("static") then ... end     -- Target kind check
 if is_config("var", "value") then ... end  -- Config option value check
@@ -646,7 +701,7 @@ on_load(function(target)
     end
 end)
 
-if has_config("enable_pch") then
+if has_config("lc_enable_pch") then
     set_pcxxheader("src/mylib_pch.h")
 end
 target_end()
@@ -670,13 +725,13 @@ target_end()
 ```lua
 target("my-tool")
 set_kind("binary")
-add_deps("runtime", "dsl")
+add_deps("lc-runtime", "lc-dsl")
 add_files("main.cpp")
 add_includedirs("include")
 
 on_load(function(target)
-    if has_config("enable_gui") then
-        target:add("deps", "gui")
+ if has_config("lc_enable_gui") then
+ target:add("deps", "lc-gui")
         target:add("defines", "ENABLE_GUI")
     end
 end)
@@ -713,21 +768,23 @@ target_end()
 
 ```lua
 local function test_proj(name, source, extra)
-    target(name)
-    set_kind("binary")
-    add_deps("runtime", "dsl")
-    add_files(source)
-    add_includedirs("common")
-    if extra then extra() end
-    target_end()
+ target(name)
+ set_kind("binary")
+ add_deps("lc-runtime", "lc-dsl", "lc-vstl")
+ add_files(source)
+ add_includedirs("common")
+ if extra then extra() end
+ target_end()
 end
 
 test_proj("test_foo", "tests/test_foo.cpp")
 test_proj("test_bar", "tests/test_bar.cpp", function()
-    add_defines("EXTRA")
-    add_deps("extra-dep")
+ add_defines("EXTRA")
+ add_deps("extra-dep")
 end)
 ```
+
+The real helper is `local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)` in `src/tests/xmake.lua`; it always adds `lc-runtime`, `lc-dsl`, `lc-vstl`, `stb-image` and `lc-backends-dummy` (with `{inherit = false, links = false}`), calls `_config_project({...})` for the mode/standard settings, and skips the target when `gui_dep` is set but `lc_enable_gui` is off. Test target names are `test_*` and benchmark names `benchmark_*` (most created through that helper; a few, e.g. `test_reproc_win32_contract`, are plain `target(...)` blocks), so `xmake build test_dsl` / `xmake run benchmark_tile_native` work directly.
 
 ### 10.7 Object Target (Intermediate objects only)
 
@@ -749,9 +806,22 @@ target("my-target")
 add_rules("c.unity_build", {batchsize = 8})    -- Unity build
 add_rules("c++.unity_build", {batchsize = 8})
 add_rules("utils.bin2obj", {extensions = {".cu", ".h"}})  -- Binary embedding
-add_rules("lc_llvm")       -- LLVM integration
+add_rules("lc_llvm") -- LLVM integration
 target_end()
 ```
+
+The rules this project defines (use these names, they are not xmake built-ins):
+
+| Rule | Defined in | What it does |
+|---|---|---|
+| `lc_basic_settings` | `scripts/xmake_func.lua` | applied to every target through `_config_project`: toolchain, `project_kind`, `c_standard`/`cxx_standard`, exceptions, `optimize`/`warnings`/`runtimes` per mode, `-mfma`, `/Zc:preprocessor`, SIMD `vectorexts`, and the `lto`/`rtti` settings (each read by `_get_or("<key>")`: rule extraconf first, then the `lc_<key>` config) |
+| `lc-rename-ext` | `scripts/xmake_func.lua` | prefixes the output basename with `luisa-ext-` |
+| `lc_install_sdk` | `scripts/xmake_func.lua` (+ `scripts/find_sdk.lua`) | downloads/extracts SDK zips (`dx_sdk`, `vk_sdk`) before build; takes `{sdk_dir = ..., libnames = ...}` |
+| `lc_llvm` | `scripts/xmake_func.lua` | links against the `lc_llvm_path` LLVM install and copies its DLLs on Windows |
+| `lc_run_target` | `scripts/xmake_func.lua` | `on_run` that execs the built binary with the target directory as cwd |
+| `lc-backend-deps` | `src/backends/xmake.lua` | pulls in the enabled `lc-backend-*` targets plus `lc_backend_sdk` and `lc-validation-layer` |
+
+`_config_project({project_kind = ..., batch_size = ..., ...})` (`scripts/xmake_func.lua`) is the wrapper used by nearly every `xmake.lua` here: it adds `c.unity_build`/`c++.unity_build` when `batch_size > 1` (unless `lc_enable_unity_build` is off) and then `add_rules(_config_rules, config)` with `_config_rules = {"lc_basic_settings"}`.
 
 ### Rules with Custom Values
 
@@ -781,7 +851,7 @@ Inside lifecycle hooks, the `target` object provides these methods:
 | `target:is_plat("windows")` | Check platform |
 | `target:is_arch("x64")` | Check architecture |
 | `target:is_arch64()` | Is 64-bit architecture? |
-| `target:is_mode("debug")` | Check build mode (alias for `is_mode()`) |
+| `is_mode("debug")` | Build mode — a **global** function (`D:/xmake/core/project/project.lua`), not a target method; there is no `target:is_mode()` |
 | `target:is_cross()` | Is cross-compilation? |
 | `target:has_tool("cxx", "clang")` | Check if using specific tool |
 | `target:get("kind")` | Get any target property |
@@ -808,7 +878,7 @@ Inside lifecycle hooks, the `target` object provides these methods:
 | `target:extraconf_from("name", "source")` | Get extra config from source |
 | `target:pkgs()` | Get all packages |
 | `target:pkg("name")` | Get a package instance |
-| `target:is_kind("kind")` | Check target kind |
+| `is_kind("static")` | Target kind check — a **global** function, not a target method (on a target use `target:kind()` or `target:is_binary()`/`is_shared()`/`is_static()`/`is_object()`/`is_headeronly()`/`is_moduleonly()`/`is_phony()`) |
 | `target:kind()` | Get target kind |
 | `target:basename()` | Get output base name |
 | `target:filename()` | Get output filename |
@@ -882,7 +952,7 @@ add_forceincludes("precompiled.h") -- Force-include header
 ```lua
 -- Root xmake.lua
 set_xmakever("3.0.6")
-add_rules("mode.release", "mode.debug")
+add_rules("mode.release", "mode.debug", "mode.releasedbg") -- as in this project's xmake.lua
 add_requires("spdlog")
 
 -- Library target
@@ -893,7 +963,7 @@ add_deps("core")
 add_headerfiles("include/**.h")
 add_rules("c++.unity_build", {batchsize = 8})
 
-if has_config("enable_pch") then
+if has_config("lc_enable_pch") then
     set_pcxxheader("src/mylib_pch.h")
 end
 
@@ -927,7 +997,7 @@ on_load(function(target)
     end
 
     -- Package dependencies
-    if has_config("use_xrepo_spdlog") then
+    if has_config("lc_spdlog_use_xrepo") then
         target:add("packages", "spdlog")
     else
         target:add("deps", "spdlog-bundled")
@@ -968,7 +1038,9 @@ target_end()
 4. **Prefer `target:set()` / `target:add()` inside `on_load`** for most configuration — it's equivalent to outside calls.
 5. **Visibility** — `{public = true}` propagates to dependents, `{interface = true}` propagates only to dependents, `{private = true}` (default) is local-only.
 6. **`add_deps()` outside = `target:add("deps", ...)` inside** — choose whichever fits your style.
-7. **All APIs listed here work at the target scope level** — use them outside `on_load` as `set_kind(...)` or inside as `target:set("kind", ...)`.---
+7. **All APIs listed here work at the target scope level** — use them outside `on_load` as `set_kind(...)` or inside as `target:set("kind", ...)`.
+
+---
 
 # Lua Scripting in xmake
 

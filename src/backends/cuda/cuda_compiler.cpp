@@ -73,9 +73,12 @@ namespace luisa::compute::cuda {
     write(src);
     using namespace std::chrono_literals;
     if (auto [exit_code, error] = p.wait(1024h /* almost forever */); exit_code || error) {
+        // `exit_code` is the 32-bit status the compiler terminated with, which is an
+        // NTSTATUS (e.g. 0xC0000005 for a crash) and therefore negative as an `int`.
+        // Report it in hex; `error` only describes a failed wait.
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to terminate the process: {} (exit code = {}).",
-            error.message(), exit_code);
+            "Failed to terminate the process: {} (exit code = {:#010x}).",
+            error.message(), static_cast<uint32_t>(exit_code));
     }
     if (fseek(temp_file, 0, SEEK_END) != 0) {
         LUISA_ERROR_WITH_LOCATION("Failed to seek temp file end.");
@@ -131,9 +134,12 @@ inline auto query_nvrtc_version(const char *exe_path) {
     auto buffer = read_from_subprocess(p, 16u);
     using namespace std::chrono_literals;
     if (auto [exit_code, error] = p.wait(0ms); exit_code || error) {
+        // `exit_code` is the 32-bit status the compiler terminated with, which is an
+        // NTSTATUS (e.g. 0xC0000005 for a crash) and therefore negative as an `int`.
+        // Report it in hex; `error` only describes a failed wait.
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to terminate the process: {} (exit code = {}).",
-            error.message(), exit_code);
+            "Failed to terminate the process: {} (exit code = {:#010x}).",
+            error.message(), static_cast<uint32_t>(exit_code));
     }
     // parse the version
     auto begin = reinterpret_cast<const char *>(buffer.data());

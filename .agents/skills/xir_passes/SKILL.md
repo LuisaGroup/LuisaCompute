@@ -11,15 +11,24 @@ Open the pass's public header, implementation, nearest related pass, and tests
 before editing. Treat the header as authoritative: pass entry points are not
 uniform. Depending on the pass, an API may be module-only, accept `Function *`
 or `FunctionDefinition *`, omit `PassReport`, or return a specialized result.
+There is no pass base class and no analysis manager: each pass is a free
+function named `<name>_pass_run_on_module` / `<name>_pass_run_on_function`
+declared in its own header and returning a specialized `*Info` counter struct,
+while `PassReport` and `PassPipeline` in
+`include/luisa/xir/passes/pass_pipeline.h` carry the shared report and
+composition surface.
 
 Use the common layout without assuming a fixed line number or alphabetical
 registration:
 
 - public header: `include/luisa/xir/passes/<pass>.h`
 - implementation: `src/xir/passes/<pass>.cpp`
-- library registration: `src/xir/CMakeLists.txt`
+- library registration: `src/xir/CMakeLists.txt` (CMake lists each pass source
+  explicitly; xmake globs `src/xir/passes/*.cpp` from `src/runtime/xmake.lua`,
+  so only the CMake list needs a manual entry)
 - focused tests: `src/tests/unit/xir/`
-- test registration: `src/tests/CMakeLists.txt`
+- test registration: `src/tests/CMakeLists.txt` and `src/tests/xmake.lua` (both
+  enumerate every test target)
 
 Copy the closest correct pass pattern. Aggregate per-function counters rather
 than overwriting the result on each function.
@@ -60,24 +69,28 @@ then use `static_cast<T *>`.
 ## Distinguish structured and plain CFG
 
 Structured terminators own or reference regions and merge blocks. Plain CFG
-uses `BranchInst` and `ConditionalBranchInst` edges. `SwitchInst` also carries
-merge information and `contains_structured_control_flow` classifies it as
-structured. Inspect `DerivedInstructionTag` for the complete current
-instruction inventory rather than copying an exhaustive list into a pass.
+uses `BranchInst`, `ConditionalBranchInst`, and the raw multi-way
+`IndexedBranchInst` edges. `SwitchInst` also carries merge information and
+`contains_structured_control_flow` classifies it as structured; destructuring
+converts it to `IndexedBranchInst`. Inspect `DerivedInstructionTag` for the
+complete current instruction inventory rather than copying an exhaustive list
+into a pass.
 
 Apply the relevant lowering order:
 
-1. Run `lower_ray_query_loop_to_loop` to convert ray-query loops into ordinary
-   structured loop/if constructs, and check its rejection result.
-2. Run `lower_switch` if the consumer cannot retain switches, and check its
-   rejection result before continuing.
-3. Run `destructure_cfg` to lower `IfInst`, `LoopInst`, `SimpleLoopInst`,
-   `BreakInst`, and `ContinueInst`; it also handles early-return spilling and
-   patches unterminated owned blocks.
+1. Run `lower_ray_query_to_loop` to convert ray-query loops into ordinary
+   structured loop/if constructs, and check its rejection result. The
+   `lower_ray_query_loop_to_loop_*` entry points are a deprecated
+   compatibility alias for these names.
+2. Run `destructure_cfg` to lower `IfInst`, `SwitchInst`, `LoopInst`,
+   `SimpleLoopInst`, `BreakInst`, and `ContinueInst`; a structured
+   `SwitchInst` becomes the raw-CFG `IndexedBranchInst`. It also spills
+   early returns.
 
-Do not claim that `destructure_cfg` lowers `RayQueryLoopInst` directly or
-removes every specialized terminator. It deliberately preserves switches and
-other instruction families outside its public contract.
+Do not claim that `destructure_cfg` lowers `RayQueryLoopInst` or removes every
+specialized terminator: `RAY_QUERY_LOOP` terminators are counted as errors, and
+unterminated owned blocks are reported through `leaked_block_count` while the
+function is rejected unchanged before any mutation.
 
 Use `contains_structured_control_flow` from `src/xir/passes/helpers.h` before a
 plain-CFG-only mutation.
@@ -94,13 +107,15 @@ Follow the inliner's actual contract:
   enables eligible multi-block call sites.
 - Treat a nonzero `rejected_malformed_call_count` as a hard error in backend
   normalization; a zero inlined-call count by itself is not a failure.
-- In ordinary lowering, run `mem2reg` immediately after `inline_all` to remove
-  inliner-created argument and return spill slots before SSA optimization. In
-  pre-autodiff normalization, allow autodiff scopes in the caller, then use
-  cleanup and `reg2mem` before restructuring instead.
-- Remember that `destructure_cfg` deliberately preserves switches and other
-  specialized structured operations; reference-argument and other unsupported
-  uses may also leave allocas after `mem2reg`.
+- In ordinary lowering, run `mem2reg` right after `inline_all` to remove
+  inliner-created argument and return spill slots before SSA optimization; the
+  Metal4 lowering pipeline inserts `hoist-allocas-after-inline` between them,
+  and the CUDA and fallback backends run `mem2reg` in a separate pre-CFG
+  pipeline. In pre-autodiff normalization, allow autodiff scopes in the caller,
+  then use cleanup and `reg2mem` before restructuring instead.
+- Remember that `destructure_cfg` deliberately preserves ray-query constructs
+  and other specialized structured operations; reference-argument and other
+  unsupported uses may also leave allocas after `mem2reg`.
 - Preserve opaque custom references. `create_value_argument` rejects custom
   types and `promote_ref_arg` intentionally excludes them; a backend-owned
   handle may have a concrete ABI only after backend lowering.
@@ -115,8 +130,8 @@ After basic optimization, the Metal4 AIR consumer conditionally normalizes
 autodiff scopes with:
 
 ~~~text
-lower_ray_query_loop_to_loop (checked)
--> lower_switch (checked)
+optional outline-ray-query-pipelines (when ray-query pipelines are enabled)
+lower_ray_query_to_loop (checked)
 -> destructure_cfg (checked)
 -> inline_all (immediately adjacent; allow_autodiff_scope_in_caller)
 -> post-inline cleanup (one fixed-point iteration)
@@ -132,10 +147,11 @@ lower_ray_query_loop_to_loop (checked)
 It then lowers every module with:
 
 ~~~text
-lower_ray_query_loop_to_loop (checked)
--> lower_switch (checked)
+optional outline-ray-query-pipelines (when ray-query pipelines are enabled)
+lower_ray_query_to_loop (checked)
 -> destructure_cfg (checked)
 -> inline_all (immediately adjacent)
+-> hoist-allocas-after-inline
 -> mem2reg
 -> SSA optimization
 -> unused_callable_removal
@@ -145,8 +161,9 @@ lower_ray_query_loop_to_loop (checked)
 
 The AIR entry point repeats the reachable-block verification before XIR-to-LLVM
 translation. Treat `destructure_cfg -> inline_all` as the common adjacency and
-`inline_all -> mem2reg` as the ordinary-phase adjacency. Read
-`src/backends/metal4/metal_xir_pipeline.cpp` before changing either schedule;
+`inline_all -> mem2reg`, possibly with an intervening alloca hoist, as the
+ordinary-phase adjacency. Read `src/backends/metal4/metal_xir_pipeline.cpp`
+before changing either schedule;
 read `src/xir/passes/pass_pipeline.cpp` for the current contents of factory
 pipelines rather than copying their expansion here.
 
@@ -167,15 +184,19 @@ For a replacement:
 Do not remove blocks with a naive reachable-set recipe on structured CFG.
 Merge blocks and owned regions require structurally aware traversal. On plain
 CFG, clean incoming PHI entries and detach contained instructions before
-deleting a block. Never remove `body_block()`.
+deleting a block (`src/xir/passes/simplify_cfg.cpp`). Never remove
+`body_block()`.
 
 ## Preserve SSA and dominance invariants
 
 - Create all destination blocks before cloning branch targets.
 - Create PHIs before resolving cyclic incoming values; attach incoming pairs
   after all blocks and values are mapped.
-- Recompute dominance and loop analyses after CFG mutation.
-- Ensure each PHI incoming block remains a real predecessor.
+- Recompute dominance and loop analyses after CFG mutation
+  (`compute_dom_tree`, `discover_natural_loops`; the latter requires a plain
+  CFG).
+- Ensure each PHI incoming block remains a real predecessor; the verifier
+  reports "PHI incoming blocks do not match CFG predecessors."
 - Run `mem2reg` only after CFG and alloca placement are valid.
 - Use `reg2mem` before a transform that cannot preserve live PHIs, when that
   transform's documented precondition requires it.
@@ -193,7 +214,7 @@ Check all of the following independently:
 
 - memory scope and read/write effects;
 - volatility and synchronization;
-- aliasing with intervening accesses;
+- aliasing with intervening accesses (`alias_analysis_query`);
 - dominance and availability;
 - speculation safety for the exact opcode.
 
@@ -231,22 +252,34 @@ auto stats = pipeline.run(module);
 
 Use `add_fixed_point` only when every child is safe to repeat and every change
 predicate is correct. A false negative terminates the group early; a false
-positive wastes iterations or masks non-convergence.
+positive wastes iterations or masks non-convergence. For a named one-shot
+group, use `add_sequence` instead: unlike a fixed point capped at one
+iteration, child changes there do not consume a convergence budget.
 
 Do not infer implementation maturity from registration. Read the header and
-source. Some current loop transforms and outlining APIs are placeholders that
-validate or report input without rewriting it.
+source. Region outlining is unimplemented: `outline_pass_run_on_module` leaves
+the IR unchanged and reports "outlining is not implemented. IR was left
+unchanged." (`include/luisa/xir/passes/outline.h`, `src/xir/passes/outline.cpp`).
+The loop transforms that do rewrite (`loop_fusion`, `loop_rotation`,
+`loop_vectorization`) are unstructured-CFG-only: structured functions are
+rejected without mutation, and they stay out of the factory pipelines in
+`src/xir/passes/pass_pipeline.cpp`.
 
 ## Respect backend preflight normal forms
 
 A pass can preserve valid XIR while making a backend reject it. For the Metal4
 AIR path, inspect `luisa_compute_metal_codegen_llvm_supported` alongside any
 change that affects types, special registers, calls, atomics, or resource-use
-shape. Its checks run before LLVM construction for JIT compute, reverse
-autodiff, raster JIT, and compile-only raster archive creation. All four paths
-fail closed on unsupported XIR; Metal4 has no MSL or legacy-IR shader fallback.
-Compute and raster AOT loading consume validated archives and bypass XIR
-preflight.
+shape. Every emitter entry calls it before LLVM construction and fails closed on
+unsupported XIR: JIT compute including autodiff kernels
+(`src/backends/metal4/metal_device.cpp`), compute and per-stage raster codegen
+(`codegen_entry`, `codegen_raster_entry` in
+`src/backends/metal4/metal_air_pipeline.cpp`, which also serve the compile-only
+raster archive path in `src/backends/metal4/metal_raster_ext.cpp`), the shared
+`MetalCodegenLLVMImpl::generate`, and the tile path
+(`src/backends/metal4/tile/metal_tile.cpp`). Metal4 has no MSL or legacy-IR
+shader fallback. Compute and raster AOT loading consume validated archives and
+bypass XIR preflight.
 
 This preflight and its pass schedule live in the independent `metal4` backend;
 the original `metal` backend remains the source-MSL compatibility path.
@@ -255,12 +288,13 @@ Keep producer and preflight assumptions paired. In particular, texture uses
 must reach preflight as direct resource operations after normalization. A
 compute AIR module requires exactly one kernel and rejects raster special
 registers. A raster AIR module instead requires exactly one
-`RasterStageFunction` with the configured vertex or fragment role; object ID
-is valid in both roles, while barycentrics, derivatives, and discard require a
-fragment role. External declarations may remain only when `native_include`
-supplies ABI-compatible LLVM IR/bitcode definitions at link time. Ensure every
-operand and result type is checked; constants can otherwise carry an
-unsupported type past an instruction-only scan.
+`RasterStageFunction` whose `stage()` matches the configured vertex or fragment
+program; object ID is valid in both roles, while barycentrics, front-facing, and
+discard require the fragment role and base-instance requires the vertex role.
+External declarations may remain only when `native_include` supplies
+ABI-compatible LLVM IR/bitcode definitions at link time. Ensure every operand
+and result type is checked; constants can otherwise carry an unsupported type
+past an instruction-only scan.
 
 Treat raster stage functions as ABI roots:
 
@@ -295,7 +329,16 @@ invariants that matter:
 - rejection leaves the module unchanged;
 - pass reports match returned counters.
 
-Build and run focused tests with CMake/Ninja:
+Build and run focused tests with xmake; the unit XIR pass tests need no device
+argument:
+
+~~~sh
+xmake build test_xir_passes
+xmake run test_xir_passes
+~~~
+
+Use CMake/Ninja when the Metal4 integration tests are in scope (they are
+registered only in `src/tests/CMakeLists.txt`):
 
 ~~~sh
 cmake --build cmake-build-metal4-air --target test_xir_passes -j 8
@@ -304,6 +347,7 @@ ctest --test-dir cmake-build-metal4-air -L unit_xir --output-on-failure
 ~~~
 
 Use the Metal4 backend for an end-to-end AIR test. The dedicated
-`test_metal_xir_air` CTest requires no selection environment. Use
-`test_metal_xir_air_raster` for vertex/fragment stage identity, raster-only
-operations, and render readback; launch other binaries with backend `metal4`.
+`test_metal_xir_air` CTest passes `metal4` as its own backend argument, so no
+selection environment is needed. Use `test_metal_xir_air_raster` for
+vertex/fragment stage identity, raster-only operations, and render readback;
+launch other binaries with backend `metal4`.

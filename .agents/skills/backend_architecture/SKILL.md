@@ -26,14 +26,16 @@ All backends inherit from `DeviceInterface`:
 | Stream | `create_stream(StreamTag)` | `destroy_stream(uint64_t)` | Graphics/compute/copy queues |
 | Event | `create_event()` | `destroy_event(uint64_t)` | Timeline events |
 | Shader | `create_shader(ShaderOption, Function)` | `destroy_shader(uint64_t)` | Also `load_shader(name, arg_types)` and `shader_argument_usage(handle, index)` |
+| Tile Kernel | `create_tile_kernel(ShaderOption, const tile::Function &, const tile::CompileOptions &, tile::KernelMetadata &)` | (shares `destroy_shader`) | Optional native Tile compiler; base impl returns invalid `ShaderCreationInfo`. Backends without one route TileIR → XIR → AST through `src/backends/common/tile_xir_kernel.h` and reuse `create_shader` |
 | Mesh | `create_mesh(AccelOption)` | `destroy_mesh(uint64_t)` | |
-| Curve | `create_curve(AccelOption)` | `destroy_curve(uint64_t)` | Optional; default impl returns invalid |
+| Curve | `create_curve(AccelOption)` | `destroy_curve(uint64_t)` | Optional; base impl hits `LUISA_NOT_IMPLEMENTED()` and returns `{}` |
 | Procedural Primitive | `create_procedural_primitive(AccelOption)` | `destroy_procedural_primitive(uint64_t)` | |
-| Motion Instance | `create_motion_instance(AccelMotionOption)` | `destroy_motion_instance(uint64_t)` | Optional; default impl returns invalid |
+| Motion Instance | `create_motion_instance(AccelMotionOption)` | `destroy_motion_instance(uint64_t)` | Optional; base impl hits `LUISA_NOT_IMPLEMENTED()` and returns `{}` |
 | Accel | `create_accel(AccelOption)` | `destroy_accel(uint64_t)` | Top-level acceleration structure |
 | Swapchain | `create_swapchain(SwapchainOption, stream_handle)` | `destroy_swapchain(uint64_t)` | Also `present_display_in_stream(stream, swapchain, image)` |
-| Sparse Buffer | `create_sparse_buffer(...)`, `allocate_sparse_buffer_heap(...)`, `update_sparse_resources(...)` | `destroy_sparse_buffer(...)` | Optional; default implementations return invalid |
-| Sparse Texture | `create_sparse_texture(...)`, `allocate_sparse_texture_heap(...)` | `destroy_sparse_texture(...)` | Optional; default implementations return invalid |
+| Sparse Buffer | `create_sparse_buffer(const Type*, size_t elem_count)`, `allocate_sparse_buffer_heap(size_t)` | `destroy_sparse_buffer(uint64_t)`, `deallocate_sparse_buffer_heap(uint64_t)` | Optional; base impls return `make_invalid()` / do nothing |
+| Sparse Texture | `create_sparse_texture(PixelFormat, dimension, w, h, d, mips, simultaneous_access)`, `allocate_sparse_texture_heap(size_t)` | `destroy_sparse_texture(uint64_t)`, `deallocate_sparse_texture_heap(uint64_t)` | Optional; base impls return `make_invalid()` / do nothing |
+| Sparse Tiles (both) | `update_sparse_resources(stream_handle, luisa::vector<SparseUpdateTile> &&)` | — | One call carries buffer *and* texture map/unmap ops (`SparseOperation` variant, `include/luisa/runtime/rhi/tile_modification.h`) |
 
 ### Execution
 | Method | Purpose |
@@ -48,11 +50,13 @@ All backends inherit from `DeviceInterface`:
 |---|---|
 | `native_handle()` | Underlying API handle (CUcontext, VkDevice, etc.) |
 | `compute_warp_size()` | Warp size (32 CUDA, 1 CPU/fallback) |
-| `memory_granularity()` | Legacy backend-wide allocation granularity; not a resource-specific sparse page size |
+| `compute_max_shared_memory_size()` | Portable static workgroup-memory limit; base impl returns 0 = "cannot report", callers must not guess |
+| `memory_granularity()` | Backend-wide sparse tile granularity (vk `kSparseBufferSize`, dx `D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT`, cuda `cuMemGetAllocationGranularity`); per-resource page size comes from `SparseBufferCreationInfo::tile_size_bytes` / `SparseTextureCreationInfo::tile_size{,_bytes}` |
 | `query(property)` | Device property queries |
 | `extension(name)` | Device extension interface |
 | `set_name(Resource::Tag, handle, name)` | Debug naming |
 | `get_name(handle)` | Retrieve debug name |
+| `backend_name()` / `context()` | Non-virtual helpers; `_backend_name` is assigned by `Context::create_device()` |
 
 ### Event Sync
 | Method | Purpose |
@@ -70,10 +74,14 @@ All backends inherit from `DeviceInterface`:
 
 ```cpp
 const BackendModule &load_backend(const luisa::string &backend_name) {
-    // 1. Check installed_backends list
-    // 2. Load dynamic library: luisa-backend-<name>.<ext>
-    // 3. Validate: backend_version() == LUISA_COMPUTE_VERSION
-    // 4. Extract: creator("create"), deleter("destroy"), backend_device_names
+    // 1. Error out (LUISA_ERROR) unless the name is in installed_backends
+    // 2. Reuse an already loaded BackendModule from loaded_backends if present
+    // 3. Static-registry hit -> take creator/deleter/device_names from
+    //    find_static_backend() and skip module loading entirely
+    // 4. Otherwise DynamicModule::load(runtime_directory,
+    //       "luisa-backend-<name>") and validate
+    //       backend_version() == LUISA_COMPUTE_VERSION
+    // 5. Extract: creator("create"), deleter("destroy"), backend_device_names
 }
 ```
 
@@ -94,11 +102,11 @@ Device Context::create_device(backend_name, settings, enable_validation) {
 }
 ```
 
-Validation can also be enabled via the `LUISA_ENABLE_VALIDATION=1` environment variable.
+Validation can also be enabled via the `LUISA_ENABLE_VALIDATION=1` environment variable (`Context::create_device` overload without the explicit flag). The layer itself is a separate module, `luisa-validation-layer` (`src/backends/validation/`), not a `luisa-backend-*` plugin.
 
 ## Backend Registration
 
-Every backend must export **three C functions** with `LUISA_EXPORT_API`:
+Every backend must export **three C functions** with `LUISA_EXPORT_API` (signatures fixed by `Device::Creator` / `Device::Deleter` / `Context::StaticBackendDeviceNames` in `include/luisa/runtime/device.h:102-103` and `include/luisa/runtime/context.h:33-34`):
 
 ```cpp
 // src/backends/<name>/<name>_device.cpp
@@ -109,25 +117,37 @@ LUISA_EXPORT_API DeviceInterface *create(Context &&ctx, const DeviceConfig *conf
 LUISA_EXPORT_API void destroy(DeviceInterface *device) noexcept {
     delete_with_allocator(device);
 }
-LUISA_EXPORT_API void backend_device_names(vector<string> &names) noexcept {
+// Fills in the concrete *device/adapter* names shown to the user - NOT the
+// backend name: cuda pushes cuDeviceGetName(), metal4 pushes
+// device->name(), fallback/simd push luisa::cpu_name().
+LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     names.clear();
-    names.emplace_back("<name>"); // e.g., "cuda", "dx", "vk", "metal", "hip", "fallback", ...
+    ...
 }
 ```
 
-Plus version export (`src/backends/common/export_version.inl.h`):
+Plus version export (`src/backends/common/export_version.inl.h`, `#include`d at the bottom of every `<name>_device.cpp`):
 ```cpp
 LUISA_EXPORT_API int backend_version() { return LUISA_COMPUTE_VERSION; }
 ```
+
+`LUISA_COMPUTE_VERSION` is `major * 10000 + minor * 100 + patch` (`include/luisa/version.h:11`).
 
 ### Static iOS registration
 
 iOS cannot discover an in-bundle backend through desktop `MODULE` loading.
 The app calls `luisa_compute_metal4_register_static_backend()` from
-`src/backends/metal4/metal_static_backend.h` before device creation. That
-bridge registers the normal create/destroy/device-name functions through
-`Context::register_static_backend("metal4", ...)`; `Context` checks this
-case-insensitive registry before dynamic loading. Keep
+`src/backends/metal4/metal_static_backend.h` (the old MSL backend ships the
+sibling `src/backends/metal/metal_static_backend.h` /
+`luisa_compute_metal_register_static_backend()`) before device creation. Both
+headers declare the entry point only under `LUISA_PLATFORM_IOS`. Each bridge
+registers the normal create/destroy/device-name functions through
+`Context::register_static_backend("metal4", create, destroy,
+backend_device_names)`; `Context::init_backends()` seeds `installed_backends`
+from that registry and `load_backend()` prefers a registry hit over dynamic
+loading. Names are lower-cased before lookup, so registration is
+case-insensitive, and re-registering different entry points under the same name
+asserts. Keep
 `create_device("metal4")`, ordinary `DeviceInterface` ownership, and the
 validation-layer path intact instead of constructing a backend directly in a
 UIKit host.
@@ -166,23 +186,38 @@ class MyCommandEncoder : public MutableCommandVisitor {
 
 Architecture: each backend has a `*Stream` class owning the native stream/queue. `stream->dispatch(CommandList)` visits all commands via an encoder. User callbacks are executed after GPU work completes.
 
+Both visitor flavours exist: `CommandVisitor` (`void visit(const CMD *)`) for read-only passes such as reordering, `MutableCommandVisitor` (`void visit(CMD *)`) for encoders. Extension commands reach backends through the single `CustomCommand` hook: `CustomCommand::custom_cmd_uuid()` identifies them against `CustomCommandUUID` (`include/luisa/backends/ext/registry.h`). Dispatch-style commands derive from `CustomDispatchCommand : public CustomCommand` (`VKCustomCmd`, `DXCustomCmd`, `NativeShaderDispatchCommand`, `CudaKernelLaunchCommand`); the raster commands (`DrawRasterSceneCommand`, `ClearDepthCommand`, `ClearRenderTargetCommand`) and `DStorageReadCommand` derive from `CustomCommand` directly.
+
 ### Metal4 acceleration capability boundary
 
 Creating an `MTL4::Compiler`, queue, or AIR pipeline does not prove that every
 MTL4 encoder feature is executable. Address-driven acceleration-structure
-builds and component motion require Apple9. Query the concrete device family:
-Apple9+ uses MTL4 primitive/instance descriptors and its compute encoder;
-Apple7/Apple8 synchronize only AS build/refit/compact through an isolated
-legacy `MTL::CommandQueue`. User shaders, PSOs, argument tables, command
+builds and component motion require Apple9 — reported by the
+`metal4_address_driven_acceleration_structures` / `metal4_component_motion`
+query properties and gated by `supportsFamily(MTL::GPUFamilyApple9)`
+(`src/backends/metal4/metal_device.cpp:878-882`). Query the concrete device
+family (`metal4_gpu_family`): Apple9+ uses MTL4 primitive/instance descriptors
+and its compute encoder; Apple7/Apple8 synchronize only AS build/refit/compact
+through an isolated legacy `MTL::CommandQueue` opened per stream
+(`_acceleration_structure_compatibility_queue`,
+`src/backends/metal4/metal_stream.cpp:213-225`, and
+`build_acceleration_structure_compatibility` /
+`refit_acceleration_structure_compatibility` in
+`src/backends/metal4/metal_acceleration_structure_build.h`). User shaders, PSOs, argument tables, command
 buffers, and dispatch remain MTL4 AIR on both paths.
 
 `MotionInstanceBuildCommand` is host-state capture: validate a built child and
 copy its matrix/SRT keyframes into the backend resource. Native motion TLAS
 packing occurs later in `AccelBuildCommand`. Preserve the shader-visible
 72-byte static instance ABI while creating separate 48-byte indirect-motion
-records and a transform buffer for the build descriptor. Matrix motion is
-available where primitive motion blur is reported; component/SRT motion must
-be rejected before resource creation below Apple9.
+records and a transform buffer for the build descriptor. The ABIs are
+static_asserted against `MTL::IndirectAccelerationStructureInstanceDescriptor`
+and `MTL::IndirectAccelerationStructureMotionInstanceDescriptor` in
+`src/backends/metal4/metal_accel.h:28-68`; the transform buffer is
+`MetalAccel::_motion_transform_buffer`. Matrix motion is available where
+primitive motion blur is reported (`metal_motion_blur` →
+`supportsPrimitiveMotionBlur()`); component/SRT motion must be rejected before
+resource creation below Apple9.
 
 On iOS, do not call
 `MTL::Device::isDepth24Stencil8PixelFormatSupported()` merely because
@@ -195,16 +230,26 @@ stencil paths.
 ### Command reordering and bindless hazards
 
 `src/backends/common/command_reorder_visitor.h` plans command layers from the
-resource accesses visible at each command boundary. A backend instantiating
-this visitor must preserve these contracts:
+resource accesses visible at each command boundary (`CommandReorderVisitor` is
+itself a `CommandVisitor`; a backend supplies a `ReorderFuncTable`). The pass is
+switchable through `CommandReorderSwitch`
+(`src/backends/common/command_reorder_switch.h`): seeded from
+`VulkanDeviceConfigExt::enable_command_reorder()` /
+`DirectXDeviceConfigExt::EnableCommandReorder()`, changed at runtime by
+`CommandReorderExt::set_command_reorder_enabled()`, and forced off
+process-wide by `LUISA_DISABLE_COMMAND_REORDER=1` (which the first two cannot
+re-enable). A backend instantiating this visitor must preserve these contracts:
 
 - Saved shader argument `Usage` is authoritative. Do not rediscover or
   approximate read/write access in the reorder or barrier layer.
 - A bindless dispatch reads the bindless index/descriptor object itself.
 - Snapshot every resource currently reachable from the bindless array when
-  the dispatch is visited. Register each buffer as a whole-resource read or
-  write according to the saved bindless argument usage. Bindless textures are
-  sampled-only in the current runtime ABI and remain reads.
+  the dispatch is visited. Register each member — buffer *or* texture — as a
+  whole-resource read, or as a write when the saved bindless argument usage
+  declares WRITE. The DSL marks the whole array variable WRITE when the shader
+  writes through any slot and `tex2d()`/`tex3d()` views support `write()`, so
+  restricting the write mark to buffers leaves bindless-texture RAW/WAW races
+  unordered (`add_bindless_dispatch_handles`).
 - The snapshot belongs to that dispatch. Never infer an earlier dispatch's
   hazards from the array's later membership; a subsequent update may replace
   a slot, and two distinct arrays may still reference the same resource.
@@ -250,14 +295,20 @@ BLAS contents). Two generic consequences:
 
 - **Barrier coverage must be per-referenced-BLAS, not per-modified-instance.**
   Recording the child-BLAS read barrier only for instances appearing in the
-  current modification/refresh list misses the in-place BLAS update case: it
-  leaves both lists empty, so the TLAS update build races the BLAS build and
-  picks up stale geometry (or device-lost). Iterate the full instance table
-  and record a read on every live child BLAS buffer at every TLAS build.
+  current modification list misses the in-place BLAS update case: it leaves
+  both `modifications` and the pending-refresh slots empty, so the TLAS update
+  build races the BLAS build and picks up stale geometry (or device-lost).
+  Iterate the full instance table and record a read on every live child BLAS
+  buffer at every TLAS build (`src/backends/vk/tlas.cpp:583-595`).
 - **BLAS destruction must unlink the BLAS from every referencing TLAS's
-  pending refresh bookkeeping** (the per-TLAS set-map that a BLAS recreate
-  queues to refresh its device address). Only clearing the live-instance slot
-  leaves a dangling pooled handle the next TLAS build dereferences — a UAF
+  pending refresh bookkeeping** (the refresh queued by a BLAS recreate to
+  rewrite its device address, which now lives in the TLAS's dense
+  array slot — `Instance::refresh_blas` in
+  `src/backends/vk/tlas.h:39-47`, `BottomAccel *refresh` in
+  `src/backends/dx/Resource/TopAccel.h:35-43` — replacing the former per-TLAS
+  hash map). Store the stable BLAS, never the pooled handle, and drop the
+  entry from the destructor. Only clearing the live-instance slot leaves a
+  dangling pooled handle the next TLAS build dereferences — a UAF
   that typically manifests as a hang (spin lock inside freed memory), not a
   crash. Applies to any backend with update-handle bookkeeping (vk, dx).
 
@@ -431,33 +482,38 @@ contradictory native metadata.
 
 ## Resource Handle Pattern
 
-Resources are created as backend-specific classes and returned as opaque `uint64_t` handles. Buffer creation returns extra stride/size info:
+Resources are created as backend-specific classes and returned as opaque `uint64_t` handles (allocation/deallocation wrapped in the device's `with_handle(...)` so the native context is current). Buffer creation returns extra stride/size info, computed by the device rather than read back from the buffer:
 
 ```cpp
-auto buffer = new_with_allocator<CUDABuffer>(size);
-BufferCreationInfo info;
+// CUDADevice::create_buffer (src/backends/cuda/cuda_device.cpp:548)
+BufferCreationInfo info{};
+info.element_stride = CUDACompiler::type_size(element);      // 1 for Type::of<void>()
+info.total_size_bytes = info.element_stride * elem_count;
+auto buffer = with_handle([size = info.total_size_bytes, em = external_memory] {
+    return em ? new_with_allocator<CUDABuffer>(reinterpret_cast<CUdeviceptr>(em), size)
+              : new_with_allocator<CUDABuffer>(size);
+});
 info.handle = reinterpret_cast<uint64_t>(buffer);
 info.native_handle = reinterpret_cast<void *>(buffer->device_address());
-info.element_stride = buffer->element_stride();
-info.total_size_bytes = buffer->total_size_bytes();
 return info;
 ```
 
-For most other resources, return a `ResourceCreationInfo` (or derived type such as `ShaderCreationInfo`/`SwapchainCreationInfo`):
+For most other resources, return a `ResourceCreationInfo` (or derived type such as `ShaderCreationInfo`/`SwapchainCreationInfo`/`SparseTextureCreationInfo`):
 
 ```cpp
 ResourceCreationInfo create_texture(...) noexcept {
-    auto tex = new_with_allocator<CUDATexture>(...);
+    auto tex = with_handle([=] { return new_with_allocator<CUDATexture>(...); });
     return {.handle = reinterpret_cast<uint64_t>(tex),
-            .native_handle = reinterpret_cast<void *>(tex->native_handle())};
+            .native_handle = reinterpret_cast<void *>(tex->handle())};
 }
 ```
 
-Destruction recovers typed pointer:
+Destruction recovers the typed pointer — as the shared base class when several resource classes share one handle space (CUDA buffers may be `CUDABuffer` or `CUDAIndirectDispatchBuffer`, both deleted through `CUDABufferBase`):
 ```cpp
 void destroy_buffer(uint64_t handle) noexcept {
-    auto buffer = reinterpret_cast<CUDABuffer *>(handle);
-    delete_with_allocator(buffer);
+    with_handle([buffer = reinterpret_cast<CUDABufferBase *>(handle)] {
+        delete_with_allocator(buffer);
+    });
 }
 ```
 
@@ -475,13 +531,35 @@ void destroy_buffer(uint64_t handle) noexcept {
 | `CMakeLists.txt` / `xmake.lua` | Build config |
 
 ### Common Helpers
-`<backend>_command_encoder.h/cpp` (command visitor), `<backend>_accel.h/cpp` (ray tracing), `<backend>_mesh.h/cpp`, `<backend>_curve.h/cpp`, `<backend>_proc_prim.h/cpp`, `<backend>_motion_instance.h/cpp`, `<backend>_bindless_array.h/cpp`, `<backend>_swapchain.h/cpp`, `<backend>_sparse.h/cpp` (optional).
+`<backend>_command_encoder.h/cpp` (command visitor), `<backend>_accel.h/cpp` (ray tracing), `<backend>_mesh.h/cpp`, `<backend>_curve.h/cpp`, `<backend>_procedural_primitive.h/cpp` (fallback: `fallback_proc_prim.*`), `<backend>_motion_instance.h/cpp`, `<backend>_bindless_array.h/cpp`, `<backend>_swapchain.h/cpp`, sparse resources (only `cuda_sparse_heap.*` and `vk sparse_heap.*`/`sparse_buffer.h` exist; everything else inherits the invalid `DeviceInterface` default).
+
+Naming is a convention, not a rule — match the backend you are editing:
+
+| Backend | Layout |
+|---|---|
+| `cuda`, `hip`, `metal`, `metal4`, `fallback` | `<prefix>_<resource>.h/cpp` (`metal4/` reuses the `metal_` prefix) |
+| `vk` | unprefixed: `device.cpp`, `buffer.cpp`, `texture.cpp`, `compute_shader.cpp`, `bindless_array.cpp`, `blas.*`/`tlas.*`, `event.cpp`, `stream.cpp` |
+| `dx` | PascalCase classes under `DXApi/`, `Resource/`, `Shader/`, `DXRuntime/` (`DXApi/LCDevice.cpp` is the device + exported entry points) |
+| `simd` | split into `runtime/`, `llvm/`, `schedule/` (`simd/runtime/simd_device.cpp`) |
+| `remote` | `remote_device.*`, `remote_protocol.*`, `remote_transport.*`, `remote_server.*` — no per-resource wrappers |
+
+Only `common`, `cuda`, `dx`, `fallback`, `metal`, `tools`, `validation` and `vk`
+ship a `src/backends/<name>/xmake.lua`; `hip`, `metal4`, `simd` and `remote` are
+CMake-only. `src/backends/validation/` builds the `luisa-validation-layer`
+MODULE (a wrapping layer, not a `luisa-backend-*` plugin) and
+`src/backends/tools/` is the `lc_compile_builtin` host tool — neither is a
+device backend.
 
 ### Shared (`src/backends/common/`)
-- `default_binary_io.h/cpp` — Shader caching I/O
-- `export_version.inl.h` — Version export
-- `hlsl/builtin/` — HLSL builtin headers/bytecode
-- `vulkan_swapchain.h/cpp` — Shared Vulkan swapchain
+- `default_binary_io.h/cpp` — `DefaultBinaryIO` shader-cache I/O
+- `export_version.inl.h` — Version export (`#include`d by every backend device TU)
+- `command_reorder_visitor.h` — `CommandReorderVisitor` + `ReorderFuncTable`
+- `command_reorder_switch.h` — `CommandReorderSwitch` / `LUISA_DISABLE_COMMAND_REORDER`
+- `tile_xir_kernel.h` — shared TileIR → XIR → AST fallback for `create_tile_kernel`
+- `rtx/fallback_rtx_*` — software ray tracing (`lc::fallback_rtx::FallbackRtxDevice`, target `luisa-fallback-rtx`, opted into by `VulkanDeviceConfigExt::use_fallback_rtx()` / `DirectXDeviceConfigExt::use_fallback_rtx()`)
+- `hlsl/` — shared HLSL/DXIL codegen + `hlsl/builtin/` headers/bytecode
+- `spirv/`, `spirv_llvm/` — shared native and LLVM-based SPIR-V codegen
+- `vulkan_swapchain.cpp` (public header: `include/luisa/backends/common/vulkan_swapchain.h`) — shared Vulkan swapchain
 
 ## CMake Patterns
 
@@ -535,27 +613,39 @@ endif()
 **CUDA** advanced: `luisa_embed_device_lib`, device runtime embedding, optional nvCOMP/NVTT/OIDN, standalone NVRTC compiler target.
 
 ### XMake Note
-The project also supports XMake builds. Backend `xmake.lua` files create shared targets named `lc-backend-<name>` with `set_basename("luisa-backend-<name>")`, link `lc-runtime`/`lc-ir`, and optionally depend on `lc-vulkan-swapchain` and backend-specific helpers.
+The project also supports XMake builds. Backend `xmake.lua` files create shared targets named `lc-backend-<name>` with `set_basename("luisa-backend-<name>")` (`dx`, `vk`, `cuda`, `metal`, `fallback`), link `lc-runtime` plus `lc-vstl`/`lc-tile`/`lc-hlsl-codegen` (and `lc-spirv`/`lc-spirv-llvm` for the Vulkan codegen routes), and optionally depend on `lc-vulkan-swapchain` and backend-specific helpers. There is no `lc-ir` target: XIR is not a standalone xmake target. The validation layer is the separate `lc-validation-layer` target (`set_basename("luisa-validation-layer")`).
 
 ## Codegen Pipeline
 
 ```
-AST Function / XIR KernelModule / IRv2 KernelModule
-                │
-                ▼
+DSL Function (an ast::Function) / xir::Module / tile::Function
+│
+▼
 ┌─────────────────────────────────┐
-│         Backend Codegen          │  → native shader source (CUDA C++, HLSL, MSL, SPIR-V)
+│ Backend Codegen │  → native shader source (CUDA C++, HLSL, MSL, SPIR-V)
 └───────────────┬─────────────────┘
-                ▼
+▼
 ┌─────────────────────────────────┐
-│        Native Compiler           │  NVRTC, DXC, Metal, SPIR-V tools
+│ Native Compiler │  NVRTC, DXC, Metal, SPIR-V tools
 └───────────────┬─────────────────┘
-                ▼
+▼
 ┌─────────────────────────────────┐
-│        Shader Object             │  PTX, DXIL, metallib, SPIR-V binary
-│        (BinaryIO cache)          │  Cached via BinaryIO
+│ Shader Object │  PTX, DXIL, metallib, SPIR-V binary
+│ (BinaryIO cache) │  Cached via BinaryIO
 └─────────────────────────────────┘
 ```
+
+`create_shader` only receives a DSL `Function`; every other IR above is a
+backend-internal route. XIR consumers are not Metal-only: CUDA
+(`src/backends/cuda/llvm_codegen/`, `cuda_codegen_xir.cpp`), HIP
+(`src/backends/hip/llvm_codegen/`), Metal4 (`src/backends/metal4/llvm_codegen/`)
+and the shared `src/backends/common/spirv/` codegen all take XIR. The Vulkan
+route is a mutually exclusive build switch (`src/backends/CMakeLists.txt:3-8`
+`FATAL_ERROR`s if both are ON):
+`LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` (CMake default ON) → native XIR→SPIR-V in
+`src/backends/common/spirv/`, or `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV`
+(CMake default OFF) → AST→LLVM→SPIR-V in `src/backends/common/spirv_llvm/`.
+xmake counterparts: `lc_vk_backend_use_xir_spirv`, `lc_vk_backend_use_ast_llvm_spirv`.
 
 ## Key Design Decisions
 
@@ -563,5 +653,6 @@ AST Function / XIR KernelModule / IRv2 KernelModule
 2. **Handle-based Resources** — Opaque `uint64_t` handles for ABI stability
 3. **Visitor Pattern** — Double dispatch via `MutableCommandVisitor` for type-safe command handling
 4. **Version Checking** — Strict match between runtime and backend prevents ABI mismatches
-5. **Validation Layer** — Optional wrap-around validation at device creation (or via `LUISA_ENABLE_VALIDATION`)
-6. **BinaryIO** — Pluggable shader caching via `default_binary_io`
+5. **Validation Layer** — Optional wrap-around validation at device creation (or via `LUISA_ENABLE_VALIDATION`), loaded as the separate `luisa-validation-layer` module and wrapping the backend `Device::Handle`
+6. **BinaryIO** — Pluggable shader caching through `DeviceConfig::binary_io`; backends fall back to `DefaultBinaryIO` (`src/backends/common/default_binary_io.h`)
+7. **Tile kernels are opt-in** — `create_tile_kernel` defaults to an invalid `ShaderCreationInfo`; backends either implement a native Tile compiler or reuse `src/backends/common/tile_xir_kernel.h`

@@ -8,8 +8,15 @@ description: Native Vulkan XIR-to-SPIR-V codegen, legalization, validation, bind
 The native code generator lives in
 `src/backends/common/spirv/spirv_codegen/` and lowers XIR to SPIR-V 1.5 with
 glslang's `spv::Builder`. Vulkan enables it with
-`LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` (CMake) or
-`lc_vk_backend_use_xir_spirv` (xmake).
+`LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` (CMake, default ON) or
+`lc_vk_backend_use_xir_spirv` (xmake, default false). The two Vulkan codegen
+routes are mutually exclusive: enabling this route together with
+`LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` (CMake, default OFF) /
+`lc_vk_backend_use_ast_llvm_spirv` (xmake, default false) fails at configure
+time (`FATAL_ERROR` in `src/backends/CMakeLists.txt` and the root
+`CMakeLists.txt`; `raise()` in the root `xmake.lua`). The selected route
+defines `LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV` on the Vulkan
+backend target.
 
 This skill describes the native path, not the separate
 AST -> LLVM -> SPIR-V implementation in `spirv_llvm/`.
@@ -21,6 +28,7 @@ AST -> LLVM -> SPIR-V implementation in `spirv_llvm/`.
 | `entry.h/.cpp` | Public compile entries, target-feature state, result assembly, validation and optimization |
 | `utils.h/.cpp` | AST -> XIR and the backend legalization pipeline |
 | `dialect.h/.cpp` | Fail-closed XIR handoff validation |
+| `ray_query_lifetime.h/.cpp` | `validate_spirv_ray_query_lifetimes` opaque-value lifetime and argument rules |
 | `pointer_legalization.h/.cpp` | SPIR-V callable ABI specialization policy |
 | `argument_usage.h/.cpp` | Fixed-point function-argument usage shared by legalization and emission |
 | `bindless_usage.h/.cpp` | Exact global-heap and per-array metadata requirements by resource opcode |
@@ -30,13 +38,19 @@ AST -> LLVM -> SPIR-V implementation in `spirv_llvm/`.
 | `control_flow_plan.h/.cpp` | Immutable logical-to-physical structured-CFG plan |
 | `instruction_layout.h/.cpp` | SPIR-V instruction word-count limits, including `OpSwitch` and `OpPhi` |
 | `buffer_layout.h/.cpp` | Vulkan typed-SSBO layout compatibility and word-storage fallback planning |
+| `atomic_buffer_plan.h/.cpp` | `plan_spirv_atomic_buffers` single typed-vs-word representation per `Buffer<T>` |
+| `constant_ubo_layout.h` | Checked std140 constant-UBO member planning and the portable 16 KiB limit |
+| `kernel_argument_layout.h/.cpp` | `plan_spirv_kernel_argument_layout` checked argument-block placement over the common `ArgumentBlockLayout` |
 | `aggregate_index.h/.cpp` | Typed GEP/extract/insert index planning and struct-index canonicalization |
+| `arithmetic_support.h` | SPV_EXT_float8 permitted-op subset and GLSL.std.450 transcendental width contracts |
+| `atomic_target_contract.h/.cpp` | `validate_spirv_atomic_target_contract` atomic vs enabled-target validation |
 | `optimizer.h/.cpp` | SPIRV-Tools validation and optimization presets |
 | `target_feature_mask.h` | Persisted required-feature bit contract |
 | `target_features.h` | Logical-device feature snapshot and pure lowering decisions |
 | `runtime_target_plan.h/.cpp` | Pre-binding descriptor, ray-query, subgroup, and bindless runtime contract |
-| `kernel_argument_role.h` | Stable per-argument native acceleration-structure role bits |
+| `kernel_argument_role.h` | Stable per-argument native runtime role bits (accel traversal/instance, buffer/bindless device-address) |
 | `src/backends/vk/shader_artifact_codec.h/.cpp` | Canonical Vulkan shader-artifact writer/parser, integrity checks, SPIR-V validation and feature reconciliation |
+| `property.h` | `hlsl::ShaderVariableType`/`hlsl::Property` aliases used by the descriptor ABI |
 | `bind.cpp` | Descriptor properties, argument buffer, bindless heaps, constant UBO |
 | `type.cpp` | Logical and storage-layout type conversion |
 | `emit.cpp` | Module/function/block emission, prologues, native Phi emission |
@@ -406,8 +420,8 @@ point argument analysis emits `SPIRVBindlessBufferMetadata` only beside each
 bindless argument that actually needs it; do not turn this back into one
 module-wide optional descriptor per bindless argument.
 
-The native XIR dialect currently accepts only ordinary `MULTIPLE` bindless
-layout operations whose uniformity can be proven from XIR. Typed and explicit
+The native route currently accepts only ordinary `BindlessSlotType::MULTIPLE` layout
+operations whose uniformity can be proven from XIR. Typed and explicit
 uniform-index AST operations remain honest HLSL fallback reasons: XIR resource
 instructions do not yet preserve the typed slot layout or the caller's
 uniform-index promise. Do not erase those route guards or map typed operations
@@ -437,9 +451,11 @@ descriptors greedily from neighboring properties.
 `OpRayQueryProceedKHR` advances traversal; a true result means traversal is
 still incomplete. Direct closest-hit tracing must therefore emit a structured
 loop that calls `OpRayQueryProceedKHR` until it returns false before reading
-committed intersection fields. `ForceOpaqueKHR` removes candidate-intersection
-handling, but it does not make one call sufficient. Direct any-hit tracing uses
-`TerminateOnFirstHitKHR`, so its single proceed call remains intentional.
+committed intersection fields. The `spv::RayFlagsMask::OpaqueKHR` flag (emitted
+with `SkipAABBsKHR` for the direct closest-hit query) removes
+candidate-intersection handling, but it does not make one call sufficient.
+Direct any-hit tracing adds `TerminateOnFirstHitKHR`, so its single proceed
+call remains intentional.
 
 Keep both sides covered: a structural SPIR-V test should distinguish the
 closest-hit loop from the any-hit single call, and a Vulkan runtime test should
@@ -455,8 +471,10 @@ raster artifact format. Fresh serialization, `require_recompile`, and live
 shader loading must all use its encoder/decoder rather than maintaining
 parallel header or section parsers. The decoder verifies the semantic header,
 bounded total size, every section digest, the persisted interface and printer
-records, the Vulkan 1.2 SPIR-V module, and the stage-specific `main` entry point
-before returning decoded data. Printer records use a bounded, non-fatal parser
+records, and the stage-specific `main` entry point of every module; only
+`XIR_SPIRV` modules additionally run SPIRV-Tools validation for
+`SPV_ENV_VULKAN_1_2` (DXC-produced HLSL artifacts may carry SPIR-V beyond
+that profile) before returning decoded data. Printer records use a bounded, non-fatal parser
 for the narrower `ShaderPrintFormatter` type and brace dialect; artifact text
 must never be passed directly to the fatal `Type::from` parser. The codec
 applies final-capability reconciliation only to `XIR_SPIRV`; HLSL and LLVM
@@ -683,7 +701,7 @@ Important targets under `src/tests/unit/ext/`:
 - `test_spirv_runtime_target_plan`
 - `test_spirv_raw_float_constants`
 - `test_spirv_optimizer`
-- `test_vk_device_feature_plan`
+- `test_vk_android_plan`
 - `test_vk_saved_argument_contract`
 - `test_vk_shader_binary_contract`
 - `test_argument_block_layout`

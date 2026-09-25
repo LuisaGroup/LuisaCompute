@@ -18,11 +18,14 @@ Treat these files as the source of truth:
 - `src/xir/translators/xir2text.cpp` for debugging output.
 - `src/backends/metal4/metal_xir_pipeline.cpp` for the Metal4-specific XIR
   schedule.
-- `src/backends/metal4/llvm_codegen/metal_codegen_llvm.cpp` and the sibling
+- `src/backends/metal4/llvm_codegen/metal_codegen_llvm.cpp` (the thin
+  `luisa_compute_metal_codegen_llvm` entry point over
+  `metal_codegen_llvm_impl.{h,cpp}`) and the sibling
   `metal_codegen_llvm_{function,type,resource,access,atomic,arithmetic,
-  metadata,raster,preflight,builtin}.cpp` units for AIR orchestration, ABI,
-  support preflight, and XIR-to-LLVM lowering. Keep each implementation unit
-  below roughly 2,000 lines instead of rebuilding a monolithic emitter.
+  metadata,raster,ray_pipeline,preflight,builtin}.cpp` units for AIR
+  orchestration, ABI, support preflight, and XIR-to-LLVM lowering. Keep each
+  implementation unit below roughly 2,000 lines instead of rebuilding a
+  monolithic emitter.
 - `src/backends/metal4/llvm_codegen/metal_codegen_llvm_builtin.cpp` and
   `src/backends/metal4/metal_builtin_air.cpp` for LLVM-generated runtime
   support kernels, verification, LLVM 14 downgrade, and five-entry MTLB
@@ -35,17 +38,25 @@ Treat these files as the source of truth:
   `src/tests/ios/metal4_device_conformance.cpp`, and
   `examples/ios/metal4_path_tracing/` for the host-AOT oracle, shared
   conformance workload, and runtime-linked on-device XIR/LLVM/AIR probe.
+- `src/backends/common/spirv/spirv_codegen/utils.cpp` and
+  `src/coro/coro_compile.cpp` for the other assemblers of the same shared XIR
+  passes, so a pass-order change is not judged against Metal4 alone.
 - `src/backends/metal4/metal_raster_ext.cpp`, `metal_raster_shader.cpp`, and
   `metal_command_encoder.cpp` for the Metal raster host ABI, PSO creation, and
   render-command encoding.
 
-The LLVM/AIR implementation is owned by the independent `metal4` backend.
+The Metal LLVM/AIR implementation is owned by the independent `metal4` backend.
 Do not add these stages back to `src/backends/metal`: the original backend is
 the source-MSL compatibility path. Both modules share the upgraded
 `src/backends/common/metal-cpp` headers, not a shader code-generation pipeline.
+Metal4 is not the only XIR consumer: CUDA and HIP own separate XIR-to-LLVM
+emitters (for example `luisa_compute_cuda_codegen_llvm` and `hip_codegen_llvm`),
+and the Vulkan backend lowers XIR to SPIR-V in
+`src/backends/common/spirv/spirv_codegen/` (plus the experimental
+AST-LLVM-SPIR-V path under `src/backends/common/spirv_llvm/`).
 
 Inspect the relevant public header and implementation before changing a pass
-order. Do not rely on a copied pass inventory: several registered passes are
+order. Do not rely on a copied pass inventory: some registered passes are
 intentional placeholders, and factory contents evolve.
 
 ## Use the current IR path
@@ -72,27 +83,32 @@ XIR represents both structured and plain control flow.
   and merge information.
 - `BranchInst` and `ConditionalBranchInst` represent plain CFG edges.
 - `destructure_cfg` lowers supported structured constructs to branches, spills
-  supported early returns, and terminates leaked unterminated owned blocks.
+  supported early returns, and rejects the whole function or module before
+  mutation when an owned block is unterminated (`leaked_block_count`).
 - `restructure_cfg` reconstructs reducible structured regions from suitable
   plain CFG.
 
 Interpret `SimpleLoopInst` as an unconditional loop with a body backedge and
 explicit `break` exit. It has no condition and is not a do-while construct.
 
-Do not assume `destructure_cfg` makes every function completely plain. It
-lowers `IfInst`, `LoopInst`, `SimpleLoopInst`, `BreakInst`, and
-`ContinueInst`, while deliberately preserving `SwitchInst` and specialized
-terminators. Run `lower_switch` first only when the consumer requires switch
-lowering and handle that pass's rejection result.
+`destructure_cfg` lowers `IfInst`, `SwitchInst`, `LoopInst`, `SimpleLoopInst`,
+`BreakInst`, and `ContinueInst` (`DestructureCFGInfo::destructured_switch_count`
+tracks the switch count). `SwitchInst` becomes the native raw-CFG
+`IndexedBranchInst`, preserving selector, case labels, case targets, and
+default target; `restructure_cfg` converts it back. The pass still deliberately
+preserves ray-query, autodiff-scope, and outline constructs, so use
+`contains_structured_control_flow` rather than assuming a fully plain result.
+There is no separate `lower_switch` pass; it was deleted.
 
 Use `contains_structured_control_flow` from `src/xir/passes/helpers.h` when a
 pass requires a plain-CFG mutation boundary.
 
 ## Compose pipelines explicitly
 
-Use `PassPipeline::add` for one pass and `add_fixed_point` only for a group
-that is safe and useful to repeat. Return `true` from a callback exactly when
-the pass changed the module.
+Use `PassPipeline::add` for one pass, `add_fixed_point` only for a group that is
+safe and useful to repeat, and `add_sequence` for a named one-shot group (a
+fixed point with a limit of one instead reports an exhausted convergence
+budget). Return `true` from a callback exactly when the pass changed the module.
 
 ~~~cpp
 xir::PassPipeline pipeline;
@@ -105,6 +121,7 @@ pipeline.add("destructure-cfg", [](xir::Module *module,
             info.error_count, info.leaked_block_count);
     }
     return info.destructured_if_count != 0u ||
+           info.destructured_switch_count != 0u ||
            info.destructured_loop_count != 0u ||
            info.destructured_simple_loop_count != 0u ||
            info.destructured_break_count != 0u ||
@@ -115,12 +132,18 @@ auto stats = pipeline.run(module);
 stats.log("backend lowering");
 ~~~
 
-Available factory entry points are:
+Available shared factory entry points in `pass_pipeline.h` are:
 
 - `create_basic_optimization_pipeline`
 - `create_post_inline_cleanup_pipeline`
 - `create_ssa_optimization_pipeline`
 - `create_post_restructure_cleanup_pipeline`
+
+All take an `OptimizationPipelineOptions` (currently only
+`enable_fast_math`). Other assemblies live with their consumers, for example
+`spirv::create_spirv_codegen_post_restructure_pipeline` in
+`src/backends/common/spirv/spirv_codegen/utils.h` and the coroutine pipelines in
+`src/coro/coro_compile.cpp`.
 
 Read `pass_pipeline.cpp` for their exact current order rather than duplicating
 the expansion in another skill.
@@ -129,33 +152,39 @@ the expansion in another skill.
 
 Apply these constraints when they match the selected passes:
 
-1. Run `lower_ray_query_loop_to_loop`, then `lower_switch`, before
-   `destructure_cfg` when the consumer requires a plain CFG. Check each
-   lowering result and stop on rejection; both passes create or normalize
-   structured control flow that destructuring must subsequently flatten.
+1. Run `lower_ray_query_to_loop` before `destructure_cfg` when the consumer
+   requires a plain CFG, and run the optional outliner
+   (`outline_ray_query_pipelines`, backed by `lower_ray_query_to_pipeline`)
+   ahead of it. Check each lowering result and stop on rejection; these passes
+   normalize the callback-shaped query construct into structured control flow
+   that destructuring must subsequently flatten.
 2. Run `destructure_cfg`, then `inline_all` immediately. Do not insert cleanup,
    SSA, or another CFG pass between them: the inliner accepts a single-block
    callee in a structured caller, but rejects multi-block calls when either
    caller or callee still contains structured control flow. When normalizing
    autodiff, pass `InlineOptions{.allow_autodiff_scope_in_caller = true}`.
    Treat `rejected_malformed_call_count` as a hard pipeline error.
-3. In the ordinary lowering phase, run `mem2reg` immediately after
-   `inline_all`; the inliner can create argument and return-value temporaries
-   that promotion should remove before SSA optimization. The pre-autodiff
-   phase is intentionally different: perform its cleanup, demote cross-block
-   SSA with `reg2mem`, and restructure before running autodiff.
+3. In the ordinary lowering phase, run `mem2reg` after `inline_all`: the
+   inliner can create argument and return-value temporaries that promotion
+   should remove before SSA optimization. Metal4 inserts
+   `hoist-allocas-after-inline` between them so every function-local allocation
+   sits in the entry prefix first. The pre-autodiff phase is intentionally
+   different: perform its cleanup, demote cross-block SSA with `reg2mem`, and
+   restructure before running autodiff.
 4. Run `create_ssa_optimization_pipeline` only after the ordinary CFG lowering
    and `mem2reg` have established the representation that factory expects.
 5. Recompute dominance-dependent analyses after any CFG mutation. Do not
    reuse a dominance tree, frontier, loop analysis, or PHI assumption across
    a structural change.
 
-The Metal4 AIR path in `src/backends/metal4/metal_xir_pipeline.cpp` first runs
-basic optimization. If the module contains an autodiff scope, it then uses:
+The Metal4 AIR path in `src/backends/metal4/metal_xir_pipeline.cpp` verifies the
+translated module, then runs basic optimization. If the module contains an
+autodiff scope, it then uses:
 
 ~~~text
-lower_ray_query_loop_to_loop (checked)
--> lower_switch (checked)
+outline_ray_query_pipelines (only when ShaderOption::enable_ray_query_pipeline
+  and the Metal ray-query pipeline policy are enabled)
+-> lower_ray_query_to_loop (checked)
 -> destructure_cfg (checked)
 -> inline_all (immediately adjacent; autodiff scopes allowed)
 -> post-inline cleanup (one fixed-point iteration)
@@ -171,10 +200,11 @@ lower_ray_query_loop_to_loop (checked)
 Every module then passes through the ordinary AIR lowering phase:
 
 ~~~text
-lower_ray_query_loop_to_loop (checked)
--> lower_switch (checked)
+outline_ray_query_pipelines (same optional gate)
+-> lower_ray_query_to_loop (checked)
 -> destructure_cfg (checked)
 -> inline_all (immediately adjacent)
+-> hoist_allocas_after_inlining
 -> mem2reg
 -> SSA optimization
 -> unused_callable_removal
@@ -188,13 +218,17 @@ Recursive callables and call sites that still contain preserved structured
 operations may remain uninlined.
 
 For ray queries, this order is part of the lowering contract rather than a
-generic cleanup preference. `lower_ray_query_loop_to_loop` first converts the
+generic cleanup preference. `lower_ray_query_to_loop` first converts the
 callback-shaped query construct into a structured loop containing explicit
 query-object reads and writes. `destructure_cfg` then exposes ordinary branch
 CFG, and the immediately following `inline_all` keeps every opaque query
 lifecycle inside one AIR function. Moving inlining before destructuring or
 putting another CFG/SSA transform between those passes can leave a query in an
-unsupported structured or cross-call form.
+unsupported structured or cross-call form. `outline_ray_query_pipelines`
+(`lower_ray_query_to_pipeline`) is the optional alternative destination for
+eligible triangle-only loops; it runs before loop lowering, and a module that
+still needs stateful traversal is left intact and reported through
+`retained_non_triangle_ray_query_module`.
 
 For the AIR-facing pipeline, ABI, and fail-closed contract, read
 [AIR_INTRINSICS_AND_TRANSLATION.md](../../../src/backends/metal4/llvm_codegen/AIR_INTRINSICS_AND_TRANSLATION.md).
@@ -221,7 +255,8 @@ Preserve these ABI rules when changing lowering or adding types:
   logical fields. This makes vector lanes, explicit structure gaps, and tail
   padding deterministic for bitwise operations such as `PACK`.
 - Keep address spaces fixed: private/generic `0`, device `1`, constant `2`,
-  and threadgroup `3`.
+  threadgroup `3`, and ray-data `5` (`air_address_space_ray_data` in
+  `metal_codegen_llvm_impl.h`).
 - Align every root kernel argument to 16 bytes and round the root block to at
   least 16 bytes. A buffer is `{ptr addrspace(1), i64}`; a texture binding is
   an opaque eight-byte handle in its own 16-byte argument slot.
@@ -450,7 +485,7 @@ rejects a runtime major newer than the SDK. Explicit host-AOT targets retain
 the stricter full `SDK >= deployment` check.
 
 Do not describe the iOS path as AOT-only. The device app statically links LLVM
-21, the in-tree downgrade, AST, XIR, runtime, DSL, AIR codegen, and the Metal4
+22, the in-tree downgrade, AST, XIR, runtime, DSL, AIR codegen, and the Metal4
 backend, then performs AST -> XIR -> LLVM -> LLVM 14-compatible AIR -> MTLB on
 the phone before dispatching through the real `DeviceInterface`. LLVM is used
 as an IR optimizer/writer and does not generate executable CPU pages, so this
@@ -492,9 +527,10 @@ Use `test_metal4_device_conformance` as the shared macOS/iOS closure workload.
 It must execute the exact Metal LogState message, bindless update/read,
 GPU-authored MTL4 indirect dispatch, D32 vertex/fragment draw, guarded
 Mesh/TLAS build, closest/any-hit tracing, shader execution reordering, and RTX
-Cornell path trace. Keep the workload implementation under the Metal4 tools
-directory so the signed iOS application and the host CTest cannot silently
-diverge. Validate both the exact scalar/checksum results and the final image;
+Cornell path trace. Keep the workload implementation in
+`src/tests/ios/metal4_device_conformance.{h,cpp}`, the single source that both
+the host CTest target and the signed iOS application compile, so they cannot
+silently diverge. Validate both the exact scalar/checksum results and the final image;
 compilation alone is not a pass.
 
 Use `test_metal4_raster_stencil` for executing host-stencil coverage. It must
@@ -520,10 +556,15 @@ Do not infer implementation status from a pass name or CMake registration.
 At the time of this skill update:
 
 - XIR JSON export is debug-only and import remains unimplemented.
-- `outline` reports unsupported outline instructions without outlining.
-- loop rotation, loop unroll, loop fusion, and loop vectorization reject
-  unsupported structured inputs and otherwise leave accepted plain CFG
-  unchanged.
+- `outline` reports unsupported outline instructions without outlining
+  (`OutlineInfo::unsupported_outline_count`; "outlining is not implemented. IR
+  was left unchanged.").
+- `loop_rotation`, `loop_fusion`, `loop_vectorization`, and `loop_unswitch` are
+  real unstructured-CFG-only transforms: a function that still contains
+  structured control flow is rejected without mutation through each pass's
+  `structured_cfg_error_count`. They are deliberately left out of the shared
+  factory pipelines (see the comments in `pass_pipeline.cpp`) rather than being
+  placeholders. There is no `loop_unroll` pass any more.
 - SLP vectorization performs real transformations.
 
 Recheck the public header and implementation before relying on any status in
@@ -540,8 +581,12 @@ this list.
    IR shape, not only runtime output.
 6. Run the Metal4 backend end to end; it is AIR-only and fails closed.
 
-For Metal, set `LUISA_DUMP_XIR=1` to emit initial and optimized XIR. Use
-`LUISA_DUMP_LLVM_IR=1` for the post-O2 AIR-targeted LLVM modules.
+For Metal4, set `LUISA_DUMP_XIR=1` to emit `kernel.<hash>.metal.xir` and
+`kernel.<hash>.metal.opt.xir` (raster stages use
+`raster.<stage>.<hash>.metal.xir`/`.metal.opt.xir`). Use
+`LUISA_DUMP_LLVM_IR=1` for the post-O2 AIR-targeted LLVM modules
+(`<source>.direct.air.ll` and `<source>.indirect.air.ll`).
+`LUISA_XIR_TRACE_PASSES=1` logs every `PassPipeline` entry and group.
 
 ## Validate
 
