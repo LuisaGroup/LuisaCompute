@@ -24,6 +24,9 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "spirv_codegen/entry.h"
 #include "spirv_codegen/optimizer.h"
@@ -67,7 +70,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,
@@ -123,9 +126,9 @@ template<typename Kernel>
         .argument_roles = std::move(result.argument_roles)};
 }
 
-[[nodiscard]] bool contains(std::string_view text,
-                            std::string_view needle) noexcept {
-    return text.find(needle) != std::string_view::npos;
+[[nodiscard]] bool contains(luisa::string_view text,
+                            luisa::string_view needle) noexcept {
+    return text.find(needle) != luisa::string_view::npos;
 }
 
 [[nodiscard]] size_t count_property(
@@ -151,7 +154,7 @@ template<typename Kernel>
         } else if (op == spv::Op::OpConstant && size == 4u &&
                    words[offset + 1u] < signed_16bit_types.size() &&
                    signed_16bit_types[words[offset + 1u]]) {
-            result.emplace(std::bit_cast<int16_t>(
+            result.emplace(luisa::bit_cast<int16_t>(
                 static_cast<uint16_t>(words[offset + 3u])));
         }
         offset += size;
@@ -212,7 +215,7 @@ struct SamplerClampFacts {
     luisa::vector<SamplerIntegerType> integer_types(id_bound);
     luisa::vector<uint32_t> value_types(id_bound, 0u);
     luisa::vector<size_t> defining_offsets(id_bound, ~size_t{0u});
-    luisa::vector<std::optional<uint64_t>> integer_constants(id_bound);
+    luisa::vector<luisa::optional<uint64_t>> integer_constants(id_bound);
     luisa::vector<bool> sampler_types(id_bound, false);
     luisa::vector<bool> sampled_image_types(id_bound, false);
     luisa::vector<uint32_t> array_element_types(id_bound, 0u);
@@ -223,8 +226,8 @@ struct SamplerClampFacts {
     luisa::vector<uint32_t> pointer_pointee_types(id_bound, 0u);
     luisa::vector<spv::StorageClass> variable_storage_classes(
         id_bound, spv::StorageClass::Max);
-    luisa::vector<std::optional<uint32_t>> descriptor_sets(id_bound);
-    luisa::vector<std::optional<uint32_t>> descriptor_bindings(id_bound);
+    luisa::vector<luisa::optional<uint32_t>> descriptor_sets(id_bound);
+    luisa::vector<luisa::optional<uint32_t>> descriptor_bindings(id_bound);
     luisa::vector<bool> nonuniform_ids(id_bound, false);
     luisa::vector<ParsedInstruction> instructions;
     auto record_typed_result =

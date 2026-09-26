@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 
@@ -20,7 +21,7 @@ int main(int argc, char *argv[]) {
                   << " <simd-width>\n";
         return 1;
     }
-    auto text = std::string_view{argv[1]};
+    auto text = luisa::string_view{argv[1]};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(
         text.data(), text.data() + text.size(), width);

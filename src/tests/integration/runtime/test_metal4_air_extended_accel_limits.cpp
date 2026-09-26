@@ -27,7 +27,7 @@ namespace {
 constexpr auto curve_basis = CurveBasis::PIECEWISE_LINEAR;
 
 [[nodiscard]] std::string read_text(
-    const std::filesystem::path &path) {
+    const luisa::filesystem::path &path) {
     std::ifstream stream{path};
     return {std::istreambuf_iterator<char>{stream},
             std::istreambuf_iterator<char>{}};
@@ -109,10 +109,10 @@ void test_extended_accel_limits(Device &device) {
                      .time_since_epoch()
                      .count();
     auto dump_directory =
-        std::filesystem::temp_directory_path() /
+        luisa::filesystem::temp_directory_path() /
         ("luisa-metal4-extended-" + std::to_string(stamp));
     std::error_code filesystem_error;
-    std::filesystem::create_directories(
+    luisa::filesystem::create_directories(
         dump_directory, filesystem_error);
     expect(!filesystem_error)
         << "failed to create the Metal4 LLVM dump directory";
@@ -194,7 +194,7 @@ void test_extended_accel_limits(Device &device) {
         << "one or more extended any-hit traces failed";
 
     filesystem_error.clear();
-    std::filesystem::remove_all(
+    luisa::filesystem::remove_all(
         dump_directory, filesystem_error);
     expect(!filesystem_error)
         << "failed to remove the Metal4 LLVM dump directory";

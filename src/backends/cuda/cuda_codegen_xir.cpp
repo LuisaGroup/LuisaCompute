@@ -572,7 +572,7 @@ void CUDACodegenXIR::_emit_global_constants(luisa::unordered_set<const xir::Cons
             constants.emplace_back(c);
         }
     }
-    std::sort(constants.begin(), constants.end(), [](auto a, auto b) noexcept {
+    luisa::sort(constants.begin(), constants.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
     for (auto c : constants) {

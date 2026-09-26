@@ -12,6 +12,7 @@
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute {
 
@@ -416,7 +417,7 @@ template<class T>
 class CpuCallable {
 
 public:
-    using Func = std::function<void(T &)>;
+    using Func = luisa::function<void(T &)>;
 
 private:
     luisa::shared_ptr<Func> _func;

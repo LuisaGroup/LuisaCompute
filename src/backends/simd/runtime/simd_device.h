@@ -14,7 +14,7 @@ class SIMDDevice final : public DeviceInterface {
 private:
     uint _warp_width{8u};
     RTCDevice _rtc_device{nullptr};
-    luisa::unique_ptr<SIMDThreadPool> _thread_pool;
+    std::unique_ptr<SIMDThreadPool> _thread_pool;
 
 public:
     explicit SIMDDevice(Context &&context, const DeviceConfig *config) noexcept;

@@ -173,7 +173,7 @@ void test_mesh_destroyed_then_instance_replaced(Device &device) {
            << tb.copy_from(luisa::span{triangles});
 
     Accel accel = device.create_accel({});
-    std::optional<Mesh> mesh_a;
+    luisa::optional<Mesh> mesh_a;
     mesh_a.emplace(device.create_mesh(vb_a, tb));
     accel.emplace_back(*mesh_a, make_float4x4(1.0f));
     stream << mesh_a->build() << accel.build();

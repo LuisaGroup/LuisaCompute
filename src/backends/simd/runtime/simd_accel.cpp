@@ -11,6 +11,8 @@
 #include <type_traits>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../../common/env_flag.h"
 #include "simd_motion_instance.h"
@@ -39,7 +41,7 @@ inline constexpr auto embree_ray_packet_field_count =
     simd_host_accel_ray_packet_field_count;
 
 static_assert(sizeof(int) == sizeof(uint32_t));
-static_assert(std::bit_cast<uint32_t>(-1) == ~uint32_t{0u});
+static_assert(luisa::bit_cast<uint32_t>(-1) == ~uint32_t{0u});
 static_assert(sizeof(RTCRay) ==
               embree_ray_packet_field_count * sizeof(uint32_t));
 static_assert(alignof(RTCRay) == 16u);
@@ -477,31 +479,31 @@ public:
     constexpr auto magnitude_mask = 0x7fffffffu;
     constexpr auto minimum_normal_bits = 0x00800000u;
     constexpr auto infinity_bits = 0x7f800000u;
-    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto bits = luisa::bit_cast<uint32_t>(tnear);
     auto magnitude = bits & magnitude_mask;
     if (magnitude >= infinity_bits) { return tnear; }
     if (magnitude == 0u) {
-        return std::bit_cast<float>(sign_bit | minimum_normal_bits);
+        return luisa::bit_cast<float>(sign_bit | minimum_normal_bits);
     }
     bits = (bits & sign_bit) != 0u ? bits + 1u : bits - 1u;
     if ((bits & magnitude_mask) < minimum_normal_bits) {
         bits = sign_bit | minimum_normal_bits;
     }
-    return std::bit_cast<float>(bits);
+    return luisa::bit_cast<float>(bits);
 }
 
 static_assert(
-    std::bit_cast<uint32_t>(ray_query_embree_tnear(1.0f)) ==
-    std::bit_cast<uint32_t>(1.0f) - 1u);
+    luisa::bit_cast<uint32_t>(ray_query_embree_tnear(1.0f)) ==
+    luisa::bit_cast<uint32_t>(1.0f) - 1u);
 static_assert(
-    std::bit_cast<uint32_t>(ray_query_embree_tnear(0.0f)) ==
+    luisa::bit_cast<uint32_t>(ray_query_embree_tnear(0.0f)) ==
     0x80800000u);
 static_assert(
-    std::bit_cast<uint32_t>(ray_query_embree_tnear(-0.0f)) ==
+    luisa::bit_cast<uint32_t>(ray_query_embree_tnear(-0.0f)) ==
     0x80800000u);
 static_assert(
-    std::bit_cast<uint32_t>(ray_query_embree_tnear(
-        std::bit_cast<float>(uint32_t{0x7fc12345u}))) ==
+    luisa::bit_cast<uint32_t>(ray_query_embree_tnear(
+        luisa::bit_cast<float>(uint32_t{0x7fc12345u}))) ==
     0x7fc12345u);
 
 [[nodiscard]] LUISA_FORCE_INLINE bool ray_query_key_after_cursor(
@@ -983,7 +985,7 @@ void install_ray_query_candidate_batches(
         } else if (build.descending && !build.ascending) {
             std::reverse(begin, end);
         } else if (!build.ascending) {
-            std::sort(begin, end, ray_query_candidate_before);
+            luisa::sort(begin, end, ray_query_candidate_before);
         }
         auto &procedural_build =
             context.procedural_batch_build[lane];
@@ -998,7 +1000,7 @@ void install_ray_query_candidate_batches(
                    !procedural_build.ascending) {
             std::reverse(procedural_begin, procedural_end);
         } else if (!procedural_build.ascending) {
-            std::sort(
+            luisa::sort(
                 procedural_begin, procedural_end,
                 ray_query_procedural_before);
         }
@@ -1029,7 +1031,7 @@ void install_ray_query_candidate_batches_wide(
         } else if (build.descending && !build.ascending) {
             std::reverse(begin, end);
         } else if (!build.ascending) {
-            std::sort(begin, end, ray_query_candidate_before);
+            luisa::sort(begin, end, ray_query_candidate_before);
         }
         auto &procedural_build =
             context.procedural_batch_build[lane];
@@ -1044,7 +1046,7 @@ void install_ray_query_candidate_batches_wide(
                    !procedural_build.ascending) {
             std::reverse(procedural_begin, procedural_end);
         } else if (!procedural_build.ascending) {
-            std::sort(
+            luisa::sort(
                 procedural_begin, procedural_end,
                 ray_query_procedural_before);
         }
@@ -1093,7 +1095,7 @@ install_ray_query_candidate_batches_status(
             } else if (build.descending) {
                 std::reverse(begin, end);
             } else {
-                std::sort(begin, end, ray_query_candidate_before);
+                luisa::sort(begin, end, ray_query_candidate_before);
             }
         }
         auto &procedural_build =
@@ -1109,7 +1111,7 @@ install_ray_query_candidate_batches_status(
             } else if (procedural_build.descending) {
                 std::reverse(procedural_begin, procedural_end);
             } else {
-                std::sort(
+                luisa::sort(
                     procedural_begin, procedural_end,
                     ray_query_procedural_before);
             }
@@ -1147,7 +1149,7 @@ install_ray_query_candidate_batches_wide_status(
             } else if (build.descending) {
                 std::reverse(begin, end);
             } else {
-                std::sort(begin, end, ray_query_candidate_before);
+                luisa::sort(begin, end, ray_query_candidate_before);
             }
         }
         auto &procedural_build =
@@ -1163,7 +1165,7 @@ install_ray_query_candidate_batches_wide_status(
             } else if (procedural_build.descending) {
                 std::reverse(procedural_begin, procedural_end);
             } else {
-                std::sort(
+                luisa::sort(
                     procedural_begin, procedural_end,
                     ray_query_procedural_before);
             }
@@ -1641,7 +1643,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                         motion->keyframes().size() ==
                             motion->option().keyframe_count,
                     "SIMD motion instance must be built before its accel.");
-                auto state = luisa::make_unique<MotionState>();
+                auto state = std::make_unique<MotionState>();
                 state->option = motion->option();
                 state->keyframes.assign(
                     motion->keyframes().begin(), motion->keyframes().end());
@@ -1901,7 +1903,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
                 "SIMD motion-instance metadata is inconsistent.");
             if (forwarded_srt) {
                 auto forwarder =
-                    luisa::make_unique<SIMDSRTMotionForwarder>(
+                    std::make_unique<SIMDSRTMotionForwarder>(
                         device, motion_primitive->child()->handle(),
                         motion->option, motion->keyframes,
                         instance.affine);

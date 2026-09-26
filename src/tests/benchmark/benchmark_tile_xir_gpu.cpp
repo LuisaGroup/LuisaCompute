@@ -10,6 +10,8 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -25,7 +27,7 @@ using Clock = std::chrono::steady_clock;
 namespace {
 
 [[nodiscard]] int64_t positive(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     int64_t n{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), n);
     LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && n > 0, "expected positive integer: {}", text);
@@ -33,7 +35,7 @@ namespace {
 }
 
 [[nodiscard]] int64_t non_negative(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     int64_t n{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), n);
     LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && n >= 0, "expected non-negative integer: {}", text);
@@ -157,8 +159,8 @@ int main(int argc, char *argv[]) {
         stream << shader(a, b, c).dispatch() << synchronize();
         latency.emplace_back(elapsed(before));
     }
-    std::sort(throughput.begin(), throughput.end());
-    std::sort(latency.begin(), latency.end());
+    luisa::sort(throughput.begin(), throughput.end());
+    luisa::sort(latency.begin(), latency.end());
     stream << c.copy_to(span{output}) << synchronize();
     // Sampled host verification keeps debug builds honest without a full
     // host-side GEMM: every sampled element costs one K-length dot product.

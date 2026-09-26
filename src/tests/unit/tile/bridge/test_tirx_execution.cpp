@@ -17,6 +17,8 @@
 #include <luisa/tile/algorithms.h>
 #include <luisa/tile/memory.h>
 #include <luisa/tile/value.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::tile;
 using luisa::ceil_div;
@@ -29,7 +31,7 @@ namespace {
 
 [[nodiscard]] tvm::ffi::String metal_source(
     const tvm::ffi::Module &module) {
-    if (std::string_view{module->kind()} == "metal") {
+    if (luisa::string_view{module->kind()} == "metal") {
         return module->InspectSource("metal");
     }
     for (auto &&child : module->imports()) {
@@ -180,7 +182,7 @@ void test_fused_element_grid(Runtime &runtime) {
             if (fused && !executable.plans.empty()) {
                 expect(eq(executable.plans.front().elementwise_elements_per_program, static_cast<uint64_t>(bm * bn)));
                 auto source = metal_source(executable.module.value());
-                expect(std::string_view{source.data(), source.size()}.find("tile_storage_") == std::string_view::npos);
+                expect(luisa::string_view{source.data(), source.size()}.find("tile_storage_") == luisa::string_view::npos);
             }
             luisa::vector<float> input(static_cast<size_t>(rows * columns));
             for (size_t i = 0; i < input.size(); i++) { input[i] = static_cast<float>(static_cast<int64_t>(i % 43u) - 21) / 17.0f; }
@@ -243,11 +245,11 @@ void test_element_grid_shared_producers(Runtime &runtime) {
             if (fused && !executable.plans.empty()) {
                 expect(eq(executable.plans.front().elementwise_scalar_temporaries, 2u));
                 auto source = metal_source(executable.module.value());
-                auto code = std::string_view{source.data(), source.size()};
-                expect(code.find("thread float tile_storage_") == std::string_view::npos);
+                auto code = luisa::string_view{source.data(), source.size()};
+                expect(code.find("thread float tile_storage_") == luisa::string_view::npos);
                 auto first = code.find("exp(");
-                expect(first != std::string_view::npos) << code;
-                if (first != std::string_view::npos) { expect(code.find("exp(", first + 4u) == std::string_view::npos); }
+                expect(first != luisa::string_view::npos) << code;
+                if (first != luisa::string_view::npos) { expect(code.find("exp(", first + 4u) == luisa::string_view::npos); }
             }
             luisa::vector<float> input(static_cast<size_t>(rows * columns));
             for (size_t i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(static_cast<int64_t>(i % 43u) - 21) / 17.0f; }
@@ -318,17 +320,17 @@ void test_element_grid_multiple_outputs(Runtime &runtime) {
             if (fused && !executable.plans.empty()) {
                 expect(eq(executable.plans.front().elementwise_scalar_temporaries, 2u));
                 auto source = metal_source(executable.module.value());
-                auto text = std::string_view{source.data(), source.size()};
-                expect(text.find("thread float tile_storage_") == std::string_view::npos);
+                auto text = luisa::string_view{source.data(), source.size()};
+                expect(text.find("thread float tile_storage_") == luisa::string_view::npos);
                 auto first_exp = text.find("exp(");
                 // Every shifted input is zero for the single-row case. TIRx
                 // may substitute constant exp(0) expressions for Metal to
                 // fold; the once-per-worker check targets nonconstant work.
                 if (rows > 1) {
-                    expect(first_exp != std::string_view::npos);
-                    if (first_exp != std::string_view::npos) { expect(text.find("exp(", first_exp + 4u) == std::string_view::npos); }
+                    expect(first_exp != luisa::string_view::npos);
+                    if (first_exp != luisa::string_view::npos) { expect(text.find("exp(", first_exp + 4u) == luisa::string_view::npos); }
                 } else {
-                    expect(text.find("arg0_ptr") == std::string_view::npos);
+                    expect(text.find("arg0_ptr") == luisa::string_view::npos);
                 }
             }
             auto count = static_cast<size_t>(rows * columns);
@@ -525,7 +527,7 @@ void test_element_grid_producer_contract(Runtime &runtime) {
         if (mode == ElementChainCase::REWRITTEN) { parts.push_back(producer(0.5f)); }
         tvm::PrimExpr read_row = output_row, read_column = output_column;
         if (mode == ElementChainCase::NEIGHBOR) { read_row = tvm::floormod(output_row + i64(1), i64(8)); }
-        if (mode == ElementChainCase::TRANSPOSE) { std::swap(read_row, read_column); }
+        if (mode == ElementChainCase::TRANSPOSE) { luisa::swap(read_row, read_column); }
         if (mode == ElementChainCase::DIFFERENT_DOMAIN) { read_column = tvm::floormod(read_column, i64(7)); }
         auto destination = mode == ElementChainCase::INPUT_WRITE ? a : d;
         auto value = tvm::tirx::BufferLoad{temporary, {read_row, read_column}};
@@ -559,7 +561,7 @@ void test_element_grid_producer_contract(Runtime &runtime) {
                 continue;
             }
             if (mode == ElementChainCase::NEIGHBOR) { r0 = (r0 + 1u) % 8u; }
-            if (mode == ElementChainCase::TRANSPOSE) { std::swap(r0, c0); }
+            if (mode == ElementChainCase::TRANSPOSE) { luisa::swap(r0, c0); }
             if (mode == ElementChainCase::DIFFERENT_DOMAIN) { c0 %= 7u; }
             auto v = input[i / 64u * 64u + r0 * 8u + c0] + (mode == ElementChainCase::REWRITTEN ? 0.5f : 0.25f);
             expect(std::abs(actual[i] - (v * v + v)) < 5e-6f) << "mode=" << static_cast<uint32_t>(mode) << " i=" << i;
@@ -570,8 +572,8 @@ void test_element_grid_producer_contract(Runtime &runtime) {
 [[nodiscard]] bool has_cpu_parallel_launch(const luisa::test::tile_tirx::Executable &executable) {
     if (!executable.module) { return false; }
     auto source = executable.module.value()->InspectSource("ll");
-    auto code = std::string_view{source.data(), source.size()};
-    return code.find("load ptr, ptr @__TVMBackendParallelLaunch") != std::string_view::npos;
+    auto code = luisa::string_view{source.data(), source.size()};
+    return code.find("load ptr, ptr @__TVMBackendParallelLaunch") != luisa::string_view::npos;
 }
 
 [[nodiscard]] Kernel make_exp_copy(exec::Scope scope, int64_t count) {
@@ -892,8 +894,8 @@ void test_metal_subgroup_reduction_contract(Runtime &runtime) {
     expect(reference.ok()) << reference.error;
     if (reference.ok()) {
         auto source = metal_source(reference.module.value());
-        expect(std::string_view{source.data(), source.size()}.find("simd_sum(") ==
-               std::string_view::npos)
+        expect(luisa::string_view{source.data(), source.size()}.find("simd_sum(") ==
+               luisa::string_view::npos)
             << source;
     }
 }
@@ -936,7 +938,7 @@ void test_reduction_policy_admission(Runtime &runtime) {
         if (!executable.ok()) { continue; }
         auto source = runtime.target() == "metal" ? metal_source(executable.module.value()) : executable.module.value()->InspectSource("ll");
         auto needle = runtime.target() == "metal" ? "simd_sum(" : "call void @luisa_tile_accelerate_reduce_add_f32(";
-        expect(eq(std::string_view{source.data(), source.size()}.find(needle) != std::string_view::npos,
+        expect(eq(luisa::string_view{source.data(), source.size()}.find(needle) != luisa::string_view::npos,
                   policy == reduction::unordered_tree))
             << source;
         luisa::vector<float> values(rows * columns);
@@ -985,11 +987,11 @@ void test_mixed_reduction_policies(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = runtime.target() == "metal" ? metal_source(executable.module.value()) : executable.module.value()->InspectSource("ll");
-    auto code = std::string_view{source.data(), source.size()};
+    auto code = luisa::string_view{source.data(), source.size()};
     auto needle = runtime.target() == "metal" ? "simd_sum(" : "call void @luisa_tile_accelerate_reduce_add_f32(";
     auto first = code.find(needle);
-    expect(first != std::string_view::npos) << source;
-    if (first != std::string_view::npos) { expect(code.find(needle, first + 1u) == std::string_view::npos) << source; }
+    expect(first != luisa::string_view::npos) << source;
+    if (first != luisa::string_view::npos) { expect(code.find(needle, first + 1u) == luisa::string_view::npos) << source; }
     luisa::vector<float> values(rows * columns, 1.0f);
     for (auto row = int64_t{0}; row < rows; row++) {
         values[row * columns] = 16777216.0f;
@@ -1005,12 +1007,12 @@ void test_mixed_reduction_policies(Runtime &runtime) {
         auto device_modules = 0u;
         for (auto &&child : executable.module.value()->imports()) {
             auto module = child.cast<tvm::ffi::Module>();
-            if (std::string_view{module->kind()} != "metal") { continue; }
+            if (luisa::string_view{module->kind()} != "metal") { continue; }
             device_modules++;
             auto bytes = module->SaveToBytes();
             auto restored = tvm::ffi::Function::GetGlobalRequired("ffi.Module.load_from_bytes.metal")(bytes).cast<tvm::ffi::Module>();
             auto serialized = restored->SaveToBytes();
-            expect(std::string_view{serialized.data(), serialized.size()} == std::string_view{bytes.data(), bytes.size()});
+            expect(luisa::string_view{serialized.data(), serialized.size()} == luisa::string_view{bytes.data(), bytes.size()});
             // This fixture has the explicit two-buffer ABI and a single
             // group root: grid rows, block threads (checked in its plan).
             expect(eq(executable.plans.size(), size_t{1}));
@@ -1061,8 +1063,8 @@ void test_metal_subgroup_sum(Runtime &runtime) {
         expect(eq(plan.independent_subgroups,
                   expected_subgroups == 1u));
         auto source = metal_source(executable.module.value());
-        auto code = std::string_view{source.data(), source.size()};
-        expect(code.find("simd_sum(") != std::string_view::npos) << source;
+        auto code = luisa::string_view{source.data(), source.size()};
+        expect(code.find("simd_sum(") != luisa::string_view::npos) << source;
         luisa::vector<float> values(static_cast<size_t>(rows * columns));
         for (auto i = 0u; i < values.size(); i++) {
             values[i] = static_cast<float>(static_cast<int64_t>(i % 127u) - 63) /
@@ -1333,9 +1335,9 @@ void test_metal_cooperating_program_packing(Runtime &runtime) {
             expect(!plan.independent_subgroups);
             expect(eq(plan.candidates_considered, automatic_width ? std::min(32u, runtime.metal_max_threads() / 32u) / packing : 1u));
             auto source = metal_source(executable.module.value());
-            auto code = std::string_view{source.data(), source.size()};
-            expect(code.find("threadgroup_barrier(") != std::string_view::npos);
-            expect(code.find(mode == 3u ? "simd_min(" : "simd_sum(") != std::string_view::npos);
+            auto code = luisa::string_view{source.data(), source.size()};
+            expect(code.find("threadgroup_barrier(") != luisa::string_view::npos);
+            expect(code.find(mode == 3u ? "simd_min(" : "simd_sum(") != luisa::string_view::npos);
             luisa::vector<float> values(static_cast<size_t>(rows + 2u) * columns);
             for (auto row = 0u; row < rows + 2u; row++) {
                 for (auto column = 0u; column < columns; column++) {
@@ -1682,8 +1684,8 @@ void test_reduction_complete_width_search(Runtime &runtime) {
             expect(std::abs(plan.reduction_lane_utilization - static_cast<double>(columns) / static_cast<double>(slots * workers)) < 1e-8);
             expect(eq(plan.shared_memory_bytes, 2u * workers / 32u * sizeof(float)));
             auto source = metal_source(executable.module.value());
-            auto code = std::string_view{source.data(), source.size()};
-            expect(code.find("subgroup_partials_0[" + std::to_string(workers / 32u) + "]") != std::string_view::npos) << source;
+            auto code = luisa::string_view{source.data(), source.size()};
+            expect(code.find("subgroup_partials_0[" + std::to_string(workers / 32u) + "]") != luisa::string_view::npos) << source;
             luisa::vector<float> values(static_cast<size_t>(rows * columns));
             for (size_t i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(static_cast<int32_t>(i % 127u) - 63) / 31.0f; }
             auto input = runtime.upload<float>({rows, columns}, values);
@@ -1740,13 +1742,13 @@ void test_metal_subgroup_striped_softmax(Runtime &runtime) {
     expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     expect(!plan.independent_subgroups);
     auto source = metal_source(executable.module.value());
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos) << source;
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != luisa::string_view::npos) << source;
     expect(code.find("thread float tile_storage_7[4096]") ==
-           std::string_view::npos)
+           luisa::string_view::npos)
         << source;
-    expect(code.find("simd_max(") != std::string_view::npos) << source;
-    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+    expect(code.find("simd_max(") != luisa::string_view::npos) << source;
+    expect(code.find("simd_sum(") != luisa::string_view::npos) << source;
 
     luisa::vector<float> values(static_cast<size_t>(rows * columns));
     for (auto i = 0u; i < values.size(); i++) {
@@ -1807,11 +1809,11 @@ void test_metal_subgroup_layernorm(Runtime &runtime) {
     expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     expect(!plan.independent_subgroups);
     auto source = metal_source(executable.module.value());
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("simd_sum(") != std::string_view::npos) << source;
-    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos)
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("simd_sum(") != luisa::string_view::npos) << source;
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != luisa::string_view::npos)
         << source;
-    expect(code.find("[4096]") == std::string_view::npos) << source;
+    expect(code.find("[4096]") == luisa::string_view::npos) << source;
 
     luisa::vector<float> values(static_cast<size_t>(rows * columns));
     luisa::vector<float> parameters(static_cast<size_t>(2 * columns));
@@ -1881,11 +1883,11 @@ void test_metal_subgroup_generic_striped_tile(Runtime &runtime) {
     expect(eq(plan.shared_memory_bytes, expected_subgroups * sizeof(float)));
     expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     auto source = metal_source(executable.module.value());
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("simd_sum(") != std::string_view::npos) << source;
-    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos)
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("simd_sum(") != luisa::string_view::npos) << source;
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != luisa::string_view::npos)
         << source;
-    expect(code.find("[4096]") == std::string_view::npos) << source;
+    expect(code.find("[4096]") == luisa::string_view::npos) << source;
 
     luisa::vector<float> values(static_cast<size_t>(rows * columns));
     for (auto i = 0u; i < values.size(); i++) {
@@ -1932,11 +1934,11 @@ void test_metal_subgroup_cross_entropy(Runtime &runtime) {
     expect(eq(plan.shared_memory_bytes, 64u));
     expect(eq(plan.striped_storage_scalars_per_worker, 0u));
     auto source = metal_source(executable.module.value());
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("simd_max(") != std::string_view::npos) << source;
-    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("simd_max(") != luisa::string_view::npos) << source;
+    expect(code.find("simd_sum(") != luisa::string_view::npos) << source;
     expect(code.find("thread float tile_storage_0[4096]") ==
-           std::string_view::npos)
+           luisa::string_view::npos)
         << source;
 
     auto fallback = runtime.build(
@@ -1946,9 +1948,9 @@ void test_metal_subgroup_cross_entropy(Runtime &runtime) {
     if (fallback.ok()) {
         expect(fallback.plans.empty());
         auto fallback_source = metal_source(fallback.module.value());
-        auto fallback_code = std::string_view{fallback_source.data(),
+        auto fallback_code = luisa::string_view{fallback_source.data(),
                                               fallback_source.size()};
-        expect(fallback_code.find("simd_sum(") == std::string_view::npos)
+        expect(fallback_code.find("simd_sum(") == luisa::string_view::npos)
             << fallback_source;
     }
 
@@ -2006,9 +2008,9 @@ void test_metal_subgroup_extrema(Runtime &runtime) {
     expect(eq(executable.plans.front().reduction_operations, 2u));
     expect(eq(executable.plans.front().reduction_elements, 2048u));
     auto source = metal_source(executable.module.value());
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("simd_min(") != std::string_view::npos) << source;
-    expect(code.find("simd_max(") != std::string_view::npos) << source;
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("simd_min(") != luisa::string_view::npos) << source;
+    expect(code.find("simd_max(") != luisa::string_view::npos) << source;
 
     luisa::vector<float> values(static_cast<size_t>(rows * columns));
     for (auto i = 0u; i < values.size(); i++) {
@@ -2061,12 +2063,12 @@ void test_cpu_accelerate_math(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = executable.module.value()->InspectSource("ll");
-    auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("call void @luisa_tile_accelerate_expf(") != std::string_view::npos) << source;
-    expect(code.find("call void @luisa_tile_accelerate_reduce_add_f32(") != std::string_view::npos) << source;
+    auto code = luisa::string_view{source.data(), source.size()};
+    expect(code.find("call void @luisa_tile_accelerate_expf(") != luisa::string_view::npos) << source;
+    expect(code.find("call void @luisa_tile_accelerate_reduce_add_f32(") != luisa::string_view::npos) << source;
     auto provider_calls = 0u;
-    constexpr auto prefix = std::string_view{"call void @luisa_tile_accelerate_"};
-    for (auto position = code.find(prefix); position != std::string_view::npos;
+    constexpr auto prefix = luisa::string_view{"call void @luisa_tile_accelerate_"};
+    for (auto position = code.find(prefix); position != luisa::string_view::npos;
          position = code.find(prefix, position + prefix.size())) { provider_calls++; }
     expect(eq(provider_calls, 2u)) << source;
     luisa::vector<float> values(3u * 37u);
@@ -2198,7 +2200,7 @@ void test_worker_vector(Runtime &runtime) {
         expect(mismatch.first == actual.end()) << "count=" << count << " index=" << (mismatch.first - actual.begin());
         if (count == 256) {
             auto source_ir = executable.module.value()->InspectSource("ll");
-            expect(std::string_view{source_ir.data(), source_ir.size()}.find("<4 x float>") != std::string_view::npos)
+            expect(luisa::string_view{source_ir.data(), source_ir.size()}.find("<4 x float>") != luisa::string_view::npos)
                 << "explicit vector scope must reach LLVM vector instructions";
         }
     }

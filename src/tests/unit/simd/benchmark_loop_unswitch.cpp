@@ -29,6 +29,10 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 using namespace luisa::compute::simd;
@@ -43,7 +47,7 @@ enum struct Variant : uint8_t {
 };
 
 struct Scenario {
-    std::string_view name;
+    luisa::string_view name;
     uint32_t threshold;
     uint32_t active_lanes;
 };
@@ -62,8 +66,8 @@ struct EntryMetadata {
 };
 
 struct LLVMModuleBundle {
-    std::unique_ptr<::llvm::LLVMContext> context;
-    std::unique_ptr<::llvm::Module> module;
+    luisa::unique_ptr<::llvm::LLVMContext> context;
+    luisa::unique_ptr<::llvm::Module> module;
     std::vector<EntryMetadata> entries;
     std::string error;
 };
@@ -72,7 +76,7 @@ struct AssemblyStats {
     size_t instructions{0u};
     size_t stack_references{0u};
     size_t calls{0u};
-    std::string_view widest_register{"scalar"};
+    luisa::string_view widest_register{"scalar"};
 };
 
 struct Measurement {
@@ -80,7 +84,7 @@ struct Measurement {
     double unswitched_ns{0.0};
 };
 
-[[nodiscard]] constexpr std::string_view variant_name(
+[[nodiscard]] constexpr luisa::string_view variant_name(
     Variant variant) noexcept {
     switch (variant) {
         case Variant::scheduled: return "scheduled";
@@ -113,7 +117,7 @@ struct Measurement {
     return builder.call(Type::of<uint32_t>(), op, {lhs, rhs});
 }
 
-[[nodiscard]] std::optional<schedule::Function> make_schedule(
+[[nodiscard]] luisa::optional<schedule::Function> make_schedule(
     Variant variant, uint32_t width,
     EntryMetadata &metadata, std::string &error) {
     xir::Module module;
@@ -218,7 +222,7 @@ struct Measurement {
 
     if (!xir::xir_verify_module(&module).succeeded()) {
         error = "input XIR verification failed";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto unswitch = schedule::SIMDLoopUnswitchInfo{};
     if (variant == Variant::unswitched) {
@@ -227,20 +231,20 @@ struct Measurement {
                 function);
         if (unswitch.unswitch.unswitched_loop_count != 1u) {
             error = "SIMD policy rejected loop-unswitch benchmark";
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
     if (!xir::xir_verify_module(&module).succeeded()) {
         error = "rewritten XIR verification failed";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto lowered = schedule::lower_xir_to_schedule(
         function, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         error = diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    auto result_id = std::optional<schedule::ValueId>{};
+    auto result_id = luisa::optional<schedule::ValueId>{};
     for (auto &&value : lowered.function->values()) {
         if (value.name == "result") { result_id = value.id; }
     }
@@ -251,7 +255,7 @@ struct Measurement {
     }
     if (!result_id || !schedule::verify(*lowered.function).succeeded()) {
         error = "benchmark Schedule IR result rewrite failed";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     metadata = {
         .name = entry_name(variant, width),
@@ -273,8 +277,8 @@ struct Measurement {
 
 [[nodiscard]] LLVMModuleBundle make_llvm_module() {
     LLVMModuleBundle bundle;
-    bundle.context = std::make_unique<::llvm::LLVMContext>();
-    bundle.module = std::make_unique<::llvm::Module>(
+    bundle.context = luisa::make_unique<::llvm::LLVMContext>();
+    bundle.module = luisa::make_unique<::llvm::Module>(
         "loop-unswitch-benchmark", *bundle.context);
     constexpr std::array widths{2u, 4u, 8u, 16u};
     constexpr std::array variants{
@@ -303,45 +307,45 @@ struct Measurement {
     return bundle;
 }
 
-[[nodiscard]] std::string_view function_assembly(
-    std::string_view assembly, std::string_view function) {
+[[nodiscard]] luisa::string_view function_assembly(
+    luisa::string_view assembly, luisa::string_view function) {
     auto label = std::string{"\n"} + std::string{function} + ":";
     auto begin = assembly.find(label);
-    if (begin == std::string_view::npos) { return {}; }
+    if (begin == luisa::string_view::npos) { return {}; }
     begin += label.size();
     auto end = assembly.find("\n.Lfunc_end", begin);
-    if (end == std::string_view::npos) {
+    if (end == luisa::string_view::npos) {
         end = assembly.find("\n\t.size", begin);
     }
-    if (end == std::string_view::npos) { end = assembly.size(); }
+    if (end == luisa::string_view::npos) { end = assembly.size(); }
     return assembly.substr(begin, end - begin);
 }
 
 [[nodiscard]] AssemblyStats assembly_stats(
-    std::string_view assembly, std::string_view function) {
+    luisa::string_view assembly, luisa::string_view function) {
     auto body = function_assembly(assembly, function);
     AssemblyStats stats;
-    if (body.find("%zmm") != std::string_view::npos) {
+    if (body.find("%zmm") != luisa::string_view::npos) {
         stats.widest_register = "zmm";
-    } else if (body.find("%ymm") != std::string_view::npos) {
+    } else if (body.find("%ymm") != luisa::string_view::npos) {
         stats.widest_register = "ymm";
-    } else if (body.find("%xmm") != std::string_view::npos) {
+    } else if (body.find("%xmm") != luisa::string_view::npos) {
         stats.widest_register = "xmm";
     }
     for (auto begin = size_t{0u}; begin < body.size();) {
         auto end = body.find('\n', begin);
-        if (end == std::string_view::npos) { end = body.size(); }
+        if (end == luisa::string_view::npos) { end = body.size(); }
         auto line = body.substr(begin, end - begin);
         auto first = line.find_first_not_of(" \t");
-        if (first != std::string_view::npos &&
+        if (first != luisa::string_view::npos &&
             line[first] != '.' && line[first] != '#' &&
             line.back() != ':') {
             stats.instructions++;
             auto instruction = line.substr(first);
             stats.calls += instruction.starts_with("call");
             stats.stack_references +=
-                instruction.find("%rsp") != std::string_view::npos ||
-                instruction.find("%rbp") != std::string_view::npos;
+                instruction.find("%rsp") != luisa::string_view::npos ||
+                instruction.find("%rbp") != luisa::string_view::npos;
         }
         begin = end + 1u;
     }
@@ -437,7 +441,7 @@ volatile uint32_t benchmark_sink = 0u;
 }
 
 [[nodiscard]] double median(std::vector<double> samples) {
-    std::sort(samples.begin(), samples.end());
+    luisa::sort(samples.begin(), samples.end());
     return samples[samples.size() / 2u];
 }
 
@@ -491,7 +495,7 @@ volatile uint32_t benchmark_sink = 0u;
 
 template<typename T>
 [[nodiscard]] bool parse_integer(
-    std::string_view text, T &value) noexcept {
+    luisa::string_view text, T &value) noexcept {
     auto *begin = text.data();
     auto *end = begin + text.size();
     auto result = std::from_chars(begin, end, value);
@@ -502,9 +506,9 @@ template<typename T>
 
 int main(int argc, char *argv[]) {
     auto profile = argc >= 2 &&
-                   std::string_view{argv[1]} == "--profile";
-    auto mode = argc == 2 ? std::string_view{argv[1]} :
-                            std::string_view{};
+                   luisa::string_view{argv[1]} == "--profile";
+    auto mode = argc == 2 ? luisa::string_view{argv[1]} :
+                            luisa::string_view{};
     auto quick = mode == "--quick";
     auto dump_assembly = mode == "--assembly";
     auto profile_variant = Variant::scheduled;
@@ -512,10 +516,10 @@ int main(int argc, char *argv[]) {
     auto profile_repetitions = uint64_t{0u};
     auto profile_valid = false;
     if (profile && (argc == 4 || argc == 5)) {
-        auto variant = std::string_view{argv[2]};
+        auto variant = luisa::string_view{argv[2]};
         profile_valid =
             (variant == "scheduled" || variant == "unswitched") &&
-            parse_integer(std::string_view{argv[3]}, profile_width) &&
+            parse_integer(luisa::string_view{argv[3]}, profile_width) &&
             (profile_width == 2u || profile_width == 4u ||
              profile_width == 8u || profile_width == 16u);
         profile_variant = variant == "unswitched" ?
@@ -524,7 +528,7 @@ int main(int argc, char *argv[]) {
         if (argc == 5) {
             profile_valid = profile_valid &&
                             parse_integer(
-                                std::string_view{argv[4]},
+                                luisa::string_view{argv[4]},
                                 profile_repetitions) &&
                             profile_repetitions != 0u;
         } else {

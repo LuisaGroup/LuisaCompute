@@ -12,6 +12,7 @@
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/optional.h>
 
 #include "diagnostic.h"
 #include "execution.h"
@@ -181,7 +182,7 @@ void flatten_sequence(
            indices[0u].as<tvm::IntImmNode>()->value == 0;
 }
 
-[[nodiscard]] std::optional<VectorReductionMap> match_vector_reduction(
+[[nodiscard]] luisa::optional<VectorReductionMap> match_vector_reduction(
     const tvm::tirx::For &loop) {
     auto contract = loop->annotations.Get(reduction_contract_annotation);
     auto kind = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
@@ -193,10 +194,10 @@ void flatten_sequence(
          kind->value != reduction_min_contract) ||
         loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding ||
         minimum == nullptr || minimum->value != 0 || extent == nullptr || extent->value <= 0 ||
-        (loop->step && (step == nullptr || step->value != 1))) { return std::nullopt; }
+        (loop->step && (step == nullptr || step->value != 1))) { return luisa::nullopt; }
     tvm::ffi::Array<tvm::tirx::Stmt> statements;
     flatten_sequence(loop->body, statements);
-    if (statements.size() != 3u) { return std::nullopt; }
+    if (statements.size() != 3u) { return luisa::nullopt; }
     auto allocation = statements[0u].as<tvm::tirx::AllocBufferNode>();
     auto combine_store = statements[1u].as<tvm::tirx::BufferStoreNode>();
     auto output_store = statements[2u].as<tvm::tirx::BufferStoreNode>();
@@ -204,28 +205,28 @@ void flatten_sequence(
         combine_store->predicate || output_store->predicate ||
         !combine_store->buffer.same_as(allocation->buffer) ||
         !zero_index(combine_store->indices) || !zero_index(output_store->indices)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto forwarded = output_store->value.as<tvm::tirx::BufferLoadNode>();
     if (forwarded == nullptr || forwarded->predicate ||
         !forwarded->buffer.same_as(allocation->buffer) || !zero_index(forwarded->indices)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     tvm::PrimExpr lhs;
     tvm::PrimExpr rhs;
     if (kind->value == reduction_add_contract) {
         auto add = combine_store->value.as<tvm::tirx::AddNode>();
-        if (add == nullptr) { return std::nullopt; }
+        if (add == nullptr) { return luisa::nullopt; }
         lhs = add->a;
         rhs = add->b;
     } else if (kind->value == reduction_max_contract) {
         auto maximum = combine_store->value.as<tvm::tirx::MaxNode>();
-        if (maximum == nullptr) { return std::nullopt; }
+        if (maximum == nullptr) { return luisa::nullopt; }
         lhs = maximum->a;
         rhs = maximum->b;
     } else {
         auto minimum_value = combine_store->value.as<tvm::tirx::MinNode>();
-        if (minimum_value == nullptr) { return std::nullopt; }
+        if (minimum_value == nullptr) { return luisa::nullopt; }
         lhs = minimum_value->a;
         rhs = minimum_value->b;
     }
@@ -239,35 +240,35 @@ void flatten_sequence(
         source = lhs_load;
     }
     if (source == nullptr || source->predicate || source->buffer.same_as(output) ||
-        source->buffer.same_as(allocation->buffer)) { return std::nullopt; }
+        source->buffer.same_as(allocation->buffer)) { return luisa::nullopt; }
     auto input = source->buffer;
     auto offset = input->elem_offset.as<tvm::IntImmNode>();
     if (input->dtype != tvm::PrimType::Float(32) || input->shape.empty() ||
         source->indices.size() != input->shape.size() || !input->strides.empty() ||
         input->layout || !input->allocated_addr.empty() || offset == nullptr || offset->value != 0 ||
         !tvm::ffi::StructuralEqual{}(source->indices.back(), loop->loop_var)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto last_extent = input->shape.back().as<tvm::IntImmNode>();
-    if (last_extent == nullptr || last_extent->value != extent->value) { return std::nullopt; }
+    if (last_extent == nullptr || last_extent->value != extent->value) { return luisa::nullopt; }
     auto depends_on_reduction = false;
     for (auto i = 0u; i + 1u < source->indices.size(); i++) {
         tvm::tirx::PostOrderVisit(source->indices[i], [&](const tvm::ffi::ObjectRef &node) {
             depends_on_reduction |= node.same_as(loop->loop_var);
         });
     }
-    if (depends_on_reduction) { return std::nullopt; }
+    if (depends_on_reduction) { return luisa::nullopt; }
     return VectorReductionMap{
         tvm::ffi::GetRef<tvm::tirx::BufferLoad>(source),
         std::move(output), kind->value, extent->value};
 }
 
-[[nodiscard]] std::optional<VectorExpMap> match_vector_exp_map(
+[[nodiscard]] luisa::optional<VectorExpMap> match_vector_exp_map(
     const tvm::tirx::For &outer) {
     static const auto exp_op = tvm::Op::Get("tirx.exp");
     auto contract = outer->annotations.Get(materialized_pure_tile_annotation);
     auto version = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
-    if (version == nullptr || version->value != 1) { return std::nullopt; }
+    if (version == nullptr || version->value != 1) { return luisa::nullopt; }
     tvm::ffi::Array<tvm::tirx::PrimVar> variables;
     tvm::ffi::Array<tvm::PrimExpr> extents;
     auto element_count = int64_t{1};
@@ -281,7 +282,7 @@ void flatten_sequence(
             minimum == nullptr || minimum->value != 0 || extent == nullptr || extent->value <= 0 ||
             (loop->step && (step == nullptr || step->value != 1)) ||
             element_count > std::numeric_limits<int>::max() / extent->value) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         variables.push_back(loop->loop_var);
         extents.push_back(loop->extent);
@@ -294,7 +295,7 @@ void flatten_sequence(
         break;
     }
     if (store == nullptr || store->predicate || store->indices.size() != variables.size()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto output = store->buffer;
     auto type = output->dtype;
@@ -302,20 +303,20 @@ void flatten_sequence(
     if (output.scope() != "local" || type != tvm::PrimType::Float(32) ||
         output->shape.size() != variables.size() || !output->strides.empty() ||
         output->layout || !output->allocated_addr.empty() || offset == nullptr || offset->value != 0) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto equal = tvm::ffi::StructuralEqual{};
     for (auto i = 0u; i < variables.size(); i++) {
         auto shape = output->shape[i].as<tvm::IntImmNode>();
         auto extent = extents[i].as<tvm::IntImmNode>();
         if (shape == nullptr || extent == nullptr || shape->value != extent->value ||
-            !equal(store->indices[i], variables[i])) { return std::nullopt; }
+            !equal(store->indices[i], variables[i])) { return luisa::nullopt; }
     }
     auto call = store->value.as<tvm::CallNode>();
     if (call == nullptr || !call->op.same_as(exp_op) || call->args.size() != 1u ||
-        call->ty != tvm::PrimType::Float(32)) { return std::nullopt; }
+        call->ty != tvm::PrimType::Float(32)) { return luisa::nullopt; }
     auto input = call->args[0u].as<tvm::PrimExpr>();
-    if (!input) { return std::nullopt; }
+    if (!input) { return luisa::nullopt; }
     auto depends_on_output = false;
     tvm::tirx::PostOrderVisit(input.value(), [&](const tvm::ffi::ObjectRef &node) {
         if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
@@ -324,7 +325,7 @@ void flatten_sequence(
             depends_on_output |= variable == output.get();
         }
     });
-    if (depends_on_output) { return std::nullopt; }
+    if (depends_on_output) { return luisa::nullopt; }
     return VectorExpMap{std::move(output), std::move(input.value()), store, element_count};
 }
 

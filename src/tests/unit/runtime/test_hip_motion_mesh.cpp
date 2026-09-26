@@ -689,7 +689,7 @@ struct ExpectedFailureSubprocessResult {
 run_expected_failure_subprocess(const char *executable,
                                 const char *backend,
                                 const char *mode) {
-    auto executable_path = std::filesystem::absolute(executable).string();
+    auto executable_path = luisa::filesystem::absolute(executable).string();
     int output_pipe[2]{};
     if (pipe(output_pipe) != 0) { return {false, -errno, {}}; }
     auto pid = fork();

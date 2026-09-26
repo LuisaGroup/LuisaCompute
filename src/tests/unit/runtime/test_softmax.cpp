@@ -162,7 +162,7 @@ template<typename T>
 
 void validate_softmax(luisa::span<const float> input,
                       luisa::span<const float> actual,
-                      std::string_view label) {
+                      luisa::string_view label) {
     auto reference = reference_softmax(input);
     auto probabilities_valid = true;
     auto values_match = true;

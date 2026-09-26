@@ -3,12 +3,13 @@
 #include <array>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/string.h>
 
 #include "contiguous_copy.h"
 
 namespace luisa::compute::simd::schedule {
 
-[[nodiscard]] inline std::string_view validate_contiguous_copy(
+[[nodiscard]] inline luisa::string_view validate_contiguous_copy(
     const ContiguousCopyMetadata &descriptor,
     const std::array<const Type *, 3u> &types) noexcept {
     if (types[0u] == nullptr || !types[0u]->is_buffer() || types[0u]->element() == nullptr ||

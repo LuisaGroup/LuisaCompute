@@ -7,6 +7,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/runtime/raster/vertex_attribute.h>
+#include <luisa/core/stl/memory.h>
 
 namespace llvm {
 class LLVMContext;

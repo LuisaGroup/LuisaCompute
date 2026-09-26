@@ -26,6 +26,7 @@
 #include "MTLPrivate.hpp"
 #include "MTLTypes.hpp"
 #include <cstdint>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -42,7 +43,7 @@ _MTL_ENUM(NS::Integer, IOStatus) {
 };
 
 using IOCommandBufferHandler = void (^)(MTL::IOCommandBuffer*);
-using IOCommandBufferHandlerFunction = std::function<void(MTL::IOCommandBuffer*)>;
+using IOCommandBufferHandlerFunction = luisa::function<void(MTL::IOCommandBuffer*)>;
 
 class IOCommandBuffer : public NS::Referencing<IOCommandBuffer>
 {

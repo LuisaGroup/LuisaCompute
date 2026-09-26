@@ -9,6 +9,7 @@
 #include <luisa/vstl/string_hash.h>
 #include <luisa/vstl/vector.h>
 #include <luisa/vstl/ranges.h>
+#include <luisa/core/stl/string.h>
 namespace vstd {
 using string = std::basic_string<char, std::char_traits<char>, luisa::allocator<char>>;
 using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, luisa::allocator<wchar_t>>;
@@ -148,7 +149,7 @@ struct compare<string> {
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(string const &a, const std::string_view &b) const noexcept {
+    int32 operator()(string const &a, const luisa::string_view &b) const noexcept {
         if (a.size() == b.size())
             return std::memcmp(a.data(), b.data(), a.size());
         else
@@ -185,7 +186,7 @@ struct compare<vstd::wstring> {
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(const vstd::wstring &a, const std::wstring_view &b) const noexcept {
+    int32 operator()(const vstd::wstring &a, const luisa::wstring_view &b) const noexcept {
         if (a.size() == b.size())
             return std::memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
         else
@@ -201,20 +202,20 @@ struct compare<vstd::wstring> {
 };
 
 template<>
-struct compare<std::string_view> {
-    int32 operator()(const std::string_view &a, string const &b) const noexcept {
+struct compare<luisa::string_view> {
+    int32 operator()(const luisa::string_view &a, string const &b) const noexcept {
         if (a.size() == b.size())
             return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(const std::string_view &a, const std::string_view &b) const noexcept {
+    int32 operator()(const luisa::string_view &a, const luisa::string_view &b) const noexcept {
         if (a.size() == b.size())
             return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(const std::string_view &a, char const *ptr) const noexcept {
+    int32 operator()(const luisa::string_view &a, char const *ptr) const noexcept {
         size_t sz = strlen(ptr);
         if (a.size() == sz)
             return std::memcmp(a.data(), ptr, a.size());

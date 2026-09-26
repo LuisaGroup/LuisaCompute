@@ -9,6 +9,7 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
 #include <charconv>
 #include <chrono>
 #include <filesystem>
@@ -66,10 +67,10 @@ namespace luisa::test::tile_llm {
         LUISA_ASSERT(bq == 1 && bk == 1, "row kernels do not use attention block parameters");
         bounded_product({dimensions[0], dimensions[1]});
     }
-    auto output_path = std::filesystem::path{argv[9]};
-    auto require_missing = [](const std::filesystem::path &path) {
+    auto output_path = luisa::filesystem::path{argv[9]};
+    auto require_missing = [](const luisa::filesystem::path &path) {
         std::error_code error;
-        auto exists = std::filesystem::exists(path, error);
+        auto exists = luisa::filesystem::exists(path, error);
         LUISA_ASSERT(!error, "cannot inspect benchmark path {}: {}", path.string(), error.message());
         LUISA_ASSERT(!exists, "benchmark output/input export already exists: {}", path.string());
     };
@@ -92,7 +93,7 @@ namespace luisa::test::tile_llm {
         return rows(kind, dimensions[0], dimensions[1]);
     }();
     auto fixture_ms = elapsed(start);
-    auto write = [](const std::filesystem::path &path, auto data) {
+    auto write = [](const luisa::filesystem::path &path, auto data) {
         std::ofstream file{path, std::ios::binary};
         file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size_bytes()));
         file.close();

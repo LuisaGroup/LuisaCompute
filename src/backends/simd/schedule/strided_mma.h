@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "schedule_ir.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::schedule {
 
@@ -15,7 +16,7 @@ namespace luisa::compute::simd::schedule {
 
 // Geometry/capacity validation has no dependency on Luisa's Type system.
 // Typed admission and emission convert their reference capacities to elements.
-[[nodiscard]] inline std::string_view validate_strided_mma(
+[[nodiscard]] inline luisa::string_view validate_strided_mma(
     const StridedMmaMetadata &d, const std::array<uint64_t, 4u> &capacities) noexcept {
     if (!supports_strided_mma_width(d.vector_width)) {
         return "SIMD strided MMA requires vector width 2, 4, or 8";
@@ -80,7 +81,7 @@ namespace luisa::compute::simd::schedule {
 // Schedule IR knows only opaque Type pointers. It checks geometry, arithmetic
 // overflow and backend mode; concrete reference types/capacities are checked
 // again at the typed XIR admission and LLVM emission boundaries.
-[[nodiscard]] inline std::string_view validate_strided_mma_descriptor(const StridedMmaMetadata &d) noexcept {
+[[nodiscard]] inline luisa::string_view validate_strided_mma_descriptor(const StridedMmaMetadata &d) noexcept {
     constexpr auto maximum = std::numeric_limits<uint64_t>::max();
     return validate_strided_mma(d, std::array<uint64_t, 4u>{maximum, maximum, maximum, maximum});
 }

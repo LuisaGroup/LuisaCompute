@@ -24,6 +24,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 #include "indirect_dispatch_layout.h"
 #include "spirv_codegen/entry.h"
 #include "spirv_codegen/utils.h"
@@ -166,7 +167,7 @@ public:
 [[nodiscard]] luisa::test::DeviceContext create_native_command_device(
     int argc, char *argv[]) {
     LUISA_ASSERT(argc > 1 && argv != nullptr && argv[0] != nullptr &&
-                     argv[1] != nullptr && std::string_view{argv[1]} == "vk",
+                     argv[1] != nullptr && luisa::string_view{argv[1]} == "vk",
                  "Vulkan custom-command tests require the vk backend.");
     Context context{argv[0]};
     DeviceConfig config{};
@@ -188,7 +189,7 @@ public:
         BindlessArray const &array,
         Buffer<uint32_t> const &target,
         uint32_t value) noexcept
-        : _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _size{target.size_bytes()}, _value{value} {
         _usages.emplace_back(
             Argument::BindlessArray{array.handle()},
@@ -233,8 +234,8 @@ public:
         BindlessArray const &array,
         Image<float> const &source,
         Buffer<float4> const &target) noexcept
-        : _source{std::bit_cast<VkImage>(source.native_handle())},
-          _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _source{luisa::bit_cast<VkImage>(source.native_handle())},
+          _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _extent{source.size().x, source.size().y, 1u} {
         _usages.emplace_back(
             Argument::BindlessArray{array.handle()},
@@ -338,8 +339,8 @@ public:
         Image<float> const &source,
         Buffer<float4> const &target,
         uint32_t mip_level) noexcept
-        : _source{std::bit_cast<VkImage>(source.native_handle())},
-          _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _source{luisa::bit_cast<VkImage>(source.native_handle())},
+          _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _mip_level{mip_level},
           _extent{
               std::max(source.size().x >> mip_level, 1u),
@@ -405,8 +406,8 @@ public:
         Buffer<float4> const &source,
         Image<float> const &target,
         uint32_t target_mip) noexcept
-        : _source{std::bit_cast<VkBuffer>(source.native_handle())},
-          _target{std::bit_cast<VkImage>(target.native_handle())},
+        : _source{luisa::bit_cast<VkBuffer>(source.native_handle())},
+          _target{luisa::bit_cast<VkImage>(target.native_handle())},
           _mip_levels{target.mip_levels()},
           _target_mip{target_mip},
           _target_extent{
@@ -484,44 +485,44 @@ public:
     }
 };
 
-[[nodiscard]] auto dump_exists(std::string_view name) noexcept {
+[[nodiscard]] auto dump_exists(luisa::string_view name) noexcept {
     std::error_code ec;
-    return std::filesystem::exists(std::filesystem::path{name}, ec);
+    return luisa::filesystem::exists(luisa::filesystem::path{name}, ec);
 }
 
-[[nodiscard]] auto read_text_file(const std::filesystem::path &path) {
+[[nodiscard]] auto read_text_file(const luisa::filesystem::path &path) {
     std::ifstream stream{path};
     return std::string{std::istreambuf_iterator<char>{stream},
                        std::istreambuf_iterator<char>{}};
 }
 
-[[nodiscard]] size_t count_substring(std::string_view text,
-                                     std::string_view needle) noexcept {
+[[nodiscard]] size_t count_substring(luisa::string_view text,
+                                     luisa::string_view needle) noexcept {
     if (needle.empty()) { return 0u; }
     auto count = size_t{0u};
     for (auto offset = size_t{0u};;) {
         auto position = text.find(needle, offset);
-        if (position == std::string_view::npos) { break; }
+        if (position == luisa::string_view::npos) { break; }
         count++;
         offset = position + needle.size();
     }
     return count;
 }
 
-[[nodiscard]] bool is_spirv_opcode_token(std::string_view token,
-                                         std::string_view opcode) noexcept {
+[[nodiscard]] bool is_spirv_opcode_token(luisa::string_view token,
+                                         luisa::string_view opcode) noexcept {
     if (token.compare(opcode) == 0) { return true; }
     if (token.size() != opcode.size() + 2u) { return false; }
     if (!token.starts_with("Op")) { return false; }
     return token.substr(2u).compare(opcode) == 0;
 }
 
-[[nodiscard]] size_t count_spirv_opcode(std::string_view disassembly,
-                                        std::string_view opcode) noexcept {
+[[nodiscard]] size_t count_spirv_opcode(luisa::string_view disassembly,
+                                        luisa::string_view opcode) noexcept {
     auto count = size_t{0u};
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -568,12 +569,12 @@ public:
 }
 
 [[nodiscard]] size_t count_spirv_extended_instruction(
-    std::string_view disassembly,
-    std::string_view instruction) noexcept {
+    luisa::string_view disassembly,
+    luisa::string_view instruction) noexcept {
     auto count = size_t{0u};
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -597,7 +598,7 @@ public:
                     break;
                 }
                 auto open = token.find('(');
-                if (open != std::string_view::npos && token.ends_with(")") &&
+                if (open != luisa::string_view::npos && token.ends_with(")") &&
                     token.substr(open + 1u,
                                  token.size() - open - 2u) == instruction) {
                     count++;
@@ -612,11 +613,11 @@ public:
 }
 
 [[nodiscard]] bool spirv_opcode_has_operand(
-    std::string_view disassembly, std::string_view opcode,
-    std::string_view operand) noexcept {
+    luisa::string_view disassembly, luisa::string_view opcode,
+    luisa::string_view operand) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -643,15 +644,15 @@ public:
 }
 
 [[nodiscard]] bool spirv_opcode_has_adjacent_operands(
-    std::string_view disassembly, std::string_view opcode,
-    std::string_view first, std::string_view second) noexcept {
+    luisa::string_view disassembly, luisa::string_view opcode,
+    luisa::string_view first, luisa::string_view second) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -683,15 +684,15 @@ public:
     return false;
 }
 
-[[nodiscard]] std::optional<std::string>
-spirv_unsigned_64_type_token(std::string_view disassembly) {
+[[nodiscard]] luisa::optional<std::string>
+spirv_unsigned_64_type_token(luisa::string_view disassembly) {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -727,29 +728,29 @@ spirv_unsigned_64_type_token(std::string_view disassembly) {
         }
         line_begin = line_end + (line_end < disassembly.size() ? 1u : 0u);
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
-[[nodiscard]] std::string_view normalize_spirv_id_token(
-    std::string_view token) noexcept {
+[[nodiscard]] luisa::string_view normalize_spirv_id_token(
+    luisa::string_view token) noexcept {
     if (token.starts_with('%')) { token.remove_prefix(1u); }
     if (auto parenthesis = token.find('(');
-        parenthesis != std::string_view::npos) {
+        parenthesis != luisa::string_view::npos) {
         token = token.substr(0u, parenthesis);
     }
     return token;
 }
 
-[[nodiscard]] std::optional<std::string> spirv_id_named(
-    std::string_view disassembly, std::string_view name) {
+[[nodiscard]] luisa::optional<std::string> spirv_id_named(
+    luisa::string_view disassembly, luisa::string_view name) {
     auto quoted_name = luisa::format("\"{}\"", name);
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -776,19 +777,19 @@ spirv_unsigned_64_type_token(std::string_view disassembly) {
         line_begin = line_end +
                      (line_end < disassembly.size() ? 1u : 0u);
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] bool spirv_id_has_decoration(
-    std::string_view disassembly, std::string_view id,
-    std::string_view decoration) noexcept {
+    luisa::string_view disassembly, luisa::string_view id,
+    luisa::string_view decoration) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -825,7 +826,7 @@ struct SpirvTextInstruction {
 };
 
 [[nodiscard]] std::string normalize_spirv_text_token(
-    std::string_view token) {
+    luisa::string_view token) {
     while (!token.empty() &&
            (token.back() == ',' || token.back() == ':')) {
         token.remove_suffix(1u);
@@ -835,15 +836,15 @@ struct SpirvTextInstruction {
 
 [[nodiscard]] std::vector<SpirvTextInstruction>
 parse_spirv_text_instructions(
-    std::string_view disassembly, std::string_view opcode) {
+    luisa::string_view disassembly, luisa::string_view opcode) {
     std::vector<SpirvTextInstruction> instructions;
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -894,8 +895,8 @@ parse_spirv_text_instructions(
 }
 
 [[nodiscard]] bool spirv_u64_scaled_index_reaches_buffer_load(
-    std::string_view disassembly,
-    std::string_view uint64_type_token) {
+    luisa::string_view disassembly,
+    luisa::string_view uint64_type_token) {
     auto uint64_type = normalize_spirv_text_token(uint64_type_token);
     auto imuls = parse_spirv_text_instructions(disassembly, "IMul");
     auto iadds = parse_spirv_text_instructions(disassembly, "IAdd");
@@ -904,7 +905,7 @@ parse_spirv_text_instructions(
         disassembly, "AccessChain");
     auto loads = parse_spirv_text_instructions(disassembly, "Load");
     auto has_operand = [](const SpirvTextInstruction &instruction,
-                          std::string_view id) noexcept {
+                          luisa::string_view id) noexcept {
         return std::ranges::any_of(
             instruction.operands,
             [&](auto &&operand) noexcept { return operand == id; });
@@ -945,9 +946,9 @@ parse_spirv_text_instructions(
 }
 
 [[nodiscard]] bool spirv_entry_point_lists_callable_builtins(
-    std::string_view disassembly) {
-    auto tokenize = [](std::string_view line) {
-        std::vector<std::string_view> tokens;
+    luisa::string_view disassembly) {
+    auto tokenize = [](luisa::string_view line) {
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -966,11 +967,11 @@ parse_spirv_text_instructions(
         }
         return tokens;
     };
-    std::optional<std::string_view> local_invocation_id;
-    std::optional<std::string_view> workgroup_id;
+    luisa::optional<luisa::string_view> local_invocation_id;
+    luisa::optional<luisa::string_view> workgroup_id;
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto tokens = tokenize(
@@ -992,7 +993,7 @@ parse_spirv_text_instructions(
     if (!local_invocation_id || !workgroup_id) { return false; }
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto tokens = tokenize(
@@ -1322,10 +1323,10 @@ inspect_spirv_indirect_record_guard(
 }
 
 [[nodiscard]] auto find_spirv_dumps() {
-    std::vector<std::filesystem::path> dumps;
+    std::vector<luisa::filesystem::path> dumps;
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.starts_with("spv_code_") &&
@@ -1335,14 +1336,14 @@ inspect_spirv_indirect_record_guard(
             dumps.emplace_back(iter->path());
         }
     }
-    std::sort(dumps.begin(), dumps.end());
+    luisa::sort(dumps.begin(), dumps.end());
     return dumps;
 }
 
 [[nodiscard]] auto any_hlsl_dump_exists() {
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.rfind("hlsl_output_", 0u) == 0u ||
@@ -1355,61 +1356,61 @@ inspect_spirv_indirect_record_guard(
 
 void remove_hlsl_dumps() noexcept {
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.rfind("hlsl_output_", 0u) == 0u ||
             filename.rfind("spv_code_hlsl_", 0u) == 0u) {
-            std::filesystem::remove(iter->path(), ec);
+            luisa::filesystem::remove(iter->path(), ec);
         }
     }
 }
 
-void remove_dump(std::string_view name) noexcept {
+void remove_dump(luisa::string_view name) noexcept {
     std::error_code ec;
-    std::filesystem::remove(std::filesystem::path{name}, ec);
+    luisa::filesystem::remove(luisa::filesystem::path{name}, ec);
 }
 
 struct ScopedCurrentPath {
-    std::filesystem::path previous;
-    explicit ScopedCurrentPath(const std::filesystem::path &path)
-        : previous{std::filesystem::current_path()} {
-        std::filesystem::current_path(path);
+    luisa::filesystem::path previous;
+    explicit ScopedCurrentPath(const luisa::filesystem::path &path)
+        : previous{luisa::filesystem::current_path()} {
+        luisa::filesystem::current_path(path);
     }
     ~ScopedCurrentPath() noexcept {
         std::error_code ec;
-        std::filesystem::current_path(previous, ec);
+        luisa::filesystem::current_path(previous, ec);
     }
 };
 
 struct ScopedDirectoryCleanup {
-    std::filesystem::path path;
+    luisa::filesystem::path path;
     ~ScopedDirectoryCleanup() noexcept {
         std::error_code ec;
-        std::filesystem::remove_all(path, ec);
+        luisa::filesystem::remove_all(path, ec);
     }
 };
 
 struct ScopedTemporaryCurrentPath {
-    std::filesystem::path path;
-    std::filesystem::path previous;
+    luisa::filesystem::path path;
+    luisa::filesystem::path previous;
 
-    explicit ScopedTemporaryCurrentPath(std::string_view prefix)
-        : previous{std::filesystem::current_path()} {
+    explicit ScopedTemporaryCurrentPath(luisa::string_view prefix)
+        : previous{luisa::filesystem::current_path()} {
         auto nonce = static_cast<uint64_t>(
             std::chrono::steady_clock::now().time_since_epoch().count());
         nonce ^= static_cast<uint64_t>(reinterpret_cast<uintptr_t>(this));
-        path = std::filesystem::temp_directory_path() /
+        path = luisa::filesystem::temp_directory_path() /
                luisa::format("{}_{}", prefix, nonce);
-        std::filesystem::create_directories(path);
-        std::filesystem::current_path(path);
+        luisa::filesystem::create_directories(path);
+        luisa::filesystem::current_path(path);
     }
 
     ~ScopedTemporaryCurrentPath() noexcept {
         std::error_code ec;
-        std::filesystem::current_path(previous, ec);
-        std::filesystem::remove_all(path, ec);
+        luisa::filesystem::current_path(previous, ec);
+        luisa::filesystem::remove_all(path, ec);
     }
 
     ScopedTemporaryCurrentPath(const ScopedTemporaryCurrentPath &) = delete;
@@ -1418,7 +1419,7 @@ struct ScopedTemporaryCurrentPath {
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
     explicit ScopedEnvironmentVariable(const char *env_name,
                                        const char *value)
         : name{env_name} {
@@ -1441,7 +1442,7 @@ struct ScopedSourceDump {
         : environment{"LUISA_DUMP_SOURCE", value} {}
 };
 
-[[nodiscard]] int probe_failure(std::string_view message) noexcept {
+[[nodiscard]] int probe_failure(luisa::string_view message) noexcept {
     LUISA_WARNING("Vulkan SPIR-V child probe failed: {}", message);
     return 1;
 }
@@ -1498,24 +1499,24 @@ struct ScopedSourceDump {
         return probe_failure("mandatory autodiff legalization changed results");
     }
 
-    auto raw_path = std::filesystem::path{
+    auto raw_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.xir", kernel_hash)};
-    auto structured_opt_path = std::filesystem::path{
+    auto structured_opt_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.structured_opt.xir", kernel_hash)};
-    auto pre_ad_path = std::filesystem::path{
+    auto pre_ad_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.pre_ad.xir", kernel_hash)};
-    auto ad_path = std::filesystem::path{
+    auto ad_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.ad.xir", kernel_hash)};
-    auto norm_path = std::filesystem::path{
+    auto norm_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.norm.xir", kernel_hash)};
-    if (!std::filesystem::exists(raw_path) ||
-        !std::filesystem::exists(pre_ad_path) ||
-        !std::filesystem::exists(ad_path) ||
-        !std::filesystem::exists(norm_path)) {
+    if (!luisa::filesystem::exists(raw_path) ||
+        !luisa::filesystem::exists(pre_ad_path) ||
+        !luisa::filesystem::exists(ad_path) ||
+        !luisa::filesystem::exists(norm_path)) {
         return probe_failure(
             "mandatory raw/pre-AD/AD/final XIR dump stages were not all emitted");
     }
-    if (std::filesystem::exists(structured_opt_path)) {
+    if (luisa::filesystem::exists(structured_opt_path)) {
         return probe_failure(
             "optional structured optimization ran while explicitly disabled");
     }
@@ -1574,7 +1575,7 @@ struct ScopedSourceDump {
         auto lane = callable_global_lane();
         out.write(lane, lane * 9u + 2u);
     };
-    auto normalized_xir_path = std::filesystem::path{luisa::format(
+    auto normalized_xir_path = luisa::filesystem::path{luisa::format(
         "kernel.{:016x}.norm.xir",
         kernel.function()->function().hash())};
     auto shader = dc.device.compile(
@@ -1591,7 +1592,7 @@ struct ScopedSourceDump {
                 "callable-only builtin mismatch at lane {}", i));
         }
     }
-    if (!std::filesystem::exists(normalized_xir_path)) {
+    if (!luisa::filesystem::exists(normalized_xir_path)) {
         return probe_failure(
             "callable-only builtin probe did not emit normalized XIR");
     }
@@ -1673,11 +1674,11 @@ struct ScopedSourceDump {
         out.write(3u, result.w);
     };
     auto kernel_hash = kernel.function()->function().hash();
-    auto raw_xir_path = std::filesystem::path{
+    auto raw_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.xir", kernel_hash)};
-    auto structured_opt_xir_path = std::filesystem::path{
+    auto structured_opt_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.structured_opt.xir", kernel_hash)};
-    auto normalized_xir_path = std::filesystem::path{
+    auto normalized_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.norm.xir", kernel_hash)};
     auto shader = dc.device.compile(
         kernel, ShaderOption{.enable_cache = false,
@@ -1710,12 +1711,12 @@ struct ScopedSourceDump {
         return probe_failure(
             "nested callable write escaped the nonzero typed subview");
     }
-    if (!std::filesystem::exists(raw_xir_path) ||
-        !std::filesystem::exists(normalized_xir_path)) {
+    if (!luisa::filesystem::exists(raw_xir_path) ||
+        !luisa::filesystem::exists(normalized_xir_path)) {
         return probe_failure(
             "nested callable subview probe did not emit raw and normalized XIR");
     }
-    if (std::filesystem::exists(structured_opt_xir_path)) {
+    if (luisa::filesystem::exists(structured_opt_xir_path)) {
         return probe_failure(
             "optional structured optimization ran in the disabled probe");
     }
@@ -1891,12 +1892,12 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_spirv_codegen_path");
         return 2;
     }
-    if (std::string_view{argv[1]} != "vk") {
+    if (luisa::string_view{argv[1]} != "vk") {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_spirv_codegen_path");
         return 2;
     }
     if (argc >= 3) {
-        auto probe = std::string_view{argv[2]};
+        auto probe = luisa::string_view{argv[2]};
         if (probe == "--xir-disable-optimization-probe") {
             return run_xir_disable_optimization_probe(argc, argv);
         }
@@ -1946,27 +1947,27 @@ OpName %8 "Fma"
             << "extended instructions must be counted only on OpExtInst lines";
     };
 
-    auto executable_path = std::filesystem::absolute(argv[0]).string();
+    auto executable_path = luisa::filesystem::absolute(argv[0]).string();
     argv[0] = executable_path.data();
-    auto process_work_dir = std::filesystem::temp_directory_path() /
+    auto process_work_dir = luisa::filesystem::temp_directory_path() /
                             luisa::format("luisa_vk_spirv_codegen_path_process_{}",
-                                          std::filesystem::path{argv[0]}.filename().string());
+                                          luisa::filesystem::path{argv[0]}.filename().string());
     std::error_code process_work_dir_ec;
-    std::filesystem::remove_all(process_work_dir, process_work_dir_ec);
-    std::filesystem::create_directories(process_work_dir);
+    luisa::filesystem::remove_all(process_work_dir, process_work_dir_ec);
+    luisa::filesystem::create_directories(process_work_dir);
     ScopedDirectoryCleanup process_work_dir_cleanup{process_work_dir};
     ScopedCurrentPath process_work_path{process_work_dir};
 
     "vk_user_compute_dumps_spirv_not_hlsl"_test = [&] {
-        constexpr std::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path.hlsl";
-        constexpr std::string_view spv_dump = "spv_code_vk_spirv_codegen_path.spvasm";
+        constexpr luisa::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path.hlsl";
+        constexpr luisa::string_view spv_dump = "spv_code_vk_spirv_codegen_path.spvasm";
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
-                        luisa::format("luisa_vk_spirv_codegen_path_{}", std::filesystem::path{argv[0]}.filename().string());
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
+                        luisa::format("luisa_vk_spirv_codegen_path_{}", luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedEnvironmentVariable require_native{
             "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
@@ -2025,12 +2026,12 @@ OpName %8 "Fma"
             "LUISA_SPIRV_OPT_PASSES", nullptr};
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
                         luisa::format("luisa_vk_spirv_structured_callable_{}",
-                                      std::filesystem::path{argv[0]}.filename().string());
+                                      luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
         remove_hlsl_dumps();
@@ -2180,12 +2181,12 @@ OpName %8 "Fma"
 
     "vk_user_compute_autodiff_inlines_multiblock_callable_after_cfg_destructure"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
                         luisa::format("luisa_vk_spirv_autodiff_callable_{}",
-                                      std::filesystem::path{argv[0]}.filename().string());
+                                      luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
 
@@ -2297,22 +2298,22 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_aot_uses_spirv_not_hlsl"_test = [&] {
-        constexpr std::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path_aot.hlsl";
-        constexpr std::string_view spv_dump = "spv_code_vk_spirv_codegen_path_aot.spvasm";
+        constexpr luisa::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path_aot.hlsl";
+        constexpr luisa::string_view spv_dump = "spv_code_vk_spirv_codegen_path_aot.spvasm";
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
-                        luisa::format("luisa_vk_spirv_codegen_path_aot_{}", std::filesystem::path{argv[0]}.filename().string());
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
+                        luisa::format("luisa_vk_spirv_codegen_path_aot_{}", luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
         remove_hlsl_dumps();
         remove_dump(hlsl_dump);
         remove_dump(spv_dump);
 
-        constexpr std::string_view shader_path = "vk_spirv_codegen_path_aot";
+        constexpr luisa::string_view shader_path = "vk_spirv_codegen_path_aot";
         Kernel1D kernel = [](BufferUInt output) noexcept {
             output.write(0u, 7u);
         };
@@ -2467,7 +2468,7 @@ OpName %8 "Fma"
             auto trip_count = dc.device.create_buffer<uint32_t>(4u);
             auto output = dc.device.create_buffer<uint32_t>(4u);
             auto stream = dc.device.create_stream();
-            auto normalized_xir_path = std::filesystem::path{luisa::format(
+            auto normalized_xir_path = luisa::filesystem::path{luisa::format(
                 "kernel.{:016x}.norm.xir",
                 kernel.function()->function().hash())};
             auto shader = dc.device.compile(
@@ -2494,13 +2495,13 @@ OpName %8 "Fma"
                        "level-zero Phi regression should emit exactly one "
                        "native SPIR-V dump with XIR optimization {}",
                        label);
-            expect(std::filesystem::exists(normalized_xir_path))
+            expect(luisa::filesystem::exists(normalized_xir_path))
                 << luisa::format(
                        "level-zero Phi regression should emit final "
                        "normalized XIR with optimization {}",
                        label);
             if (dumps.size() == 1u &&
-                std::filesystem::exists(normalized_xir_path)) {
+                luisa::filesystem::exists(normalized_xir_path)) {
                 auto disassembly = read_text_file(dumps.front());
                 auto normalized_xir = read_text_file(normalized_xir_path);
                 auto spirv_phi_count =
@@ -2579,7 +2580,7 @@ OpName %8 "Fma"
                 << "enabling source dumping must take effect on the next uncached compilation";
             for (auto &&dump : dumps) {
                 std::error_code ec;
-                std::filesystem::remove(dump, ec);
+                luisa::filesystem::remove(dump, ec);
             }
         }
         compile_run_and_check();
@@ -3279,7 +3280,7 @@ OpName %8 "Fma"
             auto value = source[i];
             value.prefix += float4{
                 static_cast<float>(i), 1.0f, 2.0f, 3.0f};
-            std::swap(value.transforms[0], value.transforms[1]);
+            luisa::swap(value.transforms[0], value.transforms[1]);
             value.suffix ^= 0x01020304u + i;
             expected[1u - i] = value;
         }
@@ -5309,8 +5310,8 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
 
         constexpr auto multiplicand_bits = 0x3f800001u;
         constexpr auto addend_bits = 0xbf800002u;
-        std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
-        std::array addend_value{std::bit_cast<float>(addend_bits)};
+        std::array multiplicand{luisa::bit_cast<float>(multiplicand_bits)};
+        std::array addend_value{luisa::bit_cast<float>(addend_bits)};
         uint32_t result = 0xffffffffu;
         uint32_t reduction_result = 0xffffffffu;
         uint2 dot_result{~0u};
@@ -5408,8 +5409,8 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
 
         constexpr auto multiplicand_bits = 0x3f800001u;
         constexpr auto addend_bits = 0xbf800002u;
-        std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
-        std::array addend_value{std::bit_cast<float>(addend_bits)};
+        std::array multiplicand{luisa::bit_cast<float>(multiplicand_bits)};
+        std::array addend_value{luisa::bit_cast<float>(addend_bits)};
         uint32_t result = 0xffffffffu;
         stream << lhs.copy_from(luisa::span{multiplicand})
                << rhs.copy_from(luisa::span{multiplicand})
@@ -5417,7 +5418,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                << shader(lhs, rhs, addend, output).dispatch(1u)
                << output.copy_to(luisa::span{&result, 1u})
                << synchronize();
-        auto expected = std::bit_cast<uint32_t>(std::fma(
+        auto expected = luisa::bit_cast<uint32_t>(std::fma(
             multiplicand[0], multiplicand[0], addend_value[0]));
         expect(result == expected)
             << luisa::format(
@@ -5700,7 +5701,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                << synchronize();
 
         for (auto i = 0u; i < 4u; i++) {
-            expect(std::bit_cast<uint32_t>(float_result[0][i]) == source[i])
+            expect(luisa::bit_cast<uint32_t>(float_result[0][i]) == source[i])
                 << "float bitcast changed lane " << i;
         }
         constexpr auto low =
@@ -5780,7 +5781,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                    << output.copy_to(luisa::span{result})
                    << synchronize();
             for (auto i = 0u; i < 4u; ++i) {
-                expect(std::bit_cast<uint32_t>(
+                expect(luisa::bit_cast<uint32_t>(
                            result[0][i]) == source[i])
                     << luisa::format(
                            "scalarizer configuration '{}' "
@@ -5978,7 +5979,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             assume(value < 1024u);
             out.write(i, value * 3u + 1u);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -5995,12 +5996,12 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                 << "ignoring a satisfied assumption changed result " << i;
         }
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "assumption regression must retain the normalized XIR handoff";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "assumption regression should emit one native SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -6035,7 +6036,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             device_assert(value < 1024u, "value must be in range");
             out.write(i, value * 5u + 3u);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -6054,12 +6055,12 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                 << i;
         }
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "release-assert regression must retain the normalized XIR handoff";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "release-assert regression should emit one native SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -6095,7 +6096,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                 out.write(identity.x, identity);
             };
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -6112,12 +6113,12 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
         for (auto i = 0u; i < dispatches.size(); ++i) {
             expect_vector_equal(result[i], uint2{i, dispatches[i].x});
         }
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "opt0 dispatch-metadata fixture should retain its normalized XIR";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "opt0 dispatch-metadata fixture should emit one SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -6244,7 +6245,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                 4u,
                 bindless.byte_buffer(0u, true, true).device_address());
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -6275,9 +6276,9 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
         expect(result[4] == result[1])
             << "typed uniform byte-buffer metadata disagreed on the same buffer view address";
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "device-address regression must retain the normalized XIR handoff";
-        if (std::filesystem::exists(normalized_xir_path)) {
+        if (luisa::filesystem::exists(normalized_xir_path)) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             expect(normalized_xir.find("buffer_device_address") !=
                    std::string::npos)
@@ -7019,15 +7020,15 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                << synchronize();
         for (auto i = 0u; i < scalar_lhs_source.size(); i++) {
             auto expected = std::copysign(scalar_lhs_source[i], scalar_rhs_source[i]);
-            expect(std::bit_cast<uint32_t>(scalar_copysign_result[i]) ==
-                   std::bit_cast<uint32_t>(expected));
+            expect(luisa::bit_cast<uint32_t>(scalar_copysign_result[i]) ==
+                   luisa::bit_cast<uint32_t>(expected));
             expect(scalar_not_equal_result[i] ==
                    static_cast<uint32_t>(scalar_lhs_source[i] != scalar_rhs_source[i]));
         }
         for (auto i = 0u; i < 4u; i++) {
             auto expected = std::copysign(vector_lhs_source[0][i], vector_rhs_source[0][i]);
-            expect(std::bit_cast<uint32_t>(vector_copysign_result[0][i]) ==
-                   std::bit_cast<uint32_t>(expected));
+            expect(luisa::bit_cast<uint32_t>(vector_copysign_result[0][i]) ==
+                   luisa::bit_cast<uint32_t>(expected));
             expect(vector_not_equal_result[0][i] ==
                    static_cast<uint32_t>(vector_lhs_source[0][i] != vector_rhs_source[0][i]));
         }
@@ -7229,7 +7230,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             "LUISA_SPIRV_OPT_PASSES", nullptr};
         ScopedSourceDump source_dump;
 
-        constexpr std::string_view dump_name =
+        constexpr luisa::string_view dump_name =
             "spv_code_vk_direct_surface_trace.spvasm";
         // Store the farther primitive first so the fixture contains more than
         // one valid candidate and verifies the final closest committed hit,
@@ -7274,7 +7275,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             << "direct surface tracing should emit a named native SPIR-V dump";
         if (dump_exists(dump_name)) {
             auto disassembly = read_text_file(
-                std::filesystem::path{dump_name});
+                luisa::filesystem::path{dump_name});
             expect(spirv_opcode_has_operand(
                 disassembly, "Capability",
                 "RayTraversalPrimitiveCullingKHR"))
@@ -7649,7 +7650,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
     };
 
     "vk_indirect_rejects_imported_native_writable_source_alias"_test = [&] {
-        auto log_path = std::filesystem::absolute(
+        auto log_path = luisa::filesystem::absolute(
             "indirect_native_alias_rejection.log");
         auto command = luisa::format(
             "\"{}\" vk --indirect-native-alias-probe > \"{}\" 2>&1",
@@ -7700,7 +7701,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
     };
 
     "vk_indirect_rejects_bindless_source_alias"_test = [&] {
-        auto log_path = std::filesystem::absolute(
+        auto log_path = luisa::filesystem::absolute(
             "indirect_bindless_alias_rejection.log");
         auto command = luisa::format(
             "\"{}\" vk --indirect-bindless-alias-probe > \"{}\" 2>&1",
@@ -7834,7 +7835,7 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             auto identity = forward_identity();
             output.atomic(identity.x).fetch_add(identity.y);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             consume.function()->function().hash())};
 
@@ -7871,12 +7872,12 @@ uint lc_indirect_writer_fallback_marker(uint value) { return value; }
         expect(result == expected)
             << "Vulkan indirect dispatch must preserve logical size/kernel "
                "ID and zero stale records beyond the relative GPU count";
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "indirect callable metadata fixture should emit normalized XIR";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "the native indirect consumer should emit one XIR-derived SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());

@@ -13,6 +13,8 @@
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 #include <llvm/ADT/SmallPtrSet.h>
 
@@ -1286,7 +1288,7 @@ HIPCodegenLLVMImpl::_finalize_ray_query_pipeline_contexts() noexcept {
                     surface_paths.emplace_back(path);
                 }
             }
-            std::sort(surface_paths.begin(), surface_paths.end());
+            luisa::sort(surface_paths.begin(), surface_paths.end());
             auto all_paths = argument_infos[argument_info_indices.find(surface_arg)->second]
                                  .paths;
             if (surface_paths.empty()) {
@@ -2676,7 +2678,7 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
     std::string motion_name;
     auto wrapper_name = name;
     if (use_pipeline_abi) {
-        static constexpr std::string_view prefix{"luisa_ray_query_"};
+        static constexpr luisa::string_view prefix{"luisa_ray_query_"};
         LUISA_ASSERT(name.starts_with(prefix),
                      "Invalid HIP ray-query wrapper name '{}'.", name.str());
         motion_name = "luisa_pipeline_ray_query_";
@@ -2688,7 +2690,7 @@ llvm::Value *HIPCodegenLLVMImpl::_call_ray_query_intrinsic(
         // the historical motion-query symbol family. It is also the required
         // reentrant path when a static query handler performs a nested trace;
         // selecting by the actual stack plan keeps those two reasons unified.
-        static constexpr std::string_view prefix{"luisa_ray_query_"};
+        static constexpr luisa::string_view prefix{"luisa_ray_query_"};
         LUISA_ASSERT(name.starts_with(prefix),
                      "Invalid HIP ray-query wrapper name '{}'.", name.str());
         motion_name = "luisa_motion_ray_query_";

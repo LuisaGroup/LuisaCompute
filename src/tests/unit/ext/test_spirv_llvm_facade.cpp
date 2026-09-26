@@ -13,6 +13,7 @@
 #include <spirv-tools/libspirv.hpp>
 
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/string.h>
 
 #include <spirv_llvm/spirv_llvm.h>
 
@@ -23,9 +24,9 @@ using namespace boost::ut::literals;
 
 namespace {
 
-[[nodiscard]] bool contains(std::string_view text,
-                            std::string_view needle) noexcept {
-    return text.find(needle) != std::string_view::npos;
+[[nodiscard]] bool contains(luisa::string_view text,
+                            luisa::string_view needle) noexcept {
+    return text.find(needle) != luisa::string_view::npos;
 }
 
 }// namespace

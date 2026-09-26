@@ -8,6 +8,7 @@
 #include <thread>
 
 #include <luisa/core/pool.h>
+#include <luisa/core/stl/memory.h>
 
 #include "hip_check.h"
 #include "hip_device.h"
@@ -23,11 +24,11 @@ namespace {
 constexpr auto kHsaSignedOrderBit = uint64_t{1u} << 63u;
 
 [[nodiscard]] constexpr auto encode_fence(uint64_t value) noexcept {
-    return std::bit_cast<int64_t>(value ^ kHsaSignedOrderBit);
+    return luisa::bit_cast<int64_t>(value ^ kHsaSignedOrderBit);
 }
 
 [[nodiscard]] constexpr auto decode_fence(int64_t value) noexcept {
-    return std::bit_cast<uint64_t>(value) ^ kHsaSignedOrderBit;
+    return luisa::bit_cast<uint64_t>(value) ^ kHsaSignedOrderBit;
 }
 
 class HIPEventSignalUpdate {

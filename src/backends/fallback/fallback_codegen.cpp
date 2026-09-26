@@ -25,6 +25,7 @@
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/location.h>
+#include <luisa/core/stl/memory.h>
 
 #include "fallback_bindless_array.h"
 #include "fallback_buffer.h"

@@ -10,6 +10,7 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "coro_semantic_graph.h"
 #include "helpers.h"
@@ -83,7 +84,7 @@ CoroPredicateAnalysis::_term_for_value(Value *value) noexcept {
             if (term.operands.size() == 2u &&
                 is_exactly_commutative(term.op) &&
                 term.operands[1] < term.operands[0]) {
-                std::swap(term.operands[0], term.operands[1]);
+                luisa::swap(term.operands[0], term.operands[1]);
             }
             for (auto operand : term.operands) {
                 for (auto *dependency :
@@ -244,7 +245,7 @@ CoroPredicateAnalysis::CoroPredicateAnalysis(
         }
     }
     for (auto &[_, predicates] : _predicate_kills) {
-        std::sort(predicates.begin(), predicates.end());
+        luisa::sort(predicates.begin(), predicates.end());
         predicates.erase(
             std::unique(predicates.begin(), predicates.end()),
             predicates.end());

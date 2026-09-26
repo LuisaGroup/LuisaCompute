@@ -8,6 +8,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/optional.h>
 
 #include <optional>
 
@@ -80,7 +81,7 @@ struct StaticBackendRegistry {
     return registry;
 }
 
-[[nodiscard]] std::optional<StaticBackendRegistration>
+[[nodiscard]] luisa::optional<StaticBackendRegistration>
 find_static_backend(luisa::string_view backend_name) noexcept {
     auto &registry = static_backend_registry();
     std::scoped_lock lock{registry.mutex};
@@ -88,7 +89,7 @@ find_static_backend(luisa::string_view backend_name) noexcept {
         iter != registry.backends.cend()) {
         return iter->second;
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 class ContextImpl {

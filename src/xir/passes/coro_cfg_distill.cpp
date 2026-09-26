@@ -26,6 +26,8 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../pointer_containers.h"
 #include "coro_cfg_dataflow.h"
@@ -116,7 +118,7 @@ static void hash_coro_suspend_extension(
                 if constexpr (std::is_same_v<T, luisa::string>) {
                     h.add_string(value);
                 } else if constexpr (std::is_same_v<T, double>) {
-                    h.add(std::bit_cast<uint64_t>(value));
+                    h.add(luisa::bit_cast<uint64_t>(value));
                 } else {
                     h.add(value);
                 }
@@ -1482,7 +1484,7 @@ static void analyze_live_variables(
             edge.target_live_frame_value_indices,
             target_live(edge_index), atom_to_frame_value_range);
         auto normalize_frame_indices = [](auto &indices) noexcept {
-            std::sort(indices.begin(), indices.end());
+            luisa::sort(indices.begin(), indices.end());
             indices.erase(
                 std::unique(indices.begin(), indices.end()),
                 indices.end());
@@ -1534,7 +1536,7 @@ static void analyze_live_variables(
                     projection.emplace_back(frame_value_index);
                 }
             }
-            std::sort(projection.begin(), projection.end());
+            luisa::sort(projection.begin(), projection.end());
             projection.erase(
                 std::unique(projection.begin(), projection.end()),
                 projection.end());
@@ -1976,7 +1978,7 @@ static void analyze_live_variables(
         if (feasible.valid && !feasible.scopes.contains(token)) { continue; }
         resume_tokens.emplace_back(token);
     }
-    std::sort(resume_tokens.begin(), resume_tokens.end());
+    luisa::sort(resume_tokens.begin(), resume_tokens.end());
     for (auto token : resume_tokens) {
         auto name = luisa::optional<luisa::string>{};
         if (auto it = token_to_name.find(token); it != token_to_name.end()) {
@@ -2081,7 +2083,7 @@ static void analyze_live_variables(
     result.edges.resize(edge_sets.size());
     for (size_t i = 0u; i < edge_sets.size(); ++i) {
         result.edges[i].assign(edge_sets[i].begin(), edge_sets[i].end());
-        std::sort(result.edges[i].begin(), result.edges[i].end());
+        luisa::sort(result.edges[i].begin(), result.edges[i].end());
     }
 
     auto selected_count = size_t{0u};

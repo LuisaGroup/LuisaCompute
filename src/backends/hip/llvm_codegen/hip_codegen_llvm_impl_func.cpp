@@ -6,6 +6,7 @@
 #include <luisa/ast/function.h>
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/runtime/rhi/pixel.h>
+#include <luisa/core/stl/string.h>
 
 #include "hip_codegen_llvm_impl.h"
 
@@ -1189,7 +1190,7 @@ llvm::Function *HIPCodegenLLVMImpl::_get_texture3d_write_function(llvm::VectorTy
     return llvm_func;
 }
 
-llvm::InlineAsm *HIPCodegenLLVMImpl::_get_inline_asm(std::string_view asm_string, std::string_view constraints, bool has_side_effects) noexcept {
+llvm::InlineAsm *HIPCodegenLLVMImpl::_get_inline_asm(luisa::string_view asm_string, luisa::string_view constraints, bool has_side_effects) noexcept {
     auto map_type = [this](char type) noexcept -> llvm::Type * {
         switch (type) {
             case 'h': return llvm::Type::getInt16Ty(_llvm_context);

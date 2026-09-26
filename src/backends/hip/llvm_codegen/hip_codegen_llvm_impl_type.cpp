@@ -4,6 +4,7 @@
 
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/stl/memory.h>
 
 #include "hip_codegen_llvm_impl.h"
 #include "../hip_bindless_array.h"
@@ -54,11 +55,11 @@ const HIPCodegenLLVMImpl::LLVMTypeInfo *HIPCodegenLLVMImpl::_get_llvm_type(const
     if (auto iter = _xir_to_llvm_type.find(type); iter != _xir_to_llvm_type.end()) {
         return iter->second.get();
     }
-    auto llvm_type_info = [this, type]() noexcept -> luisa::unique_ptr<LLVMTypeInfo> {
+    auto llvm_type_info = [this, type]() noexcept -> std::unique_ptr<LLVMTypeInfo> {
         auto make_info = [this](llvm::Type *mem_t, llvm::Type *reg_t, size_t s, size_t a,
                                 luisa::vector<size_t> member_indices = {},
                                 luisa::vector<size_t> member_offsets = {}) noexcept {
-            auto info = luisa::make_unique<LLVMTypeInfo>();
+            auto info = std::make_unique<LLVMTypeInfo>();
             info->mem_type = mem_t;
             info->reg_type = reg_t;
             info->member_indices = std::move(member_indices);
@@ -239,7 +240,7 @@ const HIPCodegenLLVMImpl::KernelArgumentStruct *HIPCodegenLLVMImpl::_get_kernel_
         llvm_arg_members.emplace_back(generic_ptr);  // stack_data
     }
     auto llvm_arg_struct_type = llvm::StructType::create(_llvm_context, llvm_arg_members, "kernel.params.struct");
-    auto kernel_arg_struct = luisa::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
+    auto kernel_arg_struct = std::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
         .llvm_type = llvm_arg_struct_type,
         .argument_indices = std::move(llvm_arg_member_indices),
         .print_buffer_index = print_buffer_index,

@@ -16,6 +16,7 @@
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 
@@ -130,7 +131,7 @@ struct RetargetableHandlerRegion {
     const RetargetableHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
     auto *larger = &rhs.blocks;
-    if (smaller->size() > larger->size()) { std::swap(smaller, larger); }
+    if (smaller->size() > larger->size()) { luisa::swap(smaller, larger); }
     for (auto *block : *smaller) {
         if (larger->contains(block)) { return true; }
     }

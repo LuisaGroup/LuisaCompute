@@ -38,6 +38,7 @@
 #include <TargetConditionals.h>
 #include <cstdint>
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -240,19 +241,19 @@ _MTL_OPTIONS(NS::UInteger, PipelineOption) {
 
 using DeviceNotificationName = NS::String*;
 using DeviceNotificationHandlerBlock = void (^)(MTL::Device* pDevice, MTL::DeviceNotificationName notifyName);
-using DeviceNotificationHandlerFunction = std::function<void(MTL::Device* pDevice, MTL::DeviceNotificationName notifyName)>;
+using DeviceNotificationHandlerFunction = luisa::function<void(MTL::Device* pDevice, MTL::DeviceNotificationName notifyName)>;
 using AutoreleasedComputePipelineReflection = MTL::ComputePipelineReflection*;
 using AutoreleasedRenderPipelineReflection = MTL::RenderPipelineReflection*;
 using NewLibraryCompletionHandler = void (^)(MTL::Library*, NS::Error*);
-using NewLibraryCompletionHandlerFunction = std::function<void(MTL::Library*, NS::Error*)>;
+using NewLibraryCompletionHandlerFunction = luisa::function<void(MTL::Library*, NS::Error*)>;
 using NewRenderPipelineStateCompletionHandler = void (^)(MTL::RenderPipelineState*, NS::Error*);
-using NewRenderPipelineStateCompletionHandlerFunction = std::function<void(MTL::RenderPipelineState*, NS::Error*)>;
+using NewRenderPipelineStateCompletionHandlerFunction = luisa::function<void(MTL::RenderPipelineState*, NS::Error*)>;
 using NewRenderPipelineStateWithReflectionCompletionHandler = void (^)(MTL::RenderPipelineState*, MTL::RenderPipelineReflection*, NS::Error*);
-using NewRenderPipelineStateWithReflectionCompletionHandlerFunction = std::function<void(MTL::RenderPipelineState*, MTL::RenderPipelineReflection*, NS::Error*)>;
+using NewRenderPipelineStateWithReflectionCompletionHandlerFunction = luisa::function<void(MTL::RenderPipelineState*, MTL::RenderPipelineReflection*, NS::Error*)>;
 using NewComputePipelineStateCompletionHandler = void (^)(MTL::ComputePipelineState*, NS::Error*);
-using NewComputePipelineStateCompletionHandlerFunction = std::function<void(MTL::ComputePipelineState*, NS::Error*)>;
+using NewComputePipelineStateCompletionHandlerFunction = luisa::function<void(MTL::ComputePipelineState*, NS::Error*)>;
 using NewComputePipelineStateWithReflectionCompletionHandler = void (^)(MTL::ComputePipelineState*, MTL::ComputePipelineReflection*, NS::Error*);
-using NewComputePipelineStateWithReflectionCompletionHandlerFunction = std::function<void(MTL::ComputePipelineState*, MTL::ComputePipelineReflection*, NS::Error*)>;
+using NewComputePipelineStateWithReflectionCompletionHandlerFunction = luisa::function<void(MTL::ComputePipelineState*, MTL::ComputePipelineReflection*, NS::Error*)>;
 using Timestamp = std::uint64_t;
 
 _MTL_CONST(DeviceNotificationName, DeviceWasAddedNotification);

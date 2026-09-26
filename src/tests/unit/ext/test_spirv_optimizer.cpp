@@ -13,6 +13,8 @@
 #include <spirv-tools/optimizer.hpp>
 
 #include "spirv_codegen/optimizer.h"
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -205,9 +207,9 @@ OpFunctionEnd
 )";
 
 [[nodiscard]] std::string make_counted_loop_module(
-    std::string_view loop_control) {
+    luisa::string_view loop_control) {
     auto module = std::string{counted_loop_module};
-    constexpr auto placeholder = std::string_view{"$loop_control"};
+    constexpr auto placeholder = luisa::string_view{"$loop_control"};
     auto offset = module.find(placeholder);
     expect(offset != std::string::npos);
     module.replace(offset, placeholder.size(), loop_control);
@@ -229,7 +231,7 @@ void set_environment_variable(const char *name, const char *value) noexcept {
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name, const char *value) noexcept
@@ -245,7 +247,7 @@ public:
 };
 
 [[nodiscard]] std::vector<uint32_t> assemble_test_module(
-    std::string_view assembly = dead_arithmetic_module) {
+    luisa::string_view assembly = dead_arithmetic_module) {
     spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
     std::vector<uint32_t> words;
     expect(tools.Assemble(std::string{assembly}, &words))

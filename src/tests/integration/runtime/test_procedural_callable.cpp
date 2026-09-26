@@ -72,7 +72,7 @@ void test_procedural_callable(Device &device, int argc, char *argv[]) {
 
     auto spp = 1024u;
     for (auto i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--spp") {
+        if (luisa::string_view{argv[i]} == "--spp") {
             if (++i >= argc) {
                 expect(false) << "missing value for --spp";
                 return;

@@ -34,6 +34,9 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "../../../xir/passes/natural_loop.h"
 #include "warp_uniformity.h"
@@ -173,7 +176,7 @@ struct CFGEdgeHash {
     };
 }
 
-[[nodiscard]] std::string_view validate_strided_mma_call(const xir::CallInst *call) {
+[[nodiscard]] luisa::string_view validate_strided_mma_call(const xir::CallInst *call) {
     auto *callee = call->callee();
     if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
         return "SIMD only admits compiler-owned strided MMA external calls; inline other calls first";
@@ -212,7 +215,7 @@ struct CFGEdgeHash {
     return {};
 }
 
-[[nodiscard]] std::string_view validate_contiguous_copy_call(const xir::CallInst *call) {
+[[nodiscard]] luisa::string_view validate_contiguous_copy_call(const xir::CallInst *call) {
     auto *callee = call->callee();
     auto *metadata = callee->find_metadata<xir::ContiguousCopyMD>();
     if (metadata == nullptr || !xir::is_valid_contiguous_copy_descriptor(metadata->descriptor)) {
@@ -247,7 +250,7 @@ struct CFGEdgeHash {
     return {};
 }
 
-[[nodiscard]] std::string_view validate_native_call(const xir::CallInst *call) {
+[[nodiscard]] luisa::string_view validate_native_call(const xir::CallInst *call) {
     auto *callee = call->callee();
     if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
         return "SIMD only admits compiler-owned native external calls; inline other calls first";
@@ -310,7 +313,7 @@ private:
     xir::FunctionDefinition *_definition{nullptr};
     XIRToScheduleOptions _options{};
     XIRToScheduleResult _result{};
-    std::optional<Function> _function{};
+    luisa::optional<Function> _function{};
     std::vector<xir::BasicBlock *> _blocks{};
     std::unordered_map<const xir::BasicBlock *, size_t> _block_indices{};
     std::unordered_map<const xir::BasicBlock *, BlockId> _block_ids{};
@@ -331,7 +334,7 @@ private:
     const xir::DomTree *_dom_tree{nullptr};
     uint32_t _next_collective_id{0u};
     uint32_t _next_external_value_id{0u};
-    std::optional<ValueId> _active_mask{};
+    luisa::optional<ValueId> _active_mask{};
 
 private:
     void _diagnose(
@@ -688,7 +691,7 @@ private:
             }
             auto start = phi->incoming(0u);
             auto recurrence = phi->incoming(1u);
-            if (start.block == latch) { std::swap(start, recurrence); }
+            if (start.block == latch) { luisa::swap(start, recurrence); }
             if (start.block != loop.preheader || recurrence.block != latch || start.value == nullptr ||
                 start.value->type() != type || !_uniformity.is_uniform(start.value) ||
                 recurrence.value == nullptr || !recurrence.value->isa<xir::ArithmeticInst>()) {
@@ -731,7 +734,7 @@ private:
         for (auto &&source_loop : natural_loops) {
             auto bounds = xir::analyze_loop_bounds(source_loop);
             const xir::ArithmeticInst *early_exit_header_condition = nullptr;
-            auto max_trip_count = std::optional<uint64_t>{};
+            auto max_trip_count = luisa::optional<uint64_t>{};
             if (bounds.trip_count_is_constant) {
                 max_trip_count = bounds.constant_trip_count;
             } else {
@@ -778,7 +781,7 @@ private:
             for (auto *block : source_loop.body_blocks) {
                 blocks.emplace_back(_block_ids.at(block));
             }
-            std::sort(blocks.begin(), blocks.end(),
+            luisa::sort(blocks.begin(), blocks.end(),
                       [](BlockId lhs, BlockId rhs) noexcept {
                           return lhs.value < rhs.value;
                       });
@@ -792,14 +795,14 @@ private:
                     exits.emplace_back(iter->second);
                 }
             }
-            std::sort(exits.begin(), exits.end(),
+            luisa::sort(exits.begin(), exits.end(),
                       [](BlockId lhs, BlockId rhs) noexcept {
                           return lhs.value < rhs.value;
                       });
             exits.erase(std::unique(exits.begin(), exits.end()), exits.end());
             auto id = _function->add_loop(
                 _block_ids.at(source_loop.header), std::move(blocks),
-                std::move(exits), std::nullopt, max_trip_count);
+                std::move(exits), luisa::nullopt, max_trip_count);
             _loops.emplace_back(LoopRecord{
                 .source = &source_loop,
                 .cohort_uniform_inductions = _find_cohort_uniform_inductions(source_loop),
@@ -829,7 +832,7 @@ private:
             }
         }
         for (auto i = size_t{0u}; i < _loops.size(); i++) {
-            std::optional<size_t> parent_index;
+            luisa::optional<size_t> parent_index;
             auto header_index =
                 _block_indices.at(_loops[i].source->header);
             for (auto candidate : containing_loops[header_index]) {
@@ -1007,7 +1010,7 @@ private:
             auto index = argument_index++;
             auto id = _function->add_value(
                 _uniformity.classify(argument), argument->type(),
-                ValueOrigin::parameter, std::nullopt,
+                ValueOrigin::parameter, luisa::nullopt,
                 value_name(argument,
                            "arg" + std::to_string(index)),
                 ParameterValueMetadata{
@@ -1036,13 +1039,13 @@ private:
         }
     }
 
-    [[nodiscard]] std::optional<ValueId> _map_value(
+    [[nodiscard]] luisa::optional<ValueId> _map_value(
         const xir::Value *value, const xir::BasicBlock *block,
         const xir::Instruction *instruction) {
         if (value == nullptr) {
             _diagnose(XIRToScheduleDiagnosticCode::unsupported_value,
                       "XIR operand is null", block, instruction);
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (auto iter = _value_ids.find(value); iter != _value_ids.end()) {
             return iter->second;
@@ -1057,14 +1060,14 @@ private:
                         XIRToScheduleDiagnosticCode::unsupported_value,
                         "XIR constant has no code-generatable payload", block,
                         instruction);
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
                 std::vector<std::byte> bytes(value->type()->size());
                 std::memcpy(bytes.data(), constant->data(), bytes.size());
                 auto id = _function->add_value(
                     ValueClass::warp_uniform, value->type(),
                     ValueOrigin::constant,
-                    std::nullopt,
+                    luisa::nullopt,
                     value_name(value, "const" + std::to_string(
                                                     _next_external_value_id++)),
                     ConstantValueMetadata{.bytes = std::move(bytes)});
@@ -1076,7 +1079,7 @@ private:
                     static_cast<const xir::SpecialRegister *>(value);
                 auto id = _function->add_value(
                     _uniformity.classify(value), value->type(),
-                    ValueOrigin::special_register, std::nullopt,
+                    ValueOrigin::special_register, luisa::nullopt,
                     value_name(
                         value,
                         copy_string(xir::to_string(
@@ -1093,13 +1096,13 @@ private:
                     XIRToScheduleDiagnosticCode::unsupported_value,
                     "operand references an argument from another function",
                     block, instruction);
-                return std::nullopt;
+                return luisa::nullopt;
             case Tag::INSTRUCTION:
                 _diagnose(
                     XIRToScheduleDiagnosticCode::unsupported_value,
                     "operand references an unavailable or void XIR instruction",
                     block, instruction);
-                return std::nullopt;
+                return luisa::nullopt;
             case Tag::UNDEFINED:
                 // XIR undef denotes an unconstrained value, not a trap or a
                 // missing CFG edge. Materialize one deterministic zero value
@@ -1113,13 +1116,13 @@ private:
                         XIRToScheduleDiagnosticCode::unsupported_value,
                         "undefined XIR value has no code-generatable type",
                         block, instruction);
-                    return std::nullopt;
+                    return luisa::nullopt;
                 } else {
                     std::vector<std::byte> bytes(
                         value->type()->size(), std::byte{0});
                     auto id = _function->add_value(
                         ValueClass::warp_uniform, value->type(),
-                        ValueOrigin::constant, std::nullopt,
+                        ValueOrigin::constant, luisa::nullopt,
                         value_name(
                             value,
                             "undef_zero" + std::to_string(
@@ -1135,9 +1138,9 @@ private:
                     XIRToScheduleDiagnosticCode::unsupported_value,
                     "control or function value used as a Schedule IR data operand",
                     block, instruction);
-                return std::nullopt;
+                return luisa::nullopt;
         }
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     [[nodiscard]] Opcode _opcode(
@@ -1211,13 +1214,13 @@ private:
     // integer cast is value-preserving. Do not infer this from a cost-model
     // slope: an arbitrary offset, ragged row or narrowing cast can cross a
     // quotient/remainder boundary within a packet.
-    [[nodiscard]] std::optional<uint64_t> _aligned_packet_index_max(
+    [[nodiscard]] luisa::optional<uint64_t> _aligned_packet_index_max(
         const xir::Value *value, uint32_t depth = 0u) const noexcept {
         auto width = _options.logical_warp_width;
         if (value == nullptr || depth >= 64u || width <= 1u || (width & (width - 1u)) != 0u ||
             value->type() == nullptr || !value->type()->is_scalar() ||
             (!value->type()->is_int() && !value->type()->is_uint())) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (value->isa<xir::SpecialRegister>()) {
             auto tag = static_cast<const xir::SpecialRegister *>(value)->derived_special_register_tag();
@@ -1225,17 +1228,17 @@ private:
         }
         if (value->isa<xir::CastInst>()) {
             auto *cast = static_cast<const xir::CastInst *>(value);
-            if (cast->op() != xir::CastOp::STATIC_CAST) { return std::nullopt; }
+            if (cast->op() != xir::CastOp::STATIC_CAST) { return luisa::nullopt; }
             auto maximum = _aligned_packet_index_max(cast->value(), depth + 1u);
-            return maximum && _nonnegative_integer_fits(value->type(), *maximum) ? maximum : std::nullopt;
+            return maximum && _nonnegative_integer_fits(value->type(), *maximum) ? maximum : luisa::nullopt;
         }
-        if (!value->isa<xir::ArithmeticInst>()) { return std::nullopt; }
+        if (!value->isa<xir::ArithmeticInst>()) { return luisa::nullopt; }
         auto *arithmetic = static_cast<const xir::ArithmeticInst *>(value);
-        if (arithmetic->operand_count() != 2u) { return std::nullopt; }
+        if (arithmetic->operand_count() != 2u) { return luisa::nullopt; }
         auto *lhs = arithmetic->operand(0u);
         auto *rhs = arithmetic->operand(1u);
         uint64_t constant = 0u;
-        if (!xir::try_decode_constant_nonnegative_integer(rhs, constant)) { return std::nullopt; }
+        if (!xir::try_decode_constant_nonnegative_integer(rhs, constant)) { return luisa::nullopt; }
         if (arithmetic->op() == xir::ArithmeticOp::EXTRACT && constant == 0u &&
             _packet_stays_in_x_row() && lhs->isa<xir::SpecialRegister>()) {
             auto tag = static_cast<const xir::SpecialRegister *>(lhs)->derived_special_register_tag();
@@ -1245,7 +1248,7 @@ private:
             }
         }
         auto maximum = _aligned_packet_index_max(lhs, depth + 1u);
-        if (!maximum) { return std::nullopt; }
+        if (!maximum) { return luisa::nullopt; }
         switch (arithmetic->op()) {
             case xir::ArithmeticOp::BINARY_MOD:
                 if (constant != 0u && constant % width == 0u) { return std::min(*maximum, constant - 1u); }
@@ -1260,7 +1263,7 @@ private:
                 break;
             default: break;
         }
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     [[nodiscard]] static bool _nonnegative_integer_fits(const Type *type, uint64_t maximum) noexcept {
@@ -1416,7 +1419,7 @@ private:
         return _lane_index_step(value, use_block, visiting);
     }
 
-    [[nodiscard]] std::optional<uint32_t> _source_op(
+    [[nodiscard]] luisa::optional<uint32_t> _source_op(
         const xir::Instruction *instruction) const noexcept {
         using Tag = xir::DerivedInstructionTag;
         switch (instruction->derived_instruction_tag()) {
@@ -1464,7 +1467,7 @@ private:
             case Tag::OUTLINE:
                 return static_cast<uint32_t>(
                     instruction->derived_instruction_tag());
-            default: return std::nullopt;
+            default: return luisa::nullopt;
         }
     }
 
@@ -1472,7 +1475,7 @@ private:
         if (!_active_mask) {
             _active_mask = _function->add_value(
                 ValueClass::mask, nullptr,
-                ValueOrigin::scheduler_builtin, std::nullopt,
+                ValueOrigin::scheduler_builtin, luisa::nullopt,
                 "active_mask",
                 SchedulerBuiltinValueMetadata{
                     .builtin = SchedulerBuiltin::active_mask,
@@ -1673,9 +1676,9 @@ private:
                     .false_edge = _edge(
                         branch->false_block(), source_block, terminator),
                     .convergence = _convergence_by_branch.contains(source_block) ?
-                                       std::optional{
+                                       luisa::optional{
                                            _convergence_by_branch.at(source_block)} :
-                                       std::nullopt,
+                                       luisa::nullopt,
                     .cohort_uniform_condition =
                         cohort_uniform_condition,
                 };
@@ -1691,9 +1694,9 @@ private:
                     .default_edge = _edge(
                         branch->default_block(), source_block, terminator),
                     .convergence = _convergence_by_branch.contains(source_block) ?
-                                       std::optional{
+                                       luisa::optional{
                                            _convergence_by_branch.at(source_block)} :
-                                       std::nullopt,
+                                       luisa::nullopt,
                 };
                 schedule_switch.cases.reserve(branch->case_count());
                 for (auto i = size_t{0u}; i < branch->case_count(); i++) {
@@ -1715,7 +1718,7 @@ private:
             case Tag::RETURN: {
                 auto *return_inst =
                     static_cast<const xir::ReturnInst *>(terminator);
-                std::optional<ValueId> value;
+                luisa::optional<ValueId> value;
                 if (return_inst->return_value() != nullptr) {
                     value = _map_value(
                         return_inst->return_value(), source_block, terminator);
@@ -1808,7 +1811,7 @@ private:
             const xir::DomTreeNode *node{nullptr};
             size_t next_child{0u};
             std::vector<ConvergenceId> closed{};
-            std::optional<ConvergenceId> opened{};
+            luisa::optional<ConvergenceId> opened{};
             bool entered{false};
         };
         std::vector<std::vector<ConvergenceId>> active_by_target(

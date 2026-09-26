@@ -24,6 +24,9 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "hip_codegen_llvm.h"
 #include "hip_callable_abi.h"
@@ -261,51 +264,51 @@ public:
     // the public query state.
     static constexpr auto llvm_ray_query_procedural_observation_shift = 8u;
 
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa_ray_query_surface_candidate_hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa_ray_query_committed_hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_surface_candidate = "luisa_ray_query_is_surface_candidate";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_procedural_candidate = "luisa_ray_query_is_procedural_candidate";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_terminated = "luisa_ray_query_is_terminated";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_commit_surface_hit = "luisa_ray_query_commit_surface_hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_commit_procedural_hit = "luisa_ray_query_commit_procedural_hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_state = "luisa_ray_query_state";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_initialize = "luisa_ray_query_initialize";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_spawn = "luisa_ray_query_spawn";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_proceed = "luisa_ray_query_proceed";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_advance = "luisa_ray_query_advance";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa_ray_query_dispatch";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_terminate = "luisa_ray_query_terminate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa_ray_query_world_space_ray";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa_ray_query_procedural_candidate_hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa_ray_query_surface_candidate_hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa_ray_query_committed_hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_surface_candidate = "luisa_ray_query_is_surface_candidate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_procedural_candidate = "luisa_ray_query_is_procedural_candidate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_terminated = "luisa_ray_query_is_terminated";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_surface_hit = "luisa_ray_query_commit_surface_hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_procedural_hit = "luisa_ray_query_commit_procedural_hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_state = "luisa_ray_query_state";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_initialize = "luisa_ray_query_initialize";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_spawn = "luisa_ray_query_spawn";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_proceed = "luisa_ray_query_proceed";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_advance = "luisa_ray_query_advance";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa_ray_query_dispatch";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_terminate = "luisa_ray_query_terminate";
 
     // Scalar-returning accessors (avoid AMDGPU addrspace aliasing with output pointers)
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_candidate_inst_id = "luisa_ray_query_candidate_inst_id";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_candidate_prim_id = "luisa_ray_query_candidate_prim_id";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_candidate_bary_u = "luisa_ray_query_candidate_bary_u";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_candidate_bary_v = "luisa_ray_query_candidate_bary_v";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_candidate_hit_t = "luisa_ray_query_candidate_hit_t";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_inst_id = "luisa_ray_query_committed_inst_id";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_prim_id = "luisa_ray_query_committed_prim_id";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_bary_u = "luisa_ray_query_committed_bary_u";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_bary_v = "luisa_ray_query_committed_bary_v";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_hit_kind = "luisa_ray_query_committed_hit_kind";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_hit_t = "luisa_ray_query_committed_hit_t";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_origin_x = "luisa_ray_query_ray_origin_x";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_origin_y = "luisa_ray_query_ray_origin_y";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_origin_z = "luisa_ray_query_ray_origin_z";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_tmin = "luisa_ray_query_ray_tmin";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_x = "luisa_ray_query_ray_direction_x";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_y = "luisa_ray_query_ray_direction_y";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_direction_z = "luisa_ray_query_ray_direction_z";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_ray_tmax = "luisa_ray_query_ray_tmax";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_x = "luisa_ray_query_object_ray_origin_x";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_y = "luisa_ray_query_object_ray_origin_y";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_origin_z = "luisa_ray_query_object_ray_origin_z";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmin = "luisa_ray_query_object_ray_tmin";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_x = "luisa_ray_query_object_ray_direction_x";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_y = "luisa_ray_query_object_ray_direction_y";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_direction_z = "luisa_ray_query_object_ray_direction_z";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_ray_tmax = "luisa_ray_query_object_ray_tmax";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_candidate_inst_id = "luisa_ray_query_candidate_inst_id";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_candidate_prim_id = "luisa_ray_query_candidate_prim_id";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_candidate_bary_u = "luisa_ray_query_candidate_bary_u";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_candidate_bary_v = "luisa_ray_query_candidate_bary_v";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_candidate_hit_t = "luisa_ray_query_candidate_hit_t";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_inst_id = "luisa_ray_query_committed_inst_id";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_prim_id = "luisa_ray_query_committed_prim_id";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_bary_u = "luisa_ray_query_committed_bary_u";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_bary_v = "luisa_ray_query_committed_bary_v";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_hit_kind = "luisa_ray_query_committed_hit_kind";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_hit_t = "luisa_ray_query_committed_hit_t";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_origin_x = "luisa_ray_query_ray_origin_x";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_origin_y = "luisa_ray_query_ray_origin_y";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_origin_z = "luisa_ray_query_ray_origin_z";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_tmin = "luisa_ray_query_ray_tmin";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_direction_x = "luisa_ray_query_ray_direction_x";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_direction_y = "luisa_ray_query_ray_direction_y";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_direction_z = "luisa_ray_query_ray_direction_z";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_ray_tmax = "luisa_ray_query_ray_tmax";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_origin_x = "luisa_ray_query_object_ray_origin_x";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_origin_y = "luisa_ray_query_object_ray_origin_y";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_origin_z = "luisa_ray_query_object_ray_origin_z";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_tmin = "luisa_ray_query_object_ray_tmin";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_direction_x = "luisa_ray_query_object_ray_direction_x";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_direction_y = "luisa_ray_query_object_ray_direction_y";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_direction_z = "luisa_ray_query_object_ray_direction_z";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_ray_tmax = "luisa_ray_query_object_ray_tmax";
 
 private:
     HIPCodegenLLVMConfig _config;
@@ -342,9 +345,9 @@ private:
     llvm::Type *_llvm_procedural_hit_type{nullptr};
     llvm::Type *_llvm_committed_hit_type{nullptr};
     llvm::Type *_llvm_ray_query_type{nullptr};
-    llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
+    llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
-    llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
+    llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
     luisa::vector<std::pair<luisa::string, const Type *>> _print_formats;
     size_t _ray_query_pipeline_count{0u};
@@ -415,7 +418,7 @@ private:
     [[nodiscard]] RayQueryPipelineProjectionInfo
     _finalize_ray_query_pipeline_contexts() noexcept;
     void _run_optimization_passes() noexcept;
-    void _dump_module(const std::filesystem::path &path) const noexcept;
+    void _dump_module(const luisa::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_code() const noexcept;
 
     [[nodiscard]] static size_t _get_type_alignment(const Type *type) noexcept;
@@ -453,7 +456,7 @@ private:
     [[nodiscard]] llvm::Function *_get_texture2d_write_function(llvm::VectorType *llvm_value_type) noexcept;
     [[nodiscard]] llvm::Function *_get_texture3d_read_function(llvm::VectorType *llvm_value_type) noexcept;
     [[nodiscard]] llvm::Function *_get_texture3d_write_function(llvm::VectorType *llvm_value_type) noexcept;
-    [[nodiscard]] llvm::InlineAsm *_get_inline_asm(std::string_view asm_string, std::string_view constraints, bool has_side_effects) noexcept;
+    [[nodiscard]] llvm::InlineAsm *_get_inline_asm(luisa::string_view asm_string, luisa::string_view constraints, bool has_side_effects) noexcept;
 
     [[nodiscard]] llvm::Value *_get_llvm_literal(IB &b, const Type *type, const void *data) noexcept;
     [[nodiscard]] llvm::Value *_get_llvm_constant(IB &b, const xir::Constant *c, bool load_global = true) noexcept;

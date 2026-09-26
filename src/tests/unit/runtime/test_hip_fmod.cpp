@@ -6,6 +6,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/string.h>
 
 #include <array>
 #include <cmath>
@@ -151,7 +152,7 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     // Optional type selection helps isolate a backend's native scalar ABI;
     // the default always exercises all three types, including known failures.
-    const auto type = argc > 2 ? std::string_view{argv[2]} : "all";
+    const auto type = argc > 2 ? luisa::string_view{argv[2]} : "all";
     if (type == "all" || type == "half") { test_remainder<half>(dc->device); }
     if (type == "all" || type == "float") { test_remainder<float>(dc->device); }
     if (type == "all" || type == "double") { test_remainder<double>(dc->device); }

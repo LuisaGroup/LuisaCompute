@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     luisa::string backend;
     bool offline = false;
     for (int i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
+        if (luisa::string_view{argv[i]} == "--offline") {
             offline = true;
         } else if (backend.empty()) {
             backend = argv[i];
@@ -111,12 +111,12 @@ int main(int argc, char *argv[]) {
     // in interactive mode we allocate a second image using the swapchain's native storage format.
     Image<float> png_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
-    std::optional<Image<float>> display_image;
+    luisa::optional<Image<float>> display_image;
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swapchain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swapchain;
     if (!offline) {
-        window = std::make_unique<Window>("Tutorial 01 - Mandelbrot", resolution, false);
+        window = luisa::make_unique<Window>("Tutorial 01 - Mandelbrot", resolution, false);
         swapchain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

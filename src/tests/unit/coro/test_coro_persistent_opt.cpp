@@ -10,6 +10,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/memory.h>
 
 #include <algorithm>
 #include <array>
@@ -535,7 +536,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         auto correct = true;
         for (auto i = 0u; i < N && correct; i++) {
             auto expected_early =
-                std::bit_cast<uint>(static_cast<float>(i) + 0.25f);
+                luisa::bit_cast<uint>(static_cast<float>(i) + 0.25f);
             auto expected_late = i * 17u + 11u;
             if (host[i * 2u] != expected_early ||
                 host[i * 2u + 1u] != expected_late) {

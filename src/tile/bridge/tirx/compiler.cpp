@@ -19,6 +19,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
+#include <luisa/core/stl/optional.h>
 
 #include "execution.h"
 
@@ -162,7 +163,7 @@ private:
             loop->extent,
             kind,
             std::move(body),
-            std::nullopt,
+            luisa::nullopt,
             std::move(annotations),
             loop->step,
             loop->span};
@@ -805,7 +806,7 @@ void finalize_device(tvm::IRModule &module) {
     return tvm::Target{configuration};
 }
 
-[[nodiscard]] std::optional<tvm::ffi::Module> codegen(tvm::IRModule module, const tvm::Target &target, Diagnostic &diagnostic, bool precise_reduction = false) {
+[[nodiscard]] luisa::optional<tvm::ffi::Module> codegen(tvm::IRModule module, const tvm::Target &target, Diagnostic &diagnostic, bool precise_reduction = false) {
     if (precise_reduction && target->kind->name == "metal") {
         // The stock TVM runtime hardcodes fast math. Require both halves of
         // the native extension; a patched compiler with an old runtime is
@@ -814,7 +815,7 @@ void finalize_device(tvm::IRModule &module) {
             auto capability = tvm::ffi::Function::GetGlobal(name);
             if (!capability || (*capability)().cast<int64_t>() != 1) {
                 diagnostic.set_error("ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension");
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
         module = tvm::WithAttr(std::move(module), "tirx.metal.precise_math", true);

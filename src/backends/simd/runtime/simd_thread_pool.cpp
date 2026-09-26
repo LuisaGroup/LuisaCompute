@@ -1,6 +1,7 @@
 #include "simd_thread_pool.h"
 
 #include <algorithm>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::simd {
 

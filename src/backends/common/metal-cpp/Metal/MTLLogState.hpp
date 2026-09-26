@@ -24,6 +24,7 @@
 #include "MTLDefines.hpp"
 #include "MTLHeaderBridge.hpp"
 #include "MTLPrivate.hpp"
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -42,7 +43,7 @@ _MTL_ENUM(NS::UInteger, LogStateError) {
     LogStateErrorInvalid = 2,
 };
 
-using LogHandlerFunction = std::function<void(NS::String* subsystem, NS::String* category, MTL::LogLevel logLevel, NS::String* message)>;
+using LogHandlerFunction = luisa::function<void(NS::String* subsystem, NS::String* category, MTL::LogLevel logLevel, NS::String* message)>;
 
 _MTL_CONST(NS::ErrorDomain, LogStateErrorDomain);
 class LogState : public NS::Referencing<LogState>

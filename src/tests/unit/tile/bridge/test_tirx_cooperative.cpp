@@ -6,6 +6,7 @@
 
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/algorithms.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <cmath>
@@ -46,7 +47,7 @@ void expect_near(const luisa::vector<float> &actual, const luisa::vector<float> 
 }
 
 [[nodiscard]] tvm::ffi::String metal_source(const tvm::ffi::Module &module) {
-    if (std::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
+    if (luisa::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
     for (auto &&child : module->imports()) {
         auto source = metal_source(child.cast<tvm::ffi::Module>());
         if (!source.empty()) { return source; }
@@ -94,10 +95,10 @@ void test_shared_tiles_and_global_order(Runtime &runtime) {
         if (!executable.ok()) { continue; }
         if (runtime.target() == "metal" && columns == 37) {
             auto source = metal_source(executable.module.value());
-            auto code = std::string_view{source.data(), source.size()};
-            expect(code.find("threadgroup float") != std::string_view::npos);
-            expect(code.find("thread_position_in_threadgroup") != std::string_view::npos);
-            expect(code.find("metal::threadgroup_barrier(metal::mem_flags(3))") != std::string_view::npos);
+            auto code = luisa::string_view{source.data(), source.size()};
+            expect(code.find("threadgroup float") != luisa::string_view::npos);
+            expect(code.find("thread_position_in_threadgroup") != luisa::string_view::npos);
+            expect(code.find("metal::threadgroup_barrier(metal::mem_flags(3))") != luisa::string_view::npos);
         }
         auto input = values(rows * columns);
         auto scratch = runtime.allocate<float>({rows, columns});
@@ -362,8 +363,8 @@ void test_batched_copies(Runtime &runtime) {
                         expect((executable.plans[0].batched_copy_operations != 0u) == batches_expected);
                         if (batches_expected) {
                             auto native = metal_source(executable.module.value());
-                            auto code = std::string_view{native.data(), native.size()};
-                            expect(code.find("_copy_value_") != std::string_view::npos);
+                            auto code = luisa::string_view{native.data(), native.size()};
+                            expect(code.find("_copy_value_") != luisa::string_view::npos);
                         }
                     }
                 }
@@ -432,9 +433,9 @@ void test_cooperative_reduction_tiles(Runtime &runtime) {
                     if (!executable.ok()) { continue; }
                     if (runtime.target() == "metal") {
                         auto source = metal_source(executable.module.value());
-                        auto text = std::string_view{source.data(), source.size()};
+                        auto text = luisa::string_view{source.data(), source.size()};
                         for (auto name : {"simd_sum(", "simd_max(", "simd_min("}) {
-                            expect(eq(text.find(name) != std::string_view::npos, tree)) << name;
+                            expect(eq(text.find(name) != luisa::string_view::npos, tree)) << name;
                         }
                     }
                     (*executable.entry)(source, sum, peak, floor);
@@ -617,9 +618,9 @@ void test_explicit_barrier_identity_is_preserved(Runtime &runtime) {
         expect(compilation.ok()) << compilation.error();
         if (!compilation) { continue; }
         auto source = metal_source(compilation.module().value());
-        auto code = std::string_view{source.data(), source.size()};
+        auto code = luisa::string_view{source.data(), source.size()};
         auto barriers = uint64_t{0u};
-        for (auto offset = code.find("metal::threadgroup_barrier("); offset != std::string_view::npos;
+        for (auto offset = code.find("metal::threadgroup_barrier("); offset != luisa::string_view::npos;
              offset = code.find("metal::threadgroup_barrier(", offset + 1u)) { barriers++; }
         expect(eq(compilation.plans().size(), size_t{1u}));
         for (auto &plan : compilation.plans()) {

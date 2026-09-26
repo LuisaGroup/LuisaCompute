@@ -27,13 +27,14 @@
 #include <CoreFoundation/CoreFoundation.h>
 
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL4
 {
 class CommitFeedback;
 
 using CommitFeedbackHandler = void (^)(MTL4::CommitFeedback*);
-using CommitFeedbackHandlerFunction = std::function<void(MTL4::CommitFeedback*)>;
+using CommitFeedbackHandlerFunction = luisa::function<void(MTL4::CommitFeedback*)>;
 
 class CommitFeedback : public NS::Referencing<CommitFeedback>
 {

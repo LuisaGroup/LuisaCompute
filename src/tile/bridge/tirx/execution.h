@@ -12,6 +12,8 @@
 #include <luisa/tile/bridge/tirx/planner.h>
 #include <luisa/tile/ir.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::tile::bridge::tirx::detail {
 
@@ -72,7 +74,7 @@ inline constexpr int64_t reduction_max_contract = 2;
 inline constexpr int64_t reduction_min_contract = 3;
 // Uses exactly the same body/policy matcher as the per-Tile emitter. A count
 // does not license arbitrary reductions or change their numerical policy.
-[[nodiscard]] std::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop);
+[[nodiscard]] luisa::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop);
 inline constexpr auto cpu_math_realization_annotation = "luisa.tile.realization.cpu_math";
 // Hard resource constraints survive structural export until target binding.
 inline constexpr auto memory_resource_annotation = "luisa.tile.memory_resource";
@@ -181,13 +183,13 @@ struct ReadonlyViews {
 // The matcher checks the local reduction policy; the caller supplies the fence.
 [[nodiscard]] tvm::tirx::Stmt try_metal_reduction_tile(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
 
 // The planner and emitter use the same semantic contract matcher. A diagnostic
 // annotation or coincidentally named buffer alone cannot authorize an MMA.
-[[nodiscard]] std::optional<MatrixWorkload> metal_matrix_workload(
+[[nodiscard]] luisa::optional<MatrixWorkload> metal_matrix_workload(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 struct MatrixCarry {
@@ -196,9 +198,9 @@ struct MatrixCarry {
     uint64_t rows, columns;
 };
 
-[[nodiscard]] std::optional<MatrixCarry> metal_matrix_carry(
+[[nodiscard]] luisa::optional<MatrixCarry> metal_matrix_carry(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 // Same-owner scalar DAG. Buffer identities are proof objects; each binding
@@ -229,7 +231,7 @@ struct MatrixLoopEmission {
     // literal initializer and a verified direct output. These are the entire
     // memory inputs of step; the caller must prove their immutability before
     // granting subgroup-isolation facts to the synchronization pass.
-    std::optional<std::array<tvm::tirx::BufferVar, 2u>> subgroup_inputs;
+    luisa::optional<std::array<tvm::tirx::BufferVar, 2u>> subgroup_inputs;
     tvm::tirx::Stmt subgroup_step;
     struct Output {
         tvm::tirx::BufferVar buffer;
@@ -240,15 +242,15 @@ struct MatrixLoopEmission {
         // Optional logical row/column prefixes, independent of A/B padding.
         // Both are present only for the versioned bounded MPP store contract.
         tvm::PrimExpr rows, columns;
-        std::optional<MatrixEpilogue> epilogue;
+        luisa::optional<MatrixEpilogue> epilogue;
     };
-    std::optional<Output> output;
+    luisa::optional<Output> output;
 };
 
 // Match a canonical C-tile copy and prove every destination element/guard
 // in bounds under the enclosing loop domains. Unknown is not permission to
 // issue an unguarded cooperative store.
-[[nodiscard]] std::optional<MatrixLoopEmission::Output> metal_matrix_output(
+[[nodiscard]] luisa::optional<MatrixLoopEmission::Output> metal_matrix_output(
     const tvm::tirx::For &loop, const MatrixCarry &carry,
     luisa::span<const tvm::tirx::ForNode *const> ancestors, bool bounded = false,
     const MatrixEpilogue *epilogue = nullptr);
@@ -257,7 +259,7 @@ struct MatrixLoopEmission {
 // Undefined means the ordinary independent-element realization must be used.
 [[nodiscard]] tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     Diagnostic &diagnostic, const MatrixDistribution &distribution = {}, MatrixLoopEmission *loop_emission = nullptr,
     bool metal_mpp = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 

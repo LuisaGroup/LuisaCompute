@@ -62,9 +62,9 @@ void test_cuda_elementwise_artifact() {
     expect(!artifact.buffer_arguments.empty());
     for (auto index : artifact.buffer_arguments) { expect(index < 2u); }
     // The reference realization must never contain Metal-only cooperative scopes.
-    auto source = std::string_view{artifact.source.data(), artifact.source.size()};
-    expect(source.find("metal.cooperative_tensor") == std::string_view::npos);
-    expect(source.find("cooperative_tensor") == std::string_view::npos);
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    expect(source.find("metal.cooperative_tensor") == luisa::string_view::npos);
+    expect(source.find("cooperative_tensor") == luisa::string_view::npos);
 }
 
 void test_cuda_reduction_artifact() {
@@ -98,9 +98,9 @@ void test_cuda_reduction_artifact() {
     expect(result.artifact.requires_metal4 == false);
     // REDUCE is realized by the reference left fold, never a Metal-only
     // subgroup/cooperative reduction planner.
-    auto source = std::string_view{result.artifact.source.data(), result.artifact.source.size()};
-    expect(source.find("simdgroup") == std::string_view::npos);
-    expect(source.find("metal.") == std::string_view::npos);
+    auto source = luisa::string_view{result.artifact.source.data(), result.artifact.source.size()};
+    expect(source.find("simdgroup") == luisa::string_view::npos);
+    expect(source.find("metal.") == luisa::string_view::npos);
 }
 
 void test_cuda_matmul_artifact() {
@@ -139,12 +139,12 @@ void test_cuda_matmul_artifact() {
     expect(artifact.format == DeviceArtifact::Format::CUDA_SOURCE);
     expect(!artifact.source.empty());
     expect(artifact.requires_metal4 == false);
-    auto source = std::string_view{artifact.source.data(), artifact.source.size()};
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
     // Semantic MMA stays reference-expanded for CUDA: no cooperative tensor,
     // WMMA/mma.sync, MPP fragment or Metal scope may leak into the artifact.
-    expect(source.find("cooperative_tensor") == std::string_view::npos);
-    expect(source.find("metal.") == std::string_view::npos);
-    expect(source.find("fragment") == std::string_view::npos);
+    expect(source.find("cooperative_tensor") == luisa::string_view::npos);
+    expect(source.find("metal.") == luisa::string_view::npos);
+    expect(source.find("fragment") == luisa::string_view::npos);
 }
 
 [[nodiscard]] constexpr luisa::string_view nvptx_target() noexcept {
@@ -183,9 +183,9 @@ void test_cuda_nvptx_elementwise_artifact() {
     expect(threads > 0u && threads <= 1024u && threads % 32u == 0u);
     expect(!artifact.buffer_arguments.empty());
     for (auto index : artifact.buffer_arguments) { expect(index < 2u); }
-    auto source = std::string_view{artifact.source.data(), artifact.source.size()};
-    expect(source.find(".target") != std::string_view::npos);
-    expect(source.find("metal.") == std::string_view::npos);
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    expect(source.find(".target") != luisa::string_view::npos);
+    expect(source.find("metal.") == luisa::string_view::npos);
 }
 
 void test_cuda_nvptx_reduction_artifact_warp_aligned() {
@@ -222,9 +222,9 @@ void test_cuda_nvptx_reduction_artifact_warp_aligned() {
     auto threads = static_cast<uint64_t>(artifact.block[0]) * artifact.block[1] * artifact.block[2];
     expect(threads > 0u && threads <= 1024u && threads % 32u == 0u) << artifact.block[0];
     expect(artifact.grid[0] > 0u);
-    auto source = std::string_view{artifact.source.data(), artifact.source.size()};
-    expect(source.find("simdgroup") == std::string_view::npos);
-    expect(source.find("metal.") == std::string_view::npos);
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    expect(source.find("simdgroup") == luisa::string_view::npos);
+    expect(source.find("metal.") == luisa::string_view::npos);
 }
 
 void test_cuda_ragged_reordered_gemm_artifact() {
@@ -274,11 +274,11 @@ void test_cuda_ragged_reordered_gemm_artifact() {
         if (index < 3u) { seen[index] = true; }
     }
     expect(seen[0u] && seen[1u] && seen[2u]);
-    auto source = std::string_view{artifact.source.data(), artifact.source.size()};
-    expect(source.find("cooperative_tensor") == std::string_view::npos);
-    expect(source.find("simdgroup") == std::string_view::npos);
-    expect(source.find("metal.") == std::string_view::npos);
-    expect(source.find("fragment") == std::string_view::npos);
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    expect(source.find("cooperative_tensor") == luisa::string_view::npos);
+    expect(source.find("simdgroup") == luisa::string_view::npos);
+    expect(source.find("metal.") == luisa::string_view::npos);
+    expect(source.find("fragment") == luisa::string_view::npos);
 }
 
 void test_cuda_fail_closed_options() {
@@ -300,7 +300,7 @@ void test_cuda_fail_closed_options() {
     cooperative.cooperative_matrix = true;
     auto result = compile_device(native.value, kernel.function().name(), cooperative);
     expect(!static_cast<bool>(result));
-    expect(std::string_view{result.error.data(), result.error.size()}.find("cooperative") != std::string_view::npos)
+    expect(luisa::string_view{result.error.data(), result.error.size()}.find("cooperative") != luisa::string_view::npos)
         << result.error;
 
     CompileOptions mpp;
@@ -308,7 +308,7 @@ void test_cuda_fail_closed_options() {
     mpp.metal_mpp = true;
     result = compile_device(native.value, kernel.function().name(), mpp);
     expect(!static_cast<bool>(result));
-    expect(std::string_view{result.error.data(), result.error.size()}.find("MPP") != std::string_view::npos)
+    expect(luisa::string_view{result.error.data(), result.error.size()}.find("MPP") != luisa::string_view::npos)
         << result.error;
 
     CompileOptions subgroup;
@@ -316,8 +316,8 @@ void test_cuda_fail_closed_options() {
     subgroup.planner.metal_subgroup_reductions = true;
     result = compile_device(native.value, kernel.function().name(), subgroup);
     expect(!static_cast<bool>(result));
-    expect(std::string_view{result.error.data(), result.error.size()}.find("subgroup") != std::string_view::npos ||
-           std::string_view{result.error.data(), result.error.size()}.find("SIMD") != std::string_view::npos)
+    expect(luisa::string_view{result.error.data(), result.error.size()}.find("subgroup") != luisa::string_view::npos ||
+           luisa::string_view{result.error.data(), result.error.size()}.find("SIMD") != luisa::string_view::npos)
         << result.error;
 
     CompileOptions unknown_target;

@@ -12,6 +12,8 @@
 #if defined(__linux__)
 #include <dlfcn.h>
 #include <pthread.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace {
 thread_local bool pause_next_wait = false;
@@ -55,7 +57,7 @@ using luisa::compute::fallback::FallbackCommandQueue;
 
 int main(int argc, char **argv) {
 #if defined(__linux__)
-    if (argc == 2 && std::string_view{argv[1]} == "completion") {
+    if (argc == 2 && luisa::string_view{argv[1]} == "completion") {
         FallbackCommandQueue queue{8u, 2u};
         std::atomic_uint started{0u};
         std::atomic_bool release_work{false};
@@ -81,7 +83,7 @@ int main(int argc, char **argv) {
         release_wait.store(true, std::memory_order_release);
         queue.synchronize();
     } else {
-        auto queue = std::make_unique<FallbackCommandQueue>(8u, 1u);
+        auto queue = luisa::make_unique<FallbackCommandQueue>(8u, 1u);
         queue->enqueue_parallel(1u, [](auto) noexcept { pause_next_wait = true; });
         queue->synchronize();
         enable_pause.store(true, std::memory_order_release);

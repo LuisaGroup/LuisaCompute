@@ -32,7 +32,7 @@ struct Options {
 [[nodiscard]] Options parse_options(int argc, char *argv[]) noexcept {
     Options options;
     for (auto i = 2; i < argc; ++i) {
-        if (std::string_view{argv[i]} == "--test") {
+        if (luisa::string_view{argv[i]} == "--test") {
             options.dimension = 64u;
             options.page_size = 8u;
             options.write_image = false;

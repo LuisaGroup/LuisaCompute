@@ -70,6 +70,7 @@
 #include <luisa/backends/ext/raster_ext.hpp>
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/gui/imgui_window.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::detail {
 

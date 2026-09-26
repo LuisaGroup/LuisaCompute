@@ -26,6 +26,9 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -173,9 +176,9 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024u;
 
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
+    luisa::unique_ptr<Window> window;
     if (!force_offline) {
-        window = std::make_unique<Window>("N-Body Simulation", make_uint2(width, height));
+        window = luisa::make_unique<Window>("N-Body Simulation", make_uint2(width, height));
     }
 #endif
 
@@ -214,7 +217,7 @@ int main(int argc, char *argv[]) {
             zoom = clamp(zoom, 0.1f, 5.0f);
         });
     }
-    std::optional<Swapchain> swap_chain;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -359,7 +362,7 @@ int main(int argc, char *argv[]) {
         for (uint i = 0u; i < offline_frames; i++) {
             stream << clear_winners(particle_winners).dispatch(width * height)
                    << nbody_shader(particles_read, particles_write).dispatch(n_particles);
-            std::swap(particles_read, particles_write);
+            luisa::swap(particles_read, particles_write);
             stream << rasterize(particles_read, particle_projections, particle_winners, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles)
                    << resolve(particle_projections, particle_winners, display, make_uint2(width, height)).dispatch(width, height);
             frame++;
@@ -437,7 +440,7 @@ int main(int argc, char *argv[]) {
 
             // Update physics
             stream << nbody_shader(particles_read, particles_write).dispatch(n_particles);
-            std::swap(particles_read, particles_write);
+            luisa::swap(particles_read, particles_write);
 
             // Rasterize winners, then resolve each pixel exactly once.
             stream << rasterize(particles_read, particle_projections, particle_winners, rot_x, rot_y, zoom, make_uint2(width, height)).dispatch(n_particles)

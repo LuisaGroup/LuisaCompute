@@ -10,6 +10,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "timeline_semaphore_plan.h"
+#include <luisa/core/stl/memory.h>
 
 namespace lc::vk::detail {
 
@@ -156,7 +157,7 @@ validate_sparse_image_mip_tail(
 
 [[nodiscard]] constexpr SparseImageRequirementsSelection
 select_sparse_image_requirements(
-    std::span<const VkSparseImageMemoryRequirements> requirements) noexcept {
+    luisa::span<const VkSparseImageMemoryRequirements> requirements) noexcept {
     if (requirements.empty()) {
         return {.status = SparseImageRequirementsStatus::EMPTY};
     }

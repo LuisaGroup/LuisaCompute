@@ -23,6 +23,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 
 #include <algorithm>
 #include <bit>
@@ -640,13 +641,13 @@ namespace {
 }
 
 [[nodiscard]] float4 u4_as_float4(const uint4 &v) noexcept {
-    return make_float4(std::bit_cast<float>(v.x), std::bit_cast<float>(v.y),
-                       std::bit_cast<float>(v.z), std::bit_cast<float>(v.w));
+    return make_float4(luisa::bit_cast<float>(v.x), luisa::bit_cast<float>(v.y),
+                       luisa::bit_cast<float>(v.z), luisa::bit_cast<float>(v.w));
 }
 
 [[nodiscard]] float3 u4_xyz_as_float3(const uint4 &v) noexcept {
-    return make_float3(std::bit_cast<float>(v.x), std::bit_cast<float>(v.y),
-                       std::bit_cast<float>(v.z));
+    return make_float3(luisa::bit_cast<float>(v.x), luisa::bit_cast<float>(v.y),
+                       luisa::bit_cast<float>(v.z));
 }
 
 [[nodiscard]] float max_abs_diff(float3 a, float3 b) noexcept {

@@ -49,6 +49,10 @@
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "xir_to_schedule.h"
 
@@ -97,7 +101,7 @@ void set_environment_variable(
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
 
     explicit ScopedEnvironmentVariable(
         const char *env_name, const char *value)
@@ -145,28 +149,28 @@ struct ScopedEnvironmentVariable {
 }
 
 [[nodiscard]] size_t count_occurrences(
-    std::string_view text, std::string_view needle) noexcept {
+    luisa::string_view text, luisa::string_view needle) noexcept {
     auto count = size_t{0u};
     for (auto position = text.find(needle);
-         position != std::string_view::npos;
+         position != luisa::string_view::npos;
          position = text.find(needle, position + needle.size())) {
         count++;
     }
     return count;
 }
 
-[[nodiscard]] std::string_view line_containing(
-    std::string_view text, std::string_view needle) noexcept {
+[[nodiscard]] luisa::string_view line_containing(
+    luisa::string_view text, luisa::string_view needle) noexcept {
     auto position = text.find(needle);
-    if (position == std::string_view::npos) { return {}; }
+    if (position == luisa::string_view::npos) { return {}; }
     auto begin = text.rfind('\n', position);
-    begin = begin == std::string_view::npos ? 0u : begin + 1u;
+    begin = begin == luisa::string_view::npos ? 0u : begin + 1u;
     auto end = text.find('\n', position);
-    if (end == std::string_view::npos) { end = text.size(); }
+    if (end == luisa::string_view::npos) { end = text.size(); }
     return text.substr(begin, end - begin);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_divergent_collective(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -220,26 +224,26 @@ make_divergent_collective(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto function = std::move(*lowered.function);
-    std::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ValueId> sum_id;
     for (auto &&value : function.values()) {
         if (value.name == "sum") { sum_id = value.id; }
     }
-    if (!sum_id) { return std::nullopt; }
+    if (!sum_id) { return luisa::nullopt; }
     for (auto &block : function.blocks()) {
         if (block.name == "merge") {
             block.terminator = schedule::ReturnTerminator{sum_id};
         }
     }
     if (!schedule::verify(function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return function;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_varying_shape_changing_bitcast(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -316,25 +320,25 @@ make_varying_shape_changing_bitcast(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "packed_result") { result_id = value.id; }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &block : lowered.function->blocks()) {
         if (block.name == "merge") {
             block.terminator = schedule::ReturnTerminator{result_id};
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_cold_state_pressure(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -406,27 +410,27 @@ make_cold_state_pressure(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "cold_state_result") {
             result_id = value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &block : lowered.function->blocks()) {
         if (block.name == "merge") {
             block.terminator = schedule::ReturnTerminator{result_id};
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_state_phi_coalescing(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -562,7 +566,7 @@ make_state_phi_coalescing(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto &block : lowered.function->blocks()) {
         if (block.name != "second_merge") { continue; }
@@ -575,12 +579,12 @@ make_state_phi_coalescing(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_general_state_coloring_pressure(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -721,7 +725,7 @@ make_general_state_coloring_pressure(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto &block : lowered.function->blocks()) {
         if (block.name != "exit") { continue; }
@@ -735,12 +739,12 @@ make_general_state_coloring_pressure(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_single_general_state_coloring_candidate(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -861,7 +865,7 @@ make_single_general_state_coloring_candidate(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto &block : lowered.function->blocks()) {
         if (block.name != "exit") { continue; }
@@ -875,12 +879,12 @@ make_single_general_state_coloring_candidate(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_varying_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -924,26 +928,26 @@ make_varying_loop(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto function = std::move(*lowered.function);
-    std::optional<schedule::ValueId> index_id;
+    luisa::optional<schedule::ValueId> index_id;
     for (auto &&value : function.values()) {
         if (value.name == "index") { index_id = value.id; }
     }
-    if (!index_id) { return std::nullopt; }
+    if (!index_id) { return luisa::nullopt; }
     for (auto &block : function.blocks()) {
         if (block.name == "exit") {
             block.terminator = schedule::ReturnTerminator{index_id};
         }
     }
     if (!schedule::verify(function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return function;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_local_predicated_sqrt_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1148,15 +1152,15 @@ make_local_predicated_sqrt_loop(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&schedule_value : lowered.function->values()) {
         if (schedule_value.name == "local_region_result") {
             result_id = schedule_value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &schedule_block : lowered.function->blocks()) {
         if (schedule_block.name == "exit") {
             schedule_block.terminator =
@@ -1164,12 +1168,12 @@ make_local_predicated_sqrt_loop(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_local_predicated_terminal_bridge_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1297,15 +1301,15 @@ make_local_predicated_terminal_bridge_loop(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&schedule_value : lowered.function->values()) {
         if (schedule_value.name == "terminal_bridge_return") {
             result_id = schedule_value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &schedule_block : lowered.function->blocks()) {
         if (schedule_block.name == "terminal_exit") {
             schedule_block.terminator =
@@ -1313,12 +1317,12 @@ make_local_predicated_terminal_bridge_loop(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_two_sided_local_predicated_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1347,7 +1351,7 @@ make_two_sided_local_predicated_loop(uint32_t width) {
     float zero_f32_value = 0.0f;
     float half_f32_value = 0.5f;
     float one_f32_value = 1.0f;
-    float nan_f32_value = std::bit_cast<float>(0x7fc01234u);
+    float nan_f32_value = luisa::bit_cast<float>(0x7fc01234u);
     auto *zero_f32 = module.create_constant(
         Type::of<float>(), &zero_f32_value);
     auto *half_f32 = module.create_constant(
@@ -1455,15 +1459,15 @@ make_two_sided_local_predicated_loop(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&schedule_value : lowered.function->values()) {
         if (schedule_value.name == "two_sided_return") {
             result_id = schedule_value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &schedule_block : lowered.function->blocks()) {
         if (schedule_block.name == "two_sided_exit") {
             schedule_block.terminator =
@@ -1471,12 +1475,12 @@ make_two_sided_local_predicated_loop(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_nested_local_predicated_loop(
     uint32_t width, bool tiny_inner = false,
     bool pad_for_production = false) {
@@ -1642,16 +1646,16 @@ make_nested_local_predicated_loop(
         kernel, lowering_options);
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&schedule_value : lowered.function->values()) {
         if (schedule_value.name ==
             "nested_local_region_result") {
             result_id = schedule_value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &schedule_block : lowered.function->blocks()) {
         if (schedule_block.name == "exit") {
             schedule_block.terminator =
@@ -1659,12 +1663,12 @@ make_nested_local_predicated_loop(
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_varying_loop_collective(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1711,9 +1715,9 @@ make_varying_loop_collective(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ValueId> sum_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "loop_exit_sum") { sum_id = value.id; }
     }
@@ -1733,12 +1737,12 @@ make_varying_loop_collective(uint32_t width) {
     }
     if (!sum_id || !header_has_exit_gate ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_multiple_exit_loop_collective(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1799,9 +1803,9 @@ make_multiple_exit_loop_collective(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ValueId> sum_id;
     auto gated_splits = 0u;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "multiple_exit_sum") { sum_id = value.id; }
@@ -1819,13 +1823,13 @@ make_multiple_exit_loop_collective(uint32_t width) {
     }
     if (!sum_id || gated_splits != 2u ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
 template<size_t BodyBlockCount = 24u>
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_cohort_uniform_loop_collective(
     uint32_t width, bool enable_specialization,
     bool uniform_bound = true) {
@@ -1905,9 +1909,9 @@ make_cohort_uniform_loop_collective(
              enable_specialization});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ValueId> sum_id;
     const schedule::Value *condition = nullptr;
     const schedule::SplitTerminator *header_split = nullptr;
     for (auto &&value : lowered.function->values()) {
@@ -1932,12 +1936,12 @@ make_cohort_uniform_loop_collective(
         header_split == nullptr || !header_split->convergence ||
         header_split->cohort_uniform_condition != expect_specialization ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_nested_divergence(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -1989,26 +1993,26 @@ make_nested_divergence(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto function = std::move(*lowered.function);
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&value : function.values()) {
         if (value.name == "result") { result_id = value.id; }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &block : function.blocks()) {
         if (block.name == "merge") {
             block.terminator = schedule::ReturnTerminator{result_id};
         }
     }
     if (!schedule::verify(function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return function;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_large_cfg(uint32_t width, uint32_t block_count) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2038,20 +2042,20 @@ make_large_cfg(uint32_t width, uint32_t block_count) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto function = std::move(*lowered.function);
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&value : function.values()) {
         if (value.name == "result") { result_id = value.id; }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     function.block(schedule::BlockId{block_count - 1u})->terminator =
         schedule::ReturnTerminator{result_id};
     return function;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_runtime_coherent_branch(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2107,9 +2111,9 @@ make_runtime_coherent_branch(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     auto saw_varying_split = false;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "runtime_coherent_branch_result") {
@@ -2133,12 +2137,12 @@ make_runtime_coherent_branch(uint32_t width) {
     }
     if (!result_id || !saw_varying_split ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_coherent_all_on_region(uint32_t width,
                             bool divergent_entry,
                             bool short_region = false) {
@@ -2249,9 +2253,9 @@ make_coherent_all_on_region(uint32_t width,
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "all_on_region_result") {
             result_id = value.id;
@@ -2264,12 +2268,12 @@ make_coherent_all_on_region(uint32_t width,
     }
     if (!result_id ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_varying_switch(uint32_t width,
                     bool runtime_coherent = false) {
     xir::Module module;
@@ -2352,15 +2356,15 @@ make_varying_switch(uint32_t width,
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     auto saw_convergent_switch = false;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "varying_switch_result") {
             result_id = value.id;
             if (value.value_class != schedule::ValueClass::varying) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
     }
@@ -2381,12 +2385,12 @@ make_varying_switch(uint32_t width,
     }
     if (!result_id || !saw_convergent_switch ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_switch_loop_with_exits(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2484,11 +2488,11 @@ make_switch_loop_with_exits(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> early_id;
-    std::optional<schedule::ValueId> break_id;
-    std::optional<schedule::ValueId> normal_id;
+    luisa::optional<schedule::ValueId> early_id;
+    luisa::optional<schedule::ValueId> break_id;
+    luisa::optional<schedule::ValueId> normal_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "early_value") { early_id = value.id; }
         if (value.name == "break_value") { break_id = value.id; }
@@ -2496,7 +2500,7 @@ make_switch_loop_with_exits(uint32_t width) {
     }
     if (!early_id || !break_id || !normal_id ||
         lowered.function->loops().empty()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto &block : lowered.function->blocks()) {
         if (block.name == "early_return") {
@@ -2508,12 +2512,12 @@ make_switch_loop_with_exits(uint32_t width) {
         }
     }
     if (!schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_multiple_backedge_loop(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2578,9 +2582,9 @@ make_multiple_backedge_loop(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     auto loop_back_count = size_t{0u};
     for (auto &&value : lowered.function->values()) {
         if (value.name == "multiple_backedge_index") {
@@ -2600,12 +2604,12 @@ make_multiple_backedge_loop(uint32_t width) {
     if (!result_id || lowered.function->loops().size() != 1u ||
         loop_back_count != 2u ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_non_dominating_convergence(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2659,10 +2663,10 @@ make_non_dominating_convergence(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> sum_id;
-    std::optional<schedule::ConvergenceId> inner_convergence;
+    luisa::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ConvergenceId> inner_convergence;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "non_dominating_sum") { sum_id = value.id; }
     }
@@ -2678,7 +2682,7 @@ make_non_dominating_convergence(uint32_t width) {
             block.terminator = schedule::ReturnTerminator{sum_id};
         }
     }
-    if (!sum_id || !inner_convergence) { return std::nullopt; }
+    if (!sum_id || !inner_convergence) { return luisa::nullopt; }
 
     // `shared` is intentionally not dominated by `split`, so the old static
     // dominator-subtree annotation does not mention the still-live inner
@@ -2698,12 +2702,12 @@ make_non_dominating_convergence(uint32_t width) {
     }
     if (!static_join_is_missing ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_return_convergence_cascade(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2765,12 +2769,12 @@ make_return_convergence_cascade(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<schedule::ValueId> early_id;
-    std::optional<schedule::ValueId> sum_id;
-    std::optional<schedule::ConvergenceId> outer_convergence;
-    std::optional<schedule::ConvergenceId> inner_convergence;
+    luisa::optional<schedule::ValueId> early_id;
+    luisa::optional<schedule::ValueId> sum_id;
+    luisa::optional<schedule::ConvergenceId> outer_convergence;
+    luisa::optional<schedule::ConvergenceId> inner_convergence;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "early_value") { early_id = value.id; }
         if (value.name == "return_cascade_sum") { sum_id = value.id; }
@@ -2794,7 +2798,7 @@ make_return_convergence_cascade(uint32_t width) {
     }
     if (!early_id || !sum_id || !outer_convergence ||
         !inner_convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *outer = lowered.function->convergence(*outer_convergence);
     auto *inner = lowered.function->convergence(*inner_convergence);
@@ -2802,7 +2806,7 @@ make_return_convergence_cascade(uint32_t width) {
         outer->target != inner->target ||
         inner->parent != outer_convergence ||
         !schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
@@ -2811,8 +2815,8 @@ template<size_t Width>
 [[nodiscard]] bool run_codegen() {
     auto schedule_function = make_divergent_collective(Width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-schedule-codegen", *context);
     auto name = std::string{"schedule_divergent_w"} +
                 std::to_string(Width);
@@ -2897,8 +2901,8 @@ template<size_t Width>
     auto schedule_function =
         make_varying_shape_changing_bitcast(Width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-varying-shape-changing-bitcast", *context);
     auto name = std::string{"simd_varying_shape_changing_bitcast_w"} +
                 std::to_string(Width);
@@ -2935,7 +2939,7 @@ template<size_t Width>
                                           0.25f - lane_f32,
                                           100.5f - lane_f32);
             auto expected = lane < active_lanes ?
-                                std::bit_cast<uint64_t>(expected_value) :
+                                luisa::bit_cast<uint64_t>(expected_value) :
                                 0xdeadbeefcafebabeull;
             CHECK(output[lane] == expected);
         }
@@ -2964,8 +2968,8 @@ template<size_t Width>
             ScopedEnvironmentVariable disable{
                 "LUISA_SIMD_DISABLE_DIRECT_DIVERGENT_CHILD",
                 disable_direct_child ? "1" : nullptr};
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 "simd-direct-divergent-child", *context);
             auto name =
                 std::string{"simd_direct_divergent_child_w"} +
@@ -3024,8 +3028,8 @@ template<size_t Width>
     static constexpr auto width = 8u;
     auto schedule_function = make_divergent_collective(width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-static-block-size", *context);
     auto codegen = lower_schedule_to_llvm(
         *module, *schedule_function, width,
@@ -3044,8 +3048,8 @@ template<size_t Width>
     CHECK(ir.find(" urem ") == std::string::npos);
     CHECK(ir.find(" udiv ") == std::string::npos);
 
-    auto invalid_context = std::make_unique<::llvm::LLVMContext>();
-    auto invalid_module = std::make_unique<::llvm::Module>(
+    auto invalid_context = luisa::make_unique<::llvm::LLVMContext>();
+    auto invalid_module = luisa::make_unique<::llvm::Module>(
         "simd-invalid-static-block-size", *invalid_context);
     auto invalid = lower_schedule_to_llvm(
         *invalid_module, *schedule_function, width,
@@ -3060,8 +3064,8 @@ template<size_t Width>
 [[nodiscard]] bool run_loop_codegen() {
     auto schedule_function = make_varying_loop(Width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-loop-codegen", *context);
     auto name = std::string{"schedule_loop_w"} +
                 std::to_string(Width);
@@ -3100,8 +3104,8 @@ template<size_t Width>
                                bool disable_terminal_bridge,
                                std::array<float, 16u> &output,
                                LLVMScheduleCodegenResult &result) {
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 disable_regions ?
                     "simd-local-region-oracle" :
                 disable_chaining ?
@@ -3150,7 +3154,7 @@ template<size_t Width>
                 const SIMDPacketLaunchConfig *, uint32_t);
             auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
             if (entry == nullptr) { return false; }
-            output.fill(std::bit_cast<float>(0x7fc01234u));
+            output.fill(luisa::bit_cast<float>(0x7fc01234u));
             auto active_lanes = width - 1u;
             auto config = launch_1d(active_lanes, 16u);
             entry(nullptr, output.data(), &config, active_lanes);
@@ -3228,14 +3232,14 @@ template<size_t Width>
         CHECK(oracle.nested_predicated_region_count == 0u);
         CHECK(oracle.chained_predicated_nested_tail_count == 0u);
         for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(oracle_output[lane]));
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(chain_oracle_output[lane]));
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(tail_oracle_output[lane]));
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(terminal_oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(chain_oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(tail_oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(terminal_oracle_output[lane]));
         }
     }
     return true;
@@ -3249,8 +3253,8 @@ template<size_t Width>
         auto run_variant = [&](bool disable_terminal_bridge,
                                std::array<float, 16u> &output,
                                LLVMScheduleCodegenResult &result) {
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 disable_terminal_bridge ?
                     "simd-local-terminal-bridge-oracle" :
                     "simd-local-terminal-bridge",
@@ -3287,7 +3291,7 @@ template<size_t Width>
                 const SIMDPacketLaunchConfig *, uint32_t);
             auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
             if (entry == nullptr) { return false; }
-            output.fill(std::bit_cast<float>(0x7fc01234u));
+            output.fill(luisa::bit_cast<float>(0x7fc01234u));
             auto active_lanes = width - 1u;
             auto config = launch_1d(active_lanes, 16u);
             entry(nullptr, output.data(), &config, active_lanes);
@@ -3310,8 +3314,8 @@ template<size_t Width>
         CHECK(oracle.chained_predicated_terminal_block_count == 0u);
         CHECK(oracle.chained_predicated_terminal_instruction_count == 0u);
         for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(oracle_output[lane]));
         }
     }
     return true;
@@ -3325,8 +3329,8 @@ template<size_t Width>
         auto run_variant = [&](bool disable,
                                std::array<float, 16u> &output,
                                LLVMScheduleCodegenResult &result) {
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 disable ? "simd-two-sided-local-oracle" :
                           "simd-two-sided-local",
                 *context);
@@ -3359,7 +3363,7 @@ template<size_t Width>
                 const SIMDPacketLaunchConfig *, uint32_t);
             auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
             if (entry == nullptr) { return false; }
-            output.fill(std::bit_cast<float>(0x7fc01234u));
+            output.fill(luisa::bit_cast<float>(0x7fc01234u));
             auto active_lanes = width - 1u;
             auto config = launch_1d(active_lanes, 16u);
             entry(nullptr, output.data(), &config, active_lanes);
@@ -3388,20 +3392,20 @@ template<size_t Width>
         CHECK(oracle.chained_predicated_region_count == 0u);
         auto active_lanes = static_cast<size_t>(width - 1u);
         for (auto lane = size_t{0u}; lane < candidate_output.size(); lane++) {
-            if (std::bit_cast<uint32_t>(candidate_output[lane]) !=
-                std::bit_cast<uint32_t>(oracle_output[lane])) {
+            if (luisa::bit_cast<uint32_t>(candidate_output[lane]) !=
+                luisa::bit_cast<uint32_t>(oracle_output[lane])) {
                 std::cerr << "two-sided local mismatch: width=" << width
                           << ", lane=" << lane
                           << ", candidate=0x" << std::hex
-                          << std::bit_cast<uint32_t>(candidate_output[lane])
+                          << luisa::bit_cast<uint32_t>(candidate_output[lane])
                           << ", oracle=0x"
-                          << std::bit_cast<uint32_t>(oracle_output[lane])
+                          << luisa::bit_cast<uint32_t>(oracle_output[lane])
                           << std::dec << '\n';
             }
-            CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
-                  std::bit_cast<uint32_t>(oracle_output[lane]));
+            CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
+                  luisa::bit_cast<uint32_t>(oracle_output[lane]));
             if (lane >= active_lanes) {
-                CHECK(std::bit_cast<uint32_t>(candidate_output[lane]) ==
+                CHECK(luisa::bit_cast<uint32_t>(candidate_output[lane]) ==
                       0x7fc01234u);
             }
         }
@@ -3417,8 +3421,8 @@ template<size_t Width>
         auto run_variant = [&](bool disable,
                                std::array<uint32_t, 16u> &output,
                                LLVMScheduleCodegenResult &result) {
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 disable ? "simd-nested-local-region-oracle" :
                           "simd-nested-local-region",
                 *context);
@@ -3493,8 +3497,8 @@ template<size_t Width>
     auto run_variant = [&](bool disable_structured,
                            std::array<uint32_t, width> &output,
                            LLVMScheduleCodegenResult &result) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             disable_structured ?
                 "simd-structured-tiny-nested-oracle" :
                 "simd-structured-tiny-nested",
@@ -3557,12 +3561,12 @@ template<size_t Width>
 }
 
 [[nodiscard]] bool run_loop_collective_codegen(
-    std::optional<schedule::Function> schedule_function,
+    luisa::optional<schedule::Function> schedule_function,
     std::string name) {
     static constexpr auto width = 8u;
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(name, *context);
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(name, *context);
     auto codegen = lower_schedule_to_llvm(
         *module, *schedule_function, width, name);
     if (!codegen.succeeded()) {
@@ -3613,13 +3617,13 @@ template<size_t Width>
                 make_cohort_uniform_loop_collective(
                     width, enable_specialization);
             if (!schedule_function) { return false; }
-            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
             auto name = std::string{
                             enable_specialization ?
                                 "simd_cohort_loop_w" :
                                 "simd_cohort_loop_oracle_w"} +
                         std::to_string(width);
-            auto module = std::make_unique<::llvm::Module>(
+            auto module = luisa::make_unique<::llvm::Module>(
                 name, *context);
             result = lower_schedule_to_llvm(
                 *module, *schedule_function, width, name);
@@ -3676,7 +3680,7 @@ template<size_t Width>
 
 template<size_t Width>
 [[nodiscard]] bool run_control_fixture(
-    std::optional<schedule::Function> schedule_function,
+    luisa::optional<schedule::Function> schedule_function,
     std::string name, uint32_t increment) {
     CHECK(schedule_function.has_value());
     std::vector<uint8_t> convergence_targets(
@@ -3687,8 +3691,8 @@ template<size_t Width>
     auto convergence_target_count = static_cast<size_t>(std::count(
         convergence_targets.begin(), convergence_targets.end(),
         uint8_t{1u}));
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(name, *context);
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(name, *context);
     auto codegen = lower_schedule_to_llvm(
         *module, *schedule_function, Width, name);
     if (!codegen.succeeded()) {
@@ -3767,8 +3771,8 @@ template<size_t Width>
     static constexpr auto width = 8u;
     auto schedule_function = make_cold_state_pressure(width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "schedule-state-residency", *context);
     auto name = std::string{"schedule_state_residency_w8"};
     auto codegen = lower_schedule_to_llvm(
@@ -3820,12 +3824,12 @@ template<size_t Width>
         std::string assembly{};
         std::array<std::array<uint32_t, Width>, Width + 1u> outputs{};
     };
-    auto run = [&](bool disable) -> std::optional<RunResult> {
+    auto run = [&](bool disable) -> luisa::optional<RunResult> {
         ScopedEnvironmentVariable setting{
             "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING",
             disable ? "1" : "0"};
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             "state-phi-coalescing", *context);
         auto name = std::string{"state_phi_coalescing_w"} +
                     std::to_string(Width);
@@ -3836,20 +3840,20 @@ template<size_t Width>
             if (!codegen.error.empty()) {
                 std::cerr << codegen.error << '\n';
             }
-            return std::nullopt;
+            return luisa::nullopt;
         }
         LLVMJIT jit;
-        if (!jit.succeeded()) { return std::nullopt; }
+        if (!jit.succeeded()) { return luisa::nullopt; }
         auto assembly = jit.emit_assembly_copy(*module);
         if (assembly.empty() ||
             !jit.add_module(std::move(module), std::move(context))) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         using Entry = void(
             const void *, uint32_t *,
             const SIMDPacketLaunchConfig *, uint32_t);
         auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
-        if (entry == nullptr) { return std::nullopt; }
+        if (entry == nullptr) { return luisa::nullopt; }
         RunResult result{
             .state_slots = codegen.state_slot_count,
             .coalesced_slots = codegen.coalesced_state_slot_count,
@@ -3926,7 +3930,7 @@ template<size_t Width>
         std::string assembly{};
         std::array<std::array<uint32_t, Width>, Width + 1u> outputs{};
     };
-    auto run = [&](Mode mode) -> std::optional<RunResult> {
+    auto run = [&](Mode mode) -> luisa::optional<RunResult> {
         ScopedEnvironmentVariable master{
             "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING", "0"};
         ScopedEnvironmentVariable force{
@@ -3935,8 +3939,8 @@ template<size_t Width>
         ScopedEnvironmentVariable disable{
             "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING",
             mode == Mode::disabled ? "1" : "0"};
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             "general-state-coloring", *context);
         auto name = std::string{"general_state_coloring_w"} +
                     std::to_string(Width);
@@ -3947,20 +3951,20 @@ template<size_t Width>
             if (!codegen.error.empty()) {
                 std::cerr << codegen.error << '\n';
             }
-            return std::nullopt;
+            return luisa::nullopt;
         }
         LLVMJIT jit;
-        if (!jit.succeeded()) { return std::nullopt; }
+        if (!jit.succeeded()) { return luisa::nullopt; }
         auto assembly = jit.emit_assembly_copy(*module);
         if (assembly.empty() ||
             !jit.add_module(std::move(module), std::move(context))) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         using Entry = void(
             const void *, uint32_t *,
             const SIMDPacketLaunchConfig *, uint32_t);
         auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
-        if (entry == nullptr) { return std::nullopt; }
+        if (entry == nullptr) { return luisa::nullopt; }
         RunResult result{
             .state_slots = codegen.state_slot_count,
             .coalesced_slots = codegen.coalesced_state_slot_count,
@@ -4042,7 +4046,7 @@ template<size_t Width>
         std::string assembly{};
         std::array<std::array<uint32_t, width>, width + 1u> outputs{};
     };
-    auto run = [&](Mode mode) -> std::optional<RunResult> {
+    auto run = [&](Mode mode) -> luisa::optional<RunResult> {
         ScopedEnvironmentVariable master{
             "LUISA_SIMD_DISABLE_STATE_PHI_COALESCING", "0"};
         ScopedEnvironmentVariable force{
@@ -4051,8 +4055,8 @@ template<size_t Width>
         ScopedEnvironmentVariable disable{
             "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING",
             mode == Mode::disabled ? "1" : "0"};
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             "single-general-state-coloring", *context);
         auto name = std::string{"single_general_state_coloring"};
         auto codegen = lower_schedule_to_llvm(
@@ -4062,20 +4066,20 @@ template<size_t Width>
             if (!codegen.error.empty()) {
                 std::cerr << codegen.error << '\n';
             }
-            return std::nullopt;
+            return luisa::nullopt;
         }
         LLVMJIT jit;
-        if (!jit.succeeded()) { return std::nullopt; }
+        if (!jit.succeeded()) { return luisa::nullopt; }
         auto assembly = jit.emit_assembly_copy(*module);
         if (assembly.empty() ||
             !jit.add_module(std::move(module), std::move(context))) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         using Entry = void(
             const void *, uint32_t *,
             const SIMDPacketLaunchConfig *, uint32_t);
         auto *entry = reinterpret_cast<Entry *>(jit.lookup(name));
-        if (entry == nullptr) { return std::nullopt; }
+        if (entry == nullptr) { return luisa::nullopt; }
         RunResult result{
             .state_slots = codegen.state_slot_count,
             .coalesced_slots = codegen.coalesced_state_slot_count,
@@ -4181,7 +4185,7 @@ template<size_t Width>
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    std::optional<schedule::ValueId> selected_id;
+    luisa::optional<schedule::ValueId> selected_id;
     for (auto &&value : lowered.function->values()) {
         if (value.origin == schedule::ValueOrigin::parameter) {
             CHECK(value.value_class == schedule::ValueClass::warp_uniform);
@@ -4202,8 +4206,8 @@ template<size_t Width>
         }
     }
 
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-uniform-values", *context);
     auto name = std::string{"simd_uniform_values"};
     auto codegen = lower_schedule_to_llvm(
@@ -4231,10 +4235,10 @@ template<size_t Width>
                              0u :
                              line_begin + 1u;
             auto line_end = ir.find('\n', position);
-            auto line = std::string_view{ir}.substr(
+            auto line = luisa::string_view{ir}.substr(
                 line_begin, line_end - line_begin);
-            if (line.find("add i32") != std::string_view::npos) {
-                return line.find("<8 x i32>") == std::string_view::npos;
+            if (line.find("add i32") != luisa::string_view::npos) {
+                return line.find("<8 x i32>") == luisa::string_view::npos;
             }
             position = ir.find(literal, position + literal.size());
         }
@@ -4330,7 +4334,7 @@ template<size_t Width>
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    std::optional<schedule::ValueId> result_id;
+    luisa::optional<schedule::ValueId> result_id;
     auto saw_uniform_switch = false;
     for (auto &&value : lowered.function->values()) {
         if (value.origin == schedule::ValueOrigin::parameter) {
@@ -4354,8 +4358,8 @@ template<size_t Width>
     CHECK(result_id.has_value());
     CHECK(saw_uniform_switch);
 
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-uniform-switch", *context);
     auto name = std::string{"simd_uniform_switch"};
     auto codegen = lower_schedule_to_llvm(
@@ -4406,8 +4410,8 @@ template<size_t Width>
     static constexpr auto width = 8u;
     auto schedule_function = make_varying_switch(width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-varying-switch", *context);
     auto name = std::string{"simd_varying_switch"};
     auto codegen = lower_schedule_to_llvm(
@@ -4463,8 +4467,8 @@ template<size_t Width>
                 ScopedEnvironmentVariable disable{
                     "LUISA_SIMD_DISABLE_COHERENT_MASK_REUSE",
                     disable_reuse ? "1" : nullptr};
-                auto context = std::make_unique<::llvm::LLVMContext>();
-                auto module = std::make_unique<::llvm::Module>(
+                auto context = luisa::make_unique<::llvm::LLVMContext>();
+                auto module = luisa::make_unique<::llvm::Module>(
                     "simd-runtime-coherent-control", *context);
                 auto name = std::string{
                                 use_switch ?
@@ -4543,8 +4547,8 @@ template<size_t Width>
                 ScopedEnvironmentVariable disable{
                     "LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING",
                     disable_versioning ? "1" : nullptr};
-                auto context = std::make_unique<::llvm::LLVMContext>();
-                auto module = std::make_unique<::llvm::Module>(
+                auto context = luisa::make_unique<::llvm::LLVMContext>();
+                auto module = luisa::make_unique<::llvm::Module>(
                     "simd-coherent-all-on-region", *context);
                 auto name = std::string{"simd_all_on_region_w"} +
                             std::to_string(width) +
@@ -4627,8 +4631,8 @@ template<size_t Width>
         auto schedule_function = make_coherent_all_on_region(
             width, false, true);
         CHECK(schedule_function.has_value());
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             "simd-short-coherent-all-on-region", *context);
         auto codegen = lower_schedule_to_llvm(
             *module, *schedule_function, width,
@@ -4646,8 +4650,8 @@ template<size_t Width>
 [[nodiscard]] bool run_switch_loop_exits_codegen() {
     auto schedule_function = make_switch_loop_with_exits(Width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-switch-loop-exits", *context);
     auto name = std::string{"simd_switch_loop_exits_w"} +
                 std::to_string(Width);
@@ -4681,8 +4685,8 @@ template<size_t Width>
     static constexpr auto width = 8u;
     auto schedule_function = make_multiple_backedge_loop(width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-multiple-backedge-loop", *context);
     auto name = std::string{"simd_multiple_backedge_loop"};
     auto codegen = lower_schedule_to_llvm(
@@ -4713,8 +4717,8 @@ template<size_t Width>
     static constexpr auto width = 8u;
     auto schedule_function = make_non_dominating_convergence(width);
     CHECK(schedule_function.has_value());
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-non-dominating-convergence", *context);
     auto name = std::string{"simd_non_dominating_convergence"};
     auto codegen = lower_schedule_to_llvm(
@@ -4765,8 +4769,8 @@ template<size_t Width>
                 ScopedEnvironmentVariable disable{
                     "LUISA_SIMD_DISABLE_CONVERGENCE_TOKEN_GUARD",
                     disable_guard ? "1" : nullptr};
-                auto context = std::make_unique<::llvm::LLVMContext>();
-                auto module = std::make_unique<::llvm::Module>(
+                auto context = luisa::make_unique<::llvm::LLVMContext>();
+                auto module = luisa::make_unique<::llvm::Module>(
                     "simd-return-convergence-cascade", *context);
                 auto name =
                     std::string{"simd_return_convergence_cascade_w"} +
@@ -4848,12 +4852,12 @@ template<size_t Width>
             std::string assembly;
             std::vector<std::vector<uint32_t>> outputs;
         };
-        auto run = [&](bool disable) -> std::optional<RunResult> {
+        auto run = [&](bool disable) -> luisa::optional<RunResult> {
             ScopedEnvironmentVariable setting{
                 "LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA",
                 disable ? "1" : nullptr};
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>(
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>(
                 "simd-scalar-frame-metadata", *context);
             auto name =
                 std::string{"simd_scalar_frame_metadata_w"} +
@@ -4865,7 +4869,7 @@ template<size_t Width>
                 if (!codegen.error.empty()) {
                     std::cerr << codegen.error << '\n';
                 }
-                return std::nullopt;
+                return luisa::nullopt;
             }
             RunResult result{
                 .scalar_frame_metadata =
@@ -4875,19 +4879,19 @@ template<size_t Width>
             module->print(stream, nullptr);
             stream.flush();
             LLVMJIT jit;
-            if (!jit.succeeded()) { return std::nullopt; }
+            if (!jit.succeeded()) { return luisa::nullopt; }
             result.assembly = jit.emit_assembly_copy(*module);
             if (result.assembly.empty() ||
                 !jit.add_module(
                     std::move(module), std::move(context))) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             using Entry = void(
                 const void *, uint32_t *,
                 const SIMDPacketLaunchConfig *, uint32_t);
             auto *function = reinterpret_cast<Entry *>(
                 jit.lookup(name));
-            if (function == nullptr) { return std::nullopt; }
+            if (function == nullptr) { return luisa::nullopt; }
             result.outputs.reserve(width + 1u);
             for (auto active_lanes = uint32_t{0u};
                  active_lanes <= width; active_lanes++) {
@@ -5024,9 +5028,9 @@ template<size_t Width>
         kernel, {.logical_warp_width = width});
     CHECK(lowered.succeeded());
     auto make_ir = [&](bool enable_lane_affine)
-        -> std::optional<std::string> {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto llvm_module = std::make_unique<::llvm::Module>(
+        -> luisa::optional<std::string> {
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = luisa::make_unique<::llvm::Module>(
             enable_lane_affine ? "lane-value-transpose" :
                                  "lane-value-transpose-oracle",
             *context);
@@ -5043,13 +5047,13 @@ template<size_t Width>
             codegen.transposed_buffer_write_count !=
                 (expect_transpose ? 1u : 0u) ||
             ::llvm::verifyModule(*llvm_module, &::llvm::errs())) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         std::string ir;
         ::llvm::raw_string_ostream stream{ir};
         llvm_module->print(stream, nullptr);
         stream.flush();
-        return std::optional<std::string>{std::move(ir)};
+        return luisa::optional<std::string>{std::move(ir)};
     };
     auto candidate_ir = make_ir(true);
     auto oracle_ir = make_ir(false);
@@ -5204,7 +5208,7 @@ template<size_t Width>
     }
     builder.return_void();
 
-    auto compile = [&](bool disable, std::string_view suffix) {
+    auto compile = [&](bool disable, luisa::string_view suffix) {
         ScopedEnvironmentVariable setting{
             "LUISA_SIMD_DISABLE_INTERLEAVED_SCALAR_BUFFER_READS",
             disable ? "1" : nullptr};
@@ -5382,7 +5386,7 @@ template<size_t Width>
         };
     };
     auto compile = [&](uint32_t width, bool disable,
-                       std::string_view name) {
+                       luisa::string_view name) {
         ScopedEnvironmentVariable setting{
             "LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER",
             disable ? "1" : "0"};
@@ -5541,9 +5545,9 @@ template<size_t Width>
     CHECK(lowered.succeeded());
 
     auto make_ir = [&](bool enabled)
-        -> std::optional<std::string> {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        -> luisa::optional<std::string> {
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             enabled ? "paired-leaf-gather" :
                       "scalar-leaf-gather",
             *context);
@@ -5556,13 +5560,13 @@ template<size_t Width>
             codegen.paired_leaf_gather_count !=
                 (enabled ? 1u : 0u) ||
             ::llvm::verifyModule(*module, &::llvm::errs())) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         std::string text;
         ::llvm::raw_string_ostream stream{text};
         module->print(stream, nullptr);
         stream.flush();
-        return std::optional<std::string>{std::move(text)};
+        return luisa::optional<std::string>{std::move(text)};
     };
     auto paired = make_ir(true);
     auto ordinary = make_ir(false);
@@ -5665,12 +5669,12 @@ template<size_t Width>
     sum->add_incoming(next_sum, body);
 
     auto make_schedule = [&](uint32_t logical_width)
-        -> std::optional<schedule::Function> {
+        -> luisa::optional<schedule::Function> {
         auto lowered = schedule::lower_xir_to_schedule(
             kernel, {.logical_warp_width = logical_width});
         if (!lowered.succeeded()) {
             std::cerr << diagnostics_text(lowered);
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return std::move(*lowered.function);
     };
@@ -5680,16 +5684,16 @@ template<size_t Width>
     CHECK(schedule_w16.has_value());
 
     struct ModuleBundle {
-        std::unique_ptr<::llvm::LLVMContext> context;
-        std::unique_ptr<::llvm::Module> module;
+        luisa::unique_ptr<::llvm::LLVMContext> context;
+        luisa::unique_ptr<::llvm::Module> module;
         LLVMScheduleCodegenResult codegen;
         std::string name;
     };
     auto compile = [&](const schedule::Function &source,
                        uint32_t logical_width, bool enabled,
                        std::string name) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(name, *context);
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(name, *context);
         auto codegen = lower_schedule_to_llvm(
             *module, source, logical_width, name, false,
             {64u, 1u, 1u}, true, true, false, 1u, true,
@@ -5969,8 +5973,8 @@ template<size_t Width>
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-integer-rotate-and-pow", *context);
     auto name = std::string{"simd_integer_rotate_and_pow_w"} +
                 std::to_string(width);
@@ -6002,21 +6006,21 @@ template<size_t Width>
     CHECK(helper_begin != std::string::npos);
     auto helper_header_end = ir.find('\n', helper_begin);
     CHECK(helper_header_end != std::string::npos);
-    CHECK(std::string_view{ir}.substr(
+    CHECK(luisa::string_view{ir}.substr(
                                   helper_begin, helper_header_end - helper_begin)
-              .find(helper_name) != std::string_view::npos);
+              .find(helper_name) != luisa::string_view::npos);
     auto helper_end = ir.find("\n}", helper_begin);
     CHECK(helper_end != std::string::npos);
-    auto helper_ir = std::string_view{ir}.substr(
+    auto helper_ir = luisa::string_view{ir}.substr(
         helper_begin, helper_end + 2u - helper_begin);
-    CHECK(helper_ir.find("extractelement") == std::string_view::npos);
-    CHECK(helper_ir.find("insertelement") == std::string_view::npos);
+    CHECK(helper_ir.find("extractelement") == luisa::string_view::npos);
+    CHECK(helper_ir.find("insertelement") == luisa::string_view::npos);
     CHECK(helper_ir.find("fmul <" + std::to_string(width) +
-                         " x float>") != std::string_view::npos);
+                         " x float>") != luisa::string_view::npos);
     CHECK(helper_ir.find("lshr <" + std::to_string(width) +
-                         " x i32>") != std::string_view::npos);
+                         " x i32>") != luisa::string_view::npos);
     CHECK(helper_ir.find("@llvm.vector.reduce.or." + vector_suffix +
-                         "i1") != std::string_view::npos);
+                         "i1") != luisa::string_view::npos);
     CHECK(ir.find("llvm.x86.") == std::string::npos);
     CHECK(ir.find("llvm.aarch64.") == std::string::npos);
     CHECK(ir.find("llvm.arm.neon.") == std::string::npos);
@@ -6024,7 +6028,7 @@ template<size_t Width>
     LLVMJIT jit{true};
     CHECK(jit.succeeded());
     auto assembly = jit.emit_assembly_copy(*llvm_module);
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -6075,8 +6079,8 @@ template<size_t Width>
               std::rotl(values[i], static_cast<int>(shifts[i])));
         CHECK(rotates[i].y ==
               std::rotr(values[i], static_cast<int>(shifts[i])));
-        CHECK(std::bit_cast<uint32_t>(powers[i]) ==
-              std::bit_cast<uint32_t>(
+        CHECK(luisa::bit_cast<uint32_t>(powers[i]) ==
+              luisa::bit_cast<uint32_t>(
                   pow_integer_reference(bases[i], exponents[i])));
     }
     for (auto i = count; i < values.size(); i++) {
@@ -6138,8 +6142,8 @@ template<size_t Width>
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-faceforward", *context);
     auto name = std::string{"simd_faceforward"};
     auto codegen = lower_schedule_to_llvm(
@@ -6203,7 +6207,7 @@ template<size_t Width>
     return true;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_lane_affine_buffer_schedule(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -6268,7 +6272,7 @@ make_lane_affine_buffer_schedule(uint32_t width) {
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
@@ -6282,8 +6286,8 @@ make_lane_affine_buffer_schedule(uint32_t width) {
 
     auto check_packet_wrapper_attributes = [&](
                                                bool enabled) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             enabled ? "simd-packet-wrapper-attributes" :
                       "simd-packet-wrapper-attributes-disabled",
             *context);
@@ -6320,15 +6324,15 @@ make_lane_affine_buffer_schedule(uint32_t width) {
     }
 
     struct ModuleBundle {
-        std::unique_ptr<::llvm::LLVMContext> context;
-        std::unique_ptr<::llvm::Module> module;
+        luisa::unique_ptr<::llvm::LLVMContext> context;
+        luisa::unique_ptr<::llvm::Module> module;
         LLVMScheduleCodegenResult codegen;
     };
-    auto make_module = [&](std::string_view module_name,
-                           std::string_view entry_name,
+    auto make_module = [&](luisa::string_view module_name,
+                           luisa::string_view entry_name,
                            bool enable_lane_affine) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             std::string{module_name}, *context);
         auto codegen = lower_schedule_to_llvm(
             *module, *schedule_function, width, entry_name,
@@ -6420,8 +6424,8 @@ make_lane_affine_buffer_schedule(uint32_t width) {
 
     auto w2_schedule = make_lane_affine_buffer_schedule(2u);
     CHECK(w2_schedule.has_value());
-    auto w2_context = std::make_unique<::llvm::LLVMContext>();
-    auto w2_module = std::make_unique<::llvm::Module>(
+    auto w2_context = luisa::make_unique<::llvm::LLVMContext>();
+    auto w2_module = luisa::make_unique<::llvm::Module>(
         "simd-lane-affine-w2-policy", *w2_context);
     auto w2_codegen = lower_schedule_to_llvm(
         *w2_module, *w2_schedule, 2u,
@@ -6519,8 +6523,8 @@ make_lane_affine_buffer_schedule(uint32_t width) {
                 auto lowered = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = width});
                 CHECK(lowered.succeeded());
                 for (auto enabled : {false, true}) {
-                    auto context = std::make_unique<::llvm::LLVMContext>();
-                    auto module = std::make_unique<::llvm::Module>("flat-packet-buffer", *context);
+                    auto context = luisa::make_unique<::llvm::LLVMContext>();
+                    auto module = luisa::make_unique<::llvm::Module>("flat-packet-buffer", *context);
                     auto codegen = lower_schedule_to_llvm(*module, *lowered.function, width, "flat_packet_buffer",
                                                           false, {64u, 1u, 1u}, enabled, enabled);
                     CHECK(codegen.succeeded());
@@ -6560,7 +6564,7 @@ make_lane_affine_buffer_schedule(uint32_t width) {
     return true;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_uniform_buffer_broadcast_schedule(
     uint32_t width, bool volatile_read) {
     xir::Module module;
@@ -6610,7 +6614,7 @@ make_uniform_buffer_broadcast_schedule(
         kernel, {.logical_warp_width = width});
     if (!lowered.succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
@@ -6623,16 +6627,16 @@ make_uniform_buffer_broadcast_schedule(
     CHECK(schedule_function.has_value());
 
     struct ModuleBundle {
-        std::unique_ptr<::llvm::LLVMContext> context;
-        std::unique_ptr<::llvm::Module> module;
+        luisa::unique_ptr<::llvm::LLVMContext> context;
+        luisa::unique_ptr<::llvm::Module> module;
         LLVMScheduleCodegenResult codegen;
     };
     auto make_module = [&](const schedule::Function &source,
-                           std::string_view module_name,
-                           std::string_view entry_name,
+                           luisa::string_view module_name,
+                           luisa::string_view entry_name,
                            bool enable_broadcast) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(
             std::string{module_name}, *context);
         auto codegen = lower_schedule_to_llvm(
             *module, source, width, entry_name,
@@ -6717,8 +6721,8 @@ make_uniform_buffer_broadcast_schedule(
         make_uniform_buffer_broadcast_schedule(width, true);
     CHECK(volatile_schedule.has_value());
     auto volatile_context =
-        std::make_unique<::llvm::LLVMContext>();
-    auto volatile_module = std::make_unique<::llvm::Module>(
+        luisa::make_unique<::llvm::LLVMContext>();
+    auto volatile_module = luisa::make_unique<::llvm::Module>(
         "simd-volatile-uniform-buffer-read",
         *volatile_context);
     auto volatile_codegen = lower_schedule_to_llvm(
@@ -7154,8 +7158,8 @@ void texture_packet_sample_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-texture-packet", *context);
     auto name = std::string{"simd_texture_packet"};
     auto codegen = lower_schedule_to_llvm(
@@ -7253,8 +7257,8 @@ void texture_packet_sample_probe(
             std::cerr << diagnostics_text(lowered);
             return false;
         }
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto llvm_module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = luisa::make_unique<::llvm::Module>(
             "simd-native-texture-packet", *context);
         auto name = "simd_native_texture_packet_w" +
                     std::to_string(width);
@@ -7482,8 +7486,8 @@ void texture_packet_sample_probe(
             std::cerr << diagnostics_text(lowered);
             return false;
         }
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto llvm_module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = luisa::make_unique<::llvm::Module>(
             "simd-byte4-texture-packet", *context);
         auto name = "simd_byte4_texture_packet_w" +
                     std::to_string(width);
@@ -7661,8 +7665,8 @@ void texture_packet_sample_probe(
         auto enable_native =
             jit.supports_native_half_conversion(width);
         CHECK(!jit.supports_native_half_conversion(2u));
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto llvm_module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = luisa::make_unique<::llvm::Module>(
             "simd-half4-texture-packet", *context);
         auto name = "simd_half4_texture_packet_w" +
                     std::to_string(width);
@@ -7748,7 +7752,7 @@ void texture_packet_sample_probe(
             auto source_bits =
                 value_index * 0x9e3779b9u + 0x7f4a7c15u;
             source_values[pixel_index][component] =
-                std::bit_cast<float>(source_bits);
+                luisa::bit_cast<float>(source_bits);
         }
         constexpr std::array special_float_bits{
             0x00000000u,
@@ -7790,7 +7794,7 @@ void texture_packet_sample_probe(
         };
         for (auto i = size_t{0u}; i < special_float_bits.size(); i++) {
             source_values[i / 4u][i % 4u] =
-                std::bit_cast<float>(special_float_bits[i]);
+                luisa::bit_cast<float>(special_float_bits[i]);
         }
 
         auto direct_pixels = original_pixels;
@@ -7876,11 +7880,11 @@ void texture_packet_sample_probe(
              pixel_index < pixel_count; pixel_index++) {
             for (auto component = uint32_t{0u}; component < 4u;
                  component++) {
-                auto direct_read_bits = std::bit_cast<uint32_t>(
+                auto direct_read_bits = luisa::bit_cast<uint32_t>(
                     direct_output[pixel_index][component]);
-                auto callback_read_bits = std::bit_cast<uint32_t>(
+                auto callback_read_bits = luisa::bit_cast<uint32_t>(
                     callback_output[pixel_index][component]);
-                auto expected_read_bits = std::bit_cast<uint32_t>(
+                auto expected_read_bits = luisa::bit_cast<uint32_t>(
                     half_bits_to_float(
                         original_pixels[pixel_index][component]));
                 CHECK(direct_read_bits == callback_read_bits);
@@ -7962,8 +7966,8 @@ void texture_packet_sample_probe(
             std::cerr << diagnostics_text(lowered);
             return false;
         }
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto llvm_module = std::make_unique<::llvm::Module>(
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto llvm_module = luisa::make_unique<::llvm::Module>(
             "simd-int1-texture-packet", *context);
         auto name = "simd_int1_texture_packet_w" +
                     std::to_string(width);
@@ -8201,8 +8205,8 @@ void texture_packet_sample_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-direct-texture-sample", *context);
     auto name = std::string{"simd_direct_texture_sample"};
     auto codegen = lower_schedule_to_llvm(
@@ -8233,7 +8237,7 @@ void texture_packet_sample_probe(
     LLVMJIT jit{true};
     CHECK(jit.succeeded());
     auto assembly = jit.emit_assembly_copy(*llvm_module);
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -8361,8 +8365,8 @@ void texture_packet_sample_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-accel-instance-metadata", *context);
     auto name = std::string{"simd_accel_instance_metadata"};
     auto codegen = lower_schedule_to_llvm(
@@ -8584,8 +8588,8 @@ void accel_direct_any_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-accel-direct-packet-shape", *context);
     auto codegen = lower_schedule_to_llvm(
         *llvm_module, *lowered.function, width,
@@ -8851,12 +8855,12 @@ void ray_query_packet_probe_impl(
                         state->procedural_batch_initialized == 0u &&
                         state->committed.inst == ~0u &&
                         state->committed.prim == ~0u &&
-                        std::bit_cast<uint32_t>(
+                        luisa::bit_cast<uint32_t>(
                             state->committed.bary[0u]) == 0u &&
-                        std::bit_cast<uint32_t>(
+                        luisa::bit_cast<uint32_t>(
                             state->committed.bary[1u]) == 0u &&
                         state->committed.kind == 0u &&
-                        std::bit_cast<uint32_t>(
+                        luisa::bit_cast<uint32_t>(
                             state->committed.t) == 0u;
         constexpr std::array expected_ray{
             1.0f, 2.0f, 3.0f, 0.25f,
@@ -8963,8 +8967,8 @@ void ray_query_packet_probe_wide(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-ray-query-packet", *context);
     auto name = std::string{"simd_ray_query_packet"};
     auto codegen = lower_schedule_to_llvm(
@@ -9164,7 +9168,7 @@ struct RayQueryStatusProbe {
     constexpr auto magnitude_mask = 0x7fffffffu;
     constexpr auto minimum_normal_bits = 0x00800000u;
     constexpr auto infinity_bits = 0x7f800000u;
-    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto bits = luisa::bit_cast<uint32_t>(tnear);
     auto magnitude = bits & magnitude_mask;
     if (magnitude >= infinity_bits) { return bits; }
     if (magnitude == 0u) { return sign_bit | minimum_normal_bits; }
@@ -9437,11 +9441,11 @@ void ray_query_surface_filter_pipeline_probe_impl(
     if (use_direct_surface_candidate) {
         for (auto lane = uint32_t{0u}; lane < lane_count; lane++) {
             direct_ray_packet[simd_host_accel_ray_tfar_field * lane_count + lane] =
-                std::bit_cast<uint32_t>(1.0f);
+                luisa::bit_cast<uint32_t>(1.0f);
             direct_hit_packet[3u * lane_count + lane] =
-                std::bit_cast<uint32_t>(0.04f);
+                luisa::bit_cast<uint32_t>(0.04f);
             direct_hit_packet[4u * lane_count + lane] =
-                std::bit_cast<uint32_t>(0.05f);
+                luisa::bit_cast<uint32_t>(0.05f);
             direct_hit_packet[5u * lane_count + lane] = 0u;
             direct_hit_packet[7u * lane_count + lane] = 6u;
         }
@@ -9492,30 +9496,30 @@ void ray_query_surface_filter_pipeline_probe_impl(
                 return packet_words[field * lane_count + lane];
             };
             probe->valid &= packet_word(0u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[0u]);
             probe->valid &= packet_word(1u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[1u]);
             probe->valid &= packet_word(2u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[2u]);
             probe->valid &= packet_word(3u) ==
                             embree_tnear_bits_for_probe(
                                 state->world_ray[3u]);
             probe->valid &= packet_word(4u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[4u]);
             probe->valid &= packet_word(5u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[5u]);
             probe->valid &= packet_word(6u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[6u]);
             probe->valid &= packet_word(7u) ==
-                            std::bit_cast<uint32_t>(state->time);
+                            luisa::bit_cast<uint32_t>(state->time);
             probe->valid &= packet_word(8u) ==
-                            std::bit_cast<uint32_t>(
+                            luisa::bit_cast<uint32_t>(
                                 state->world_ray[7u]);
             probe->valid &= packet_words[9u * lane_count + lane] ==
                             state->visibility_mask;
@@ -9538,11 +9542,11 @@ void ray_query_surface_filter_pipeline_probe_impl(
         candidate_hits[lane] = candidate;
         if (use_direct_surface_candidate) {
             direct_ray_packet[simd_host_accel_ray_tfar_field * lane_count + lane] =
-                std::bit_cast<uint32_t>(candidate.t);
+                luisa::bit_cast<uint32_t>(candidate.t);
             direct_hit_packet[3u * lane_count + lane] =
-                std::bit_cast<uint32_t>(candidate.bary[0u]);
+                luisa::bit_cast<uint32_t>(candidate.bary[0u]);
             direct_hit_packet[4u * lane_count + lane] =
-                std::bit_cast<uint32_t>(candidate.bary[1u]);
+                luisa::bit_cast<uint32_t>(candidate.bary[1u]);
             direct_hit_packet[5u * lane_count + lane] = candidate.prim;
             direct_hit_packet[7u * lane_count + lane] = candidate.inst;
         } else {
@@ -9696,13 +9700,13 @@ void ray_query_empty_surface_filter_packet_pipeline_probe(
         probe->valid &= packet_word(4u, packet_lane) == 0u;
         probe->valid &= packet_word(5u, packet_lane) == 0u;
         probe->valid &= packet_word(6u, packet_lane) ==
-                        std::bit_cast<uint32_t>(1.0f);
+                        luisa::bit_cast<uint32_t>(1.0f);
         probe->valid &= packet_word(7u, packet_lane) == 0u;
         probe->valid &= packet_word(8u, packet_lane) ==
-                        std::bit_cast<uint32_t>(100.0f);
+                        luisa::bit_cast<uint32_t>(100.0f);
         probe->valid &= packet_word(9u, packet_lane) == 0xffu;
         probe->valid &= packet_word(11u, packet_lane) == 0u;
-        probe->valid &= std::bit_cast<float>(index) >= 0.0f;
+        probe->valid &= luisa::bit_cast<float>(index) >= 0.0f;
     }
     probe->valid &= observed_mask == expected_mask;
 }
@@ -9743,7 +9747,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     std::array<uint32_t, 8u * 16u> candidate_hit_packet{};
     for (auto lane = uint32_t{0u}; lane < physical_packet_width; lane++) {
         candidate_ray_packet[6u * physical_packet_width + lane] =
-            std::bit_cast<uint32_t>(1.0f);
+            luisa::bit_cast<uint32_t>(1.0f);
     }
     for (auto field = uint32_t{0u};
          field < simd_host_accel_ray_packet_field_count; field++) {
@@ -9792,7 +9796,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         probe->valid &= outputs->committed_bary_y[lane] == 0.0f;
         probe->valid &= outputs->committed_kind[lane] == 0u;
         probe->valid &= outputs->committed_t[lane] == 0.0f;
-        auto origin_x = std::bit_cast<float>(
+        auto origin_x = luisa::bit_cast<float>(
             packet_word(0u, packet_lane));
         auto dispatch_index = static_cast<uint32_t>(origin_x);
         probe->valid &= origin_x ==
@@ -9801,11 +9805,11 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         candidates |= uint64_t{1u} << packet_lane;
         logical_candidates |= uint64_t{1u} << lane;
         candidate_ray_packet[simd_host_accel_ray_tfar_field * physical_packet_width + packet_lane] =
-            std::bit_cast<uint32_t>(1.0f);
+            luisa::bit_cast<uint32_t>(1.0f);
         candidate_hit_packet[3u * physical_packet_width + packet_lane] =
-            std::bit_cast<uint32_t>(0.04f);
+            luisa::bit_cast<uint32_t>(0.04f);
         candidate_hit_packet[4u * physical_packet_width + packet_lane] =
-            std::bit_cast<uint32_t>(0.05f);
+            luisa::bit_cast<uint32_t>(0.05f);
         candidate_hit_packet[5u * physical_packet_width + packet_lane] =
             dispatch_index;
         candidate_hit_packet[7u * physical_packet_width + packet_lane] = 6u;
@@ -10383,36 +10387,36 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         auto index = dispatch_x();
         Float t_min = 0.0f;
         $if (index == 1u) {
-            t_min = std::bit_cast<float>(0x80000000u);
+            t_min = luisa::bit_cast<float>(0x80000000u);
         };
         $if (index == 2u) {
-            t_min = std::bit_cast<float>(0x00000001u);
+            t_min = luisa::bit_cast<float>(0x00000001u);
         };
         $if (index == 3u) {
-            t_min = std::bit_cast<float>(0x80000001u);
+            t_min = luisa::bit_cast<float>(0x80000001u);
         };
         $if (index == 4u) {
-            t_min = std::bit_cast<float>(0x00800000u);
+            t_min = luisa::bit_cast<float>(0x00800000u);
         };
         $if (index == 5u) {
-            t_min = std::bit_cast<float>(0x80800000u);
+            t_min = luisa::bit_cast<float>(0x80800000u);
         };
         $if (index == 6u) { t_min = 1.0f; };
         $if (index == 7u) { t_min = -1.0f; };
         $if (index == 8u) {
-            t_min = std::bit_cast<float>(0x7f800000u);
+            t_min = luisa::bit_cast<float>(0x7f800000u);
         };
         $if (index == 9u) {
-            t_min = std::bit_cast<float>(0xff800000u);
+            t_min = luisa::bit_cast<float>(0xff800000u);
         };
         $if (index == 10u) {
-            t_min = std::bit_cast<float>(0x7fc12345u);
+            t_min = luisa::bit_cast<float>(0x7fc12345u);
         };
         $if (index == 11u) {
-            t_min = std::bit_cast<float>(0x7f7fffffu);
+            t_min = luisa::bit_cast<float>(0x7f7fffffu);
         };
         $if (index == 12u) {
-            t_min = std::bit_cast<float>(0xff7fffffu);
+            t_min = luisa::bit_cast<float>(0xff7fffffu);
         };
         auto ray = make_ray(
             make_float3(cast<float>(index), 0.0f, 0.0f),
@@ -10528,23 +10532,23 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 "\n}", symbol_position);
             CHECK(function_begin != std::string::npos);
             CHECK(function_end != std::string::npos);
-            auto direct_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 function_begin,
                 function_end + 2u - function_begin);
             CHECK(count_occurrences(
                       direct_ir, "load <2 x i32>") >= 5u);
             CHECK(direct_ir.find(
                       "getelementptr i8, ptr %ray_packet, i64 128") !=
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find(
                       "getelementptr i8, ptr %hit_packet, i64 48") !=
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("llvm.masked.gather") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("llvm.masked.scatter") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("state_pointer_lanes") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto direct_call_begin = candidate.llvm_ir.find(
                 "ray.query.pipeline.direct.output:");
@@ -10553,17 +10557,17 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 direct_call_begin);
             CHECK(direct_call_begin != std::string::npos);
             CHECK(direct_call_end != std::string::npos);
-            auto direct_call_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_call_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 direct_call_begin,
                 direct_call_end - direct_call_begin);
             CHECK(direct_call_ir.find("store <2 x ptr>") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_call_ir.find(
                       "ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_call_ir.find(
                       "ray.query.pipeline.status.callbacks") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
         }
         if (width == 8u) {
             CHECK(candidate.llvm_ir.find("ray.query.full.state.init") !=
@@ -10592,7 +10596,7 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 "\n}", symbol_position);
             CHECK(function_begin != std::string::npos);
             CHECK(function_end != std::string::npos);
-            auto direct_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 function_begin,
                 function_end + 2u - function_begin);
             CHECK(count_occurrences(
@@ -10600,25 +10604,25 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(count_occurrences(
                       direct_ir, "select <8 x i1>") >= 5u);
             CHECK(direct_ir.find("llvm.masked.gather") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("llvm.masked.scatter") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("state_pointer_lanes") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("launch_config") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("scheduler.") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("ready.") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("frame.") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("predicated.acyclic") !=
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("llvm.x86.") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ir.find("llvm.aarch64.") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto direct_init_begin = candidate.llvm_ir.find(
                 "ray.query.output.packet.init:");
@@ -10627,15 +10631,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 direct_init_begin);
             CHECK(direct_init_begin != std::string::npos);
             CHECK(direct_init_end != std::string::npos);
-            auto direct_init_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_init_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 direct_init_begin,
                 direct_init_end - direct_init_begin);
             CHECK(count_occurrences(
                       direct_init_ir, "llvm.masked.store") == 8u);
             CHECK(direct_init_ir.find("llvm.masked.scatter") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_init_ir.find("ray.query.full.states") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto direct_call_begin = candidate.llvm_ir.find(
                 "ray.query.pipeline.direct.output:");
@@ -10644,15 +10648,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 direct_call_begin);
             CHECK(direct_call_begin != std::string::npos);
             CHECK(direct_call_end != std::string::npos);
-            auto direct_call_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_call_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 direct_call_begin,
                 direct_call_end - direct_call_begin);
             CHECK(direct_call_ir.find("store <8 x ptr>") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_call_ir.find("ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_call_ir.find("ray.query.pipeline.status.callbacks") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             auto direct_ready_begin = candidate.llvm_ir.find(
                 "ray.query.surface.filter.packet.ready:",
                 direct_call_begin);
@@ -10660,16 +10664,16 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 "\n\n", direct_ready_begin);
             CHECK(direct_ready_begin != std::string::npos);
             CHECK(direct_ready_end != std::string::npos);
-            auto direct_ready_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_ready_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 direct_ready_begin,
                 direct_ready_end - direct_ready_begin);
             CHECK(direct_ready_ir.find("store <8 x ptr>") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ready_ir.find("ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_ready_ir.find(
                       "ray.query.output.packet.slot") !=
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto direct_read_begin = candidate.llvm_ir.find(
                 "ray.query.output.read.output:");
@@ -10677,15 +10681,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 "\n\n", direct_read_begin);
             CHECK(direct_read_begin != std::string::npos);
             CHECK(direct_read_end != std::string::npos);
-            auto direct_read_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto direct_read_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 direct_read_begin,
                 direct_read_end - direct_read_begin);
             CHECK(count_occurrences(
                       direct_read_ir, "llvm.masked.load") >= 5u);
             CHECK(direct_read_ir.find("llvm.masked.gather") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(direct_read_ir.find("ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto scheduler_symbol =
                 "simd_ast_surface_filter_ray_query_pipeline_w8.ray_query.0.surface_filter.scheduler_oracle.simd_w8";
@@ -10698,13 +10702,13 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
                 "\n}", scheduler_symbol_position);
             CHECK(scheduler_function_begin != std::string::npos);
             CHECK(scheduler_function_end != std::string::npos);
-            auto scheduler_ir = std::string_view{candidate.llvm_ir}.substr(
+            auto scheduler_ir = luisa::string_view{candidate.llvm_ir}.substr(
                 scheduler_function_begin,
                 scheduler_function_end + 2u - scheduler_function_begin);
             CHECK(scheduler_ir.find("scheduler.") !=
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(scheduler_ir.find("predicated.acyclic") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
         }
 
         auto execute = [&](const SIMDCompiledKernel &compiled,
@@ -11070,19 +11074,19 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(output_call_begin != std::string::npos);
             CHECK(output_call_end != std::string::npos);
             auto output_call_ir =
-                std::string_view{candidate.llvm_ir}.substr(
+                luisa::string_view{candidate.llvm_ir}.substr(
                     output_call_begin,
                     output_call_end - output_call_begin);
             CHECK(output_call_ir.find("store <2 x ptr>") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find(
                       "ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find(
                       "ray.query.pipeline.status.callbacks") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find("ray.query.pipeline.packet") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
         }
         if (width == 8u) {
             CHECK(candidate.llvm_ir.find(
@@ -11096,15 +11100,15 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(output_init_begin != std::string::npos);
             CHECK(output_init_end != std::string::npos);
             auto output_init_ir =
-                std::string_view{candidate.llvm_ir}.substr(
+                luisa::string_view{candidate.llvm_ir}.substr(
                     output_init_begin,
                     output_init_end - output_init_begin);
             CHECK(count_occurrences(
                       output_init_ir, "llvm.masked.store") == 8u);
             CHECK(output_init_ir.find("llvm.masked.scatter") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_init_ir.find("ray.query.full.states") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             auto output_call_begin = candidate.llvm_ir.find(
                 "ray.query.pipeline.empty.output:");
@@ -11114,19 +11118,19 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(output_call_begin != std::string::npos);
             CHECK(output_call_end != std::string::npos);
             auto output_call_ir =
-                std::string_view{candidate.llvm_ir}.substr(
+                luisa::string_view{candidate.llvm_ir}.substr(
                     output_call_begin,
                     output_call_end - output_call_begin);
             CHECK(output_call_ir.find("store <8 x ptr>") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find(
                       "ray.query.cached.state.handles") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find(
                       "ray.query.pipeline.status.callbacks") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
             CHECK(output_call_ir.find("ray.query.pipeline.packet") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
 
             CHECK(candidate.llvm_ir.find(
                       "ray.query.empty.output.read.mask") !=
@@ -11138,13 +11142,13 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
             CHECK(output_read_begin != std::string::npos);
             CHECK(output_read_end != std::string::npos);
             auto output_read_ir =
-                std::string_view{candidate.llvm_ir}.substr(
+                luisa::string_view{candidate.llvm_ir}.substr(
                     output_read_begin,
                     output_read_end - output_read_begin);
             CHECK(count_occurrences(
                       output_read_ir, "llvm.masked.load") >= 5u);
             CHECK(output_read_ir.find("llvm.masked.gather") ==
-                  std::string_view::npos);
+                  luisa::string_view::npos);
         }
 
         auto execute = [&](const SIMDCompiledKernel &compiled,
@@ -11729,8 +11733,8 @@ void ray_query_status_mismatched_plain_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-ray-query-status-cache", *context);
     auto name = std::string{"simd_ray_query_status_cache_"} +
                 std::to_string(width) +
@@ -11771,9 +11775,9 @@ void ray_query_status_mismatched_plain_probe(
             ir, "ray.query.cached.state.handles = load");
         auto callback_load = line_containing(
             ir, "ray.query.status.callbacks = load");
-        CHECK(state_alloca.find("align 8") != std::string_view::npos);
-        CHECK(state_load.find("align 8") != std::string_view::npos);
-        CHECK(callback_load.find("align 8") != std::string_view::npos);
+        CHECK(state_alloca.find("align 8") != luisa::string_view::npos);
+        CHECK(state_load.find("align 8") != luisa::string_view::npos);
+        CHECK(callback_load.find("align 8") != luisa::string_view::npos);
     }
     auto gather_count = count_occurrences(ir, "llvm.masked.gather");
     auto expect_status_pairing =
@@ -12040,8 +12044,8 @@ void ray_query_scratch_plain_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         overlapping ? "simd-ray-query-scratch-overlap" :
                       "simd-ray-query-scratch-sequential",
         *context);
@@ -12235,8 +12239,8 @@ void ray_query_scratch_plain_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-ray-query-scratch-divergent", *context);
     auto name = std::string{"simd_ray_query_scratch_divergent"};
     auto codegen = lower_schedule_to_llvm(
@@ -12383,8 +12387,8 @@ void ray_query_scratch_plain_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-accel-motion-metadata", *context);
     auto name = std::string{"simd_accel_motion_metadata"};
     auto codegen = lower_schedule_to_llvm(
@@ -12632,8 +12636,8 @@ void bindless_texture_sample_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-bindless-texture-packet", *context);
     auto name = std::string{"simd_bindless_texture_packet"};
     auto codegen = lower_schedule_to_llvm(
@@ -12675,7 +12679,7 @@ void bindless_texture_sample_probe(
     LLVMJIT jit{true};
     CHECK(jit.succeeded());
     auto assembly = jit.emit_assembly_copy(*llvm_module);
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -12821,8 +12825,8 @@ void bindless_uniform_gradient_probe(
         std::cerr << diagnostics_text(lowered);
         return false;
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto llvm_module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto llvm_module = luisa::make_unique<::llvm::Module>(
         "simd-bindless-uniform-gradient-lod", *context);
     auto name = std::string{"simd_bindless_uniform_gradient_lod"};
     auto codegen = lower_schedule_to_llvm(
@@ -12984,7 +12988,7 @@ void bindless_uniform_gradient_probe(
                 CHECK(baseline.full_packet_specialization_decision == FullPacketSpecializationDecision::disabled);
                 CHECK(baseline.full_packet_source_instruction_count == 0u);
                 CHECK(candidate.llvm_ir.find("define internal void @full_packet_probe.full_packet(") != std::string::npos);
-                CHECK(line_containing(candidate.llvm_ir, "define internal void @full_packet_probe.full_packet(").find("active_lane_count") == std::string_view::npos);
+                CHECK(line_containing(candidate.llvm_ir, "define internal void @full_packet_probe.full_packet(").find("active_lane_count") == luisa::string_view::npos);
                 CHECK(candidate.private_workspace_size == baseline.private_workspace_size);
                 CHECK((candidate.private_workspace_size != 0u) == workspace);
                 CHECK(candidate.linear_1d_block_coalescing_count == 0u);
@@ -13154,12 +13158,12 @@ void bindless_uniform_gradient_probe(
             CHECK((module.getFunction("budget_probe.full_packet") != nullptr) == selected);
             std::vector<std::string> function_names;
             for (auto &function : module) { function_names.emplace_back(function.getName().str()); }
-            std::sort(function_names.begin(), function_names.end());
+            luisa::sort(function_names.begin(), function_names.end());
             if (mode == 0u) { baseline_function_names = function_names; }
             auto expected_function_names = baseline_function_names;
             if (selected) {
                 expected_function_names.emplace_back("budget_probe.full_packet");
-                std::sort(expected_function_names.begin(), expected_function_names.end());
+                luisa::sort(expected_function_names.begin(), expected_function_names.end());
             }
             CHECK(function_names == expected_function_names);
             CHECK(result.full_packet_cloned_instruction_count == (selected ? raw_count : 0u));
@@ -13778,7 +13782,7 @@ void bindless_uniform_gradient_probe(
         value = value + index * index;
         output.write(index, value);
     };
-    auto compile = [&](std::string_view name) {
+    auto compile = [&](luisa::string_view name) {
         return compile_simd_kernel(
             kernel.function()->function(), width, name,
             false, false, 1u, true, true);
@@ -13851,7 +13855,7 @@ void bindless_uniform_gradient_probe(
     }
     {
         static constexpr auto wide_width = 16u;
-        auto compile_wide = [&](std::string_view name) {
+        auto compile_wide = [&](luisa::string_view name) {
             return compile_simd_kernel(
                 kernel.function()->function(), wide_width, name,
                 false, false, 1u, true, true);
@@ -13954,7 +13958,7 @@ void bindless_uniform_gradient_probe(
     };
 
     auto compile = [&](uint32_t width, bool disable,
-                       std::string_view name) {
+                       luisa::string_view name) {
         ScopedEnvironmentVariable setting{
             "LUISA_SIMD_DISABLE_AGGREGATE_PROMOTION",
             disable ? "1" : "0"};
@@ -15762,7 +15766,7 @@ void bindless_uniform_gradient_probe(
         limits[index] = (index * 11u) % (max_iterations + 1u);
         cast_input[index] = (index & 1u) == 0u ?
                                 3.75f :
-                                std::bit_cast<float>(0x7fc00000u);
+                                luisa::bit_cast<float>(0x7fc00000u);
         for (auto iteration = uint32_t{0u};
              iteration < max_iterations; iteration++) {
             input[index * max_iterations + iteration] =
@@ -15824,7 +15828,7 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
-[[nodiscard]] std::optional<schedule::Function>
+[[nodiscard]] luisa::optional<schedule::Function>
 make_structured_early_exit_foreign_convergence_fixture() {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -15894,7 +15898,7 @@ make_structured_early_exit_foreign_convergence_fixture() {
     if (!lowered.succeeded() ||
         !schedule::verify(*lowered.function).succeeded()) {
         std::cerr << diagnostics_text(lowered);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return std::move(*lowered.function);
 }
@@ -15905,7 +15909,7 @@ make_structured_early_exit_foreign_convergence_fixture() {
     Kernel1D kernel = [](BufferUInt output) noexcept {
         set_block_size(32u, 1u, 1u);
         auto index = dispatch_id().x;
-        Float cast_source = std::bit_cast<float>(0x7fc01234u);
+        Float cast_source = luisa::bit_cast<float>(0x7fc01234u);
         $if (index < count) {
             cast_source = cast<float>(index) + 0.75f;
         };
@@ -16087,10 +16091,10 @@ make_structured_early_exit_foreign_convergence_fixture() {
     auto foreign_convergence =
         make_structured_early_exit_foreign_convergence_fixture();
     CHECK(foreign_convergence.has_value());
-    auto lower_fixture = [&](std::string_view name,
+    auto lower_fixture = [&](luisa::string_view name,
                              LLVMScheduleCodegenResult &result) {
-        auto context = std::make_unique<::llvm::LLVMContext>();
-        auto module = std::make_unique<::llvm::Module>(name, *context);
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>(name, *context);
         {
             ScopedEnvironmentVariable force{
                 "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP", "1"};
@@ -16835,7 +16839,7 @@ template<typename T>
                                   << ", pre_jit_ir_bytes=" << compiled.llvm_ir.size() << '\n';
                         // Preserve actual pre-JIT evidence on a shape failure,
                         // without an unbounded generated-module log dump.
-                        auto ir = std::string_view{compiled.llvm_ir};
+                        auto ir = luisa::string_view{compiled.llvm_ir};
                         constexpr auto prefix_limit = size_t{64u * 1024u};
                         std::cerr << ir.substr(0u, prefix_limit);
                         if (ir.size() > prefix_limit) {
@@ -17045,11 +17049,11 @@ template<typename T>
             for (auto begin = size_t{0u}; begin < compiled.llvm_ir.size();) {
                 auto end = compiled.llvm_ir.find('\n', begin);
                 if (end == std::string::npos) { end = compiled.llvm_ir.size(); }
-                auto line = std::string_view{compiled.llvm_ir}.substr(begin, end - begin);
-                if (line.find("private.contiguous.") != std::string_view::npos &&
-                    (line.find("load ") != std::string_view::npos || line.find("store ") != std::string_view::npos)) {
-                    CHECK(line.find(byte_lanes) != std::string_view::npos);
-                    CHECK(line.find(bool_lanes) == std::string_view::npos);
+                auto line = luisa::string_view{compiled.llvm_ir}.substr(begin, end - begin);
+                if (line.find("private.contiguous.") != luisa::string_view::npos &&
+                    (line.find("load ") != luisa::string_view::npos || line.find("store ") != luisa::string_view::npos)) {
+                    CHECK(line.find(byte_lanes) != luisa::string_view::npos);
+                    CHECK(line.find(bool_lanes) == luisa::string_view::npos);
                 }
                 begin = end + 1u;
             }
@@ -17498,8 +17502,8 @@ template<typename T>
             if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
             CHECK(result.succeeded());
             CHECK(schedule::verify(*result.function).succeeded());
-            auto context = std::make_unique<::llvm::LLVMContext>();
-            auto module = std::make_unique<::llvm::Module>("strided-mma-boundary", *context);
+            auto context = luisa::make_unique<::llvm::LLVMContext>();
+            auto module = luisa::make_unique<::llvm::Module>("strided-mma-boundary", *context);
             auto codegen = lower_schedule_to_llvm(*module, *result.function, 8u, "strided_mma_entry");
             if (!codegen.succeeded()) { std::cerr << codegen.error << '\n'; }
             CHECK(codegen.succeeded());
@@ -17560,7 +17564,7 @@ template<typename T>
                         }
                         break;
                 }
-                auto rejected_module = std::make_unique<::llvm::Module>("forged-strided-mma", *context);
+                auto rejected_module = luisa::make_unique<::llvm::Module>("forged-strided-mma", *context);
                 auto rejected = lower_schedule_to_llvm(*rejected_module, forged, 8u, "forged_mma_entry");
                 CHECK(!rejected.succeeded());
                 CHECK(!rejected.error.empty());
@@ -17592,7 +17596,7 @@ template<typename T>
     builder.set_insertion_point(entry);
     auto *lane = module.create_warp_lane_id();
     auto *storage = builder.alloca_local(Type::array(Type::of<float>(), count + 1u));
-    auto *initial = constant(std::bit_cast<float>(uint32_t{0x4f123456u}));
+    auto *initial = constant(luisa::bit_cast<float>(uint32_t{0x4f123456u}));
     for (auto i = 0u; i <= count; i++) {
         builder.store(builder.gep(Type::of<float>(), storage, {constant(i)}), initial);
     }
@@ -17755,7 +17759,7 @@ template<typename T>
             // MMA arithmetic has its own numerical contract; finite nonzero
             // values make the identity oracle bit-exact without granting it
             // the copy helper's NaN-payload preservation guarantee.
-            source[i] = native_mma ? std::bit_cast<uint32_t>(static_cast<float>(i + 1u) * 0.25f) : patterns[i % patterns.size()];
+            source[i] = native_mma ? luisa::bit_cast<uint32_t>(static_cast<float>(i + 1u) * 0.25f) : patterns[i % patterns.size()];
         }
         std::array<uint32_t, source_count> original{};
         std::memcpy(original.data(), source, sizeof(original));
@@ -17777,8 +17781,8 @@ template<typename T>
                         CHECK(schedule::verify(*result.function).succeeded());
                         for (auto enable_interleaving : {false, true}) {
                             auto interleaved = enable_interleaving && !native_mma;
-                            auto context = std::make_unique<::llvm::LLVMContext>();
-                            auto module = std::make_unique<::llvm::Module>("contiguous-copy-bits", *context);
+                            auto context = luisa::make_unique<::llvm::LLVMContext>();
+                            auto module = luisa::make_unique<::llvm::Module>("contiguous-copy-bits", *context);
                             auto codegen = lower_schedule_to_llvm(
                                 *module, *result.function, packet_width, "copy_bits", true,
                                 {}, true, true, false, 1u, true, false, false, false,
@@ -17933,7 +17937,7 @@ template<typename T>
 
 int main() {
     struct Test {
-        std::string_view name;
+        luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{

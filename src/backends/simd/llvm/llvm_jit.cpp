@@ -26,6 +26,8 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "../../common/env_flag.h"
 
@@ -252,7 +254,7 @@ std::string LLVMJIT::emit_assembly_copy(
     return _emit_assembly(*copy);
 }
 
-void *LLVMJIT::lookup(std::string_view name) noexcept {
+void *LLVMJIT::lookup(luisa::string_view name) noexcept {
     if (!succeeded()) { return nullptr; }
     auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     auto started = report ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};

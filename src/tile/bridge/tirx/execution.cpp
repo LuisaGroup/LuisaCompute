@@ -13,6 +13,8 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 #include "execution.h"
 
@@ -181,7 +183,7 @@ protected:
             return valid && uses_lane;
         };
         luisa::vector<tvm::PrimExpr> guards;
-        std::function<void(const tvm::PrimExpr &)> collect = [&](const tvm::PrimExpr &condition) {
+        luisa::function<void(const tvm::PrimExpr &)> collect = [&](const tvm::PrimExpr &condition) {
             if (auto conjunction = condition.as<tvm::tirx::AndNode>()) {
                 collect(conjunction->a);
                 collect(conjunction->b);
@@ -318,7 +320,7 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
         // Only distribute statement sequences and rectangular serial loops.
         // Definitions, conditions, opaque effects, or lane-dependent bounds
         // need a richer region transform: retain the single-row fallback.
-        std::function<tvm::tirx::Stmt(const tvm::tirx::Stmt &)> pack;
+        luisa::function<tvm::tirx::Stmt(const tvm::tirx::Stmt &)> pack;
         pack = [&](const tvm::tirx::Stmt &statement) -> tvm::tirx::Stmt {
             if (auto sequence = statement.as<tvm::tirx::SeqStmtNode>()) {
                 tvm::ffi::Array<tvm::tirx::Stmt> packed;
@@ -334,7 +336,7 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
                     !invariant(temporal->min) || !invariant(temporal->extent) || (temporal->step && !invariant(temporal->step.value()))) { return {}; }
                 auto result = pack(temporal->body);
                 if (!result.defined()) { return {}; }
-                return tvm::tirx::For{temporal->loop_var, temporal->min, temporal->extent, temporal->kind, std::move(result), std::nullopt, {}, temporal->step, temporal->span};
+                return tvm::tirx::For{temporal->loop_var, temporal->min, temporal->extent, temporal->kind, std::move(result), luisa::nullopt, {}, temporal->step, temporal->span};
             }
             if (!statement.as<tvm::tirx::BufferStoreNode>()) { return {}; }
             tvm::ffi::Array<tvm::tirx::Stmt> packed;
@@ -369,7 +371,7 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
             auto annotations = outer->annotations;
             annotations.erase(independent_elements_annotation);
             annotations.erase(mma_annotation);
-            body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), std::nullopt, std::move(annotations), outer->step, outer->span};
+            body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), luisa::nullopt, std::move(annotations), outer->step, outer->span};
         }
         return VectorGuardSpecializer{}(body);
     }
@@ -392,7 +394,7 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
         auto annotations = outer->annotations;
         annotations.erase(independent_elements_annotation);
         annotations.erase(mma_annotation);
-        body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), std::nullopt, std::move(annotations), outer->step, outer->span};
+        body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), luisa::nullopt, std::move(annotations), outer->step, outer->span};
     }
     return VectorGuardSpecializer{}(body);
 }
@@ -431,7 +433,7 @@ struct ElementDomain {
     uint64_t volume{1u};
 };
 
-[[nodiscard]] std::optional<ElementDomain> element_domain(tvm::tirx::Stmt body, bool producer) {
+[[nodiscard]] luisa::optional<ElementDomain> element_domain(tvm::tirx::Stmt body, bool producer) {
     auto outer = body.as<tvm::tirx::ForNode>();
     if (!outer || outer->annotations.size() != (producer ? 2u : 1u)) { return {}; }
     if (producer) {
@@ -533,7 +535,7 @@ struct ElementProgram {
 // storage scalarization and loop fusion, not expression cloning/recomputation.
 // The later effect audit proves disjoint output regions and no global RAW/WAR
 // dependence before this interleaving of the original loop domains commits.
-[[nodiscard]] std::optional<ElementProgram> element_program(const tvm::tirx::ForNode *root) {
+[[nodiscard]] luisa::optional<ElementProgram> element_program(const tvm::tirx::ForNode *root) {
     luisa::vector<tvm::tirx::Stmt> parts;
     element_sequence(root->body, parts);
     if (parts.empty()) { return {}; }
@@ -616,7 +618,7 @@ private:
     // arbitrary, INDEPENDENT local coordinates within the same program.
     [[nodiscard]] bool _disjoint(const tvm::tirx::BufferStoreNode *a,
                                  const tvm::tirx::BufferStoreNode *b) const {
-        auto address = [&](const tvm::tirx::BufferStoreNode *store) -> std::optional<tvm::PrimExpr> {
+        auto address = [&](const tvm::tirx::BufferStoreNode *store) -> luisa::optional<tvm::PrimExpr> {
             tvm::PrimExpr result = tvm::IntImm::Int64(0);
             for (auto i = 0u; i < store->indices.size(); i++) {
                 auto index = store->indices[i], extent = store->buffer->shape[i];

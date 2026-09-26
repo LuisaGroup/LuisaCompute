@@ -3,6 +3,7 @@
 #include "tile_native_test_utils.h"
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -248,7 +249,7 @@ int main(int argc, char *argv[]) {
         for (auto row = int64_t{0}; row < rows; row++) {
             auto expected = cases::reference(span<const float>{values}.subspan(row * width, width), 3.0f);
             for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
-                expect(eq(std::bit_cast<uint32_t>(actual[row * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])));
+                expect(eq(luisa::bit_cast<uint32_t>(actual[row * cases::outputs + mode]), luisa::bit_cast<uint32_t>(expected[mode])));
             }
         }
     };

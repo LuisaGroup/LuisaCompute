@@ -15,21 +15,24 @@
 
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace image_process {
 
 namespace {
 
-[[nodiscard]] std::filesystem::path path_from_utf8(std::string_view utf8) noexcept {
+[[nodiscard]] luisa::filesystem::path path_from_utf8(luisa::string_view utf8) noexcept {
 #ifdef _WIN32
-    return std::filesystem::path{
+    return luisa::filesystem::path{
         std::u8string{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()}};
 #else
-    return std::filesystem::path{std::string{utf8}};
+    return luisa::filesystem::path{std::string{utf8}};
 #endif
 }
 
-[[nodiscard]] bool read_file(std::string_view utf8_path,
+[[nodiscard]] bool read_file(luisa::string_view utf8_path,
                              luisa::vector<std::byte> &bytes,
                              luisa::string &error) noexcept {
     auto path = path_from_utf8(utf8_path);
@@ -52,7 +55,7 @@ namespace {
     return true;
 }
 
-[[nodiscard]] bool write_file(std::string_view utf8_path,
+[[nodiscard]] bool write_file(luisa::string_view utf8_path,
                               luisa::span<const std::byte> bytes,
                               luisa::string &error) noexcept {
     auto path = path_from_utf8(utf8_path);
@@ -82,29 +85,29 @@ void append_to_vector(void *context, void *data, int size) noexcept {
 
 }// namespace
 
-luisa::string lower_extension(std::string_view path) noexcept {
+luisa::string lower_extension(luisa::string_view path) noexcept {
     auto dot = path.find_last_of('.');
     auto slash = path.find_last_of("/\\");
-    if (dot == std::string_view::npos ||
-        (slash != std::string_view::npos && dot < slash)) {
+    if (dot == luisa::string_view::npos ||
+        (slash != luisa::string_view::npos && dot < slash)) {
         return {};
     }
     auto extension = path.substr(dot);
     luisa::string result{extension};
-    std::transform(result.begin(), result.end(), result.begin(),
+    luisa::transform(result.begin(), result.end(), result.begin(),
                    [](char c) noexcept { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
     return result;
 }
 
-bool is_supported_load_extension(std::string_view extension) noexcept {
-    static constexpr std::string_view extensions[]{
+bool is_supported_load_extension(luisa::string_view extension) noexcept {
+    static constexpr luisa::string_view extensions[]{
         ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr", ".psd",
         ".gif", ".pic", ".ppm", ".pgm", ".pnm"};
     return std::any_of(std::begin(extensions), std::end(extensions),
-                       [extension](std::string_view e) noexcept { return e == extension; });
+                       [extension](luisa::string_view e) noexcept { return e == extension; });
 }
 
-bool is_supported_save_extension(std::string_view extension) noexcept {
+bool is_supported_save_extension(luisa::string_view extension) noexcept {
     return extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
            extension == ".bmp" || extension == ".tga" || extension == ".hdr";
 }
@@ -139,7 +142,7 @@ bool decode_image(luisa::span<const std::byte> bytes, ImageData &image,
     return true;
 }
 
-bool load_image_file(std::string_view utf8_path, ImageData &image,
+bool load_image_file(luisa::string_view utf8_path, ImageData &image,
                      luisa::string &error) noexcept {
     luisa::vector<std::byte> bytes;
     if (!read_file(utf8_path, bytes, error)) { return false; }
@@ -160,7 +163,7 @@ bool decode_image_to_rgba(luisa::span<const std::byte> bytes, luisa::vector<floa
     return true;
 }
 
-bool encode_image(std::string_view extension, luisa::span<const float> rgba,
+bool encode_image(luisa::string_view extension, luisa::span<const float> rgba,
                   uint32_t width, uint32_t height,
                   luisa::vector<std::byte> &bytes, luisa::string &error) noexcept {
     if (width == 0u || height == 0u) {
@@ -223,7 +226,7 @@ bool encode_image(std::string_view extension, luisa::span<const float> rgba,
     return true;
 }
 
-bool save_image_file(std::string_view utf8_path, luisa::span<const float> rgba,
+bool save_image_file(luisa::string_view utf8_path, luisa::span<const float> rgba,
                      uint32_t width, uint32_t height, luisa::string &error) noexcept {
     luisa::vector<std::byte> bytes;
     if (!encode_image(lower_extension(utf8_path), rgba, width, height, bytes, error)) {

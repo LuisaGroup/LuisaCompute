@@ -14,6 +14,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace luisa;
@@ -122,7 +123,7 @@ public:
     }
 
     [[nodiscard]] size_t entry_count_with_suffix(
-        std::string_view suffix) const noexcept {
+        luisa::string_view suffix) const noexcept {
         auto count = size_t{0u};
         for (auto &&[name, data] : _cache) {
             static_cast<void>(data);
@@ -187,7 +188,7 @@ template<typename Shader>
 
 int main(int argc, char *argv[]) {
     if (argc <= 1 || argv == nullptr ||
-        std::string_view{argv[1]} != "vk") {
+        luisa::string_view{argv[1]} != "vk") {
         LUISA_INFO(
             "Usage: {} vk",
             argc > 0 && argv != nullptr ?

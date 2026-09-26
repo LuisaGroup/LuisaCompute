@@ -7,6 +7,7 @@
 
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <array>
@@ -50,7 +51,7 @@ void expect_near(const luisa::vector<float> &actual, const luisa::vector<float> 
 }
 
 [[nodiscard]] tvm::ffi::String metal_source(const tvm::ffi::Module &module) {
-    if (std::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
+    if (luisa::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
     for (auto &&child : module->imports()) {
         auto source = metal_source(child.cast<tvm::ffi::Module>());
         if (!source.empty()) { return source; }
@@ -163,10 +164,10 @@ void test_ancestor_resources(Runtime &runtime, bool mapped) {
     if (!executable.ok()) { return; }
     if (runtime.target() == "metal") {
         auto source = metal_source(executable.module.value());
-        auto code = std::string_view{source.data(), source.size()};
-        expect(code.find("threadgroup float") != std::string_view::npos);
-        expect(code.find("metal::threadgroup_barrier(metal::mem_flags(3))") != std::string_view::npos);
-        expect(code.find("luisa.tile.memory_resource") == std::string_view::npos);
+        auto code = luisa::string_view{source.data(), source.size()};
+        expect(code.find("threadgroup float") != luisa::string_view::npos);
+        expect(code.find("metal::threadgroup_barrier(metal::mem_flags(3))") != luisa::string_view::npos);
+        expect(code.find("luisa.tile.memory_resource") == luisa::string_view::npos);
     }
     auto input = values(rows * columns);
     auto source = runtime.upload<float>({rows, columns}, input);
@@ -388,7 +389,7 @@ void test_memory_layouts(Runtime &runtime) {
             tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
                 if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
                     auto name = allocation->buffer.name();
-                    if (!std::string_view{name.data(), name.size()}.starts_with("tile_memory_")) { return; }
+                    if (!luisa::string_view{name.data(), name.size()}.starts_with("tile_memory_")) { return; }
                     allocations++;
                     luisa::vector<int64_t> actual_shape;
                     for (auto &&extent : allocation->buffer->shape) {

@@ -20,6 +20,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include <filesystem>
 
@@ -45,7 +46,7 @@ void test_texture_compress(Device &device) {
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
-    auto image_path = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path() / "logo.png";
+    auto image_path = luisa::filesystem::path{__FILE__}.parent_path().parent_path().parent_path() / "logo.png";
     auto image_pixels = stbi_load(image_path.string().c_str(), &image_width, &image_height, &image_channels, 4);
     boost::ut::expect(image_pixels != nullptr) << "Failed to load texture-compression source image " << image_path.string() << ".";
     if (image_pixels == nullptr) {

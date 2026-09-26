@@ -28,13 +28,14 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
 class Drawable;
 
 using DrawablePresentedHandler = void (^)(MTL::Drawable*);
-using DrawablePresentedHandlerFunction = std::function<void(MTL::Drawable*)>;
+using DrawablePresentedHandlerFunction = luisa::function<void(MTL::Drawable*)>;
 
 class Drawable : public NS::Referencing<Drawable>
 {

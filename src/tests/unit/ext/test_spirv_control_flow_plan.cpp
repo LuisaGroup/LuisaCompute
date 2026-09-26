@@ -25,6 +25,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/optional.h>
 
 #include "spirv_codegen/argument_usage.h"
 #include "spirv_codegen/call_graph_validation.h"
@@ -58,7 +59,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,
@@ -94,28 +95,28 @@ public:
     return count;
 }
 
-[[nodiscard]] std::optional<spv::Op> opcode_after_first(
+[[nodiscard]] luisa::optional<spv::Op> opcode_after_first(
     luisa::span<const uint32_t> words, spv::Op expected) noexcept {
     for (auto offset = size_t{5u}; offset < words.size();) {
         auto word_count = static_cast<size_t>(words[offset] >> 16u);
         if (word_count == 0u || word_count > words.size() - offset) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
         auto next = offset + word_count;
         if (opcode == expected) {
-            if (next >= words.size()) { return std::nullopt; }
+            if (next >= words.size()) { return luisa::nullopt; }
             auto next_word_count =
                 static_cast<size_t>(words[next] >> 16u);
             if (next_word_count == 0u ||
                 next_word_count > words.size() - next) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             return static_cast<spv::Op>(words[next] & 0xffffu);
         }
         offset = next;
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] bool validates(
@@ -228,14 +229,14 @@ inspect_simple_loop_phi_routing(
     auto forwarding_depth = [&](auto &&self, uint32_t value,
                                 uint32_t expected,
                                 luisa::vector<uint32_t> &active)
-        -> std::optional<size_t> {
+        -> luisa::optional<size_t> {
         if (value == expected) { return 0u; }
         if (std::find(active.begin(), active.end(), value) != active.end()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto *phi = find_phi(value);
         if (phi == nullptr || phi->incomings.empty()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         active.emplace_back(value);
         auto depth = size_t{0u};
@@ -244,7 +245,7 @@ inspect_simple_loop_phi_routing(
                 self, incoming_pair.first, expected, active);
             if (!incoming_depth) {
                 active.pop_back();
-                return std::nullopt;
+                return luisa::nullopt;
             }
             depth = std::max(depth, *incoming_depth);
         }

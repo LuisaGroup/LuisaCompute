@@ -1,4 +1,5 @@
 #include "llvm_schedule_emitter.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -574,7 +575,7 @@ void ScheduleEmitter::_ray_query_pipeline(
     auto lane_bits = (uint64_t{1u} << _width) - 1u;
     auto *lane_mask = _builder.getInt64(lane_bits);
     auto field = [&](uint32_t shift,
-                     std::string_view name) noexcept {
+                     luisa::string_view name) noexcept {
         auto *bits = shift == 0u ?
                          status :
                          _builder.CreateLShr(status, shift);

@@ -17,6 +17,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <array>
@@ -226,7 +227,7 @@ enum class ReconstructMatch {
     auto *smaller = &lhs.blocks;
     auto *larger = &rhs.blocks;
     if (smaller->size() > larger->size()) {
-        std::swap(smaller, larger);
+        luisa::swap(smaller, larger);
     }
     for (auto *block : *smaller) {
         if (larger->contains(block)) { return true; }

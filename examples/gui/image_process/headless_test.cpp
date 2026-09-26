@@ -18,21 +18,23 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace image_process {
 
 namespace {
 
-[[nodiscard]] std::filesystem::path to_path(std::string_view utf8) noexcept {
+[[nodiscard]] luisa::filesystem::path to_path(luisa::string_view utf8) noexcept {
 #ifdef _WIN32
-    return std::filesystem::path{
+    return luisa::filesystem::path{
         std::u8string{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()}};
 #else
-    return std::filesystem::path{std::string{utf8}};
+    return luisa::filesystem::path{std::string{utf8}};
 #endif
 }
 
-[[nodiscard]] luisa::string to_utf8(const std::filesystem::path &path) noexcept {
+[[nodiscard]] luisa::string to_utf8(const luisa::filesystem::path &path) noexcept {
     auto u8 = path.u8string();
     return luisa::string{reinterpret_cast<const char *>(u8.data()), u8.size()};
 }
@@ -53,7 +55,7 @@ struct TestReporter {
     size_t checks{0u};
     size_t failures{0u};
 
-    void check(bool condition, std::string_view what) noexcept {
+    void check(bool condition, luisa::string_view what) noexcept {
         checks++;
         if (!condition) {
             failures++;
@@ -138,7 +140,7 @@ struct Rng {
     auto put8 = [&](uint32_t v) { bytes.emplace_back(static_cast<std::byte>(v & 0xffu)); };
     auto put16 = [&](uint32_t v) { put8(v >> 8u); put8(v); };
     auto put32 = [&](uint32_t v) { put16(v >> 16u); put16(v & 0xffffu); };
-    for (auto c : std::string_view{"8BPS"}) { bytes.emplace_back(static_cast<std::byte>(c)); }
+    for (auto c : luisa::string_view{"8BPS"}) { bytes.emplace_back(static_cast<std::byte>(c)); }
     put16(1u);                                  // version
     for (auto i = 0u; i < 6u; i++) { put8(0u); }// reserved
     put16(3u);                                  // channels (R, G, B)
@@ -210,7 +212,7 @@ class HeadlessTest {
 private:
     Stream _stream;
     ImageProcessPipeline _pipeline;
-    std::filesystem::path _output_dir;
+    luisa::filesystem::path _output_dir;
     TestReporter _reporter;
 
 private:
@@ -347,7 +349,7 @@ private:
         auto cpu_processed = apply_operators_cpu(image, luisa::span<const uint32_t>{encoded.data(), encoded.size()});
 
         for (auto &&expectation : format_expectations) {
-            auto extension = std::string_view{expectation.extension};
+            auto extension = luisa::string_view{expectation.extension};
 
             // 1) write the example image with stb itself and reload it from disk
             luisa::vector<std::byte> encoded_bytes;
@@ -477,12 +479,12 @@ private:
     }
 
 public:
-    HeadlessTest(Device &device, const std::filesystem::path &output_dir) noexcept
+    HeadlessTest(Device &device, const luisa::filesystem::path &output_dir) noexcept
         : _stream{device.create_stream(StreamTag::COMPUTE)},
           _pipeline{device, _stream},
           _output_dir{output_dir} {
         std::error_code ec;
-        std::filesystem::create_directories(_output_dir, ec);
+        luisa::filesystem::create_directories(_output_dir, ec);
         if (ec) {
             LUISA_WARNING("Cannot create output directory '{}': {}",
                           to_utf8(_output_dir), ec.message());
@@ -504,8 +506,8 @@ public:
 
 }// namespace
 
-int run_headless_tests(Device &device, std::string_view output_directory) noexcept {
-    auto dir = output_directory.empty() ? std::string_view{"image_process_output"} : output_directory;
+int run_headless_tests(Device &device, luisa::string_view output_directory) noexcept {
+    auto dir = output_directory.empty() ? luisa::string_view{"image_process_output"} : output_directory;
     HeadlessTest test{device, to_path(dir)};
     return test.run();
 }

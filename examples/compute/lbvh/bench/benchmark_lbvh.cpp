@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -1875,7 +1876,7 @@ void print_ranking(luisa::span<const BenchRun> runs) noexcept {
     };
     auto print_table = [&](const char *title, bool by_build) noexcept {
         auto sorted = measured;
-        std::sort(sorted.begin(), sorted.end(), [by_build](const auto *a, const auto *b) noexcept {
+        luisa::sort(sorted.begin(), sorted.end(), [by_build](const auto *a, const auto *b) noexcept {
             return by_build ? a->build.total_ms.min_ms() > b->build.total_ms.min_ms() : a->trace.total_ms.min_ms() > b->trace.total_ms.min_ms();
         });
         std::printf("\n-- %s (worst first, ratios normalized against 'uniform') --\n", title);

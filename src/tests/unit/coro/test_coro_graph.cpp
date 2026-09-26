@@ -15,6 +15,7 @@
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_split.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -244,10 +245,10 @@ void reg_coro_graph() {
                 boundary.bindings[1u].pieces()[0u].field_index;
             auto live_pair =
                 luisa::vector<size_t>{input_value, output_value};
-            std::sort(live_pair.begin(), live_pair.end());
+            luisa::sort(live_pair.begin(), live_pair.end());
             auto slot_pair =
                 luisa::vector<size_t>{input_slot, output_slot};
-            std::sort(slot_pair.begin(), slot_pair.end());
+            luisa::sort(slot_pair.begin(), slot_pair.end());
             auto &semantic = boundary.stages[0u];
             auto &annotation = boundary.stages[1u];
             expect(boundary.source_store.frame_values ==
@@ -381,7 +382,7 @@ void reg_coro_graph() {
                 paths.emplace_back(piece.access_chain);
                 expect(piece.logical_type == Type::of<float>());
             }
-            std::sort(paths.begin(), paths.end());
+            luisa::sort(paths.begin(), paths.end());
             expect(paths ==
                    luisa::vector<luisa::vector<uint32_t>>{
                        {0u}, {1u}, {2u}});

@@ -272,6 +272,9 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -333,7 +336,7 @@ struct Options {
 };
 
 [[nodiscard]] size_t parse_uint(const char *text, const char *name, size_t minimum) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     size_t value{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), value);
     LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && value >= minimum,
@@ -353,7 +356,7 @@ struct Statistics {
 
 [[nodiscard]] Statistics summarize(luisa::vector<double> samples) {
     LUISA_ASSERT(!samples.empty(), "No samples to summarize.");
-    std::sort(samples.begin(), samples.end());
+    luisa::sort(samples.begin(), samples.end());
     auto sum = std::accumulate(samples.begin(), samples.end(), 0.0);
     return {samples.front(),
             samples[samples.size() / 2u],
@@ -856,8 +859,8 @@ int main(int argc, char *argv[]) {
     // batch - that is the trade-off this group quantifies: host time of the
     // build and of each replay versus the device time, against the
     // per-command submission of groups A/C/D.
-    std::optional<CudaGraphInstance> graph;
-    std::optional<CudaGraphExecInstance> graph_exec;
+    luisa::optional<CudaGraphInstance> graph;
+    luisa::optional<CudaGraphExecInstance> graph_exec;
     double graph_build_ms{0.0};
     if (graph_ext != nullptr) {
         Clock build_clock;

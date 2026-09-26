@@ -19,6 +19,8 @@
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/ast/callable_library.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/functional.h>
 #include <variant>
 namespace luisa::compute {
 template<typename T>
@@ -91,7 +93,7 @@ ManagedDevice::~ManagedDevice() noexcept {
         }
     }
 }
-static std::filesystem::path output_path;
+static luisa::filesystem::path output_path;
 void interop_copy(DeviceInterface &d, uint64_t interop_buffer, uint64_t interop_buffer_offset_bytes, void *cu_stream_ptr, void *cu_buffer, size_t size_bytes, bool interop_to_compute) {
     interop.create(&d);
     auto gs = default_stream_data.lock();
@@ -139,7 +141,7 @@ struct AtomicAccessChain {
 class UserBinaryIO : public BinaryIO {
 
 private:
-    std::filesystem::path _path;
+    luisa::filesystem::path _path;
 
 public:
     UserBinaryIO() noexcept {
@@ -153,7 +155,7 @@ public:
             LUISA_WARNING("Failed to get user home directory: environment variable not found.");
         } else {
             std::error_code ec;
-            auto p = std::filesystem::canonical(home, ec);
+            auto p = luisa::filesystem::canonical(home, ec);
             if (!ec) {
                 _path = p / ".luisa";
             } else {
@@ -162,10 +164,10 @@ public:
         }
         if (_path.empty()) {
             LUISA_WARNING("Failed to get user home directory. Using temporary directory instead.");
-            _path = std::filesystem::temp_directory_path() / ".luisa";
+            _path = luisa::filesystem::temp_directory_path() / ".luisa";
         }
         std::error_code ec;
-        std::filesystem::create_directories(_path, ec);
+        luisa::filesystem::create_directories(_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application data directory at '{}': {}.",
                           _path.string(), ec.message());
@@ -187,7 +189,7 @@ public:
         return luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
     }
     [[nodiscard]] filesystem::path write_shader_bytecode(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
-        std::filesystem::path path{name};
+        luisa::filesystem::path path{name};
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
@@ -199,7 +201,7 @@ public:
         if (_path.empty()) { return; }
         auto cache_path = _path / "cache";
         std::error_code ec;
-        std::filesystem::remove_all(cache_path, ec);
+        luisa::filesystem::remove_all(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to remove cache directory '{}': {}.",
                           cache_path.string(), ec.message());
@@ -209,7 +211,7 @@ public:
         if (_path.empty()) { return {}; }
         auto cache_path = _path / "cache";
         std::error_code ec;
-        std::filesystem::create_directories(cache_path, ec);
+        luisa::filesystem::create_directories(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application cache directory at '{}': {}.",
                           cache_path.string(), ec.message());
@@ -227,7 +229,7 @@ public:
         if (_path.empty()) { return {}; }
         auto internal_path = _path / "internal";
         std::error_code ec;
-        std::filesystem::create_directories(internal_path, ec);
+        luisa::filesystem::create_directories(internal_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application internal data directory at '{}': {}.",
                           internal_path.string(), ec.message());
@@ -265,10 +267,10 @@ void export_runtime(py::module &m) {
             return ManagedDevice(self.create_device(backend_name, &config));
         })// TODO: support properties
         .def("set_shader_path", [](Context &self, std::string const &str) {
-            std::filesystem::path p{str};
-            auto cp = std::filesystem::canonical(p);
-            if (!std::filesystem::is_directory(cp))
-                cp = std::filesystem::canonical(cp.parent_path());
+            luisa::filesystem::path p{str};
+            auto cp = luisa::filesystem::canonical(p);
+            if (!luisa::filesystem::is_directory(cp))
+                cp = luisa::filesystem::canonical(cp.parent_path());
             output_path = std::move(cp);
         })
         .def("create_headless_device", [](Context &self, luisa::string_view backend_name) {
@@ -385,7 +387,7 @@ void export_runtime(py::module &m) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
             if (!output_path.empty()) {
-                auto dst_path = output_path / std::filesystem::path{str};
+                auto dst_path = output_path / luisa::filesystem::path{str};
                 dst_path_str = to_string(dst_path);
                 str_view = dst_path_str;
             } else {
@@ -404,7 +406,7 @@ void export_runtime(py::module &m) {
                     luisa::string_view str_view;
                     luisa::string dst_path_str;
                     if (!output_path.empty()) {
-                        auto dst_path = output_path / std::filesystem::path{str};
+                        auto dst_path = output_path / luisa::filesystem::path{str};
                         dst_path_str = to_string(dst_path);
                         str_view = dst_path_str;
                     } else {
@@ -469,7 +471,7 @@ void export_runtime(py::module &m) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
-                auto dst_path = output_path / std::filesystem::path{str};
+                auto dst_path = output_path / luisa::filesystem::path{str};
                 option.name = to_string(dst_path);
             } else {
                 option.name = str;
@@ -482,7 +484,7 @@ void export_runtime(py::module &m) {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
-                    auto dst_path = output_path / std::filesystem::path{str};
+                    auto dst_path = output_path / luisa::filesystem::path{str};
                     option.name = to_string(dst_path);
                 } else {
                     option.name = str;
@@ -668,9 +670,9 @@ void export_runtime(py::module &m) {
             self.load(vec);
         });
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
-        .def("define_kernel", &FunctionBuilder::define_kernel<const std::function<void()> &>)
-        .def("define_callable", &FunctionBuilder::define_callable<const std::function<void()> &>)
-        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const std::function<void()> &>)
+        .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
+        .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
+        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("dimension", [](FunctionBuilder &self) {
             if (self.block_size().z > 1) {

@@ -5,6 +5,8 @@
 #import <Metal/Metal.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <charconv>
@@ -235,7 +237,7 @@ kernel void manual_gemm(device const float *a [[buffer(0)]],
 )metal";
 
 [[nodiscard]] int positive_integer(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
     LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0,
@@ -243,7 +245,7 @@ kernel void manual_gemm(device const float *a [[buffer(0)]],
     return value;
 }
 
-[[nodiscard]] int variant(std::string_view name) {
+[[nodiscard]] int variant(luisa::string_view name) {
     if (name == "shared") { return 0; }
     if (name == "double") { return 1; }
     if (name == "direct") { return 2; }
@@ -291,7 +293,7 @@ void complete(id<MTLCommandBuffer> command) {
     return result;
 }
 
-[[nodiscard]] Measurement measure(std::string_view name, Configuration cfg, const char *path) {
+[[nodiscard]] Measurement measure(luisa::string_view name, Configuration cfg, const char *path) {
     LUISA_ASSERT(cfg.m % 64 == 0 && cfg.n % 64 == 0 && cfg.k % 32 == 0,
                  "manual GEMM requires M/N multiples of 64 and K a multiple of 32");
     auto a = input_values(elements(cfg.m, cfg.k), 5u);
@@ -391,7 +393,7 @@ void complete(id<MTLCommandBuffer> command) {
     std::memcpy(c.data(), staging.contents, c.size() * sizeof(float));
     result.download_ms = milliseconds(start);
     std::error_code path_error;
-    auto output_exists = std::filesystem::exists(path, path_error);
+    auto output_exists = luisa::filesystem::exists(path, path_error);
     LUISA_ASSERT(!path_error, "cannot inspect output '{}': {}", path, path_error.message());
     LUISA_ASSERT(!output_exists, "output already exists");
     std::ofstream file{path, std::ios::binary};
@@ -401,7 +403,7 @@ void complete(id<MTLCommandBuffer> command) {
     return result;
 }
 
-void print_samples(std::string_view name, const std::vector<double> &samples) {
+void print_samples(luisa::string_view name, const std::vector<double> &samples) {
     std::cout << std::quoted(name) << ":[";
     for (auto i = size_t{0u}; i < samples.size(); i++) {
         if (i != 0u) { std::cout << ','; }
@@ -415,7 +417,7 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         LUISA_ASSERT(argc == 9, "Usage: benchmark_tile_manual VARIANT M N K samples sample-ms warmup-ms output.f32");
-        auto name = std::string_view{argv[1]};
+        auto name = luisa::string_view{argv[1]};
         Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
                           positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
         auto result = measure(name, cfg, argv[8]);

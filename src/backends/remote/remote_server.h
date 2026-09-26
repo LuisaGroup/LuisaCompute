@@ -8,6 +8,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/stl/functional.h>
 
 #include "remote_protocol.h"
 
@@ -35,14 +36,14 @@ struct DeviceRequest {
     bool enable_validation{false};
 };
 
-using DeviceFactory = std::function<luisa::shared_ptr<DeviceInterface>(
+using DeviceFactory = luisa::function<luisa::shared_ptr<DeviceInterface>(
     const DeviceRequest &request, luisa::string &error)>;
 
 class Server final {
 
 private:
     class Impl;
-    std::unique_ptr<Impl> _impl;
+    luisa::unique_ptr<Impl> _impl;
 
 public:
     Server(luisa::shared_ptr<DeviceInterface> native_device,

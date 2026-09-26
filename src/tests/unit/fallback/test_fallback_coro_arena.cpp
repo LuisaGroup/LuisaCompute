@@ -4,11 +4,12 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <luisa/core/stl/memory.h>
 
 using namespace luisa::compute::fallback;
 
 int main() {
-    auto arena = std::make_unique<FallbackCoroutineArena>();
+    auto arena = luisa::make_unique<FallbackCoroutineArena>();
     bool passed = true;
     const auto run = [&](const std::vector<size_t> &sizes, unsigned epoch) {
         arena->reset();

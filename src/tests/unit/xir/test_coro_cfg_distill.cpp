@@ -21,6 +21,7 @@
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -495,7 +496,7 @@ void reg_coro_cfg_distill() {
                    edge->live_frame_value_indices.end());
             auto live_pair =
                 luisa::vector<size_t>{input_index, output_index};
-            std::sort(live_pair.begin(), live_pair.end());
+            luisa::sort(live_pair.begin(), live_pair.end());
             expect(edge->target_live_frame_value_indices ==
                    luisa::vector<size_t>{output_index});
             expect(edge->extension_stage_dataflow.size() == 2u);

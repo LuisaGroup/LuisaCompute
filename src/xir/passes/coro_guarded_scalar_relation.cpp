@@ -6,6 +6,7 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/value.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::xir::detail {
 
@@ -15,7 +16,7 @@ constexpr size_t max_bdd_nodes = 1u << 20u;
 constexpr auto terminal_variable = std::numeric_limits<uint32_t>::max();
 
 [[nodiscard]] uint64_t pair_key(uint32_t lhs, uint32_t rhs) noexcept {
-    if (rhs < lhs) { std::swap(lhs, rhs); }
+    if (rhs < lhs) { luisa::swap(lhs, rhs); }
     return static_cast<uint64_t>(lhs) |
            (static_cast<uint64_t>(rhs) << 32u);
 }
@@ -64,7 +65,7 @@ CoroBooleanSetManager::Set CoroBooleanSetManager::_make_node(
 
 CoroBooleanSetManager::Set CoroBooleanSetManager::_apply(
     bool is_union, Set lhs, Set rhs) noexcept {
-    if (rhs < lhs) { std::swap(lhs, rhs); }
+    if (rhs < lhs) { luisa::swap(lhs, rhs); }
     if (is_union) {
         if (lhs == empty_set() || lhs == rhs) { return rhs; }
         if (rhs == universe()) { return universe(); }

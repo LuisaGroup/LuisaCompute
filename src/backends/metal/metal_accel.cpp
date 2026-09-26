@@ -130,7 +130,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
     if (_requires_rebuild) {
         luisa::vector<NS::Object *> objects;
         objects.reserve(instance_count);
-        std::transform(_primitives.begin(), _primitives.end(), std::back_inserter(objects),
+        luisa::transform(_primitives.begin(), _primitives.end(), std::back_inserter(objects),
                        [](auto p) noexcept {
                            auto handle = p->handle();
 #ifndef NDEBUG

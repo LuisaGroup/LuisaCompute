@@ -221,22 +221,22 @@ struct InstanceDesc {
 }
 
 [[nodiscard]] float3 xyz_as_float3(const uint4 &v) noexcept {
-    return make_float3(std::bit_cast<float>(v.x), std::bit_cast<float>(v.y),
-                       std::bit_cast<float>(v.z));
+    return make_float3(luisa::bit_cast<float>(v.x), luisa::bit_cast<float>(v.y),
+                       luisa::bit_cast<float>(v.z));
 }
 
 [[nodiscard]] float4 as_float4(const uint4 &v) noexcept {
-    return make_float4(std::bit_cast<float>(v.x), std::bit_cast<float>(v.y),
-                       std::bit_cast<float>(v.z), std::bit_cast<float>(v.w));
+    return make_float4(luisa::bit_cast<float>(v.x), luisa::bit_cast<float>(v.y),
+                       luisa::bit_cast<float>(v.z), luisa::bit_cast<float>(v.w));
 }
 
 // Bit-exact: `Vector::operator==` is component-wise (it returns a bool4), and
 // the point of this check is that the build copies the very bits it was given.
 [[nodiscard]] bool same_float4(float4 a, float4 b) noexcept {
-    return std::bit_cast<uint>(a.x) == std::bit_cast<uint>(b.x) &&
-           std::bit_cast<uint>(a.y) == std::bit_cast<uint>(b.y) &&
-           std::bit_cast<uint>(a.z) == std::bit_cast<uint>(b.z) &&
-           std::bit_cast<uint>(a.w) == std::bit_cast<uint>(b.w);
+    return luisa::bit_cast<uint>(a.x) == luisa::bit_cast<uint>(b.x) &&
+           luisa::bit_cast<uint>(a.y) == luisa::bit_cast<uint>(b.y) &&
+           luisa::bit_cast<uint>(a.z) == luisa::bit_cast<uint>(b.z) &&
+           luisa::bit_cast<uint>(a.w) == luisa::bit_cast<uint>(b.w);
 }
 
 // ---------------------------------------------------------------------------

@@ -299,11 +299,11 @@ template<typename P>
 // Host-side reads of the same lanes, for the structural self-check (which walks a
 // read-back node array outside the DSL, so it cannot use the templates above).
 [[nodiscard]] inline uint host_child_left(const LbvhNode &node) noexcept {
-    return std::bit_cast<uint>(node.packed_lo.w);
+    return luisa::bit_cast<uint>(node.packed_lo.w);
 }
 
 [[nodiscard]] inline uint host_child_right(const LbvhNode &node) noexcept {
-    return std::bit_cast<uint>(node.packed_hi.w);
+    return luisa::bit_cast<uint>(node.packed_hi.w);
 }
 
 [[nodiscard]] inline float3 host_aabb_lo(const LbvhNode &node) noexcept {

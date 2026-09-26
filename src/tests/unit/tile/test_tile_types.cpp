@@ -11,6 +11,7 @@
 #endif
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/memory.h>
 #include <compute/tile/kernels.h>
 
 using namespace luisa;
@@ -35,13 +36,13 @@ void test_storage(Device &device, Stream &stream, const t::CompileOptions &optio
     auto shader = t::compile(device, kernel, options);
     expect(static_cast<bool>(shader)) << shader.metadata().error;
     if (!shader) { return; }
-    vector<T> input(count), output(count + 2u, std::bit_cast<T>(Bits{0xa5u}));
-    for (size_t i = 0u; i < count; i++) { input[i] = std::bit_cast<T>(static_cast<Bits>(i)); }
+    vector<T> input(count), output(count + 2u, luisa::bit_cast<T>(Bits{0xa5u}));
+    for (size_t i = 0u; i < count; i++) { input[i] = luisa::bit_cast<T>(static_cast<Bits>(i)); }
     auto a = device.create_buffer<T>(count), b = device.create_buffer<T>(output.size());
     stream << a.copy_from(span{input}) << b.copy_from(span{output})
            << shader(a, b.view(1u, count)).dispatch() << b.copy_to(span{output}) << synchronize();
-    auto correct = std::bit_cast<Bits>(output.front()) == Bits{0xa5u} && std::bit_cast<Bits>(output.back()) == Bits{0xa5u};
-    for (size_t i = 0u; i < count; i++) { correct &= std::bit_cast<Bits>(output[i + 1u]) == std::bit_cast<Bits>(input[i]); }
+    auto correct = luisa::bit_cast<Bits>(output.front()) == Bits{0xa5u} && luisa::bit_cast<Bits>(output.back()) == Bits{0xa5u};
+    for (size_t i = 0u; i < count; i++) { correct &= luisa::bit_cast<Bits>(output[i + 1u]) == luisa::bit_cast<Bits>(input[i]); }
     expect(correct) << "all encodings, including NaN payloads and subnormals, must copy bit-exactly";
 }
 
@@ -118,8 +119,8 @@ void test_conversion(Device &device, Stream &stream, const t::CompileOptions &op
     expect(eq(restored.back(), -9.0f));
     for (size_t i = 0u; i < count; i++) {
         auto expected = T{input[i]};
-        expect(eq(std::bit_cast<uint16_t>(output[i + 1u]), std::bit_cast<uint16_t>(expected))) << i << input[i];
-        expect(eq(std::bit_cast<uint32_t>(restored[i + 1u]), std::bit_cast<uint32_t>(static_cast<float>(expected)))) << i;
+        expect(eq(luisa::bit_cast<uint16_t>(output[i + 1u]), luisa::bit_cast<uint16_t>(expected))) << i << input[i];
+        expect(eq(luisa::bit_cast<uint32_t>(restored[i + 1u]), luisa::bit_cast<uint32_t>(static_cast<float>(expected)))) << i;
     }
 }
 
@@ -165,7 +166,7 @@ int main(int argc, char *argv[]) {
         for (uint32_t bits = 0u; bits < 65536u; bits++) {
             auto value = t::bf16::from_bits(static_cast<uint16_t>(bits));
             auto decoded = static_cast<float>(value);
-            correct &= std::bit_cast<uint32_t>(decoded) == (bits << 16u);
+            correct &= luisa::bit_cast<uint32_t>(decoded) == (bits << 16u);
             auto expected = (bits & 0x7fffu) > 0x7f80u ? bits | 0x40u : bits;
             correct &= t::bf16{decoded}.bits() == expected;
         }

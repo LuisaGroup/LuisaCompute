@@ -16,6 +16,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/ir.h>
 #include <luisa/tile/types.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute::tile {
 
@@ -128,7 +129,7 @@ private:
     friend LUISA_TILE_API ValueHandle make_mma(Value *, Value *, Value *, MmaPolicy) noexcept;
     friend LUISA_TILE_API ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
     friend LUISA_TILE_API ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
-    friend LUISA_TILE_API ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
+    friend LUISA_TILE_API ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const luisa::function<Value *(const Nest &)> &) noexcept;
     friend LUISA_TILE_API DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource, const IndexMap *) noexcept;
     friend LUISA_TILE_API ValueHandle load_memory(Value *, const ValueHandle &) noexcept;
     friend LUISA_TILE_API void store_memory(Value *, ValueHandle &, Value *) noexcept;
@@ -179,7 +180,7 @@ LUISA_TILE_API void store_tile(Value *view, luisa::span<Value *const> origin,
                                const IndexSpace &space, Value *tile, BoundsMode bounds) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle extract_tile(Value *tile, luisa::span<Value *const> indices) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle capture_tile_map(
-    const IndexSpace &space, ScalarType type, const std::function<Value *(const Nest &)> &body) noexcept;
+    const IndexSpace &space, ScalarType type, const luisa::function<Value *(const Nest &)> &body) noexcept;
 LUISA_TILE_API void capture_error(luisa::string_view message) noexcept;
 
 class LUISA_TILE_API CaptureGuard final {

@@ -32,6 +32,9 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/stl/hash.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hip_private_memory.h"
 #include "hip_inlining_policy.h"
@@ -994,7 +997,7 @@ void HIPCodegenLLVMImpl::_postprocess_rt_kernel() noexcept {
     }
 }
 
-void HIPCodegenLLVMImpl::_dump_module(const std::filesystem::path &path) const noexcept {
+void HIPCodegenLLVMImpl::_dump_module(const luisa::filesystem::path &path) const noexcept {
     std::error_code ec;
     llvm::raw_fd_ostream out{path.string(), ec};
     if (ec) {
@@ -1154,7 +1157,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     configure_hip_cgscc_canonicalization_inlining(PTO);
     llvm::PassInstrumentationCallbacks instrumentation;
     llvm::PassBuilder PB{
-        _target_machine, PTO, std::nullopt,
+        _target_machine, PTO, luisa::nullopt,
         &instrumentation};
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);

@@ -368,14 +368,14 @@ int main(int argc, char *argv[]) {
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
 
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     bool use_aces = false;
     float3 white_point{1.0f};
     float scale = 1.0f;
 
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution);
+        window = luisa::make_unique<Window>("path tracing", resolution);
 
         if (device.backend_name() == "dx") {
             constexpr bool use_hdr10 = true;

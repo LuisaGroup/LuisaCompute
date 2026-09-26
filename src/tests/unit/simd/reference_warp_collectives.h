@@ -9,6 +9,8 @@
 #include <type_traits>
 
 #include "../schedule/cohort_scheduler.h"
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::reference {
 
@@ -39,15 +41,15 @@ public:
 
 private:
     template<typename T, typename Binary>
-    [[nodiscard]] static constexpr std::optional<T> _reduce(
+    [[nodiscard]] static constexpr luisa::optional<T> _reduce(
         Mask participants, const Lanes<T> &values,
         Binary &&binary) noexcept {
         auto first = participants.first();
-        if (!first) { return std::nullopt; }
+        if (!first) { return luisa::nullopt; }
         auto result = values[*first];
         auto rest = participants - Mask::single(*first);
         rest.for_each([&](auto lane) noexcept {
-            result = std::invoke(binary, result, values[lane]);
+            result = luisa::invoke(binary, result, values[lane]);
         });
         return result;
     }
@@ -61,20 +63,20 @@ private:
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             if (!participants.test(lane)) { continue; }
             result[lane] = accumulated;
-            accumulated = std::invoke(
+            accumulated = luisa::invoke(
                 binary, accumulated, values[lane]);
         }
         return result;
     }
 
 public:
-    [[nodiscard]] static constexpr std::optional<uint32_t>
+    [[nodiscard]] static constexpr luisa::optional<uint32_t>
     first_active_lane(Mask participants) noexcept {
         auto first = participants.first();
         return first ?
-                   std::optional<uint32_t>{
+                   luisa::optional<uint32_t>{
                        static_cast<uint32_t>(*first)} :
-                   std::nullopt;
+                   luisa::nullopt;
     }
 
     [[nodiscard]] static constexpr Lanes<bool>
@@ -87,11 +89,11 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] static constexpr std::optional<T>
+    [[nodiscard]] static constexpr luisa::optional<T>
     read_first_active_lane(Mask participants,
                            const Lanes<T> &values) noexcept {
         auto first = participants.first();
-        return first ? std::optional<T>{values[*first]} : std::nullopt;
+        return first ? luisa::optional<T>{values[*first]} : luisa::nullopt;
     }
 
     template<typename T, typename Index>
@@ -196,19 +198,19 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] static constexpr std::optional<T> active_sum(
+    [[nodiscard]] static constexpr luisa::optional<T> active_sum(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values, std::plus<>{});
     }
 
     template<typename T>
-    [[nodiscard]] static constexpr std::optional<T> active_product(
+    [[nodiscard]] static constexpr luisa::optional<T> active_product(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values, std::multiplies<>{});
     }
 
     template<typename T>
-    [[nodiscard]] static constexpr std::optional<T> active_min(
+    [[nodiscard]] static constexpr luisa::optional<T> active_min(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values,
                        [](auto lhs, auto rhs) noexcept {
@@ -217,7 +219,7 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] static constexpr std::optional<T> active_max(
+    [[nodiscard]] static constexpr luisa::optional<T> active_max(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values,
                        [](auto lhs, auto rhs) noexcept {
@@ -227,21 +229,21 @@ public:
 
     template<typename T>
         requires std::is_integral_v<T>
-    [[nodiscard]] static constexpr std::optional<T> active_bit_and(
+    [[nodiscard]] static constexpr luisa::optional<T> active_bit_and(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values, std::bit_and<>{});
     }
 
     template<typename T>
         requires std::is_integral_v<T>
-    [[nodiscard]] static constexpr std::optional<T> active_bit_or(
+    [[nodiscard]] static constexpr luisa::optional<T> active_bit_or(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values, std::bit_or<>{});
     }
 
     template<typename T>
         requires std::is_integral_v<T>
-    [[nodiscard]] static constexpr std::optional<T> active_bit_xor(
+    [[nodiscard]] static constexpr luisa::optional<T> active_bit_xor(
         Mask participants, const Lanes<T> &values) noexcept {
         return _reduce(participants, values, std::bit_xor<>{});
     }

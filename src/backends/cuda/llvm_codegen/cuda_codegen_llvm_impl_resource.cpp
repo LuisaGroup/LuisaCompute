@@ -5,6 +5,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/motion_transform.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/string.h>
 
 #include "../optix_api.h"
 #include "cuda_codegen_llvm_impl.h"
@@ -1031,7 +1032,7 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_hit_kind(IB &b) noexcept {
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcept {
-    auto f = [&](std::string_view component) {
+    auto f = [&](luisa::string_view component) {
         auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
         auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
         return b.CreateCall(llvm_asm, {});
@@ -1057,7 +1058,7 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_object_space_ray(IB &b) noexcept {
-    auto f = [&](std::string_view component) {
+    auto f = [&](luisa::string_view component) {
         auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
         auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
         return b.CreateCall(llvm_asm, {});

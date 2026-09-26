@@ -14,6 +14,9 @@
 
 #include "../../src/ext/stb/stb/stb_image.h"
 #include "../../src/ext/stb/stb/stb_image_write.h"
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::ref {
 
@@ -22,16 +25,16 @@ static constexpr double DEFAULT_CORRELATION_THRESHOLD = 0.5;
 static constexpr double MIN_CONTRAST_RATIO = 0.25;
 static constexpr double MAX_CONTRAST_RATIO = 4.0;
 
-[[nodiscard]] inline std::optional<uint32_t> parse_uint32_option_value(
-    std::string_view value) noexcept {
-    if (value.empty()) { return std::nullopt; }
+[[nodiscard]] inline luisa::optional<uint32_t> parse_uint32_option_value(
+    luisa::string_view value) noexcept {
+    if (value.empty()) { return luisa::nullopt; }
     uint32_t parsed_value = 0u;
     for (auto c : value) {
-        if (c < '0' || c > '9') { return std::nullopt; }
+        if (c < '0' || c > '9') { return luisa::nullopt; }
         auto digit = static_cast<uint32_t>(c - '0');
         if (parsed_value >
             (std::numeric_limits<uint32_t>::max() - digit) / 10u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         parsed_value = parsed_value * 10u + digit;
     }
@@ -42,9 +45,9 @@ struct ExampleOptions {
     bool offline{false};
     uint32_t spp{0u};
     uint32_t iterations{1u};
-    std::optional<uint32_t> max_spp_per_dispatch;
-    std::optional<std::filesystem::path> compare_path;
-    std::optional<std::filesystem::path> out_ref_path;
+    luisa::optional<uint32_t> max_spp_per_dispatch;
+    luisa::optional<luisa::filesystem::path> compare_path;
+    luisa::optional<luisa::filesystem::path> out_ref_path;
     bool out_ref_write{false};
     std::string error_message;
 
@@ -58,28 +61,28 @@ struct ExampleOptions {
         };
         auto missing_value = [](int index, int count, char *arguments[]) noexcept {
             return index + 1 >= count || arguments[index + 1] == nullptr ||
-                   std::string_view{arguments[index + 1]}.empty();
+                   luisa::string_view{arguments[index + 1]}.empty();
         };
-        auto option_token = [](std::string_view value) noexcept {
+        auto option_token = [](luisa::string_view value) noexcept {
             return value.size() > 1u && value.front() == '-';
         };
         for (int i = 2; i < argc; i++) {
             if (!argv[i]) break;
-            std::string_view a{argv[i]};
+            luisa::string_view a{argv[i]};
             if (a == "--offline") {
                 opts.offline = true;
             } else if (a == "--compare" || a == "-c") {
                 if (missing_value(i, argc, argv) ||
-                    option_token(std::string_view{argv[i + 1]})) {
+                    option_token(luisa::string_view{argv[i + 1]})) {
                     return fail("Missing value for " + std::string{a} + ".");
                 }
-                opts.compare_path = std::filesystem::path{argv[++i]};
+                opts.compare_path = luisa::filesystem::path{argv[++i]};
                 opts.offline = true;
             } else if (a == "--spp") {
                 if (missing_value(i, argc, argv)) {
                     return fail("Missing value for --spp.");
                 }
-                std::string_view value{argv[++i]};
+                luisa::string_view value{argv[++i]};
                 auto parsed_value = parse_uint32_option_value(value);
                 if (!parsed_value) {
                     return fail("Invalid unsigned integer for --spp: '" +
@@ -90,7 +93,7 @@ struct ExampleOptions {
                 if (missing_value(i, argc, argv)) {
                     return fail("Missing value for --iterations.");
                 }
-                std::string_view value{argv[++i]};
+                luisa::string_view value{argv[++i]};
                 auto parsed_value = parse_uint32_option_value(value);
                 if (!parsed_value || *parsed_value == 0u) {
                     return fail("Invalid positive integer for --iterations: '" +
@@ -101,7 +104,7 @@ struct ExampleOptions {
                 if (missing_value(i, argc, argv)) {
                     return fail("Missing value for --max-spp-per-dispatch.");
                 }
-                std::string_view value{argv[++i]};
+                luisa::string_view value{argv[++i]};
                 auto parsed_value = parse_uint32_option_value(value);
                 if (!parsed_value || *parsed_value == 0u) {
                     return fail("Invalid positive integer for --max-spp-per-dispatch: '" +
@@ -112,18 +115,18 @@ struct ExampleOptions {
                 if (missing_value(i, argc, argv)) {
                     return fail("Missing mode for --out_ref; expected 'write <path>' or 'read <path>'.");
                 }
-                std::string_view mode{argv[++i]};
+                luisa::string_view mode{argv[++i]};
                 if (mode != "write" && mode != "read") {
                     return fail("Invalid mode for --out_ref: '" +
                                 std::string{mode} +
                                 "'; expected 'write' or 'read'.");
                 }
                 if (missing_value(i, argc, argv) ||
-                    option_token(std::string_view{argv[i + 1]})) {
+                    option_token(luisa::string_view{argv[i + 1]})) {
                     return fail("Missing path for --out_ref " +
                                 std::string{mode} + ".");
                 }
-                opts.out_ref_path = std::filesystem::path{argv[++i]};
+                opts.out_ref_path = luisa::filesystem::path{argv[++i]};
                 opts.out_ref_write = mode == "write";
                 opts.offline = true;
             }
@@ -483,13 +486,13 @@ struct CompareResult {
 
 inline CompareResult compare_with_reference_file(
     const uint8_t *rendered, int width, int height, int channels,
-    const std::filesystem::path &reference_path,
+    const luisa::filesystem::path &reference_path,
     double threshold = DEFAULT_PSNR_THRESHOLD) {
 
     if (rendered == nullptr || width <= 0 || height <= 0 || channels <= 0 || !std::isfinite(threshold)) {
         return {false, 0.0, "invalid rendered image or comparison threshold"};
     }
-    if (!std::filesystem::exists(reference_path)) {
+    if (!luisa::filesystem::exists(reference_path)) {
         return {false, 0.0, "reference not found: " + reference_path.string()};
     }
     int ref_w = 0, ref_h = 0, ref_c = 0;
@@ -533,7 +536,7 @@ inline CompareResult compare_with_reference_file(
 inline ForegroundMomentCompareResult
 compare_foreground_moments_with_reference_file(
     const uint8_t *rendered, int width, int height, int channels,
-    const std::filesystem::path &reference_path,
+    const luisa::filesystem::path &reference_path,
     const std::array<uint8_t, 3u> &background,
     ForegroundMomentThresholds thresholds,
     uint8_t background_tolerance = 0u) {
@@ -543,7 +546,7 @@ compare_foreground_moments_with_reference_file(
         result.message = "invalid rendered image for foreground-moment comparison";
         return result;
     }
-    if (!std::filesystem::exists(reference_path)) {
+    if (!luisa::filesystem::exists(reference_path)) {
         result.message = "reference not found: " + reference_path.string();
         return result;
     }
@@ -572,15 +575,15 @@ compare_foreground_moments_with_reference_file(
     return result;
 }
 
-inline std::optional<std::filesystem::path> parse_compare_arg(int argc, const char *const *argv) {
+inline luisa::optional<luisa::filesystem::path> parse_compare_arg(int argc, const char *const *argv) {
     for (int i = 1; i + 1 < argc; ++i) {
         if (!argv[i] || !argv[i + 1]) { break; }
-        std::string_view a{argv[i]};
+        luisa::string_view a{argv[i]};
         if (a == "--compare" || a == "-c") {
-            return std::filesystem::path{argv[i + 1]};
+            return luisa::filesystem::path{argv[i + 1]};
         }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 }// namespace luisa::ref

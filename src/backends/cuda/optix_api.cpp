@@ -2,6 +2,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
+#include <luisa/core/stl/memory.h>
 
 // The following code is from
 //   [Dr.JIT-Core](https://github.com/mitsuba-renderer/drjit-core) by Wenzel Jakob
@@ -66,7 +67,7 @@ namespace luisa::compute::optix {
         if (CM_Get_Device_ID_List_SizeA(&size, guid, flags))
             return nullptr;
 
-        std::unique_ptr<char[]> dev_names(new char[size]);
+        luisa::unique_ptr<char[]> dev_names(new char[size]);
         if (CM_Get_Device_ID_ListA(guid, dev_names.get(), size, flags))
             return nullptr;
 
@@ -83,7 +84,7 @@ namespace luisa::compute::optix {
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, 0, &size))
                 continue;
 
-            std::unique_ptr<char[]> path(new char[size + suffix_len]);
+            luisa::unique_ptr<char[]> path(new char[size + suffix_len]);
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, (LPBYTE)path.get(), &size))
                 continue;
 

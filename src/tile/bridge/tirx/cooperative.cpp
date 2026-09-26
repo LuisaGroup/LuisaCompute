@@ -17,6 +17,7 @@
 #include "execution.h"
 
 #include <luisa/tile/bridge/tirx/layout.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::tile::bridge::tirx::detail {
 
@@ -107,7 +108,7 @@ struct AccumulatorLoop {
         MatrixLoopEmission::Output destination;
         luisa::vector<const tvm::tirx::AllocBufferNode *> temporaries;
     };
-    std::optional<DirectOutput> direct;
+    luisa::optional<DirectOutput> direct;
 };
 
 using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, AccumulatorLoop>;
@@ -197,13 +198,13 @@ private:
         return {};
     }
 
-    [[nodiscard]] std::optional<AccumulatorLoop::DirectOutput> _find_direct_output(
+    [[nodiscard]] luisa::optional<AccumulatorLoop::DirectOutput> _find_direct_output(
         const tvm::tirx::SeqStmtNode *sequence, const tvm::tirx::ForNode *recurrence, const MatrixCarry &carry) const {
         auto seen_loop = false;
         auto allocated = false;
         const tvm::tirx::AllocBufferNode *initial_allocation = nullptr;
         const tvm::tirx::ForNode *initial = nullptr;
-        std::optional<AccumulatorLoop::DirectOutput> result;
+        luisa::optional<AccumulatorLoop::DirectOutput> result;
         tvm::PrimExpr value;
         MatrixEpilogue epilogue;
         luisa::unordered_map<const tvm::tirx::VarNode *, const tvm::tirx::AllocBufferNode *> temporary_allocations;
@@ -289,7 +290,7 @@ private:
             }
             return closed;
         });
-        return closed ? result : std::nullopt;
+        return closed ? result : luisa::nullopt;
     }
 
     void _find_accumulator_loop(const tvm::tirx::ForNode *loop) {
@@ -427,7 +428,7 @@ protected:
                         workload.max_collective_outputs = std::max(workload.max_collective_outputs, *count);
                     }
                 }
-                auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) { return _matrix_buffer(std::move(buffer)); }, _metal_mpp, _ancestors) : std::nullopt;
+                auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) { return _matrix_buffer(std::move(buffer)); }, _metal_mpp, _ancestors) : luisa::nullopt;
                 if (matrix) {
                     matrix->executions = _executions;
                     matrices.emplace(loop, workload.matrices.size());
@@ -580,7 +581,7 @@ private:
                 auto copy = statement.as_or_throw<tvm::tirx::BufferStore>();
                 auto value = tvm::tirx::PrimVar{loop->loop_var->name + "_copy_value_" + std::to_string(i), copy->value.ty()};
                 reads.push_back(tvm::tirx::Bind{value, copy->value});
-                writes.push_back(tvm::tirx::BufferStore{copy->buffer, value, copy->indices, std::nullopt, copy->span});
+                writes.push_back(tvm::tirx::BufferStore{copy->buffer, value, copy->indices, luisa::nullopt, copy->span});
             }
             for (auto &&write : writes) { reads.push_back(write); }
             distributed.push_back(tvm::tirx::For{chunk, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(batches)),

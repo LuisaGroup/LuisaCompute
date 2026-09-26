@@ -15,6 +15,8 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../../../xir/passes/natural_loop.h"
 
@@ -74,21 +76,21 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
 
 void WarpUniformityAnalysis::analyze(
     const xir::Function *function,
-    std::span<const ValueClass> parameter_value_classes) noexcept {
+    luisa::span<const ValueClass> parameter_value_classes) noexcept {
     _analyze(function, parameter_value_classes, {}, false);
 }
 
 void WarpUniformityAnalysis::analyze(
     const xir::Function *function,
-    std::span<const ValueClass> parameter_value_classes,
-    std::span<const xir::NaturalLoop> natural_loops) noexcept {
+    luisa::span<const ValueClass> parameter_value_classes,
+    luisa::span<const xir::NaturalLoop> natural_loops) noexcept {
     _analyze(function, parameter_value_classes, natural_loops, true);
 }
 
 void WarpUniformityAnalysis::_analyze(
     const xir::Function *function,
-    std::span<const ValueClass> parameter_value_classes,
-    std::span<const xir::NaturalLoop> natural_loops,
+    luisa::span<const ValueClass> parameter_value_classes,
+    luisa::span<const xir::NaturalLoop> natural_loops,
     bool supplied_natural_loops) noexcept {
     clear();
     _function = function;
@@ -191,7 +193,7 @@ void WarpUniformityAnalysis::_analyze(
         auto iter = block_indices.find(block);
         if (iter == block_indices.end()) { return false; }
         auto &&memberships = containing_loops[iter->second];
-        return std::binary_search(memberships.cbegin(), memberships.cend(), loop);
+        return luisa::binary_search(memberships.cbegin(), memberships.cend(), loop);
     };
     auto mark_escape = [&](const xir::Value *value, const xir::BasicBlock *use_block,
                            const xir::BasicBlock *incoming_block, bool phi_use) noexcept {

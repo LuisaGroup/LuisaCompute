@@ -1,6 +1,7 @@
 #pragma once
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/md5.h>
+#include <luisa/core/stl/string.h>
 namespace vstd {
 class LUISA_VSTL_API Guid {
     friend class StackObject<Guid, false>;
@@ -17,8 +18,8 @@ private:
 public:
     Guid() : data{0, 0} {}
     explicit Guid(bool generate);
-    Guid(std::string_view strv);
-    static optional<Guid> TryParseGuid(std::string_view strv);
+    Guid(luisa::string_view strv);
+    static optional<Guid> TryParseGuid(luisa::string_view strv);
     Guid(span<uint8_t> data);
     Guid(MD5 const &md5) {
         auto &&bin = md5.to_binary();

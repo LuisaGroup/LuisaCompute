@@ -5,6 +5,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 
 #include <bit>
 
@@ -35,8 +36,8 @@ namespace {
 }
 
 [[nodiscard]] uint4 u4_from_float4(float4 v) noexcept {
-    return make_uint4(std::bit_cast<uint>(v.x), std::bit_cast<uint>(v.y),
-                      std::bit_cast<uint>(v.z), std::bit_cast<uint>(v.w));
+    return make_uint4(luisa::bit_cast<uint>(v.x), luisa::bit_cast<uint>(v.y),
+                      luisa::bit_cast<uint>(v.z), luisa::bit_cast<uint>(v.w));
 }
 
 // The instance buffer as raw words: an upload addresses a byte range, and the

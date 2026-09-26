@@ -1,6 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -82,12 +83,12 @@ void ScheduleEmitter::_emit_terminator(
                     auto true_region = allow_all_on_region_versioning ?
                                            _find_coherent_all_on_region(
                                                control, control.true_edge) :
-                                           std::nullopt;
+                                           luisa::nullopt;
                     auto false_region = allow_all_on_region_versioning ?
                                             _find_coherent_all_on_region(
                                                 control,
                                                 control.false_edge) :
-                                            std::nullopt;
+                                            luisa::nullopt;
                     // Clone at most one arm per split. Prefer the lower-cost
                     // arm and break ties toward false, which is the canonical
                     // miss/skip shape produced by the DSL frontend.
@@ -176,7 +177,7 @@ void ScheduleEmitter::_emit_terminator(
                     auto emit_coherent_edge =
                         [&](const schedule::ControlEdge &edge,
                             ::llvm::Value *derived_mask,
-                            const std::optional<CoherentAllOnRegion> &region) {
+                            const luisa::optional<CoherentAllOnRegion> &region) {
                             _active_mask = outer_mask;
                             _seed_lane = outer_seed;
                             _locals = outer_locals;

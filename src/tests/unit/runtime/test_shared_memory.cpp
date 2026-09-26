@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <luisa/luisa-compute.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -114,8 +115,8 @@ void test_shared_memory(Device &device) {
 
     // Blocks may reserve global queue ranges in any order. Sorting preserves a
     // strict value-by-value oracle without imposing an invalid scheduling order.
-    std::sort(values.begin(), values.end());
-    std::sort(expected_values.begin(), expected_values.end());
+    luisa::sort(values.begin(), values.end());
+    luisa::sort(expected_values.begin(), expected_values.end());
     expect(static_cast<bool>(values == expected_values))
         << "the queue must contain exactly the host-computed LCG value multiset";
 }

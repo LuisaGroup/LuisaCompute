@@ -33,6 +33,8 @@
 #include "llvm/Support/Path.h"
 
 #include <filesystem>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
 using namespace clang::tooling;
 using namespace llvm;
 using namespace luisa::clangcxx;
@@ -111,7 +113,7 @@ llvm::Error OptionsParser::init(int &argc, const char **argv,
     // Not loaded, try parse from commandline
     SourcePathList = SourcePaths;
     if (SourcePaths.empty()) {
-        auto thisFile = std::filesystem::current_path();
+        auto thisFile = luisa::filesystem::current_path();
         auto testFile = thisFile.parent_path().parent_path().parent_path().parent_path() / "tests" / "test.cpp";
         SourcePathList.emplace_back(testFile.string());
     }

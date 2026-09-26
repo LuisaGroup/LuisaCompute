@@ -13,6 +13,7 @@
 
 #include "spirv_codegen/target_feature_mask.h"
 #include "spirv_codegen/target_features.h"
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -65,7 +66,7 @@ int main(int argc, char *argv[]) {
             0x0000008000000000ull,
             0x0000010000000000ull,
             0x0000020000000000ull};
-        constexpr std::array<std::string_view, 42u> expected_names{
+        constexpr std::array<luisa::string_view, 42u> expected_names{
             "shaderSampledImageArrayDynamicIndexing",
             "shaderSampledImageArrayNonUniformIndexing",
             "shaderResourceMinLod",

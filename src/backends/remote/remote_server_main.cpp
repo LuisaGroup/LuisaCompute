@@ -15,6 +15,8 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 #include "remote_server.h"
 
@@ -38,7 +40,7 @@ struct CommandLine {
 };
 
 [[nodiscard]] bool parse_unsigned(
-    std::string_view text, uint64_t &value) noexcept {
+    luisa::string_view text, uint64_t &value) noexcept {
     auto result = std::from_chars(
         text.data(), text.data() + text.size(), value);
     return result.ec == std::errc{} &&
@@ -52,7 +54,7 @@ struct CommandLine {
         command.token = token;
     }
     for (auto i = 1; i < argc; i++) {
-        auto argument = std::string_view{argv[i]};
+        auto argument = luisa::string_view{argv[i]};
         if (argument == "--help" || argument == "-h") {
             command.help = true;
             continue;
@@ -73,7 +75,7 @@ struct CommandLine {
             error = luisa::format("Missing value after '{}'.", argument);
             return false;
         }
-        auto value = std::string_view{argv[++i]};
+        auto value = luisa::string_view{argv[++i]};
         if (argument == "--backend") {
             command.backend = value;
         } else if (argument == "--allow-backend") {
@@ -233,7 +235,7 @@ int main(int argc, char *argv[]) {
                 return 2;
             }
         }
-        std::sort(
+        luisa::sort(
             command.allowed_backends.begin(),
             command.allowed_backends.end());
         command.allowed_backends.erase(
@@ -255,7 +257,7 @@ int main(int argc, char *argv[]) {
             auto backend = request.backend.empty() ?
                                default_backend :
                                request.backend;
-            if (!std::binary_search(
+            if (!luisa::binary_search(
                     allowed_backends.begin(), allowed_backends.end(), backend)) {
                 factory_error = luisa::format(
                     "Backend '{}' is not allowed by this remote service.",

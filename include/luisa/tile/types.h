@@ -5,6 +5,7 @@
 #include <limits>
 #include <type_traits>
 #include <luisa/core/basic_traits.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::tile {
 
@@ -20,7 +21,7 @@ private:
 public:
     constexpr BFloat16() noexcept = default;
     explicit constexpr BFloat16(float value) noexcept {
-        auto bits = std::bit_cast<uint32_t>(value);
+        auto bits = luisa::bit_cast<uint32_t>(value);
         if ((bits & 0x7fffffffu) > 0x7f800000u) {
             _bits = static_cast<uint16_t>((bits >> 16u) | 0x0040u);
         } else {
@@ -34,7 +35,7 @@ public:
     }
     [[nodiscard]] constexpr uint16_t bits() const noexcept { return _bits; }
     [[nodiscard]] explicit constexpr operator float() const noexcept {
-        return std::bit_cast<float>(static_cast<uint32_t>(_bits) << 16u);
+        return luisa::bit_cast<float>(static_cast<uint32_t>(_bits) << 16u);
     }
     [[nodiscard]] friend constexpr BFloat16 operator-(BFloat16 value) noexcept {
         return from_bits(value._bits ^ 0x8000u);
@@ -70,18 +71,18 @@ public:
         auto exponent = magnitude >> mantissa_bits;
         auto mantissa = magnitude & ((1u << mantissa_bits) - 1u);
         if constexpr (E4M3FN) {
-            if (magnitude == 0x7fu) { return std::bit_cast<float>(sign | 0x7fc00000u); }
+            if (magnitude == 0x7fu) { return luisa::bit_cast<float>(sign | 0x7fc00000u); }
         } else {
             if (exponent == 31u) {
-                return std::bit_cast<float>(sign | 0x7f800000u | (mantissa << 21u));
+                return luisa::bit_cast<float>(sign | 0x7f800000u | (mantissa << 21u));
             }
         }
         if (exponent == 0u) {
             // All FP8 subnormals are exact, normal float32 values.
             auto value = static_cast<float>(mantissa) * (E4M3FN ? 0x1p-9f : 0x1p-16f);
-            return std::bit_cast<float>(std::bit_cast<uint32_t>(value) | sign);
+            return luisa::bit_cast<float>(luisa::bit_cast<uint32_t>(value) | sign);
         }
-        return std::bit_cast<float>(sign | ((exponent + 127u - bias) << 23u) |
+        return luisa::bit_cast<float>(sign | ((exponent + 127u - bias) << 23u) |
                                     (mantissa << (23u - mantissa_bits)));
     }
     [[nodiscard]] friend constexpr Float8Storage operator-(Float8Storage value) noexcept {

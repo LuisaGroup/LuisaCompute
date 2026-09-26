@@ -26,6 +26,8 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -367,10 +369,10 @@ int main(int argc, char *argv[]) {
 
     // Setup window and swapchain
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Fire Simulation", make_uint2(width, height));
+        window = luisa::make_unique<Window>("Fire Simulation", make_uint2(width, height));
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

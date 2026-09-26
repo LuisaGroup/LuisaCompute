@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::remote {
 
@@ -10,7 +11,7 @@ class RemoteDevice final : public DeviceInterface {
 
 private:
     class Impl;
-    std::unique_ptr<Impl> _impl;
+    luisa::unique_ptr<Impl> _impl;
 
 public:
     explicit RemoteDevice(Context &&context,

@@ -41,6 +41,8 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/string.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/TargetParser/TargetParser.h>
 #include "llvm_codegen/hip_codegen_llvm.h"
@@ -382,21 +384,21 @@ deserialize_hip_shader_cache_artifact(
 
 static const bool LUISA_XIR_NORMALIZE_CFG = [] {
     if (auto env = std::getenv("LUISA_XIR_NORMALIZE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
     if (auto env = std::getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
     if (auto env = std::getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -621,7 +623,7 @@ make_hip_bound_arguments(Function kernel) noexcept {
         static_cast<uint8_t>(native_wave_size)));
     if (!requested_wave_size) {
         if (auto env = std::getenv("LUISA_HIP_WAVE64");
-            env && std::string_view{env} == "1") {
+            env && luisa::string_view{env} == "1") {
             wave_size = 64u;
         }
     }
@@ -679,7 +681,7 @@ struct HIPDeviceGuard {
 template<typename F>
 decltype(auto) HIPDevice::with_device(F &&f) const noexcept {
     HIPDeviceGuard guard{_hip_context};
-    return std::invoke(std::forward<F>(f));
+    return luisa::invoke(std::forward<F>(f));
 }
 
 HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
@@ -700,8 +702,8 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
     // log device name and version
     hipDeviceProp_t prop;
     LUISA_CHECK_HIP(hipGetDeviceProperties(&prop, _device_id));
-    auto arch_name = std::string_view{prop.gcnArchName};
-    if (auto feature_suffix = arch_name.find(':'); feature_suffix != std::string_view::npos) {
+    auto arch_name = luisa::string_view{prop.gcnArchName};
+    if (auto feature_suffix = arch_name.find(':'); feature_suffix != luisa::string_view::npos) {
         arch_name = arch_name.substr(0u, feature_suffix);
     }
     LUISA_ASSERT(arch_name.starts_with("gfx") && arch_name.size() > 3u,
@@ -827,7 +829,7 @@ hiprtContext HIPDevice::_ensure_hiprt_context_locked() const noexcept {
             hipDeviceProp_t prop{};
             LUISA_CHECK_HIP(hipGetDeviceProperties(&prop, _device_id));
             hiprtContextCreationInput input{};
-            input.deviceType = std::string_view{prop.name}.find("NVIDIA") != std::string_view::npos ?
+            input.deviceType = luisa::string_view{prop.name}.find("NVIDIA") != luisa::string_view::npos ?
                                    hiprtDeviceNVIDIA :
                                    hiprtDeviceAMD;
             input.device = static_cast<hiprtApiDevice>(_hip_device);

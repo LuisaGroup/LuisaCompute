@@ -13,6 +13,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <iterator>
@@ -117,7 +118,7 @@ void verify_relocation_partition(
             reconstructed.end(),
             partition.residual_fields[token].begin(),
             partition.residual_fields[token].end());
-        std::sort(reconstructed.begin(), reconstructed.end());
+        luisa::sort(reconstructed.begin(), reconstructed.end());
         reconstructed.erase(
             std::unique(reconstructed.begin(), reconstructed.end()),
             reconstructed.end());

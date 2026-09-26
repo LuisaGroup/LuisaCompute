@@ -5,6 +5,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/vstl/common.h>
 #include <luisa/core/platform.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include "dxcapi.h"
 
@@ -23,7 +24,7 @@ public:
     IDxcLibrary *library{nullptr};
     IDxcUtils *utils{nullptr};
 
-    ShaderCompilerModule(std::filesystem::path const &path, bool is_spirv);
+    ShaderCompilerModule(luisa::filesystem::path const &path, bool is_spirv);
     ~ShaderCompilerModule();
 };
 template <typename T>
@@ -48,7 +49,7 @@ public:
     IDxcUtils *utils() const;
     IDxcLibrary *library() const;
 
-    ShaderCompiler(std::filesystem::path const &path, bool is_spirv);
+    ShaderCompiler(luisa::filesystem::path const &path, bool is_spirv);
     ~ShaderCompiler();
     CompileResult compile_compute(
         vstd::string_view code,
@@ -65,7 +66,7 @@ public:
         // Directories searched for `#include`d headers, in addition to the
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
-        luisa::span<const std::filesystem::path> include_dirs = {}) const;
+        luisa::span<const luisa::filesystem::path> include_dirs = {}) const;
     RasterBin compile_raster(
         vstd::string_view code,
         bool optimize,

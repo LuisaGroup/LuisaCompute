@@ -2,6 +2,7 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/string_scratch.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa {
 
@@ -24,9 +25,9 @@ StringScratch::StringScratch(size_t reserved_size) noexcept {
 }
 
 StringScratch::StringScratch() noexcept : StringScratch{std::min<size_t>(luisa::pagesize(), 64_k)} {}
-StringScratch &StringScratch::operator<<(std::string_view s) noexcept { return _buffer.append(s), *this; }
-StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this << std::string_view{s}; }
-StringScratch &StringScratch::operator<<(const std::string &s) noexcept { return *this << std::string_view{s}; }
+StringScratch &StringScratch::operator<<(luisa::string_view s) noexcept { return _buffer.append(s), *this; }
+StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this << luisa::string_view{s}; }
+StringScratch &StringScratch::operator<<(const std::string &s) noexcept { return *this << luisa::string_view{s}; }
 StringScratch &StringScratch::operator<<(bool x) noexcept { return detail::append_to_string(_buffer, x), *this; }
 StringScratch &StringScratch::operator<<(float x) noexcept { return detail::append_to_string(_buffer, x), *this; }
 StringScratch &StringScratch::operator<<(double x) noexcept { return detail::append_to_string(_buffer, x), *this; }

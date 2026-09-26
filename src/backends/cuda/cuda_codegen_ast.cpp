@@ -8,6 +8,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
@@ -668,7 +669,7 @@ void CUDACodegenAST::visit(const BinaryExpr *expr) {
 
 void CUDACodegenAST::visit(const MemberExpr *expr) {
     if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+        static constexpr luisa::string_view xyzw[]{"x", "y", "z", "w"};
         if (auto ss = expr->swizzle_size(); ss == 1u) {
             expr->self()->accept(*this);
             _scratch << ".";

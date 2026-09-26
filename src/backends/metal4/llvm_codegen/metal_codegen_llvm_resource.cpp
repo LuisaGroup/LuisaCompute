@@ -1,4 +1,5 @@
 #include "metal_codegen_llvm_impl.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::metal::detail {
 
@@ -912,9 +913,9 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_resource_read(IB &builder, Functio
             auto coordinate = _value(builder, function, inst->operand(1u));
             auto dimension = texture_type->dimension();
             auto element = texture_type->element();
-            auto suffix = element->is_float32() ? std::string_view{"v4f32"} :
-                          element->is_int32()   ? std::string_view{"s.v4i32"} :
-                                                  std::string_view{"u.v4i32"};
+            auto suffix = element->is_float32() ? luisa::string_view{"v4f32"} :
+                          element->is_int32()   ? luisa::string_view{"s.v4i32"} :
+                                                  luisa::string_view{"u.v4i32"};
             auto function_name = "air.read_texture_" + std::to_string(dimension) + "d." + std::string{suffix};
             auto sampler_type = llvm::PointerType::get(_context, air_address_space_constant);
             auto sampler_function_type = llvm::FunctionType::get(sampler_type, {}, false);
@@ -1356,9 +1357,9 @@ void MetalCodegenLLVMImpl::_translate_resource_write(IB &builder, FunctionContex
             auto dimension = texture_type->dimension();
             auto element = texture_type->element();
             auto access = _texture_access(texture_value);
-            auto suffix = element->is_float32() ? std::string_view{"v4f32"} :
-                          element->is_int32()   ? std::string_view{"s.v4i32"} :
-                                                  std::string_view{"u.v4i32"};
+            auto suffix = element->is_float32() ? luisa::string_view{"v4f32"} :
+                          element->is_int32()   ? luisa::string_view{"s.v4i32"} :
+                                                  luisa::string_view{"u.v4i32"};
             auto function_name = "air.write_texture_" + std::to_string(dimension) + "d." + std::string{suffix};
             auto function_type = llvm::FunctionType::get(
                 builder.getVoidTy(),

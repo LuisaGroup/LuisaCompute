@@ -20,6 +20,7 @@
 #include <luisa/runtime/event.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::coro {
 
@@ -1236,7 +1237,7 @@ public:
                          name);
             _refill_nodes.emplace_back(static_cast<uint>(node->index));
         }
-        std::sort(_refill_nodes.begin(), _refill_nodes.end());
+        luisa::sort(_refill_nodes.begin(), _refill_nodes.end());
         _refill_nodes.erase(
             std::unique(_refill_nodes.begin(), _refill_nodes.end()),
             _refill_nodes.end());

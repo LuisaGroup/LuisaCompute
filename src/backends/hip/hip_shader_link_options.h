@@ -6,6 +6,7 @@
 #include <type_traits>
 
 #include <hip/hiprtc.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::hip {
 
@@ -47,17 +48,17 @@ public:
         return _jit_option_values.data();
     }
 
-    [[nodiscard]] std::span<const char *const>
+    [[nodiscard]] luisa::span<const char *const>
     ir_to_isa_options() const noexcept {
         return _ir_to_isa_options;
     }
 
-    [[nodiscard]] std::span<const hiprtcJIT_option>
+    [[nodiscard]] luisa::span<const hiprtcJIT_option>
     jit_options() const noexcept {
         return _jit_options;
     }
 
-    [[nodiscard]] std::span<void *const>
+    [[nodiscard]] luisa::span<void *const>
     jit_option_values() const noexcept {
         return _jit_option_values;
     }

@@ -4,6 +4,10 @@
 #import <Metal/Metal.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <bit>
@@ -30,7 +34,7 @@ using Clock = std::chrono::steady_clock;
 
 [[nodiscard]] bool path_exists(const char *path) {
     std::error_code error;
-    auto exists = std::filesystem::exists(path, error);
+    auto exists = luisa::filesystem::exists(path, error);
     LUISA_ASSERT(!error, "Cannot query path '{}': {}", path, error.message());
     return exists;
 }
@@ -56,7 +60,7 @@ struct Configuration {
 };
 
 struct API_AVAILABLE(macos(26.0)) Precision {
-    std::string_view name;
+    luisa::string_view name;
     const char *input_msl;
     const char *accumulator_msl;
     MTLTensorDataType input_mtl;
@@ -176,14 +180,14 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
 )metal";
 
 [[nodiscard]] int positive_integer(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
     LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0, "Expected a positive int32, got '{}'.", input);
     return value;
 }
 
-[[nodiscard]] Precision precision(std::string_view name) API_AVAILABLE(macos(26.0)) {
+[[nodiscard]] Precision precision(luisa::string_view name) API_AVAILABLE(macos(26.0)) {
     if (name == "fp32") {
         return {name, "float", "float", MTLTensorDataTypeFloat32, MTLTensorDataTypeFloat32, 4u, 4u, false};
     }
@@ -202,7 +206,7 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
     LUISA_ERROR("Precision must be fp32, fp16, fp16-fp32, bf16, or bf16-fp32; got '{}'.", name);
 }
 
-[[nodiscard]] bool boolean(std::string_view text, std::string_view name) {
+[[nodiscard]] bool boolean(luisa::string_view text, luisa::string_view name) {
     if (text == "0") { return false; }
     if (text == "1") { return true; }
     LUISA_ERROR("{} must be 0 or 1; got '{}'.", name, text);
@@ -235,7 +239,7 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
     } else if (mode.bfloat_input) {
         auto output = reinterpret_cast<uint16_t *>(result.data());
         for (auto i = size_t{0u}; i < values.size(); i++) {
-            auto bits = std::bit_cast<uint32_t>(values[i]);
+            auto bits = luisa::bit_cast<uint32_t>(values[i]);
             output[i] = static_cast<uint16_t>((bits + 0x7fffu + ((bits >> 16u) & 1u)) >> 16u);
         }
     } else {
@@ -263,7 +267,7 @@ void complete(id<MTLCommandBuffer> command) {
     return [[MTLTensorExtents alloc] initWithRank:2 values:values];
 }
 
-[[nodiscard]] Measurement measure(std::string_view name, Configuration cfg, const char *path) {
+[[nodiscard]] Measurement measure(luisa::string_view name, Configuration cfg, const char *path) {
     if (@available(macOS 26.0, *)) {
         LUISA_ASSERT(cfg.tile_m % 8 == 0 && cfg.tile_n % 8 == 0 && (cfg.tile_m % 16 == 0 || cfg.tile_n % 16 == 0), "MPP M/N tiles must be multiples of 8, with at least one a multiple of 16; tile_m={}, tile_n={}.", cfg.tile_m, cfg.tile_n);
         LUISA_ASSERT(!cfg.static_reduction || cfg.k % 16 == 0, "MPP static K must be a multiple of 16; use dynamic K for a tail. Got K={}.", cfg.k);
@@ -362,7 +366,7 @@ void complete(id<MTLCommandBuffer> command) {
         auto groups = cfg.walk_rows == 0 ? MTLSizeMake(grid_columns, grid_rows, 1u) :
                                            MTLSizeMake(grid_columns * grid_rows, 1u, 1u);
         auto threads = MTLSizeMake(static_cast<NSUInteger>(group_simdgroups) * pipeline.threadExecutionWidth, 1u, 1u);
-        std::function<BatchTiming(uint64_t)> batch;
+        luisa::function<BatchTiming(uint64_t)> batch;
         if (cfg.inline_tensors) {
             // Inline tensors use the same buffer ABI and tracked command queue
             // as the MPS baseline. No MTLTensor resource or Metal 4 encoder is required.
@@ -499,7 +503,7 @@ void complete(id<MTLCommandBuffer> command) {
     LUISA_ERROR("MPP tensor operations require macOS 26 or newer.");
 }
 
-void print_samples(std::string_view name, const std::vector<double> &samples) {
+void print_samples(luisa::string_view name, const std::vector<double> &samples) {
     std::cout << std::quoted(name) << ":[";
     for (auto i = size_t{0u}; i < samples.size(); i++) {
         if (i != 0u) { std::cout << ','; }
@@ -516,7 +520,7 @@ int main(int argc, char *argv[]) {
                      "Invalid argument count {}. Usage: benchmark_tile_mpp <fp32|fp16|fp16-fp32|bf16|bf16-fp32> M N K samples sample-ms warmup-ms output "
                      "[tile-m tile-n simdgroups cooperative-output relaxed-precision [static-reduction [inline-tensors [group-simdgroups cohort-rows [walk-rows [walk-columns]]]]]]",
                      argc);
-        auto name = std::string_view{argv[1]};
+        auto name = luisa::string_view{argv[1]};
         Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
                           positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
         if (argc >= 14) {

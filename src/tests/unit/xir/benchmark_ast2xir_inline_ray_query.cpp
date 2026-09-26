@@ -15,6 +15,8 @@
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -85,7 +87,7 @@ struct TranslationWork {
 }
 
 [[nodiscard]] double median(std::vector<double> values) {
-    std::sort(values.begin(), values.end());
+    luisa::sort(values.begin(), values.end());
     auto middle = values.size() / 2u;
     return values.size() % 2u == 0u ?
                (values[middle - 1u] + values[middle]) * 0.5 :
@@ -163,7 +165,7 @@ struct ComparisonResult {
 }
 
 void print_comparison(
-    std::string_view name,
+    luisa::string_view name,
     const ComparisonResult &result) {
     std::cout << name << "_direct_median_us="
               << result.direct_median_us << '\n';
@@ -181,10 +183,10 @@ int main(int argc, char **argv) {
     auto iterations = size_t{100u};
     auto rounds = size_t{9u};
     for (auto i = 1; i < argc; ++i) {
-        auto argument = std::string_view{argv[i]};
+        auto argument = luisa::string_view{argv[i]};
         constexpr auto iterations_prefix =
-            std::string_view{"--iterations="};
-        constexpr auto rounds_prefix = std::string_view{"--rounds="};
+            luisa::string_view{"--iterations="};
+        constexpr auto rounds_prefix = luisa::string_view{"--rounds="};
         if (argument.starts_with(iterations_prefix)) {
             iterations = std::stoul(std::string{
                 argument.substr(iterations_prefix.size())});

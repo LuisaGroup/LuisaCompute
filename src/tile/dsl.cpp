@@ -4,6 +4,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute::tile {
 
@@ -505,7 +506,7 @@ ValueHandle extract_tile(Value *tile, luisa::span<Value *const> indices) noexcep
 }
 
 ValueHandle capture_tile_map(const IndexSpace &space, ScalarType type,
-                             const std::function<Value *(const Nest &)> &body) noexcept {
+                             const luisa::function<Value *(const Nest &)> &body) noexcept {
     if (current_capture == nullptr) { return {}; }
     ScopeStorage scope;
     scope.context = current_capture;

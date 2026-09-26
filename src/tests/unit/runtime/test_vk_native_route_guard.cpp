@@ -18,6 +18,8 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #ifndef LUISA_TEST_VK_HAS_NATIVE_XIR_SPIRV
 #error "The Vulkan native-route guard test requires an explicit codegen-route definition."
@@ -30,9 +32,9 @@ using namespace boost::ut::literals;
 
 namespace {
 
-constexpr std::string_view strict_native_environment =
+constexpr luisa::string_view strict_native_environment =
     "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV";
-constexpr std::string_view child_probe = "--strict-native-route-probe";
+constexpr luisa::string_view child_probe = "--strict-native-route-probe";
 
 void set_environment_variable(const char *name,
                               const char *value) noexcept {
@@ -48,15 +50,15 @@ void set_environment_variable(const char *name,
 }
 
 struct ScopedDirectoryCleanup {
-    std::filesystem::path path;
+    luisa::filesystem::path path;
     ~ScopedDirectoryCleanup() noexcept {
         std::error_code error;
-        std::filesystem::remove_all(path, error);
+        luisa::filesystem::remove_all(path, error);
     }
 };
 
 [[nodiscard]] std::string read_text_file(
-    const std::filesystem::path &path) {
+    const luisa::filesystem::path &path) {
     std::ifstream file{path, std::ios::binary};
     return {std::istreambuf_iterator<char>{file},
             std::istreambuf_iterator<char>{}};
@@ -87,12 +89,12 @@ uint lc_strict_native_route_marker(uint value) { return value; }
 
 int main(int argc, char *argv[]) {
     if (argc < 2 || argv == nullptr || argv[1] == nullptr ||
-        std::string_view{argv[1]} != "vk") {
+        luisa::string_view{argv[1]} != "vk") {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_native_route_guard");
         return 2;
     }
     if (argc >= 3 && argv[2] != nullptr &&
-        std::string_view{argv[2]} == child_probe) {
+        luisa::string_view{argv[2]} == child_probe) {
         return run_strict_native_route_probe(argc, argv);
     }
     std::vector<const char *> ut_argv;
@@ -102,14 +104,14 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         static_cast<int>(ut_argv.size()), ut_argv.data());
 
-    auto executable_path = std::filesystem::absolute(argv[0]).string();
+    auto executable_path = luisa::filesystem::absolute(argv[0]).string();
     auto nonce = std::chrono::steady_clock::now()
                      .time_since_epoch()
                      .count();
-    auto process_directory = std::filesystem::temp_directory_path() /
+    auto process_directory = luisa::filesystem::temp_directory_path() /
                              ("luisa_vk_native_route_guard_" +
                               std::to_string(nonce));
-    std::filesystem::create_directories(process_directory);
+    luisa::filesystem::create_directories(process_directory);
     ScopedDirectoryCleanup cleanup{process_directory};
 
     "vk_strict_native_route_fails_closed"_test = [&] {

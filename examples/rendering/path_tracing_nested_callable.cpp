@@ -334,10 +334,10 @@ int main(int argc, char *argv[]) {
            << make_sampler_shader(seed_image).dispatch(resolution);
 
     // Setup window and swapchain conditionally
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution);
+        window = luisa::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

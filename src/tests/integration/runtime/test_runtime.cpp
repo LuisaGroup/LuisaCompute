@@ -31,6 +31,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
 #include <luisa/backends/ext/stats_ext.h>
+#include <luisa/core/stl/filesystem.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -181,7 +182,7 @@ void test_runtime(Device &device) {
             << ldr_image.copy_to(luisa::span{pixels})
             << synchronize();
 
-        auto output_path = std::filesystem::path{opts.output_dir} / "test_runtime.png";
+        auto output_path = luisa::filesystem::path{opts.output_dir} / "test_runtime.png";
         auto saved = stbi_write_png(output_path.string().c_str(),
                                     resolution.x, resolution.y, 4,
                                     pixels.data(), resolution.x * 4u);

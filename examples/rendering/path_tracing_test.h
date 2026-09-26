@@ -8,6 +8,7 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute {
 class Device;
@@ -45,7 +46,7 @@ using PathTracingSnapshotCallback = luisa::function<void(
 struct PathTracingTestOptions {
     bool offline{true};
     uint32_t spp{1u};
-    std::optional<uint32_t> max_spp_per_dispatch;
+    luisa::optional<uint32_t> max_spp_per_dispatch;
     /// Insert synchronization boundaries around setup, rendering, and
     /// readback so benchmarks can report non-overlapping stage timings.
     /// Disabled by default to preserve the interactive renderer's pipelining.

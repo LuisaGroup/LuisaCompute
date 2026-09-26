@@ -8,6 +8,7 @@
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
+#include <luisa/core/stl/algorithm.h>
 #ifdef LUISA_DX_SDK
 extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
 
@@ -435,7 +436,7 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
         if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
             vstd::wstring s{desc.Description};
             auto &ss = r.emplace_back(s.size(), '\0');
-            std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
+            luisa::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
         }
     }
 }

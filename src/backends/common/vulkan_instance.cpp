@@ -2,6 +2,7 @@
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 
 #include "vulkan_instance.h"
 
@@ -128,7 +129,7 @@ VulkanInstance::VulkanInstance() noexcept
         vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_extensions.data());
         return std::any_of(available_extensions.cbegin(), available_extensions.cend(),
                            [](auto available) noexcept {
-                               return std::string_view{available.extensionName} == VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+                               return luisa::string_view{available.extensionName} == VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
                            });
     }();
     if (supports_wayland) {

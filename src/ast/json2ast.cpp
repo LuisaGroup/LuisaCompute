@@ -12,6 +12,7 @@
 #include <luisa/ast/function_builder.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 
@@ -499,10 +500,10 @@ private:
             _fail(path, "expected an object.");
             return false;
         }
-        std::unordered_set<std::string_view> seen;
+        std::unordered_set<luisa::string_view> seen;
         yyjson_obj_iter iter = yyjson_obj_iter_with(object);
         while (auto key = yyjson_obj_iter_next(&iter)) {
-            auto key_view = std::string_view{
+            auto key_view = luisa::string_view{
                 yyjson_get_str(key), yyjson_get_len(key)};
             if (!seen.emplace(key_view).second) {
                 _fail(path, luisa::format("duplicate member '{}'.", key_view));
@@ -610,7 +611,7 @@ private:
         luisa::string_view text;
         if (!_string(value, text, path)) { return false; }
         auto parsed = magic_enum::enum_cast<E>(
-            std::string_view{text.data(), text.size()});
+            luisa::string_view{text.data(), text.size()});
         if (!parsed) {
             _fail(path, luisa::format("unknown enum value '{}'.", text));
             return false;
@@ -1302,8 +1303,8 @@ private:
                 }
                 uint64_t code{};
                 for (size_t i = 0u; i < text.size(); i++) {
-                    auto component = std::string_view{"xyzw"}.find(text[i]);
-                    if (component == std::string_view::npos ||
+                    auto component = luisa::string_view{"xyzw"}.find(text[i]);
+                    if (component == luisa::string_view::npos ||
                         component >= self->type()->dimension()) {
                         _fail(path, "swizzle component is outside the source vector.");
                         return nullptr;
@@ -1867,7 +1868,7 @@ private:
         auto parse_variable_tag = [&]() noexcept -> luisa::optional<Variable::Tag> {
             if (tag_name == "ARGUMENT") { return luisa::nullopt; }
             return magic_enum::enum_cast<Variable::Tag>(
-                std::string_view{tag_name.data(), tag_name.size()});
+                luisa::string_view{tag_name.data(), tag_name.size()});
         };
         auto tag = parse_variable_tag();
         if (tag_name != "ARGUMENT" && !tag) {

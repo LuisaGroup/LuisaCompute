@@ -3,20 +3,21 @@
 #include "../../common/env_flag.h"
 
 #include <algorithm>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::detail {
 
-[[nodiscard]] std::optional<ScheduleEmitter::PredicatedMemoryDiamond>
+[[nodiscard]] luisa::optional<ScheduleEmitter::PredicatedMemoryDiamond>
 ScheduleEmitter::_find_predicated_memory_diamond(
     const schedule::BasicBlock &block) const noexcept {
     if (_width == 1u || luisa::compute::detail::env_flag(
                             "LUISA_SIMD_DISABLE_PREDICATED_IF")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *split = std::get_if<schedule::SplitTerminator>(
         &block.terminator);
     if (split == nullptr || !split->convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto memory_effects = !luisa::compute::detail::env_flag(
         "LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS");
@@ -25,11 +26,11 @@ ScheduleEmitter::_find_predicated_memory_diamond(
         condition->value_class != schedule::ValueClass::varying ||
         split->true_edge.loop_back || split->false_edge.loop_back ||
         split->true_edge.target == split->false_edge.target) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *point = _source.convergence(*split->convergence);
     if (point == nullptr || point->target == block.id) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto merge = point->target;
     auto assignments_are_lane_masked = [&](const auto &assignments) noexcept {
@@ -67,7 +68,7 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     const schedule::ControlEdge *true_exit = nullptr, *false_exit = nullptr;
     if (!arm(split->true_edge, true_block, true_exit) ||
         !arm(split->false_edge, false_block, false_exit)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto predecessor_count = [&](schedule::BlockId target) noexcept {
@@ -119,7 +120,7 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     };
     if ((true_block && predecessor_count(true_block->id) != 1u) ||
         (false_block && predecessor_count(false_block->id) != 1u)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto safe_arithmetic = [&](xir::ArithmeticOp op, const schedule::Instruction &instruction) noexcept {
@@ -249,18 +250,18 @@ ScheduleEmitter::_find_predicated_memory_diamond(
     auto instruction_count = (true_block ? true_block->instructions.size() : 0u) +
                              (false_block ? false_block->instructions.size() : 0u);
     if (instruction_count > max_instruction_count) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto has_memory = false;
     for (auto *arm : {true_block, false_block}) {
         if (arm == nullptr) { continue; }
         for (auto &&instruction : arm->instructions) {
             if (!safe_instruction(instruction, has_memory)) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
     }
-    if (!has_memory) { return std::nullopt; }
+    if (!has_memory) { return luisa::nullopt; }
     return PredicatedMemoryDiamond{
         .true_block = true_block,
         .false_block = false_block,
@@ -363,21 +364,21 @@ ScheduleEmitter::_innermost_loop_containing(
     return innermost;
 }
 
-[[nodiscard]] std::optional<ScheduleEmitter::GuardedPredicatedMathDiamond>
+[[nodiscard]] luisa::optional<ScheduleEmitter::GuardedPredicatedMathDiamond>
 ScheduleEmitter::_find_guarded_predicated_math_diamond(
     const schedule::BasicBlock &block,
     bool allow_tiny_speculation) const noexcept {
     if (_width == 1u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *innermost_loop = _innermost_loop_containing(block.id);
-    if (innermost_loop == nullptr) { return std::nullopt; }
+    if (innermost_loop == nullptr) { return luisa::nullopt; }
     auto *split = std::get_if<schedule::SplitTerminator>(
         &block.terminator);
     if (split == nullptr || !split->convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *condition = _source.value(split->condition);
     if (condition == nullptr ||
@@ -388,11 +389,11 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
         !split->false_edge.joins.empty() ||
         split->true_edge.loop_back || split->false_edge.loop_back ||
         split->true_edge.target == split->false_edge.target) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *point = _source.convergence(*split->convergence);
     if (point == nullptr || point->target == block.id) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto predecessor_count = [&](schedule::BlockId target) noexcept {
@@ -445,7 +446,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
 
     static constexpr auto max_chain_block_count = size_t{3u};
     auto collect_chain = [&](const schedule::ControlEdge &entry)
-        -> std::optional<std::vector<const schedule::BasicBlock *>> {
+        -> luisa::optional<std::vector<const schedule::BasicBlock *>> {
         std::vector<const schedule::BasicBlock *> chain;
         auto target = entry.target;
         while (target != point->target &&
@@ -453,12 +454,12 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
             auto *arm = _source.block(target);
             if (arm == nullptr || arm->id == block.id ||
                 predecessor_count(target) != 1u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             auto *branch = std::get_if<schedule::BranchTerminator>(
                 &arm->terminator);
             if (branch == nullptr || branch->edge.loop_back) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             chain.emplace_back(arm);
             auto reaches_merge = branch->edge.target == point->target;
@@ -466,20 +467,20 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
                 if (branch->edge.joins.size() != 1u ||
                     branch->edge.joins.front() !=
                         *split->convergence) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
             } else if (!branch->edge.joins.empty()) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             target = branch->edge.target;
         }
         return target == point->target && !chain.empty() ?
-                   std::optional{std::move(chain)} :
-                   std::nullopt;
+                   luisa::optional{std::move(chain)} :
+                   luisa::nullopt;
     };
     auto true_blocks = collect_chain(split->true_edge);
     auto false_blocks = collect_chain(split->false_edge);
-    if (!true_blocks || !false_blocks) { return std::nullopt; }
+    if (!true_blocks || !false_blocks) { return luisa::nullopt; }
     auto belongs_to_innermost_loop = [&](const auto *candidate) noexcept {
         return candidate != nullptr &&
                std::find(
@@ -494,7 +495,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
         !std::all_of(
             false_blocks->cbegin(), false_blocks->cend(),
             belongs_to_innermost_loop)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto assignments_are_lane_masked = [&](const auto &assignments) noexcept {
@@ -596,7 +597,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
     };
     if (!validate_chain(*true_blocks, true_instruction_count) ||
         !validate_chain(*false_blocks, false_instruction_count)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto instruction_count =
         true_instruction_count + false_instruction_count;
@@ -622,7 +623,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
                              instruction_count <= 24u;
     if (!assignment_only && !guarded_math && !bounded_two_sided &&
         !tiny_speculation_safe) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return GuardedPredicatedMathDiamond{
         .true_blocks = std::move(*true_blocks),
@@ -633,7 +634,7 @@ ScheduleEmitter::_find_guarded_predicated_math_diamond(
     };
 }
 
-[[nodiscard]] std::optional<ScheduleEmitter::NestedPredicatedRegion>
+[[nodiscard]] luisa::optional<ScheduleEmitter::NestedPredicatedRegion>
 ScheduleEmitter::_find_nested_predicated_region(
     const schedule::BasicBlock &block,
     bool allow_tiny_speculation) const noexcept {
@@ -642,14 +643,14 @@ ScheduleEmitter::_find_nested_predicated_region(
             "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_REGIONS") ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_NESTED_PREDICATED_REGION")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *innermost_loop = _innermost_loop_containing(block.id);
-    if (innermost_loop == nullptr) { return std::nullopt; }
+    if (innermost_loop == nullptr) { return luisa::nullopt; }
     auto *split = std::get_if<schedule::SplitTerminator>(
         &block.terminator);
     if (split == nullptr || !split->convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *condition = _source.value(split->condition);
     auto *outer_point = _source.convergence(*split->convergence);
@@ -662,7 +663,7 @@ ScheduleEmitter::_find_nested_predicated_region(
         split->true_edge.loop_back || split->false_edge.loop_back ||
         split->true_edge.target == split->false_edge.target ||
         outer_point->target == block.id) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto predecessor_count = [&](schedule::BlockId target) noexcept {
@@ -776,21 +777,21 @@ ScheduleEmitter::_find_nested_predicated_region(
     auto try_side = [&](const schedule::ControlEdge &nested_edge,
                         const schedule::ControlEdge &other_edge,
                         bool nested_on_true)
-        -> std::optional<NestedPredicatedRegion> {
+        -> luisa::optional<NestedPredicatedRegion> {
         auto *nested_split_block = _source.block(nested_edge.target);
         auto *other_block = _source.block(other_edge.target);
         if (nested_split_block == nullptr || other_block == nullptr ||
             predecessor_count(nested_split_block->id) != 1u ||
             predecessor_count(other_block->id) != 1u ||
             !other_block->instructions.empty()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto nested_diamond =
             _find_guarded_predicated_math_diamond(
                 *nested_split_block, allow_tiny_speculation);
         if (!nested_diamond ||
             nested_diamond->instruction_count > 3u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto *nested_control =
             std::get_if<schedule::SplitTerminator>(
@@ -820,7 +821,7 @@ ScheduleEmitter::_find_nested_predicated_region(
             nested_merge_branch == nullptr || other_branch == nullptr ||
             !closes_outer(nested_merge_branch->edge) ||
             !closes_outer(other_branch->edge)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto belongs_to_innermost_loop = [&](const auto *candidate) noexcept {
             return candidate != nullptr &&
@@ -842,7 +843,7 @@ ScheduleEmitter::_find_nested_predicated_region(
                 nested_diamond->false_blocks.cbegin(),
                 nested_diamond->false_blocks.cend(),
                 belongs_to_innermost_loop)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (nested_split_block->instructions.empty() ||
             nested_split_block->instructions.size() > 12u ||
@@ -850,7 +851,7 @@ ScheduleEmitter::_find_nested_predicated_region(
                 nested_split_block->instructions.cbegin(),
                 nested_split_block->instructions.cend(),
                 safe_instruction)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return NestedPredicatedRegion{
             .nested_split_block = nested_split_block,
@@ -1014,7 +1015,7 @@ void ScheduleEmitter::_emit_nested_predicated_region(
     }
 }
 
-[[nodiscard]] std::optional<ScheduleEmitter::PredicatedLoop>
+[[nodiscard]] luisa::optional<ScheduleEmitter::PredicatedLoop>
 ScheduleEmitter::_find_predicated_loop(
     const schedule::BasicBlock &header) const noexcept {
     static constexpr auto max_block_count = size_t{24u};
@@ -1036,29 +1037,29 @@ ScheduleEmitter::_find_predicated_loop(
         (!enabled_width && !force) ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_PREDICATED_LOOP")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     const schedule::Loop *loop = nullptr;
     for (auto &&candidate : _source.loops()) {
         if (candidate.header == header.id) {
-            if (loop != nullptr) { return std::nullopt; }
+            if (loop != nullptr) { return luisa::nullopt; }
             loop = &candidate;
         }
     }
-    if (loop == nullptr) { return std::nullopt; }
+    if (loop == nullptr) { return luisa::nullopt; }
     // Only the innermost loop is eligible. Flattening a child loop would
     // otherwise turn its dynamic epoch into an unbounded predicated region.
     for (auto &&candidate : _source.loops()) {
         if (candidate.parent == loop->id) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
 
     auto *header_split = std::get_if<schedule::SplitTerminator>(
         &header.terminator);
     if (header_split == nullptr || !header_split->convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *header_condition = _source.value(header_split->condition);
     auto *loop_gate = _source.convergence(
@@ -1068,12 +1069,12 @@ ScheduleEmitter::_find_predicated_loop(
             schedule::ValueClass::varying ||
         loop_gate == nullptr ||
         loop_gate->target == header.id) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto convergence_target = loop_gate->target;
     if (std::find(loop->exits.cbegin(), loop->exits.cend(),
                   convergence_target) == loop->exits.cend()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto safe_arithmetic = [](xir::ArithmeticOp op) noexcept {
@@ -1151,10 +1152,10 @@ ScheduleEmitter::_find_predicated_loop(
             });
     };
     auto edges = [&](const schedule::BasicBlock &block)
-        -> std::optional<std::vector<schedule::ControlEdge>> {
+        -> luisa::optional<std::vector<schedule::ControlEdge>> {
         return std::visit(
             [&](const auto &control)
-                -> std::optional<std::vector<schedule::ControlEdge>> {
+                -> luisa::optional<std::vector<schedule::ControlEdge>> {
                 using T = std::decay_t<decltype(control)>;
                 if constexpr (std::is_same_v<
                                   T, schedule::BranchTerminator>) {
@@ -1170,7 +1171,7 @@ ScheduleEmitter::_find_predicated_loop(
                              schedule::ValueClass::varying &&
                          condition->value_class !=
                              schedule::ValueClass::warp_uniform)) {
-                        return std::nullopt;
+                        return luisa::nullopt;
                     }
                     return std::vector<schedule::ControlEdge>{
                         control.true_edge, control.false_edge};
@@ -1178,7 +1179,7 @@ ScheduleEmitter::_find_predicated_loop(
                                          T, schedule::JoinTerminator>) {
                     auto *point = _source.convergence(
                         control.convergence);
-                    if (point == nullptr) { return std::nullopt; }
+                    if (point == nullptr) { return luisa::nullopt; }
                     schedule::ControlEdge edge{point->target};
                     edge.joins.emplace_back(control.convergence);
                     edge.assignments = control.assignments;
@@ -1189,7 +1190,7 @@ ScheduleEmitter::_find_predicated_loop(
                                          schedule::LoopBackTerminator>) {
                     auto *target_loop = _source.loop(control.loop);
                     if (target_loop == nullptr) {
-                        return std::nullopt;
+                        return luisa::nullopt;
                     }
                     schedule::ControlEdge edge{target_loop->header};
                     edge.loop_back = control.loop;
@@ -1197,7 +1198,7 @@ ScheduleEmitter::_find_predicated_loop(
                     return std::vector<schedule::ControlEdge>{
                         std::move(edge)};
                 } else {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
             },
             block.terminator);
@@ -1219,19 +1220,19 @@ ScheduleEmitter::_find_predicated_loop(
         result.batch_iteration_count = static_cast<uint32_t>(
             *loop->max_trip_count + 1u);
     } else if (!force) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     std::vector<uint8_t> is_loop_block(
         _source.blocks().size(), uint8_t{0u});
     for (auto id : loop->blocks) {
         if (id.value >= is_loop_block.size()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         is_loop_block[id.value] = 1u;
     }
     if (is_loop_block[header.id.value] == 0u ||
         result.exits.empty()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     std::vector<uint8_t> in_region(
         _source.blocks().size(), uint8_t{0u});
@@ -1241,30 +1242,30 @@ ScheduleEmitter::_find_predicated_loop(
     auto saw_exit = false;
     for (auto cursor = size_t{0u}; cursor < pending.size(); cursor++) {
         if (pending.size() > max_block_count) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto id = pending[cursor];
         auto *block = _source.block(id);
         if (block == nullptr ||
             is_loop_block[id.value] == 0u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         for (auto &&instruction : block->instructions) {
             if (!safe_instruction(instruction) ||
                 ++result.instruction_count > max_instruction_count) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
         auto outgoing = edges(*block);
-        if (!outgoing) { return std::nullopt; }
+        if (!outgoing) { return luisa::nullopt; }
         for (auto &&edge : *outgoing) {
             if (!safe_assignments(edge.assignments)) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             if (edge.loop_back) {
                 if (*edge.loop_back != loop->id ||
                     edge.target != header.id) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
                 saw_back_edge = true;
                 continue;
@@ -1279,7 +1280,7 @@ ScheduleEmitter::_find_predicated_loop(
             if (edge.target == header.id ||
                 edge.target.value >= in_region.size() ||
                 is_loop_block[edge.target.value] == 0u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             if (in_region[edge.target.value] == 0u) {
                 in_region[edge.target.value] = 1u;
@@ -1289,12 +1290,12 @@ ScheduleEmitter::_find_predicated_loop(
     }
     if (!saw_back_edge || !saw_exit ||
         (!force && pending.size() < min_default_block_count)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto id : loop->blocks) {
         if (id.value >= in_region.size() ||
             in_region[id.value] == 0u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
 
@@ -1319,7 +1320,7 @@ ScheduleEmitter::_find_predicated_loop(
                      point->target) == result.exits.cend() &&
                  (point->target.value >= in_region.size() ||
                   in_region[point->target.value] == 0u))) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             declared[convergence.value] = 1u;
         }
@@ -1331,7 +1332,7 @@ ScheduleEmitter::_find_predicated_loop(
             for (auto convergence : edge.joins) {
                 if (convergence.value >= declared.size() ||
                     declared[convergence.value] == 0u) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
             }
         }
@@ -1392,7 +1393,7 @@ ScheduleEmitter::_find_predicated_loop(
     for (auto id : pending) {
         if (id != header.id &&
             external_predecessors[id.value] != 0u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
 
@@ -1420,7 +1421,7 @@ ScheduleEmitter::_find_predicated_loop(
         }
     }
     if (ready.size() != 1u || ready.front() != header.id) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto cursor = size_t{0u}; cursor < ready.size(); cursor++) {
         auto id = ready[cursor];
@@ -1438,7 +1439,7 @@ ScheduleEmitter::_find_predicated_loop(
         }
     }
     if (result.order.size() != pending.size()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return result;
 }
@@ -1679,7 +1680,7 @@ void ScheduleEmitter::_emit_predicated_loop(
         static_cast<size_t>(loop.batch_iteration_count));
 }
 
-[[nodiscard]] std::optional<ScheduleEmitter::CoherentAllOnRegion>
+[[nodiscard]] luisa::optional<ScheduleEmitter::CoherentAllOnRegion>
 ScheduleEmitter::_find_coherent_all_on_region(
     const schedule::SplitTerminator &control,
     const schedule::ControlEdge &entry_edge) const noexcept {
@@ -1693,7 +1694,7 @@ ScheduleEmitter::_find_coherent_all_on_region(
         entry_edge.loop_back || !entry_edge.joins.empty() ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_ALL_ON_REGION_VERSIONING")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *condition = _source.value(control.condition);
     auto *point = _source.convergence(*control.convergence);
@@ -1702,7 +1703,7 @@ ScheduleEmitter::_find_coherent_all_on_region(
         point == nullptr ||
         point->target.value >= _target_convergence_depths.size() ||
         _target_convergence_depths[point->target.value] != 1u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto cheap_arithmetic = [](xir::ArithmeticOp op) noexcept {
@@ -1788,7 +1789,7 @@ ScheduleEmitter::_find_coherent_all_on_region(
                             (_abi_size(operand->type) + 3u) / 4u));
                 }
             }
-            return std::optional<size_t>{units};
+            return luisa::optional<size_t>{units};
         }
         if (instruction.opcode == schedule::Opcode::cast &&
             instruction.source_op) {
@@ -1798,7 +1799,7 @@ ScheduleEmitter::_find_coherent_all_on_region(
                 auto *result = instruction.result ?
                                    _source.value(*instruction.result) :
                                    nullptr;
-                return std::optional<size_t>{
+                return luisa::optional<size_t>{
                     result == nullptr || result->type == nullptr ?
                         size_t{1u} :
                         std::max(
@@ -1806,7 +1807,7 @@ ScheduleEmitter::_find_coherent_all_on_region(
                             (_abi_size(result->type) + 3u) / 4u)};
             }
         }
-        return std::optional<size_t>{};
+        return luisa::optional<size_t>{};
     };
 
     CoherentAllOnRegion region;
@@ -1815,22 +1816,22 @@ ScheduleEmitter::_find_coherent_all_on_region(
     auto joined = false;
     while (region.blocks.size() < max_block_count) {
         if (current.value >= visited.size() || visited[current.value]) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         visited[current.value] = true;
         auto *candidate = _source.block(current);
-        if (candidate == nullptr) { return std::nullopt; }
+        if (candidate == nullptr) { return luisa::nullopt; }
         if (current == point->target) {
-            if (!joined) { return std::nullopt; }
+            if (!joined) { return luisa::nullopt; }
         } else if (current.value < _target_convergence_depths.size() &&
                    _target_convergence_depths[current.value] != 0u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         for (auto &&instruction : candidate->instructions) {
             auto cost = instruction_cost(instruction);
             if (!cost || region.weighted_cost + *cost >
                              max_weighted_cost) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             region.weighted_cost += *cost;
             region.instruction_count++;
@@ -1843,13 +1844,13 @@ ScheduleEmitter::_find_coherent_all_on_region(
             if (!joined || next_condition == nullptr ||
                 next_condition->value_class !=
                     schedule::ValueClass::varying) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             // The cloned region ends at this split. Do not let its generic
             // terminator lowering absorb a following memory diamond beyond
             // the block/cost budget recorded here.
             if (_find_predicated_memory_diamond(*candidate)) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             // The all-on test and the cloned CFG have a fixed cost. Paired
             // measurements show that W8 does not amortize that cost over a
@@ -1857,26 +1858,26 @@ ScheduleEmitter::_find_coherent_all_on_region(
             // fail-closed: W8 needs at least one additional scheduler edge.
             if (_width == 8u &&
                 region.blocks.size() < min_w8_block_count) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             return region;
         }
         auto *branch = std::get_if<schedule::BranchTerminator>(
             &candidate->terminator);
         if (branch == nullptr || branch->edge.loop_back) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (!branch->edge.joins.empty()) {
             if (joined || branch->edge.joins.size() != 1u ||
                 branch->edge.joins.front() != *control.convergence ||
                 branch->edge.target != point->target) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             joined = true;
         }
         current = branch->edge.target;
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 void ScheduleEmitter::_emit_coherent_all_on_region(

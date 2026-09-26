@@ -21,6 +21,7 @@
 #include <dlfcn.h>
 #include <vulkan/vulkan_wayland.h>
 #include <wayland-client.h>
+#include <luisa/core/stl/memory.h>
 #endif
 #else
 #error "Unsupported platform"

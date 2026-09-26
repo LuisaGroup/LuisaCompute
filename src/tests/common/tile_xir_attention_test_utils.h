@@ -9,6 +9,7 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -337,7 +338,7 @@ inline void program_team_attention(compute::Device &device, const tile_llm::Case
             auto correct = true;
             for (size_t i = 0u; correct && i < inputs[input].size(); i++) {
                 auto expected_value = overwritten_inputs ? overwritten[input] : inputs[input][i];
-                correct = std::bit_cast<uint32_t>(actual_inputs[input][pad + i]) == std::bit_cast<uint32_t>(expected_value);
+                correct = luisa::bit_cast<uint32_t>(actual_inputs[input][pad + i]) == luisa::bit_cast<uint32_t>(expected_value);
             }
             expect(correct) << "attention input=" << input << " uniform=" << uniform << " overwritten=" << overwritten_inputs;
         }

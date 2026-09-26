@@ -13,6 +13,7 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/coro_rematerialize.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "coro_replayable.h"
 #include "coro_semantic_graph.h"
@@ -229,7 +230,7 @@ struct ReachingValue {
     luisa::vector<StoreInst *> last_stores(block_count, nullptr);
     for (size_t block_id = 0u; block_id < block_count; ++block_id) {
         auto &events = block_events[block_id];
-        std::sort(
+        luisa::sort(
             events.begin(), events.end(),
             [&](Instruction *lhs, Instruction *rhs) noexcept {
                 return instruction_indices.at(lhs) <
@@ -417,7 +418,7 @@ struct ReachingValueWorkspace {
     // of its input, so the backward projection stops there.
     for (auto block_id : workspace.touched_event_blocks) {
         auto &events = workspace.block_events[block_id];
-        std::sort(
+        luisa::sort(
             events.begin(), events.end(),
             [&](const ReachingEvent &lhs,
                 const ReachingEvent &rhs) noexcept {
@@ -453,7 +454,7 @@ struct ReachingValueWorkspace {
     // Semantic graph IDs are reverse postorder. Sorting the projected subset
     // preserves that order: every acyclic predecessor is evaluated before its
     // consumer, while ordinary worklist revisits retain exact loop semantics.
-    std::sort(
+    luisa::sort(
         workspace.active_blocks.begin(),
         workspace.active_blocks.end());
     workspace.forward_worklist = workspace.active_blocks;

@@ -25,6 +25,7 @@
 
 #ifdef _WIN32
 #include <luisa/backends/ext/dx_config_ext.h>
+#include <luisa/core/stl/optional.h>
 // Required by the D3D12 Agility SDK: these exports must be in the main .exe,
 // not in a loaded DLL, so the D3D12 loader can find the SDK runtime.
 extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 619;
@@ -47,7 +48,7 @@ public:
 
 // Create the requested test device (dx with experimental features, vk, or metal4).
 // Returns std::nullopt if the backend is not supported on this platform.
-[[nodiscard]] std::optional<luisa::test::DeviceContext> create_test_device(
+[[nodiscard]] luisa::optional<luisa::test::DeviceContext> create_test_device(
     const char *exe, luisa::string_view backend) {
     if (backend == "dx") {
 #ifdef _WIN32
@@ -63,7 +64,7 @@ public:
         return luisa::test::DeviceContext{std::move(context), std::move(device)};
 #else
         LUISA_INFO("DX backend is not available on this platform; skipping device execution tests.");
-        return std::nullopt;
+        return luisa::nullopt;
 #endif
     }
     if (backend == "vk" || backend == "metal4") {
@@ -72,7 +73,7 @@ public:
         return luisa::test::DeviceContext{std::move(context), std::move(device)};
     }
     LUISA_INFO("This test only supports the dx, vk, or metal4 backend; got '{}'. Skipping device execution tests.", backend);
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 // Verify the type registry can build cooperative-vector-related types.
@@ -1011,7 +1012,7 @@ int main(int argc, char *argv[]) {
     // initialized *after* the backend is loaded.  This avoids tearing down the
     // backend before the runner's destructor finishes, which was causing a
     // debug-iterator assertion on exit for the vk path.
-    std::optional<luisa::test::DeviceContext> dc;
+    luisa::optional<luisa::test::DeviceContext> dc;
     if (argc > 1) {
         dc = create_test_device(exe, argv[1]);
         if (!dc) {

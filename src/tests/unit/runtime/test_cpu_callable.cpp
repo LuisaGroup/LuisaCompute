@@ -6,6 +6,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
 #include <random>
 #include <algorithm>
 #include <iostream>
@@ -50,7 +51,7 @@ void test_cpu_callable(Device &device) {
         args.end = args.begin + batch;
         auto sort = CpuCallable<SortArgs>([](SortArgs &args) {
             auto buffer = reinterpret_cast<uint *>(args.buffer_ptr);
-            std::sort(buffer + args.begin, buffer + args.end);
+            luisa::sort(buffer + args.begin, buffer + args.end);
         });
         Local<uint> arr{batch};
         $for (i, batch) {

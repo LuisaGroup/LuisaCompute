@@ -15,6 +15,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace luisa;
@@ -255,12 +256,12 @@ public:
 
 [[nodiscard]] bool artifact_contains_text(
     luisa::span<const std::byte> artifact,
-    std::string_view text) noexcept {
+    luisa::string_view text) noexcept {
     if (artifact.empty() || text.empty()) { return false; }
-    const auto bytes = std::string_view{
+    const auto bytes = luisa::string_view{
         reinterpret_cast<const char *>(artifact.data()),
         artifact.size_bytes()};
-    return bytes.find(text) != std::string_view::npos;
+    return bytes.find(text) != luisa::string_view::npos;
 }
 
 [[nodiscard]] int run_cached_kernel(

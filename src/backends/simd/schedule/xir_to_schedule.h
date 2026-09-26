@@ -7,6 +7,8 @@
 #include <vector>
 
 #include "schedule_ir.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::xir {
 class BasicBlock;
@@ -52,7 +54,7 @@ struct XIRToScheduleOptions {
     // whole-operation lowering may preserve the caller-proven classes across
     // a private callback boundary by supplying one class per source argument.
     // This is deliberately backend-private: no public DSL ABI depends on it.
-    std::span<const ValueClass> parameter_value_classes{};
+    luisa::span<const ValueClass> parameter_value_classes{};
     // Canonical counted headers can remain cohort-equal after an unrelated
     // earlier divergence. Publish a use-site predicate fact, not a global
     // scalarization of induction/state values across reconvergence.
@@ -63,7 +65,7 @@ struct XIRToScheduleOptions {
 };
 
 struct XIRToScheduleResult {
-    std::optional<Function> function{};
+    luisa::optional<Function> function{};
     // Stable side table for high-level operations whose function operands are
     // intentionally not copied into dependency-light Schedule IR. The caller
     // consumes these pointers while the source XIR module is still alive.

@@ -1,4 +1,5 @@
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_error.h"
 #include "cuda_device.h"
@@ -24,7 +25,7 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
 
     auto load_ptx = [&](const void *ptx, size_t ptx_size) noexcept {
         auto devrt = device->cudadevrt_library();
-        if (devrt.empty() || std::string_view{static_cast<const char *>(ptx), ptx_size}.find("kernel_launcher") == std::string_view::npos) {
+        if (devrt.empty() || luisa::string_view{static_cast<const char *>(ptx), ptx_size}.find("kernel_launcher") == luisa::string_view::npos) {
             LUISA_WARNING_WITH_LOCATION(
                 "CUDA Device Runtime library is not linked. "
                 "Indirect dispatch will not be available for this kernel.");

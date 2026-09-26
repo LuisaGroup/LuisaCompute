@@ -8,6 +8,8 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -26,7 +28,7 @@ using Clock = std::chrono::steady_clock;
 namespace {
 
 [[nodiscard]] int64_t positive(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     int64_t n{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), n);
     LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && n > 0, "expected positive integer: {}", text);
@@ -58,7 +60,7 @@ void samples(const char *name, span<const double> values) {
 int main(int argc, char *argv[]) {
     auto attention_qk_reduction = false;
     auto attention_pv_reduction = false;
-    auto attention = argc > 2 && std::string_view{argv[1]} == "llm" && std::string_view{argv[2]} == "attention";
+    auto attention = argc > 2 && luisa::string_view{argv[1]} == "llm" && luisa::string_view{argv[2]} == "attention";
     for (auto [name, reduction] : {std::pair{"LUISA_TILE_BENCH_ATTENTION_QK", &attention_qk_reduction},
                                    std::pair{"LUISA_TILE_BENCH_ATTENTION_PV", &attention_pv_reduction}}) {
         if (auto setting = std::getenv(name)) {
@@ -66,7 +68,7 @@ int main(int argc, char *argv[]) {
                 std::cerr << name << " requires llm attention\n";
                 return 1;
             }
-            auto text = std::string_view{setting};
+            auto text = luisa::string_view{setting};
             if (text != "mma" && text != "reduce") {
                 std::cerr << name << " must be mma or reduce; got '" << text << "'\n";
                 return 1;
@@ -74,7 +76,7 @@ int main(int argc, char *argv[]) {
             *reduction = text == "reduce";
         }
     }
-    if (argc > 1 && (std::string_view{argv[1]} == "llm" || std::string_view{argv[1]} == "rank")) {
+    if (argc > 1 && (luisa::string_view{argv[1]} == "llm" || luisa::string_view{argv[1]} == "rank")) {
         auto planner = tile::bridge::xir::PlannerOptions{};
         // Diagnostic candidate control belongs to the benchmark, not a
         // kernel-name or environment special case in production planning.
@@ -89,7 +91,7 @@ int main(int argc, char *argv[]) {
                                    std::pair{"LUISA_TILE_BENCH_XIR_MMA_UNROLL_TERMS", &planner.max_unrolled_mma_terms},
                                    std::pair{"LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN", &search_grain}}) {
             if (auto setting = std::getenv(name)) {
-                auto text = std::string_view{setting};
+                auto text = luisa::string_view{setting};
                 auto parsed = std::from_chars(text.data(), text.data() + text.size(), *value);
                 if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
                     std::cerr << "Invalid " << name << " (expected unsigned integer)\n";
@@ -124,14 +126,14 @@ int main(int argc, char *argv[]) {
             std::cerr << "LUISA_TILE_BENCH_XIR_BACKEND must be simd or metal4\n";
             return 1;
         }
-        if (std::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, backend, {.xir = &planner}); }
+        if (luisa::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, backend, {.xir = &planner}); }
         return test::tile_llm::benchmark(argc, argv, backend, {.xir = &planner}, false, false, attention_qk_reduction, attention_pv_reduction);
     }
     if (argc < 12 || argc > 14) {
         std::cerr << "Usage: benchmark_tile_xir fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N tile-K [planned|canonical|reversed [block-workers]]\n";
         return 1;
     }
-    LUISA_ASSERT(std::string_view{argv[1]} == "fp32", "only FP32 supported");
+    LUISA_ASSERT(luisa::string_view{argv[1]} == "fp32", "only FP32 supported");
     test::tile_xir::Gemm cfg{positive(argv[2]), positive(argv[3]), positive(argv[4]), positive(argv[9]), positive(argv[10]), positive(argv[11])};
     auto count = positive(argv[5]), target_ms = positive(argv[6]), warmup_ms = positive(argv[7]);
     LUISA_ASSERT(cfg.m <= 16384 && cfg.n <= 16384 && cfg.k <= 16384 && cfg.bm <= 64 && cfg.bn <= 64 && cfg.bk <= 64 &&
@@ -139,12 +141,12 @@ int main(int argc, char *argv[]) {
                  "invalid shape/schedule/timing limits");
     auto require_missing = [](const char *path) {
         std::error_code error;
-        auto exists = std::filesystem::exists(path, error);
+        auto exists = luisa::filesystem::exists(path, error);
         LUISA_ASSERT(!error, "cannot inspect benchmark path {}: {}", path, error.message());
         LUISA_ASSERT(!exists, "benchmark path already exists: {}", path);
     };
     require_missing(argv[8]);
-    auto policy = argc > 12 ? std::string_view{argv[12]} : std::string_view{"planned"};
+    auto policy = argc > 12 ? luisa::string_view{argv[12]} : luisa::string_view{"planned"};
     auto planner = tile::bridge::xir::PlannerOptions{};
     if (policy == "canonical") {
         planner.root_axis_order = {0u, 1u};

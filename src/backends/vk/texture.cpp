@@ -4,6 +4,7 @@
 #include "sparse_binding_plan.h"
 #include "log.h"
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 namespace lc::vk {
 using namespace luisa::compute;
 namespace {
@@ -361,7 +362,7 @@ void Texture::init_as_sparse(
         &sparse_requirement_count, sparse_requirements.data());
     sparse_requirements.resize(sparse_requirement_count);
     auto selection = detail::select_sparse_image_requirements(
-        std::span<const VkSparseImageMemoryRequirements>{
+        luisa::span<const VkSparseImageMemoryRequirements>{
             sparse_requirements.data(), sparse_requirements.size()});
     LUISA_ASSERT(
         static_cast<bool>(selection),

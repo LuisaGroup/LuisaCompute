@@ -480,7 +480,7 @@ public:
     ///   CUSTOM := [a-zA-Z_][a-zA-Z0-9_]* \n
     /// @example Type::from("array\<struct\<16,float,int,int,uint\>,233\>")
     /// @note Spaces are not allowed between tokens.
-    [[nodiscard]] static const Type *from(std::string_view description) noexcept;
+    [[nodiscard]] static const Type *from(luisa::string_view description) noexcept;
 
     /// Return type count
     [[nodiscard]] static size_t count() noexcept;

@@ -32,7 +32,7 @@ constexpr auto warmup_dispatch_count = 256u;
 constexpr auto sample_count = 9u;
 
 [[nodiscard]] bool parse_positive_uint(
-    std::string_view text, uint32_t &value) noexcept {
+    luisa::string_view text, uint32_t &value) noexcept {
     auto result = std::from_chars(
         text.data(), text.data() + text.size(), value);
     return result.ec == std::errc{} &&
@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
                      "[compile-variant]\n";
         return 1;
     }
-    auto backend = std::string_view{argv[1]};
+    auto backend = luisa::string_view{argv[1]};
     if (backend != "metal" && backend != "metal4") {
         std::cerr << "Backend must be 'metal' or 'metal4'.\n";
         return 1;

@@ -5,6 +5,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -16,8 +17,8 @@ static auto suite = [] {
 
         const auto ir_to_isa = options.ir_to_isa_options();
         expect(ir_to_isa.size() == 2u);
-        expect(std::string_view{ir_to_isa[0]} == "-mllvm");
-        expect(std::string_view{ir_to_isa[1]} ==
+        expect(luisa::string_view{ir_to_isa[0]} == "-mllvm");
+        expect(luisa::string_view{ir_to_isa[1]} ==
                "-amdgpu-inline-max-bb=0");
 
         const auto jit_options =

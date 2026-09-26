@@ -4,6 +4,9 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 #include "metal_builtin_embedded.hpp"
 #include "metal_codegen_ast.h"
 
@@ -126,7 +129,7 @@ size_t MetalCodegenAST::type_size_bytes(const Type *type) noexcept {
     for (auto &&callable : function.custom_callables()) {
         callables.emplace_back(callable->function());
     }
-    std::sort(
+    luisa::sort(
         callables.begin(), callables.end(),
         [](Function lhs, Function rhs) noexcept {
             return lhs.hash() < rhs.hash();
@@ -185,7 +188,7 @@ void MetalCodegenAST::_emit_type_decls(Function kernel) noexcept {
     sorted.reserve(types.size());
     std::copy(types.cbegin(), types.cend(),
               std::back_inserter(sorted));
-    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+    luisa::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
 
@@ -1184,7 +1187,7 @@ void MetalCodegenAST::visit(const MemberExpr *expr) noexcept {
             }
             _scratch << ", " << expr->swizzle_index(0u) << ")";
         } else {
-            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+            static constexpr luisa::string_view xyzw[]{"x", "y", "z", "w"};
             _scratch << "(";
             expr->self()->accept(*this);
             _scratch << ").";
@@ -1968,7 +1971,7 @@ void MetalCodegenAST::visit(const CommentStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "// ";
     for (auto c : stmt->comment()) {
-        _scratch << std::string_view{&c, 1u};
+        _scratch << luisa::string_view{&c, 1u};
         if (c == '\n') {
             _emit_indention();
             _scratch << "// ";

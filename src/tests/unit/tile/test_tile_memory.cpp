@@ -4,6 +4,7 @@
 #include "ut/ut.hpp"
 
 #include <luisa/tile.h>
+#include <luisa/core/stl/optional.h>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -220,7 +221,7 @@ void test_lexical_ownership() {
 }
 
 void test_capture_lifetime() {
-    std::optional<Memory<float>> escaped;
+    luisa::optional<Memory<float>> escaped;
     auto original = tile_kernel("memory_original_capture", [&] {
                         escaped.emplace(memory<float>(shape(7)));
                         escaped->store(zeros<float>(shape(7)));

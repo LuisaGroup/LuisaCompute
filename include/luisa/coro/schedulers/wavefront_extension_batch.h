@@ -4,6 +4,7 @@
 #include <bit>
 
 #include <luisa/coro/schedulers/wavefront_extension.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::coro::detail {
 
@@ -54,8 +55,8 @@ struct WavefrontCoroResumeBatchEntry {
             if (aa[j].name != ba[j].name ||
                 aa[j].value.index() != ba[j].value.index()) { return false; }
             if (auto *av = luisa::get_if<double>(&aa[j].value)) {
-                if (std::bit_cast<uint64_t>(*av) !=
-                    std::bit_cast<uint64_t>(luisa::get<double>(ba[j].value))) { return false; }
+                if (luisa::bit_cast<uint64_t>(*av) !=
+                    luisa::bit_cast<uint64_t>(luisa::get<double>(ba[j].value))) { return false; }
             } else if (aa[j].value != ba[j].value) { return false; }
         }
         auto ab = ae.bindings();

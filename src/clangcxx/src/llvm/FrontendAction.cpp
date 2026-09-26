@@ -2,6 +2,7 @@
 #include "FrontendAction.h"
 #include "ASTConsumer.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::clangcxx {
 

@@ -45,6 +45,8 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/runtime/context.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace image_process {
 
@@ -77,26 +79,26 @@ void print_usage(const char *program) noexcept {
 }
 
 /// Parse an operator list specification: "<name> [r g b a]; <name> [r g b a]; ...".
-[[nodiscard]] bool parse_operator_spec(std::string_view text,
+[[nodiscard]] bool parse_operator_spec(luisa::string_view text,
                                        luisa::vector<OperatorEntry> &operators) noexcept {
-    auto trim = [](std::string_view s) noexcept {
+    auto trim = [](luisa::string_view s) noexcept {
         auto begin = s.find_first_not_of(" \t\r\n");
-        if (begin == std::string_view::npos) { return std::string_view{}; }
+        if (begin == luisa::string_view::npos) { return luisa::string_view{}; }
         auto end = s.find_last_not_of(" \t\r\n");
         return s.substr(begin, end - begin + 1u);
     };
     auto start = size_t{0u};
     while (start < text.size()) {
         auto separator = text.find(';', start);
-        auto segment = trim(text.substr(start, separator == std::string_view::npos ? std::string_view::npos : separator - start));
-        start = separator == std::string_view::npos ? text.size() : separator + 1u;
+        auto segment = trim(text.substr(start, separator == luisa::string_view::npos ? luisa::string_view::npos : separator - start));
+        start = separator == luisa::string_view::npos ? text.size() : separator + 1u;
         if (segment.empty()) { continue; }
         auto name_end = segment.find_first_of(" \t");
         auto name = segment.substr(0u, name_end);
         OperatorEntry entry;
         auto found = false;
         for (auto i = 0u; i < op_code_count; i++) {
-            auto candidate = std::string_view{op_name(static_cast<OpCode>(i))};
+            auto candidate = luisa::string_view{op_name(static_cast<OpCode>(i))};
             auto equal = name.size() == candidate.size();
             if (equal) {
                 for (auto k = 0u; k < name.size(); k++) {
@@ -117,13 +119,13 @@ void print_usage(const char *program) noexcept {
             LUISA_WARNING("Unknown operator '{}' in --operators.", name);
             return false;
         }
-        if (name_end != std::string_view::npos) {
+        if (name_end != luisa::string_view::npos) {
             auto arguments = trim(segment.substr(name_end));
             for (auto i = 0u; i < 4u && !arguments.empty(); i++) {
                 auto space = arguments.find_first_of(" \t");
                 auto token = arguments.substr(0u, space);
                 entry.argument[i] = std::strtof(std::string{token}.c_str(), nullptr);
-                if (space == std::string_view::npos) { break; }
+                if (space == luisa::string_view::npos) { break; }
                 arguments = trim(arguments.substr(space));
             }
         }
@@ -136,8 +138,8 @@ void print_usage(const char *program) noexcept {
     if (argc <= 1) { return false; }
     options.backend = argv[1];
     for (auto i = 2; i < argc; i++) {
-        std::string_view arg{argv[i]};
-        auto next = [&]() -> std::string_view {
+        luisa::string_view arg{argv[i]};
+        auto next = [&]() -> luisa::string_view {
             if (i + 1 < argc) { return argv[++i]; }
             LUISA_WARNING("Missing value for option '{}'.", arg);
             return {};
@@ -171,20 +173,20 @@ void print_usage(const char *program) noexcept {
 // Small path helpers (UTF-8 strings)
 // ---------------------------------------------------------------------------
 
-[[nodiscard]] luisa::string file_name_of(std::string_view path) noexcept {
+[[nodiscard]] luisa::string file_name_of(luisa::string_view path) noexcept {
     auto pos = path.find_last_of("/\\");
-    return luisa::string{pos == std::string_view::npos ? path : path.substr(pos + 1u)};
+    return luisa::string{pos == luisa::string_view::npos ? path : path.substr(pos + 1u)};
 }
 
-[[nodiscard]] luisa::string stem_of(std::string_view path) noexcept {
+[[nodiscard]] luisa::string stem_of(luisa::string_view path) noexcept {
     auto name = file_name_of(path);
     auto dot = name.find_last_of('.');
     return dot == luisa::string::npos ? name : luisa::string{name.substr(0u, dot)};
 }
 
-[[nodiscard]] luisa::string directory_of(std::string_view path) noexcept {
+[[nodiscard]] luisa::string directory_of(luisa::string_view path) noexcept {
     auto pos = path.find_last_of("/\\");
-    return pos == std::string_view::npos ? luisa::string{} : luisa::string{path.substr(0u, pos + 1u)};
+    return pos == luisa::string_view::npos ? luisa::string{} : luisa::string{path.substr(0u, pos + 1u)};
 }
 
 [[nodiscard]] const char *const *operator_names() noexcept {
@@ -238,7 +240,7 @@ constexpr wchar_t kSaveFilter[] =
     return result;
 }
 
-[[nodiscard]] bool utf8_to_wide(std::string_view utf8, wchar_t *out, size_t capacity) noexcept {
+[[nodiscard]] bool utf8_to_wide(luisa::string_view utf8, wchar_t *out, size_t capacity) noexcept {
     if (capacity == 0u) { return false; }
     out[0] = L'\0';
     if (utf8.empty()) { return true; }
@@ -250,7 +252,7 @@ constexpr wchar_t kSaveFilter[] =
     return true;
 }
 
-[[nodiscard]] int save_filter_index(std::string_view extension) noexcept {
+[[nodiscard]] int save_filter_index(luisa::string_view extension) noexcept {
     if (extension == ".jpg" || extension == ".jpeg") { return 2; }
     if (extension == ".bmp") { return 3; }
     if (extension == ".tga") { return 4; }
@@ -258,7 +260,7 @@ constexpr wchar_t kSaveFilter[] =
     return 1;// png
 }
 
-[[nodiscard]] std::optional<luisa::string> open_image_dialog(GLFWwindow *window) noexcept {
+[[nodiscard]] luisa::optional<luisa::string> open_image_dialog(GLFWwindow *window) noexcept {
     wchar_t file_buffer[4096]{};
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
@@ -269,19 +271,19 @@ constexpr wchar_t kSaveFilter[] =
     ofn.nMaxFile = static_cast<DWORD>(sizeof(file_buffer) / sizeof(file_buffer[0]));
     ofn.lpstrTitle = L"Load image";
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
-    if (::GetOpenFileNameW(&ofn) == FALSE) { return std::nullopt; }
+    if (::GetOpenFileNameW(&ofn) == FALSE) { return luisa::nullopt; }
     return wide_to_utf8(file_buffer);
 }
 
-[[nodiscard]] std::optional<luisa::string> save_image_dialog(GLFWwindow *window,
-                                                             std::string_view directory,
-                                                             std::string_view file_name,
-                                                             std::string_view extension) noexcept {
+[[nodiscard]] luisa::optional<luisa::string> save_image_dialog(GLFWwindow *window,
+                                                             luisa::string_view directory,
+                                                             luisa::string_view file_name,
+                                                             luisa::string_view extension) noexcept {
     wchar_t file_buffer[4096]{};
     auto default_path = std::string{directory} + std::string{file_name};
     if (!utf8_to_wide(default_path, file_buffer, sizeof(file_buffer) / sizeof(file_buffer[0]))) {
         LUISA_WARNING("The default save path '{}' is not a valid path.", default_path);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     wchar_t default_extension[16]{};
     auto ext = extension;
@@ -300,21 +302,21 @@ constexpr wchar_t kSaveFilter[] =
     ofn.lpstrTitle = L"Save processed image";
     ofn.lpstrDefExt = default_extension;
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
-    if (::GetSaveFileNameW(&ofn) == FALSE) { return std::nullopt; }
+    if (::GetSaveFileNameW(&ofn) == FALSE) { return luisa::nullopt; }
     return wide_to_utf8(file_buffer);
 }
 
 #else// not Windows
 
-[[nodiscard]] std::optional<luisa::string> open_image_dialog(GLFWwindow *) noexcept {
+[[nodiscard]] luisa::optional<luisa::string> open_image_dialog(GLFWwindow *) noexcept {
     LUISA_WARNING("Native file dialogs are only implemented on Windows; use --image <path>.");
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
-[[nodiscard]] std::optional<luisa::string> save_image_dialog(GLFWwindow *, std::string_view,
-                                                             std::string_view, std::string_view) noexcept {
+[[nodiscard]] luisa::optional<luisa::string> save_image_dialog(GLFWwindow *, luisa::string_view,
+                                                             luisa::string_view, luisa::string_view) noexcept {
     LUISA_WARNING("Native file dialogs are only implemented on Windows; use --save-to <path>.");
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 #endif

@@ -27,6 +27,7 @@
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "coro_guarded_scalar_relation.h"
 #include "coro_scalar_relation_liveness.h"
@@ -159,7 +160,7 @@ struct ActiveSlice {
             }
         }
     }
-    std::sort(worklist.begin(), worklist.end());
+    luisa::sort(worklist.begin(), worklist.end());
     result.blocks = std::move(worklist);
     result.valid = true;
     return result;
@@ -1336,7 +1337,7 @@ private:
 public:
     explicit TagDomain(luisa::vector<uint64_t> constants) noexcept
         : _constants{std::move(constants)} {
-        std::sort(_constants.begin(), _constants.end());
+        luisa::sort(_constants.begin(), _constants.end());
         _constants.erase(
             std::unique(_constants.begin(), _constants.end()),
             _constants.end());

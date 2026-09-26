@@ -14,6 +14,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "cornell_box.h"
 
@@ -41,16 +42,16 @@ enum class TraceMode {
     direct,
 };
 
-[[nodiscard]] static std::optional<TraceMode> parse_trace_mode(
-    std::string_view name) noexcept {
+[[nodiscard]] static luisa::optional<TraceMode> parse_trace_mode(
+    luisa::string_view name) noexcept {
     if (name == "cutout-query") { return TraceMode::cutout_query; }
     if (name == "accept-query") { return TraceMode::accept_query; }
     if (name == "opaque-query") { return TraceMode::opaque_query; }
     if (name == "direct") { return TraceMode::direct; }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
-[[nodiscard]] static std::string_view trace_mode_name(
+[[nodiscard]] static luisa::string_view trace_mode_name(
     TraceMode mode) noexcept {
     switch (mode) {
         case TraceMode::cutout_query: return "cutout-query";
@@ -95,13 +96,13 @@ int main(int argc, char *argv[]) {
     auto enable_ray_query_pipeline = true;
     auto force_ray_query_pipeline = false;
     for (auto i = 2; i < argc; i++) {
-        auto option = std::string_view{argv[i]};
+        auto option = luisa::string_view{argv[i]};
         if (option == "--max-registers") {
             if (i + 1 >= argc) {
                 LUISA_WARNING("Missing value for {}.", option);
                 return 1;
             }
-            auto value = std::string_view{argv[++i]};
+            auto value = luisa::string_view{argv[++i]};
             auto parsed = luisa::ref::parse_uint32_option_value(value);
             if (!parsed) {
                 LUISA_WARNING("Invalid value '{}' for {}.", value, option);
@@ -124,7 +125,7 @@ int main(int argc, char *argv[]) {
                 LUISA_WARNING("Missing value for {}.", option);
                 return 1;
             }
-            auto lowering = std::string_view{argv[++i]};
+            auto lowering = luisa::string_view{argv[++i]};
             if (lowering == "pipeline") {
                 enable_ray_query_pipeline = true;
                 force_ray_query_pipeline = true;
@@ -143,7 +144,7 @@ int main(int argc, char *argv[]) {
                 LUISA_WARNING("Missing value for {}.", option);
                 return 1;
             }
-            auto value = std::string_view{argv[++i]};
+            auto value = luisa::string_view{argv[++i]};
             auto parsed = luisa::ref::parse_uint32_option_value(value);
             if (!parsed || *parsed > 64u) {
                 LUISA_WARNING(
@@ -175,7 +176,7 @@ int main(int argc, char *argv[]) {
     obj_reader_config.vertex_color = false;
     tinyobj::ObjReader obj_reader;
     if (!obj_reader.ParseFromString(obj_string, "", obj_reader_config)) {
-        std::string_view error_message = "unknown error.";
+        luisa::string_view error_message = "unknown error.";
         if (auto &&e = obj_reader.Error(); !e.empty()) { error_message = e; }
         LUISA_ERROR_WITH_LOCATION("Failed to load OBJ file: {}", error_message);
     }
@@ -581,10 +582,10 @@ int main(int argc, char *argv[]) {
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
 
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution);
+        window = luisa::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
@@ -657,7 +658,7 @@ int main(int argc, char *argv[]) {
            << synchronize();
 
     auto sorted_rendering_times = rendering_times;
-    std::sort(sorted_rendering_times.begin(), sorted_rendering_times.end());
+    luisa::sort(sorted_rendering_times.begin(), sorted_rendering_times.end());
     auto middle = sorted_rendering_times.size() / 2u;
     auto median_rendering_time_ms = sorted_rendering_times[middle];
     if (sorted_rendering_times.size() % 2u == 0u) {

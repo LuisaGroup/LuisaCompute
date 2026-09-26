@@ -174,8 +174,8 @@ void render_motion_instance(Device &device,
                                   1u, 0u));
     };
     ShaderOption query_shader_option{.enable_cache = false};
-    query_shader_option.name = std::filesystem::absolute(
-        std::filesystem::path{opts.output_dir} /
+    query_shader_option.name = luisa::filesystem::absolute(
+        luisa::filesystem::path{opts.output_dir} /
         "test_metal4_motion_ray_query.aot").string();
     auto query_shader =
         device.compile(render_query, query_shader_option);
@@ -302,9 +302,9 @@ void render_motion_instance(Device &device,
             << "matrix MotionInstance render does not move with ray time";
     }
 
-    auto output_directory = std::filesystem::path{opts.output_dir};
+    auto output_directory = luisa::filesystem::path{opts.output_dir};
     std::error_code error;
-    std::filesystem::create_directories(output_directory, error);
+    luisa::filesystem::create_directories(output_directory, error);
     expect(!error) << "failed to create motion-render output directory";
     auto output_path =
         output_directory / "test_metal4_motion_instance.png";

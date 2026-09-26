@@ -43,6 +43,8 @@
 
 #if ENABLE_DISPLAY
 #include <luisa/gui/window.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #endif
 
 int main(int argc, char *argv[]) {
@@ -102,10 +104,10 @@ int main(int argc, char *argv[]) {
     // Setup graphics pipeline
     Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("MPM88", resolution, resolution);
+        window = luisa::make_unique<Window>("MPM88", resolution, resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

@@ -4326,7 +4326,7 @@ void repair_target_state_dispatch_ssa(
             "Selection-exit target must belong to its function.");
         return iter->second;
     };
-    std::sort(
+    luisa::sort(
         normalized_edges.begin(), normalized_edges.end(),
         [&](const RerouteEdge &lhs,
             const RerouteEdge &rhs) noexcept {
@@ -4373,7 +4373,7 @@ void repair_target_state_dispatch_ssa(
             stable_fallback = target;
         }
     }
-    std::sort(
+    luisa::sort(
         targets.begin(), targets.end(),
         [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
             auto lhs_boundary =

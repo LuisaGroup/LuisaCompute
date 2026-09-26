@@ -4,6 +4,8 @@
 // is quadratic, not a tuned sorting/selection implementation or planner policy.
 #include <luisa/core/logging.h>
 #include <luisa/tile/algorithms.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -50,7 +52,7 @@ inline void populate(Case &fixture, InputPattern pattern = InputPattern::DUPLICA
         std::iota(order.begin(), order.end(), int64_t{0});
         // A total comparator makes the oracle independent of the host sort's
         // stability. Signed zero compares equal and keeps original index order.
-        std::sort(order.begin(), order.end(), [&](int64_t a, int64_t b) {
+        luisa::sort(order.begin(), order.end(), [&](int64_t a, int64_t b) {
             auto x = fixture.input[static_cast<size_t>(row * fixture.columns + a)];
             auto y = fixture.input[static_cast<size_t>(row * fixture.columns + b)];
             return x == y ? a < b : fixture.descending ? x > y :
@@ -131,7 +133,7 @@ struct Validation {
                      data.indices.size() == fixture.expected_indices.size() + 2u * GuardedData::pad,
                  "ranking validation requires complete padded allocations");
     Validation result;
-    auto same_bits = [](float a, float b) { return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b); };
+    auto same_bits = [](float a, float b) { return luisa::bit_cast<uint32_t>(a) == luisa::bit_cast<uint32_t>(b); };
     for (auto i = size_t{0}; i < fixture.input.size(); i++) {
         result.input_mismatches += !same_bits(data.input[i + GuardedData::pad], fixture.input[i]);
     }

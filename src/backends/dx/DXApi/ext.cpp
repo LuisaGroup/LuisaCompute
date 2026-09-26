@@ -14,6 +14,7 @@
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
 #include <luisa/runtime/image.h>
+#include <luisa/core/stl/filesystem.h>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -176,7 +177,7 @@ void DStorageExtImpl::_init_factory() {
     }
     _init_factory_nolock();
 }
-DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept
+DStorageExtImpl::DStorageExtImpl(luisa::filesystem::path const &runtime_dir, LCDevice *device) noexcept
     : _dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       _dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
       _mdevice{device} {

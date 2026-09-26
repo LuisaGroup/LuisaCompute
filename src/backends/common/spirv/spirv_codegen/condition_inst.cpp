@@ -9,6 +9,7 @@
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/core/stl/memory.h>
 
 namespace lc::spirv {
 
@@ -23,7 +24,7 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
                  "SPIR-V If region contains an unbound physical block.");
 
     if (region.emit_selection_merge) {
-        auto merge = std::make_unique<spv::Instruction>(
+        auto merge = luisa::make_unique<spv::Instruction>(
             spv::Op::OpSelectionMerge);
         merge->reserveOperands(2u);
         merge->addIdOperand(merge_target->getId());
@@ -108,13 +109,13 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto *default_target = _physical_block(region.default_target);
     LUISA_ASSERT(merge_target != nullptr && default_target != nullptr,
                  "SPIR-V Switch has an unbound merge or default target.");
-    auto selection_merge = std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+    auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2u);
     selection_merge->addIdOperand(merge_target->getId());
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
     _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
 
-    auto switch_instruction = std::make_unique<spv::Instruction>(spv::Op::OpSwitch);
+    auto switch_instruction = luisa::make_unique<spv::Instruction>(spv::Op::OpSwitch);
     switch_instruction->reserveOperands(layout.operand_word_count);
     switch_instruction->addIdOperand(selector);
     switch_instruction->addIdOperand(default_target->getId());

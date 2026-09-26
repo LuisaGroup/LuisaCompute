@@ -28,6 +28,7 @@
 #include <cstdint>
 
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -94,7 +95,7 @@ _MTL_OPTIONS(NS::UInteger, CommandBufferErrorOption) {
 };
 
 using CommandBufferHandler = void (^)(CommandBuffer*);
-using HandlerFunction = std::function<void(CommandBuffer*)>;
+using HandlerFunction = luisa::function<void(CommandBuffer*)>;
 
 class CommandBufferDescriptor : public NS::Copying<CommandBufferDescriptor>
 {

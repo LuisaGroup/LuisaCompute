@@ -1,6 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
 #include <array>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -169,7 +170,7 @@ ScheduleEmitter::_ray_query_output_surface_filter_ray_packet_for_call(
     ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
     ::llvm::Value *active_mask_bits, uint32_t runtime_flag,
     ::llvm::Value *narrowing_eligible,
-    std::string_view label) {
+    luisa::string_view label) {
 #if LLVM_VERSION_MAJOR < 18
     static_cast<void>(runtime_flag);
     static_cast<void>(narrowing_eligible);

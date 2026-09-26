@@ -5,6 +5,7 @@
 #include "tile_tirx_test_utils.h"
 
 #include <luisa/tile/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +22,7 @@ using luisa::test::tile_tirx::Runtime;
 namespace {
 
 [[nodiscard]] tvm::ffi::String metal_source(const tvm::ffi::Module &module) {
-    if (std::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
+    if (luisa::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
     for (auto &&child : module->imports()) {
         auto source = metal_source(child.cast<tvm::ffi::Module>());
         if (!source.empty()) { return source; }
@@ -110,12 +111,12 @@ void test_prefetch(Runtime &runtime, int32_t iterations, int32_t columns,
     if (!executable.ok()) { return; }
     if (runtime.target() == "metal" && iterations == 5 && columns == 37 && policy.window == 2 && policy.interval == 1) {
         auto source = metal_source(executable.module.value());
-        auto code = std::string_view{source.data(), source.size()};
+        auto code = luisa::string_view{source.data(), source.size()};
         // This is a structural acceptance check, not just equivalent serial
         // results: the cross-stage load must have two actual storage versions.
         expect(!structure.first_storage.empty());
         auto storage_name = structure.first_storage + (scope == exec::Scope::GROUP ? "_shared" : "");
-        expect(code.find(storage_name + "[74]") != std::string_view::npos) << source;
+        expect(code.find(storage_name + "[74]") != luisa::string_view::npos) << source;
     }
     luisa::vector<float> input_values(static_cast<size_t>(height * columns));
     for (auto i = 0u; i < input_values.size(); i++) {

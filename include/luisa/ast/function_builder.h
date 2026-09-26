@@ -16,6 +16,7 @@
 
 // Runtime depends on AST but this file is header only.
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa {
 class MemorySanitizer;

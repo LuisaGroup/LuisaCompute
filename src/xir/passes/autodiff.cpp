@@ -24,6 +24,7 @@
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/core/stl/algorithm.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -2337,7 +2338,7 @@ struct TransformAdScope {
     }
 
     void remove_ad_intrinsics() noexcept {
-        std::sort(removable_intrinsics.begin(), removable_intrinsics.end());
+        luisa::sort(removable_intrinsics.begin(), removable_intrinsics.end());
         removable_intrinsics.erase(std::unique(removable_intrinsics.begin(), removable_intrinsics.end()), removable_intrinsics.end());
         for (auto inst : removable_intrinsics) {
             if (inst->is_linked()) {
@@ -3212,7 +3213,7 @@ struct TransformForwardAdScope {
     }
 
     void remove_intrinsics() noexcept {
-        std::sort(removable_intrinsics.begin(), removable_intrinsics.end());
+        luisa::sort(removable_intrinsics.begin(), removable_intrinsics.end());
         removable_intrinsics.erase(std::unique(removable_intrinsics.begin(), removable_intrinsics.end()), removable_intrinsics.end());
         for (auto inst : removable_intrinsics) {
             if (!inst->is_linked()) { continue; }

@@ -7,6 +7,7 @@
 #include <sstream>
 #include <type_traits>
 #include <unordered_set>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::schedule {
 
@@ -15,7 +16,7 @@ Function::Function(std::string name, uint32_t logical_warp_width) noexcept
 
 ValueId Function::add_value(ValueClass value_class, const Type *type,
                             ValueOrigin origin,
-                            std::optional<BlockId> defining_block,
+                            luisa::optional<BlockId> defining_block,
                             std::string name, ValueMetadata metadata) {
     auto id = ValueId{static_cast<uint32_t>(_values.size())};
     _values.emplace_back(Value{
@@ -40,7 +41,7 @@ BlockId Function::add_block(std::string name) {
 }
 
 ConvergenceId Function::add_convergence(
-    BlockId target, std::optional<ConvergenceId> parent) {
+    BlockId target, luisa::optional<ConvergenceId> parent) {
     auto id = ConvergenceId{
         static_cast<uint32_t>(_convergence_points.size())};
     _convergence_points.emplace_back(ConvergencePoint{
@@ -53,8 +54,8 @@ ConvergenceId Function::add_convergence(
 
 LoopId Function::add_loop(BlockId header, std::vector<BlockId> blocks,
                           std::vector<BlockId> exits,
-                          std::optional<LoopId> parent,
-                          std::optional<uint64_t> max_trip_count) {
+                          luisa::optional<LoopId> parent,
+                          luisa::optional<uint64_t> max_trip_count) {
     auto id = LoopId{static_cast<uint32_t>(_loops.size())};
     _loops.emplace_back(Loop{
         .id = id,
@@ -176,7 +177,7 @@ template<typename Id>
 }
 
 void add_error(VerificationResult &result, std::string message,
-               std::optional<BlockId> block = std::nullopt) {
+               luisa::optional<BlockId> block = luisa::nullopt) {
     result.errors.emplace_back(VerificationError{
         .message = std::move(message),
         .block = block,
@@ -280,7 +281,7 @@ VerificationResult verify(const Function &function) {
         for (auto root = size_t{0u}; root < count; root++) {
             if (color[root] != 0u) { continue; }
             path.clear();
-            auto current = std::optional<size_t>{root};
+            auto current = luisa::optional<size_t>{root};
             while (current && color[*current] == 0u) {
                 color[*current] = 1u;
                 path.emplace_back(*current);
@@ -308,11 +309,11 @@ VerificationResult verify(const Function &function) {
     }
     check_parent_cycles(
         function.convergence_points().size(),
-        [&](size_t index) -> std::optional<size_t> {
+        [&](size_t index) -> luisa::optional<size_t> {
             auto parent = function.convergence_points()[index].parent;
             return parent && valid_convergence(*parent) ?
-                       std::optional<size_t>{parent->value} :
-                       std::nullopt;
+                       luisa::optional<size_t>{parent->value} :
+                       luisa::nullopt;
         },
         "convergence parent graph contains a cycle");
 
@@ -349,11 +350,11 @@ VerificationResult verify(const Function &function) {
     }
     check_parent_cycles(
         function.loops().size(),
-        [&](size_t index) -> std::optional<size_t> {
+        [&](size_t index) -> luisa::optional<size_t> {
             auto parent = function.loops()[index].parent;
             return parent && valid_loop(*parent) ?
-                       std::optional<size_t>{parent->value} :
-                       std::nullopt;
+                       luisa::optional<size_t>{parent->value} :
+                       luisa::nullopt;
         },
         "loop parent graph contains a cycle");
 
@@ -511,7 +512,7 @@ VerificationResult verify(const Function &function) {
         }
 
         auto check_assignments = [&](const auto &assignments,
-                                     std::optional<BlockId> target) {
+                                     luisa::optional<BlockId> target) {
             auto epoch = next_epoch(assignment_marks, assignment_epoch);
             for (auto &&assignment : assignments) {
                 if (!valid_value(assignment.destination) ||
@@ -656,10 +657,10 @@ VerificationResult verify(const Function &function) {
                     check_assignments(
                         terminator.assignments,
                         valid_convergence(terminator.convergence) ?
-                            std::optional{function.convergence(
+                            luisa::optional{function.convergence(
                                                       terminator.convergence)
                                               ->target} :
-                            std::nullopt);
+                            luisa::nullopt);
                 } else if constexpr (std::is_same_v<T, LoopBackTerminator>) {
                     if (!valid_loop(terminator.loop)) {
                         add_error(result, "loop back-edge has invalid loop",
@@ -671,9 +672,9 @@ VerificationResult verify(const Function &function) {
                     check_assignments(
                         terminator.assignments,
                         valid_loop(terminator.loop) ?
-                            std::optional{function.loop(terminator.loop)
+                            luisa::optional{function.loop(terminator.loop)
                                               ->header} :
-                            std::nullopt);
+                            luisa::nullopt);
                 } else if constexpr (
                     std::is_same_v<T, BlockBarrierTerminator>) {
                     if (!barrier_ids.emplace(

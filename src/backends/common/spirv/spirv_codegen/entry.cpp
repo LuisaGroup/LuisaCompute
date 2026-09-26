@@ -9,6 +9,7 @@
 #include <SPIRV/disassemble.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -403,7 +404,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             codegen._ubo_array_constants.emplace_back(c);
         }
     }
-    std::sort(
+    luisa::sort(
         codegen._ubo_array_constants.begin(),
         codegen._ubo_array_constants.end(),
         [](const xir::Constant *lhs, const xir::Constant *rhs) noexcept {

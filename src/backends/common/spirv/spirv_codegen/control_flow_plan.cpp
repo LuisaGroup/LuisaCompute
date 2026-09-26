@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/passes/dom_tree.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace lc::spirv {
 
@@ -1352,7 +1353,7 @@ ControlFlowPlan ControlFlowPlan::_create(
             .inner_entry_predecessor =
                 inner_entry_predecessor});
     }
-    std::sort(
+    luisa::sort(
         rotation_candidates.begin(), rotation_candidates.end(),
         [&](auto &&lhs, auto &&rhs) noexcept {
             return plan._block_indices.at(lhs.outer_merge) <

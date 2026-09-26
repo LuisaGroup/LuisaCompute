@@ -1,10 +1,11 @@
 #include "llvm_schedule_emitter.h"
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::detail {
 
-[[nodiscard]] std::optional<ScheduleEmitter::ChainedPredicatedRegion>
+[[nodiscard]] luisa::optional<ScheduleEmitter::ChainedPredicatedRegion>
 ScheduleEmitter::_find_chained_predicated_region(
     const schedule::BasicBlock &block) const noexcept {
     static constexpr auto max_diamond_count = size_t{4u};
@@ -25,7 +26,7 @@ ScheduleEmitter::_find_chained_predicated_region(
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_LOCAL_PREDICATED_TERMINAL_BRIDGE");
     if (!enable_chaining && !enable_terminal_bridge) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto first = _find_guarded_predicated_math_diamond(block);
     auto *first_control = std::get_if<schedule::SplitTerminator>(
@@ -34,7 +35,7 @@ ScheduleEmitter::_find_chained_predicated_region(
     if (!first || first->instruction_count == 0u ||
         first_control == nullptr || !first_control->convergence ||
         innermost_loop == nullptr) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto predecessor_count = [&](schedule::BlockId target) noexcept {
@@ -393,8 +394,8 @@ ScheduleEmitter::_find_chained_predicated_region(
     return region.continuations.empty() &&
                    !region.nested_continuation &&
                    region.terminal_blocks.empty() ?
-               std::nullopt :
-               std::optional{std::move(region)};
+               luisa::nullopt :
+               luisa::optional{std::move(region)};
 }
 
 void ScheduleEmitter::_emit_chained_predicated_region(

@@ -21,6 +21,9 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "../../common/env_flag.h"
 #include "../../common/indirect_dispatch_layout.h"
@@ -113,7 +116,7 @@ struct AssemblyStats {
 };
 
 struct SIMDPrintDispatchContext {
-    const luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>>
+    const luisa::vector<std::unique_ptr<ShaderPrintFormatter>>
         *formatters{nullptr};
     const DeviceInterface::StreamLogCallback *log_callback{nullptr};
 };
@@ -151,16 +154,16 @@ void simd_assert_fail_callback(const char *message) noexcept {
 }
 
 [[nodiscard]] AssemblyStats inspect_assembly(
-    std::string_view assembly) noexcept {
+    luisa::string_view assembly) noexcept {
     AssemblyStats stats;
     for (auto line_begin = size_t{0u}; line_begin < assembly.size();) {
         auto line_end = assembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = assembly.size();
         }
         auto line = assembly.substr(line_begin, line_end - line_begin);
         auto first = line.find_first_not_of(" \t");
-        if (first != std::string_view::npos) {
+        if (first != luisa::string_view::npos) {
             line.remove_prefix(first);
         }
         if (!line.empty() && line.front() != '.' &&
@@ -177,8 +180,8 @@ void simd_assert_fail_callback(const char *message) noexcept {
             auto call = mnemonic.starts_with("call");
             stats.calls += call;
             stats.stack_references +=
-                line.find("%rsp") != std::string_view::npos ||
-                line.find("%rbp") != std::string_view::npos;
+                line.find("%rsp") != luisa::string_view::npos ||
+                line.find("%rbp") != luisa::string_view::npos;
             if (call) {
                 constexpr std::array scalar_math_symbols{
                     "sinf", "cosf", "tanf", "asinf", "acosf",
@@ -187,17 +190,17 @@ void simd_assert_fail_callback(const char *message) noexcept {
                 stats.scalar_math_calls += std::any_of(
                     scalar_math_symbols.begin(),
                     scalar_math_symbols.end(),
-                    [&](std::string_view symbol) noexcept {
+                    [&](luisa::string_view symbol) noexcept {
                         return line.find(symbol) !=
-                               std::string_view::npos;
+                               luisa::string_view::npos;
                     });
             }
             if (mnemonic == "subq" &&
-                line.find("%rsp") != std::string_view::npos) {
+                line.find("%rsp") != luisa::string_view::npos) {
                 auto dollar = line.find('$');
                 auto comma = line.find(',', dollar);
-                if (dollar != std::string_view::npos &&
-                    comma != std::string_view::npos) {
+                if (dollar != luisa::string_view::npos &&
+                    comma != luisa::string_view::npos) {
                     auto immediate = line.substr(
                         dollar + 1u, comma - dollar - 1u);
                     auto bytes = size_t{0u};
@@ -219,13 +222,13 @@ void simd_assert_fail_callback(const char *message) noexcept {
 }
 
 void dump_compilation_artifacts(
-    std::string_view directory, std::string_view kernel_name,
-    uint32_t width, std::string_view assembly,
-    std::string_view object) noexcept {
+    luisa::string_view directory, luisa::string_view kernel_name,
+    uint32_t width, luisa::string_view assembly,
+    luisa::string_view object) noexcept {
     static std::atomic_uint64_t sequence{0u};
     std::error_code error;
-    auto path = std::filesystem::path{directory};
-    std::filesystem::create_directories(path, error);
+    auto path = luisa::filesystem::path{directory};
+    luisa::filesystem::create_directories(path, error);
     if (error) {
         LUISA_WARNING(
             "Failed to create SIMD assembly directory '{}': {}.",
@@ -353,7 +356,7 @@ SIMDShader::SIMDShader(
         auto *argument_pack_type = Type::structure(
             16u, luisa::span{format.argument_types});
         _print_formatters.emplace_back(
-            luisa::make_unique<ShaderPrintFormatter>(
+            std::make_unique<ShaderPrintFormatter>(
                 format.format, argument_pack_type, false));
     }
     if (detail::env_flag(
@@ -784,7 +787,7 @@ void SIMDShader::_dispatch_once(
 void SIMDShader::dispatch(
     SIMDThreadPool &thread_pool,
     const DeviceInterface::StreamLogCallback &log_callback,
-    luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept {
+    std::unique_ptr<ShaderDispatchCommand> command) const noexcept {
     luisa::vector<std::byte> argument_buffer(
         _compiled.argument_buffer_size, std::byte{});
     auto offset = size_t{0u};

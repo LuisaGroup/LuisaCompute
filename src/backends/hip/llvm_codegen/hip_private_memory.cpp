@@ -23,6 +23,7 @@
 #include <limits>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::hip {
 
@@ -247,7 +248,7 @@ void run_scalar_cleanup(llvm::Module &module,
     llvm::ModuleAnalysisManager module_analyses;
     llvm::PassInstrumentationCallbacks instrumentation;
     llvm::PassBuilder builder{
-        target_machine, llvm::PipelineTuningOptions{}, std::nullopt,
+        target_machine, llvm::PipelineTuningOptions{}, luisa::nullopt,
         &instrumentation};
     builder.registerModuleAnalyses(module_analyses);
     builder.registerCGSCCAnalyses(cgscc_analyses);

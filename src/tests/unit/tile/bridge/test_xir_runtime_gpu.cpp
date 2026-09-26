@@ -14,6 +14,7 @@
 #include <luisa/tile/algorithms.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/runtime.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <cmath>
 
@@ -33,7 +34,7 @@ namespace {
 
 [[nodiscard]] bool bitwise_equal(span<const float> lhs, span<const float> rhs) {
     return std::equal(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(), [](float a, float b) {
-        return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+        return luisa::bit_cast<uint32_t>(a) == luisa::bit_cast<uint32_t>(b);
     });
 }
 
@@ -195,8 +196,8 @@ void reduction_fold_policies(Device &device) {
             for (auto r = int64_t{0}; r < rows; r++) {
                 auto reference = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
                 for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
-                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]),
-                              std::bit_cast<uint32_t>(reference[mode])))
+                    expect(eq(luisa::bit_cast<uint32_t>(actual[r * cases::outputs + mode]),
+                              luisa::bit_cast<uint32_t>(reference[mode])))
                         << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
                 }
             }

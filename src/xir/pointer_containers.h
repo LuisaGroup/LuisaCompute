@@ -10,6 +10,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_dense.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute::xir::detail {
 
@@ -35,13 +36,13 @@ struct DensePointerHash {
 
 template<typename Key, typename Value>
 using DensePointerMap = ankerl::unordered_dense::map<
-    Key, Value, DensePointerHash, std::equal_to<>,
+    Key, Value, DensePointerHash, luisa::equal_to<>,
     luisa::allocator<std::pair<Key, Value>>,
     luisa::vector<std::pair<Key, Value>>>;
 
 template<typename Key>
 using DensePointerSet = ankerl::unordered_dense::set<
-    Key, DensePointerHash, std::equal_to<>,
+    Key, DensePointerHash, luisa::equal_to<>,
     luisa::allocator<Key>, luisa::vector<Key>>;
 
 // Compile-time regression for the storage contract: iteration walks the

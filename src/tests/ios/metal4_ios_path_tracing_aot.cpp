@@ -5,6 +5,8 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include "metal_air_pipeline.h"
 #include "metal_xir_pipeline.h"
@@ -16,7 +18,7 @@ using namespace luisa::compute::metal;
 
 namespace {
 
-[[nodiscard]] MetalAIRVersion parse_version(std::string_view text) noexcept {
+[[nodiscard]] MetalAIRVersion parse_version(luisa::string_view text) noexcept {
     MetalAIRVersion version{};
     uint32_t *components[] = {
         &version.major, &version.minor, &version.patch};
@@ -29,7 +31,7 @@ namespace {
         if (error != std::errc{} || end != token.data() + token.size()) {
             return {};
         }
-        if (separator == std::string_view::npos) { break; }
+        if (separator == luisa::string_view::npos) { break; }
         text.remove_prefix(separator + 1u);
     }
     return version;
@@ -72,10 +74,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    auto output_path = std::filesystem::path{argv[1]};
+    auto output_path = luisa::filesystem::path{argv[1]};
     std::error_code error;
     if (auto parent = output_path.parent_path(); !parent.empty()) {
-        std::filesystem::create_directories(parent, error);
+        luisa::filesystem::create_directories(parent, error);
         if (error) {
             LUISA_WARNING("Failed to create '{}': {}.",
                           parent.string(), error.message());

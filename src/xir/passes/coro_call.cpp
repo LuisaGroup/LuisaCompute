@@ -7,6 +7,7 @@
 #include <luisa/xir/constant.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
 #include <algorithm>
 #include "coro_call_alias.h"
 #include "helpers.h"
@@ -181,7 +182,7 @@ public:
             CoroCallGraph::Function function;
             function.id = static_cast<uint32_t>(r.id);
             for (auto [local, global] : r.tokens) { function.resume_tokens.emplace_back(global); }
-            std::sort(function.resume_tokens.begin(), function.resume_tokens.end());
+            luisa::sort(function.resume_tokens.begin(), function.resume_tokens.end());
             _info.graph.functions.emplace_back(std::move(function));
             _regions.emplace(f, std::move(region));
         }

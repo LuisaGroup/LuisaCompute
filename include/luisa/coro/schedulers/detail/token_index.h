@@ -11,6 +11,7 @@
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/func.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::coro::detail {
 
@@ -40,7 +41,7 @@ template<typename... Args>
         dense &= token == i;
         token_indices.emplace_back(token, static_cast<uint>(i));
     }
-    std::sort(token_indices.begin(), token_indices.end(),
+    luisa::sort(token_indices.begin(), token_indices.end(),
               [](auto lhs, auto rhs) noexcept { return lhs.first < rhs.first; });
     for (auto i = 1u; i < token_indices.size(); i++) {
         LUISA_ASSERT(token_indices[i - 1u].first != token_indices[i].first,

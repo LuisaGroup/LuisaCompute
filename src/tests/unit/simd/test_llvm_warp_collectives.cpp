@@ -21,6 +21,8 @@
 #include <llvm/Support/Error.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::simd;
 
@@ -73,7 +75,7 @@ struct OutputLayout {
 
 template<size_t Width>
 [[nodiscard]] bool build_function(::llvm::Module &module,
-                                  std::string_view name) {
+                                  luisa::string_view name) {
     auto &context = module.getContext();
     ::llvm::IRBuilder<> builder{context};
     auto *i32 = builder.getInt32Ty();
@@ -271,8 +273,8 @@ template<size_t Width>
 [[nodiscard]] bool test_jit(uint32_t participant_bits,
                             uint32_t predicate_bits,
                             uint32_t invalid_destination) {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-warp-collectives", *context);
     auto name = std::string{"simd_collectives_w"} +
                 std::to_string(Width);
@@ -370,7 +372,7 @@ int main() {
         return 1;
     }
     struct Test {
-        std::string_view name;
+        luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{

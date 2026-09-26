@@ -6,6 +6,7 @@
 #include <llvm/IR/Attributes.h>
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -273,7 +274,7 @@ void ScheduleEmitter::_store_frame_metadata(
         {_builder.getInt32(0u), index});
 }
 
-void ScheduleEmitter::_trap_if(::llvm::Value *condition, std::string_view label) {
+void ScheduleEmitter::_trap_if(::llvm::Value *condition, luisa::string_view label) {
     auto *trap = ::llvm::BasicBlock::Create(
         _module.getContext(), std::string{label} + ".trap", _entry);
     auto *resume = ::llvm::BasicBlock::Create(

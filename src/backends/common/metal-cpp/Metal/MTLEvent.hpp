@@ -29,6 +29,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -38,7 +39,7 @@ class SharedEventHandle;
 class SharedEventListener;
 
 using SharedEventNotificationBlock = void (^)(SharedEvent* pEvent, std::uint64_t value);
-using SharedEventNotificationFunction = std::function<void(SharedEvent* pEvent, std::uint64_t value)>;
+using SharedEventNotificationFunction = luisa::function<void(SharedEvent* pEvent, std::uint64_t value)>;
 
 class Event : public NS::Referencing<Event>
 {

@@ -1,4 +1,6 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <chrono>
@@ -74,8 +76,8 @@ public:
         auto by_total = [](auto &&lhs, auto &&rhs) noexcept {
             return lhs.second.total_ms > rhs.second.total_ms;
         };
-        std::sort(gpu_stats.begin(), gpu_stats.end(), by_total);
-        std::sort(host_stats.begin(), host_stats.end(), by_total);
+        luisa::sort(gpu_stats.begin(), gpu_stats.end(), by_total);
+        luisa::sort(host_stats.begin(), host_stats.end(), by_total);
         for (auto &&[stage, profile] : gpu_stats) {
             std::fprintf(
                 stderr,
@@ -137,21 +139,21 @@ public:
 }
 
 inline constexpr auto shader_log_subsystem =
-    std::string_view{"org.luisa.compute"};
+    luisa::string_view{"org.luisa.compute"};
 inline constexpr auto shader_log_category =
-    std::string_view{"shader"};
+    luisa::string_view{"shader"};
 inline constexpr auto shader_log_bool_prefix =
-    std::string_view{"__luisa_metal_bool_"};
+    luisa::string_view{"__luisa_metal_bool_"};
 inline constexpr auto shader_log_bool_suffix =
-    std::string_view{"__"};
+    luisa::string_view{"__"};
 
 [[nodiscard]] luisa::string normalize_shader_log_message(
-    std::string_view message) noexcept {
+    luisa::string_view message) noexcept {
     luisa::string normalized;
     normalized.reserve(message.size());
     while (!message.empty()) {
         auto marker = message.find(shader_log_bool_prefix);
-        if (marker == std::string_view::npos) {
+        if (marker == luisa::string_view::npos) {
             normalized.append(message);
             break;
         }
@@ -280,8 +282,8 @@ void MetalStream::_emit_shader_log(
     NS::String *subsystem, NS::String *category,
     NS::String *message) const noexcept {
     if (subsystem == nullptr || category == nullptr || message == nullptr ||
-        std::string_view{subsystem->utf8String()} != shader_log_subsystem ||
-        std::string_view{category->utf8String()} != shader_log_category) {
+        luisa::string_view{subsystem->utf8String()} != shader_log_subsystem ||
+        luisa::string_view{category->utf8String()} != shader_log_category) {
         return;
     }
     auto normalized = normalize_shader_log_message(

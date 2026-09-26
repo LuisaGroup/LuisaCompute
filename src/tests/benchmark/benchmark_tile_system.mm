@@ -7,6 +7,9 @@
 #import <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/string.h>
 
 #include "metal_benchmark.h"
 
@@ -53,7 +56,7 @@ struct Measurement {
 };
 
 [[nodiscard]] int positive_integer(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
     LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0,
@@ -112,14 +115,14 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
     }
 }
 
-[[nodiscard]] Measurement measure(std::string_view backend, Configuration cfg, const char *path, luisa::test::MetalBenchmarkTiming *device_timing = nullptr) {
+[[nodiscard]] Measurement measure(luisa::string_view backend, Configuration cfg, const char *path, luisa::test::MetalBenchmarkTiming *device_timing = nullptr) {
     auto a = input_values(elements(cfg.m, cfg.k), 5u);
     auto b = input_values(elements(cfg.k, cfg.n), 11u);
     std::vector<float> c(elements(cfg.m, cfg.n), std::numeric_limits<float>::quiet_NaN());
     Measurement result{};
     double gpu_ms{};
-    std::function<double(uint64_t)> batch;
-    std::function<void()> download = [] {};
+    luisa::function<double(uint64_t)> batch;
+    luisa::function<void()> download = [] {};
     auto start = Clock::now();
     if (backend == "cpu") {
         result.device = "Accelerate CPU";
@@ -239,7 +242,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
         // The Python driver validates every element against its shared FP64
         // oracle. A successful subprocess alone is not a correctness claim.
         std::error_code path_error;
-        auto output_exists = std::filesystem::exists(path, path_error);
+        auto output_exists = luisa::filesystem::exists(path, path_error);
         LUISA_ASSERT(!path_error, "cannot inspect output '{}': {}", path, path_error.message());
         LUISA_ASSERT(!output_exists, "output already exists");
         std::ofstream file{path, std::ios::binary};
@@ -250,7 +253,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
     return result;
 }
 
-void print_samples(std::string_view name, const std::vector<double> &samples) {
+void print_samples(luisa::string_view name, const std::vector<double> &samples) {
     std::cout << std::quoted(name) << ":[";
     auto separator = "";
     for (auto value : samples) {
@@ -264,7 +267,7 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
-        if (argc == 3 && std::string_view{argv[1]} == "--self-test") {
+        if (argc == 3 && luisa::string_view{argv[1]} == "--self-test") {
             for (auto cfg : {Configuration{1, 1, 1}, Configuration{7, 19, 13}, Configuration{32, 32, 32}, Configuration{17, 8, 33}}) {
                 static_cast<void>(measure(argv[2], cfg, nullptr));
             }
@@ -272,7 +275,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         LUISA_ASSERT(argc == 9, "Usage: benchmark_tile_system <cpu|metal> M N K samples sample-ms warmup-ms output.f32");
-        auto backend = std::string_view{argv[1]};
+        auto backend = luisa::string_view{argv[1]};
         Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
                           positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
         luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};

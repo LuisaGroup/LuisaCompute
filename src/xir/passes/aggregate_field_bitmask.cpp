@@ -4,6 +4,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/type.h>
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <limits>
@@ -183,7 +184,7 @@ AggregateFieldBitmask &AggregateFieldBitmask::operator=(AggregateFieldBitmask &&
         if (_is_small()) {
             _bits_small = other._bits_small;
         } else {
-            std::swap(_bits_large, other._bits_large);
+            luisa::swap(_bits_large, other._bits_large);
         }
     }
     return *this;

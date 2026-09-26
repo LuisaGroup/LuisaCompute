@@ -408,18 +408,18 @@ void test_hip_motion_ray_query(Device &device) {
     auto all_output = device.create_buffer<MotionQueryResult>(case_count);
     auto any_output = device.create_buffer<MotionQueryResult>(case_count);
     auto static_output = device.create_buffer<MotionQueryResult>(case_count);
-    auto package_path = std::filesystem::absolute(
+    auto package_path = luisa::filesystem::absolute(
         "test_hip_motion_ray_query_aot.bytes");
     auto package_name = luisa::string{package_path.string()};
     std::error_code package_ec;
-    std::filesystem::remove(package_path, package_ec);
+    luisa::filesystem::remove(package_path, package_ec);
     {
         ShaderOption option{
             .compile_only = true,
             .name = package_name};
         [[maybe_unused]] auto compiled = device.compile(trace, option);
     }
-    expect(std::filesystem::is_regular_file(package_path))
+    expect(luisa::filesystem::is_regular_file(package_path))
         << "HIP motion ray-query AOT package was not written";
     auto shader = device.load_shader<
         1, Accel, Accel,
@@ -486,8 +486,8 @@ void test_hip_motion_ray_query(Device &device) {
     check_results("mixed static", luisa::span{host_static},
                   luisa::span{expected_static});
 
-    std::filesystem::remove(package_path, package_ec);
-    expect(!std::filesystem::exists(package_path))
+    luisa::filesystem::remove(package_path, package_ec);
+    expect(!luisa::filesystem::exists(package_path))
         << "HIP motion ray-query AOT package cleanup failed";
 }
 

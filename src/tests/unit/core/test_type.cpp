@@ -155,7 +155,7 @@ struct SomeForwardNode : public luisa::ManagedIntrusiveForwardNode<SomeForwardNo
 };
 
 // Convert type tag to human-readable string
-std::string_view tag_name(Type::Tag tag) noexcept {
+luisa::string_view tag_name(Type::Tag tag) noexcept {
     using namespace std::string_view_literals;
     if (tag == Type::Tag::BOOL) { return "bool"sv; }
     if (tag == Type::Tag::FLOAT32) { return "float"sv; }

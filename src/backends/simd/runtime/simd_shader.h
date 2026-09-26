@@ -49,7 +49,7 @@ private:
     uint32_t _blocks_per_task{0u};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     luisa::vector<Usage> _argument_usages;
-    luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>>
+    luisa::vector<std::unique_ptr<ShaderPrintFormatter>>
         _print_formatters;
 
 private:
@@ -74,7 +74,7 @@ public:
     void dispatch(
         SIMDThreadPool &thread_pool,
         const DeviceInterface::StreamLogCallback &log_callback,
-        luisa::unique_ptr<ShaderDispatchCommand> command) const noexcept;
+        std::unique_ptr<ShaderDispatchCommand> command) const noexcept;
     [[nodiscard]] Usage argument_usage(size_t index) const noexcept;
     [[nodiscard]] auto native_handle() const noexcept {
         if (_compiled.block_batch_entry != nullptr) {

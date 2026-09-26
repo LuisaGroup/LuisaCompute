@@ -21,6 +21,7 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/memory.h>
 
 #include "remote_command_codec.h"
 
@@ -2037,7 +2038,7 @@ public:
 
 Server::Server(luisa::shared_ptr<DeviceInterface> native_device,
                ServerOptions options)
-    : _impl{std::make_unique<Impl>(
+    : _impl{luisa::make_unique<Impl>(
           [native = std::move(native_device)](
               const DeviceRequest &request,
               luisa::string &error) -> luisa::shared_ptr<DeviceInterface> {
@@ -2058,7 +2059,7 @@ Server::Server(luisa::shared_ptr<DeviceInterface> native_device,
           std::move(options), false)} {}
 
 Server::Server(DeviceFactory device_factory, ServerOptions options)
-    : _impl{std::make_unique<Impl>(
+    : _impl{luisa::make_unique<Impl>(
           std::move(device_factory), std::move(options), true)} {}
 
 Server::~Server() noexcept = default;

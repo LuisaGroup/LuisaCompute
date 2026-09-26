@@ -65,35 +65,35 @@
 
 static const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_SHOULD_DUMP_LLVM_IR = [] {
     if (auto env = getenv("LUISA_DUMP_LLVM_IR")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_SHOULD_DUMP_ASM = [] {
     if (auto env = getenv("LUISA_DUMP_ASM")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_NORMALIZE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_NORMALIZE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -101,7 +101,7 @@ static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
 static const std::size_t LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT = [] {
     constexpr std::size_t default_limit = 250'000u;
     if (auto env = getenv("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT")) {
-        auto text = std::string_view{env};
+        auto text = luisa::string_view{env};
         std::size_t value{};
         auto [end, error] = std::from_chars(
             text.data(), text.data() + text.size(), value);
@@ -118,7 +118,7 @@ static const std::size_t LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT = [] {
 
 static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
     if (auto env = getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -716,7 +716,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
 
-    auto llvm_ctx = std::make_unique<llvm::LLVMContext>();
+    auto llvm_ctx = luisa::make_unique<llvm::LLVMContext>();
     auto builtin_module = fallback_backend_device_builtin_module();
     llvm::SMDiagnostic parse_error;
     auto llvm_module = llvm::parseIR(llvm::MemoryBufferRef{builtin_module, ""}, parse_error, *llvm_ctx);

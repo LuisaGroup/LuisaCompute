@@ -29,6 +29,10 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 
@@ -51,8 +55,8 @@ namespace {
     } while (false)
 
 struct MathModule {
-    std::unique_ptr<::llvm::LLVMContext> context;
-    std::unique_ptr<::llvm::Module> module;
+    luisa::unique_ptr<::llvm::LLVMContext> context;
+    luisa::unique_ptr<::llvm::Module> module;
     std::string entry_name;
 };
 
@@ -63,7 +67,7 @@ enum struct ExtendedTrigOperation : uint8_t {
     atan,
 };
 
-[[nodiscard]] constexpr std::string_view extended_trig_name(
+[[nodiscard]] constexpr luisa::string_view extended_trig_name(
     ExtendedTrigOperation operation) noexcept {
     switch (operation) {
         case ExtendedTrigOperation::tan: return "tan";
@@ -76,8 +80,8 @@ enum struct ExtendedTrigOperation : uint8_t {
 
 [[nodiscard]] MathModule make_trig_module(
     uint32_t width, bool cosine) {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-native-math", *context);
     auto *vector_type = ::llvm::FixedVectorType::get(
         ::llvm::Type::getFloatTy(*context), width);
@@ -110,8 +114,8 @@ enum struct ExtendedTrigOperation : uint8_t {
 
 [[nodiscard]] MathModule make_exp_log_module(
     uint32_t width, bool logarithm) {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-native-exp-log", *context);
     auto *vector_type = ::llvm::FixedVectorType::get(
         ::llvm::Type::getFloatTy(*context), width);
@@ -144,8 +148,8 @@ enum struct ExtendedTrigOperation : uint8_t {
 
 [[nodiscard]] MathModule make_extended_trig_module(
     uint32_t width, ExtendedTrigOperation operation) {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "simd-native-extended-trig", *context);
     auto *vector_type = ::llvm::FixedVectorType::get(
         ::llvm::Type::getFloatTy(*context), width);
@@ -192,7 +196,7 @@ enum struct ExtendedTrigOperation : uint8_t {
     return {std::move(context), std::move(module), std::move(entry_name)};
 }
 
-[[nodiscard]] std::optional<MathModule>
+[[nodiscard]] luisa::optional<MathModule>
 make_schedule_math_module(uint32_t width, bool fast_math = false) {
     xir::Module xir_module;
     auto *kernel = xir_module.create_kernel();
@@ -393,15 +397,15 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         for (auto &&diagnostic : lowered.diagnostics) {
             std::cerr << diagnostic.message << '\n';
         }
-        return std::nullopt;
+        return luisa::nullopt;
     }
-    std::optional<simd::schedule::ValueId> result_id;
+    luisa::optional<simd::schedule::ValueId> result_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "native_math_result") {
             result_id = value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &block : lowered.function->blocks()) {
         if (std::holds_alternative<simd::schedule::ReturnTerminator>(
                 block.terminator)) {
@@ -410,11 +414,11 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         }
     }
     if (!simd::schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "schedule-native-math", *context);
     auto entry_name = std::string{"schedule_native_math_w"} +
                       std::to_string(width) +
@@ -423,17 +427,17 @@ make_schedule_math_module(uint32_t width, bool fast_math = false) {
         *module, *lowered.function, width, entry_name, fast_math);
     if (!codegen.succeeded()) {
         std::cerr << codegen.error << '\n';
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (codegen.argument_buffer_size != 16u ||
         ::llvm::verifyModule(*module, &::llvm::errs())) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return MathModule{
         std::move(context), std::move(module), std::move(entry_name)};
 }
 
-[[nodiscard]] std::optional<MathModule>
+[[nodiscard]] luisa::optional<MathModule>
 make_uniform_schedule_math_module(
     uint32_t width, bool fast_math = false) {
     xir::Module xir_module;
@@ -529,18 +533,18 @@ make_uniform_schedule_math_module(
 
     auto lowered = simd::schedule::lower_xir_to_schedule(
         kernel, {.logical_warp_width = width});
-    if (!lowered.succeeded()) { return std::nullopt; }
-    std::optional<simd::schedule::ValueId> result_id;
+    if (!lowered.succeeded()) { return luisa::nullopt; }
+    luisa::optional<simd::schedule::ValueId> result_id;
     for (auto &&value : lowered.function->values()) {
         if (value.name == "uniform_math_result") {
             if (value.value_class !=
                 simd::schedule::ValueClass::warp_uniform) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             result_id = value.id;
         }
     }
-    if (!result_id) { return std::nullopt; }
+    if (!result_id) { return luisa::nullopt; }
     for (auto &block : lowered.function->blocks()) {
         if (std::holds_alternative<simd::schedule::ReturnTerminator>(
                 block.terminator)) {
@@ -549,11 +553,11 @@ make_uniform_schedule_math_module(
         }
     }
     if (!simd::schedule::verify(*lowered.function).succeeded()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "schedule-uniform-math", *context);
     auto entry_name = std::string{"schedule_uniform_math_w"} +
                       std::to_string(width) +
@@ -562,7 +566,7 @@ make_uniform_schedule_math_module(
         *module, *lowered.function, width, entry_name, fast_math);
     if (!codegen.succeeded() || codegen.argument_buffer_size != 16u ||
         ::llvm::verifyModule(*module, &::llvm::errs())) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return MathModule{
         std::move(context), std::move(module), std::move(entry_name)};
@@ -577,10 +581,10 @@ make_uniform_schedule_math_module(
 }
 
 [[nodiscard]] size_t count_occurrences(
-    std::string_view text, std::string_view needle) {
+    luisa::string_view text, luisa::string_view needle) {
     auto count = size_t{0u};
     for (auto position = text.find(needle);
-         position != std::string_view::npos;
+         position != luisa::string_view::npos;
          position = text.find(needle, position + needle.size())) {
         ++count;
     }
@@ -604,7 +608,7 @@ make_uniform_schedule_math_module(
 
 [[nodiscard]] uint64_t ulp_distance(float lhs, float rhs) {
     auto ordered = [](float value) noexcept {
-        auto bits = std::bit_cast<uint32_t>(value);
+        auto bits = luisa::bit_cast<uint32_t>(value);
         return (bits & 0x80000000u) != 0u ?
                    ~bits :
                    bits | 0x80000000u;
@@ -666,7 +670,7 @@ template<size_t Width>
             std::cerr << assembly_target.error() << '\n';
             return false;
         }
-        std::transform(
+        luisa::transform(
             assembly.begin(), assembly.end(), assembly.begin(),
             [](unsigned char c) noexcept {
                 return static_cast<char>(std::tolower(c));
@@ -749,7 +753,7 @@ template<size_t Width>
                 std::cerr << "native " << name << ' ' << source
                           << " W" << Width << " lane " << lane
                           << " bits=" << std::hex
-                          << std::bit_cast<uint32_t>(input[lane])
+                          << luisa::bit_cast<uint32_t>(input[lane])
                           << std::dec
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
@@ -779,7 +783,7 @@ template<size_t Width>
     for (auto base = size_t{0u}; base < 16384u; base += Width) {
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             state = state * 1664525u + 1013904223u;
-            input[lane] = std::bit_cast<float>(state);
+            input[lane] = luisa::bit_cast<float>(state);
         }
         CHECK(check_batch("raw-bits"));
     }
@@ -788,7 +792,7 @@ template<size_t Width>
             for (auto lane = size_t{0u}; lane < Width; lane++) {
                 state = state * 1664525u + 1013904223u;
                 input[lane] = static_cast<float>(
-                                  std::bit_cast<int32_t>(state)) /
+                                  luisa::bit_cast<int32_t>(state)) /
                               2147483648.0f;
             }
             CHECK(check_batch("unit-domain"));
@@ -847,7 +851,7 @@ template<size_t Width>
         std::cerr << assembly_target.error() << '\n';
         return false;
     }
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -921,7 +925,7 @@ template<size_t Width>
     for (auto base = size_t{0u}; base < 16384u; base += Width) {
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             state = state * 1664525u + 1013904223u;
-            input[lane] = std::bit_cast<float>(state);
+            input[lane] = luisa::bit_cast<float>(state);
         }
         entry(input.data(), output.data());
         for (auto lane = size_t{0u}; lane < Width; lane++) {
@@ -933,7 +937,7 @@ template<size_t Width>
                           << " random W" << Width
                           << " lane " << lane
                           << " bits=" << std::hex
-                          << std::bit_cast<uint32_t>(input[lane])
+                          << luisa::bit_cast<uint32_t>(input[lane])
                           << std::dec
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
@@ -968,7 +972,7 @@ template<size_t Width>
         std::cerr << assembly_target.error() << '\n';
         return false;
     }
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -1020,7 +1024,7 @@ template<size_t Width>
                 std::cerr << "native " << (logarithm ? "log" : "exp")
                           << " W" << Width << " lane " << lane
                           << " bits=" << std::hex
-                          << std::bit_cast<uint32_t>(input[lane])
+                          << luisa::bit_cast<uint32_t>(input[lane])
                           << std::dec
                           << " input=" << input[lane]
                           << " actual=" << output[lane]
@@ -1041,7 +1045,7 @@ template<size_t Width>
     for (auto base = size_t{0u}; base < 16384u; base += Width) {
         for (auto lane = size_t{0u}; lane < Width; lane++) {
             state = state * 1664525u + 1013904223u;
-            input[lane] = std::bit_cast<float>(state);
+            input[lane] = luisa::bit_cast<float>(state);
         }
         CHECK(check_batch());
     }
@@ -1136,7 +1140,7 @@ template<size_t Width>
         auto assembly = assembly_target.emit_assembly(
             std::move(assembly_module->module),
             std::move(assembly_module->context));
-        std::transform(
+        luisa::transform(
             assembly.begin(), assembly.end(), assembly.begin(),
             [](unsigned char c) noexcept {
                 return static_cast<char>(std::tolower(c));
@@ -1329,7 +1333,7 @@ template<size_t Width>
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc == 2 && std::string_view{argv[1]} == "--fast-only") {
+    if (argc == 2 && luisa::string_view{argv[1]} == "--fast-only") {
         return test_schedule_width<1u>(true) &&
                        test_schedule_width<2u>(true) &&
                        test_schedule_width<4u>(true) &&

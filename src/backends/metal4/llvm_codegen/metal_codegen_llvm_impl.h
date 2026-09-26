@@ -39,6 +39,8 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::metal::detail {
 
@@ -481,7 +483,7 @@ public:
           _data_layout{air_data_layout} {
         _module.setDataLayout(_data_layout);
         _module.setTargetTriple(llvm::Triple{air_target_triple(_config)});
-        _module.setSourceFileName(std::string_view{_config.source_file});
+        _module.setSourceFileName(luisa::string_view{_config.source_file});
     }
 
     [[nodiscard]] MetalCodegenLLVMResult generate(const xir::Module &xir_module) noexcept;

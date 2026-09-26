@@ -28,6 +28,9 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 
@@ -69,12 +72,12 @@ constexpr std::array operations{
 constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 
 struct MathModule {
-    std::unique_ptr<::llvm::LLVMContext> context;
-    std::unique_ptr<::llvm::Module> module;
+    luisa::unique_ptr<::llvm::LLVMContext> context;
+    luisa::unique_ptr<::llvm::Module> module;
 };
 
 [[nodiscard]] bool check(
-    bool condition, std::string_view message) {
+    bool condition, luisa::string_view message) {
     if (!condition) {
         std::cerr << "fast native-math audit failed: "
                   << message << '\n';
@@ -82,7 +85,7 @@ struct MathModule {
     return condition;
 }
 
-[[nodiscard]] constexpr std::string_view operation_name(
+[[nodiscard]] constexpr luisa::string_view operation_name(
     Operation operation) noexcept {
     switch (operation) {
         case Operation::sin: return "sin";
@@ -109,7 +112,7 @@ struct MathModule {
     return {};
 }
 
-[[nodiscard]] constexpr std::string_view provider_name(
+[[nodiscard]] constexpr luisa::string_view provider_name(
     Operation operation) noexcept {
     return operation_name(operation);
 }
@@ -220,8 +223,8 @@ void add_entry(
 }
 
 [[nodiscard]] MathModule make_math_module() {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "native-math-tier-audit", *context);
     for (auto mode : {cpu::LLVMNativeMathMode::precise,
                       cpu::LLVMNativeMathMode::fast}) {
@@ -244,7 +247,7 @@ void add_entry(
 
 [[nodiscard]] uint64_t ulp_distance(float lhs, float rhs) {
     auto ordered = [](float value) noexcept {
-        auto bits = std::bit_cast<uint32_t>(value);
+        auto bits = luisa::bit_cast<uint32_t>(value);
         return (bits & 0x80000000u) != 0u ?
                    ~bits :
                    bits | 0x80000000u;
@@ -282,7 +285,7 @@ void add_entry(
 }
 
 [[nodiscard]] bool is_positive_subnormal(float value) noexcept {
-    auto bits = std::bit_cast<uint32_t>(value);
+    auto bits = luisa::bit_cast<uint32_t>(value);
     return bits != 0u && bits < 0x00800000u;
 }
 
@@ -409,9 +412,9 @@ struct ErrorBound {
         auto exponent = ((bits >> 16u) % 254u) + 1u;
         auto value_bits = (bits & 0x807fffffu) |
                           (exponent << 23u);
-        return std::bit_cast<float>(value_bits);
+        return luisa::bit_cast<float>(value_bits);
     }
-    auto unit = static_cast<float>(std::bit_cast<int32_t>(bits)) /
+    auto unit = static_cast<float>(luisa::bit_cast<int32_t>(bits)) /
                 2147483648.0f;
     switch (operation) {
         case Operation::asin:
@@ -428,13 +431,13 @@ struct ErrorBound {
         case Operation::log2:
         case Operation::log10: {
             auto positive = (bits & 0x7fffffffu) | 0x00800000u;
-            return std::bit_cast<float>(positive);
+            return luisa::bit_cast<float>(positive);
         }
         case Operation::pow: {
             auto exponent = ((bits >> 20u) % 9u) + 123u;
             auto positive = (bits & 0x007fffffu) |
                             (exponent << 23u);
-            return std::bit_cast<float>(positive);
+            return luisa::bit_cast<float>(positive);
         }
         case Operation::sinh:
         case Operation::cosh: return unit * 90.0f;
@@ -443,13 +446,13 @@ struct ErrorBound {
             auto exponent = ((bits >> 16u) % 254u) + 1u;
             auto value_bits = (bits & 0x807fffffu) |
                               (exponent << 23u);
-            return std::bit_cast<float>(value_bits);
+            return luisa::bit_cast<float>(value_bits);
         }
         case Operation::acosh: {
             auto exponent = ((bits >> 16u) % 127u) + 127u;
             auto value_bits = (bits & 0x007fffffu) |
                               (exponent << 23u);
-            return std::bit_cast<float>(value_bits);
+            return luisa::bit_cast<float>(value_bits);
         }
         case Operation::atanh: return unit * 1.25f;
     }
@@ -459,7 +462,7 @@ struct ErrorBound {
 [[nodiscard]] float domain_secondary(
     Operation operation, uint32_t bits) noexcept {
     if (operation == Operation::pow) {
-        auto unit = static_cast<float>(std::bit_cast<int32_t>(bits)) /
+        auto unit = static_cast<float>(luisa::bit_cast<int32_t>(bits)) /
                     2147483648.0f;
         return unit * 64.0f;
     }
@@ -470,7 +473,7 @@ struct ErrorBound {
     uint32_t index) noexcept {
     auto exponent = (index % 254u) + 1u;
     auto mantissa = (index * 0x9e3779b9u) & 0x007fffffu;
-    auto magnitude = std::bit_cast<float>(
+    auto magnitude = luisa::bit_cast<float>(
         (exponent << 23u) | mantissa);
     auto above = std::nextafter(
         magnitude, std::numeric_limits<float>::infinity());
@@ -571,7 +574,7 @@ struct ErrorBound {
         case 2u: {
             auto exponent = (index % 254u) + 1u;
             auto mantissa = (index * 0x9e3779b9u) & 0x007fffffu;
-            auto base = std::bit_cast<float>(
+            auto base = luisa::bit_cast<float>(
                 (exponent << 23u) | mantissa);
             auto power = static_cast<float>(
                              static_cast<int32_t>((index / 254u) % 257u) - 128) /
@@ -735,16 +738,16 @@ struct ErrorBound {
         case Operation::log: {
             auto exponent = (index % 254u) + 1u;
             auto mantissa = (index * 0x9e3779b9u) & 0x007fffffu;
-            return std::bit_cast<float>((exponent << 23u) | mantissa);
+            return luisa::bit_cast<float>((exponent << 23u) | mantissa);
         }
         case Operation::log2:
         case Operation::log10: {
             auto exponent = (index % 254u) + 1u;
             auto power_bits = exponent << 23u;
             switch ((index / 254u) % 9u) {
-                case 0u: return std::bit_cast<float>(power_bits);
-                case 1u: return std::bit_cast<float>(power_bits - 1u);
-                case 2u: return std::bit_cast<float>(power_bits + 1u);
+                case 0u: return luisa::bit_cast<float>(power_bits);
+                case 1u: return luisa::bit_cast<float>(power_bits - 1u);
+                case 2u: return luisa::bit_cast<float>(power_bits + 1u);
                 case 3u: {
                     auto value = std::ldexp(
                         1.4142135623730950488f,
@@ -917,7 +920,7 @@ struct ErrorBound {
         std::numeric_limits<float>::min(),
         0.5f,
         1.0f,
-        std::bit_cast<float>(0x3f9216dbu),
+        luisa::bit_cast<float>(0x3f9216dbu),
         1.5707963267948966192f,
         3.1415926535897932385f,
         10.0f,
@@ -966,7 +969,7 @@ struct ErrorBound {
                 auto focused_sample_count = independent_exp_log ?
                                                 16384u :
                                                 4096u;
-                auto check_batch = [&](std::string_view source) {
+                auto check_batch = [&](luisa::string_view source) {
                     entry(
                         input.data(), secondary.data(), output.data());
                     for (auto lane = size_t{0u}; lane < width; lane++) {
@@ -979,10 +982,10 @@ struct ErrorBound {
                                 << " W" << width << ' ' << source
                                 << " lane=" << lane
                                 << " bits=0x" << std::hex
-                                << std::bit_cast<uint32_t>(input[lane])
+                                << luisa::bit_cast<uint32_t>(input[lane])
                                 << std::dec << " input=" << input[lane]
                                 << " secondary_bits=0x" << std::hex
-                                << std::bit_cast<uint32_t>(secondary[lane])
+                                << luisa::bit_cast<uint32_t>(secondary[lane])
                                 << std::dec
                                 << " secondary=" << secondary[lane]
                                 << " actual=" << output[lane]
@@ -1006,9 +1009,9 @@ struct ErrorBound {
                     constexpr std::pair counterexample_bits{
                         0x88e8041cu, 0x089650cbu};
                     for (auto lane = size_t{0u}; lane < width; lane++) {
-                        input[lane] = std::bit_cast<float>(
+                        input[lane] = luisa::bit_cast<float>(
                             counterexample_bits.first);
-                        secondary[lane] = std::bit_cast<float>(
+                        secondary[lane] = luisa::bit_cast<float>(
                             counterexample_bits.second);
                     }
                     if (!check_batch("fixed-counterexample")) {
@@ -1022,9 +1025,9 @@ struct ErrorBound {
                      base += width) {
                     for (auto lane = size_t{0u}; lane < width; lane++) {
                         state = state * 1664525u + 1013904223u;
-                        input[lane] = std::bit_cast<float>(state);
+                        input[lane] = luisa::bit_cast<float>(state);
                         state = state * 1664525u + 1013904223u;
-                        secondary[lane] = std::bit_cast<float>(state);
+                        secondary[lane] = luisa::bit_cast<float>(state);
                     }
                     if (!check_batch("raw-bits")) { return false; }
                 }
@@ -1099,12 +1102,12 @@ struct ErrorBound {
     alignas(64) std::array<float, width> output{};
     auto expect_bits = [&](Operation operation, size_t lane,
                            uint32_t expected) {
-        auto actual = std::bit_cast<uint32_t>(output[lane]);
+        auto actual = luisa::bit_cast<uint32_t>(output[lane]);
         if (actual == expected) { return true; }
         std::cerr << "native " << operation_name(operation)
                   << " fast special lane=" << lane
                   << " input_bits=0x" << std::hex
-                  << std::bit_cast<uint32_t>(input[lane])
+                  << luisa::bit_cast<uint32_t>(input[lane])
                   << " actual_bits=0x" << actual
                   << " expected_bits=0x" << expected
                   << std::dec << '\n';
@@ -1116,14 +1119,14 @@ struct ErrorBound {
     constexpr auto one = 0x3f800000u;
     constexpr auto positive_infinity = 0x7f800000u;
     constexpr auto negative_infinity = 0xff800000u;
-    auto half_pi = std::bit_cast<uint32_t>(
+    auto half_pi = luisa::bit_cast<uint32_t>(
         1.5707963267948966192f);
     auto negative_half_pi = half_pi | 0x80000000u;
-    auto pi = std::bit_cast<uint32_t>(
+    auto pi = luisa::bit_cast<uint32_t>(
         3.1415926535897932385f);
-    auto quarter_pi = std::bit_cast<uint32_t>(
+    auto quarter_pi = luisa::bit_cast<uint32_t>(
         0.78539816339744830962f);
-    auto three_quarter_pi = std::bit_cast<uint32_t>(
+    auto three_quarter_pi = luisa::bit_cast<uint32_t>(
         2.3561944901923449288f);
 
     for (auto operation : operations) {
@@ -1391,7 +1394,7 @@ bool test_llvm_native_math_fast() {
     auto assembly = assembly_target.emit_assembly(
         std::move(assembly_module.module),
         std::move(assembly_module.context));
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));

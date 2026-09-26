@@ -3,10 +3,12 @@
 #include <algorithm>
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::detail {
 
-[[nodiscard]] std::optional<ScheduleEmitter::StructuredEarlyExitLoop>
+[[nodiscard]] luisa::optional<ScheduleEmitter::StructuredEarlyExitLoop>
 ScheduleEmitter::_find_structured_early_exit_loop(
     const schedule::BasicBlock &header) const noexcept {
     auto force = luisa::compute::detail::env_flag(
@@ -14,13 +16,13 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     if ((!force && _width != 8u && _width != 16u) ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_STRUCTURED_EARLY_EXIT_LOOP")) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     const schedule::Loop *loop = nullptr;
     for (auto &&candidate : _source.loops()) {
         if (candidate.header == header.id) {
-            if (loop != nullptr) { return std::nullopt; }
+            if (loop != nullptr) { return luisa::nullopt; }
             loop = &candidate;
         }
     }
@@ -30,11 +32,11 @@ ScheduleEmitter::_find_structured_early_exit_loop(
         (!force && loop->blocks.size() < 25u) ||
         (force && loop->blocks.size() < 4u) ||
         loop->blocks.size() > 64u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto &&candidate : _source.loops()) {
         if (candidate.parent == loop->id) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
 
@@ -43,26 +45,26 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     if (header_split == nullptr ||
         !header_split->cohort_uniform_condition ||
         !header_split->convergence) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *loop_gate = _source.convergence(
         *header_split->convergence);
     if (loop_gate == nullptr || loop_gate->target == header.id ||
         std::find(loop->exits.cbegin(), loop->exits.cend(),
                   loop_gate->target) == loop->exits.cend()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto value_count = _source.values().size();
     auto block_count = _source.blocks().size();
     std::vector<uint8_t> in_loop(block_count, uint8_t{0u});
     for (auto id : loop->blocks) {
-        if (id.value >= block_count) { return std::nullopt; }
+        if (id.value >= block_count) { return luisa::nullopt; }
         in_loop[id.value] = 1u;
     }
     if (header.id.value >= in_loop.size() ||
         in_loop[header.id.value] == 0u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     std::vector<std::vector<schedule::BlockId>> predecessors(block_count);
@@ -125,10 +127,10 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             },
             block.terminator);
     }
-    if (!valid_cfg_targets) { return std::nullopt; }
+    if (!valid_cfg_targets) { return luisa::nullopt; }
     for (auto id : loop->blocks) {
         if (id == header.id) { continue; }
-        if (predecessors[id.value].empty()) { return std::nullopt; }
+        if (predecessors[id.value].empty()) { return luisa::nullopt; }
         if (std::any_of(
                 predecessors[id.value].cbegin(),
                 predecessors[id.value].cend(),
@@ -136,7 +138,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
                     return predecessor.value >= in_loop.size() ||
                            in_loop[predecessor.value] == 0u;
                 })) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
 
@@ -173,11 +175,11 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     auto instruction_count = size_t{0u};
     for (auto id : loop->blocks) {
         auto *block = _source.block(id);
-        if (block == nullptr) { return std::nullopt; }
+        if (block == nullptr) { return luisa::nullopt; }
         for (auto &&instruction : block->instructions) {
             if (!safe_instruction(instruction) ||
                 ++instruction_count > 256u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
     }
@@ -192,24 +194,24 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     }
     if (header_condition == nullptr ||
         header_condition->opcode != schedule::Opcode::arithmetic) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto induction = schedule::ValueId{};
     auto varying_operand_count = size_t{0u};
     for (auto operand : header_condition->operands) {
         auto *value = _source.value(operand);
-        if (value == nullptr) { return std::nullopt; }
+        if (value == nullptr) { return luisa::nullopt; }
         if (value->value_class == schedule::ValueClass::varying) {
             if (value->origin != schedule::ValueOrigin::state_slot) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             induction = operand;
             varying_operand_count++;
         } else if (!schedule::is_uniform(value->value_class)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
-    if (varying_operand_count != 1u) { return std::nullopt; }
+    if (varying_operand_count != 1u) { return luisa::nullopt; }
 
     std::vector<uint8_t> cohort_uniform(value_count, uint8_t{0u});
     for (auto &&value : _source.values()) {
@@ -261,7 +263,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     }
 
     auto find_exit_tail = [&](schedule::BlockId entry)
-        -> std::optional<StructuredEarlyExitLoop::ExitTail> {
+        -> luisa::optional<StructuredEarlyExitLoop::ExitTail> {
         StructuredEarlyExitLoop::ExitTail tail{.entry = entry};
         auto target = entry;
         auto instruction_count = size_t{0u};
@@ -271,22 +273,22 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             if (depth >= 4u || target.value >= block_count ||
                 in_loop[target.value] != 0u ||
                 visited[target.value] != 0u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             visited[target.value] = 1u;
             auto *block = _source.block(target);
-            if (block == nullptr) { return std::nullopt; }
+            if (block == nullptr) { return luisa::nullopt; }
             for (auto &&instruction : block->instructions) {
                 if (!safe_instruction(instruction) ||
                     ++instruction_count > 64u) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
             }
             auto *branch = std::get_if<schedule::BranchTerminator>(
                 &block->terminator);
             if (branch == nullptr || branch->edge.loop_back ||
                 branch->edge.target == block->id) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             tail.blocks.emplace_back(block);
             target = branch->edge.target;
@@ -296,10 +298,10 @@ ScheduleEmitter::_find_structured_early_exit_loop(
     std::vector<uint8_t> absorbed(block_count, uint8_t{0u});
     for (auto exit : loop->exits) {
         auto tail = find_exit_tail(exit);
-        if (!tail) { return std::nullopt; }
+        if (!tail) { return luisa::nullopt; }
         for (auto *block : tail->blocks) {
             if (absorbed[block->id.value] != 0u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             absorbed[block->id.value] = 1u;
             result.absorbed_blocks.emplace_back(block);
@@ -318,7 +320,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
                     return predecessor.value >= in_loop.size() ||
                            in_loop[predecessor.value] == 0u;
                 })) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         for (auto i = size_t{1u}; i < tail.blocks.size(); i++) {
             auto &&block_predecessors =
@@ -326,7 +328,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             if (block_predecessors.size() != 1u ||
                 block_predecessors.front() !=
                     tail.blocks[i - 1u]->id) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
     }
@@ -397,17 +399,17 @@ ScheduleEmitter::_find_structured_early_exit_loop(
         if (auto region = _find_chained_predicated_region(*block)) {
             for (auto *inlined : region->inlined_blocks) {
                 if (!is_loop_target(inlined->id)) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
                 locally_inlined[inlined->id.value] = 1u;
             }
             if (region->terminal_blocks.empty()) {
                 if (!is_loop_target(region->merge)) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
             } else if (!valid_control(
                            *region->terminal_blocks.back())) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             continue;
         }
@@ -431,7 +433,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
                     region->nested_diamond.false_blocks.cbegin(),
                     region->nested_diamond.false_blocks.cend(), mark) ||
                 !is_loop_target(region->merge)) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             continue;
         }
@@ -453,7 +455,7 @@ ScheduleEmitter::_find_structured_early_exit_loop(
                     diamond->false_blocks.cbegin(),
                     diamond->false_blocks.cend(), mark) ||
                 !is_loop_target(diamond->merge)) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
     }
@@ -466,11 +468,11 @@ ScheduleEmitter::_find_structured_early_exit_loop(
             !_find_chained_predicated_region(*block) &&
             !_find_nested_predicated_region(*block, true) &&
             !_find_guarded_predicated_math_diamond(*block, true)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         result.emitted_blocks.emplace_back(block);
     }
-    if (!valid_control(header)) { return std::nullopt; }
+    if (!valid_control(header)) { return luisa::nullopt; }
     return result;
 }
 
@@ -539,7 +541,7 @@ void ScheduleEmitter::_emit_structured_early_exit_loop(
         _continue_at(loop.common_exit, initial_mask);
     };
 
-    std::function<void(const schedule::BasicBlock &)> emit_control;
+    luisa::function<void(const schedule::BasicBlock &)> emit_control;
     emit_control = [&](const schedule::BasicBlock &block) {
         auto *mask = _active_mask;
         auto outer_locals = _locals;

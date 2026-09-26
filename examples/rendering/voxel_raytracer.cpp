@@ -19,6 +19,8 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <stb/stb_image_write.h>
 #include <filesystem>
 #include <memory>
@@ -325,10 +327,10 @@ int main(int argc, char *argv[]) {
     auto last_pointer_position = make_float2();
 
     // Setup window
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Voxel Ray Tracer", make_uint2(width, height));
+        window = luisa::make_unique<Window>("Voxel Ray Tracer", make_uint2(width, height));
         window->set_mouse_callback(
             [&primary_pointer_down, &last_pointer_position](
                 MouseButton button, Action action, float2 position) noexcept {

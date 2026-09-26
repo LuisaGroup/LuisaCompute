@@ -27,6 +27,7 @@
 #include "MTLPrivate.hpp"
 
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 namespace MTL4
 {
@@ -54,19 +55,19 @@ class Library;
 class RenderPipelineState;
 
 using NewDynamicLibraryCompletionHandler = void (^)(MTL::DynamicLibrary*, NS::Error*);
-using NewDynamicLibraryCompletionHandlerFunction = std::function<void(MTL::DynamicLibrary*, NS::Error*)>;
+using NewDynamicLibraryCompletionHandlerFunction = luisa::function<void(MTL::DynamicLibrary*, NS::Error*)>;
 }
 
 namespace MTL4
 {
 using NewComputePipelineStateCompletionHandler = void (^)(MTL::ComputePipelineState*, NS::Error*);
-using NewComputePipelineStateCompletionHandlerFunction = std::function<void(MTL::ComputePipelineState*, NS::Error*)>;
+using NewComputePipelineStateCompletionHandlerFunction = luisa::function<void(MTL::ComputePipelineState*, NS::Error*)>;
 using NewRenderPipelineStateCompletionHandler = void (^)(MTL::RenderPipelineState*, NS::Error*);
-using NewRenderPipelineStateCompletionHandlerFunction = std::function<void(MTL::RenderPipelineState*, NS::Error*)>;
+using NewRenderPipelineStateCompletionHandlerFunction = luisa::function<void(MTL::RenderPipelineState*, NS::Error*)>;
 using NewBinaryFunctionCompletionHandler = void (^)(MTL4::BinaryFunction*, NS::Error*);
-using NewBinaryFunctionCompletionHandlerFunction = std::function<void(MTL4::BinaryFunction*, NS::Error*)>;
+using NewBinaryFunctionCompletionHandlerFunction = luisa::function<void(MTL4::BinaryFunction*, NS::Error*)>;
 using NewMachineLearningPipelineStateCompletionHandler = void (^)(MTL4::MachineLearningPipelineState*, NS::Error*);
-using NewMachineLearningPipelineStateCompletionHandlerFunction = std::function<void(MTL4::MachineLearningPipelineState*, NS::Error*)>;
+using NewMachineLearningPipelineStateCompletionHandlerFunction = luisa::function<void(MTL4::MachineLearningPipelineState*, NS::Error*)>;
 
 class CompilerDescriptor : public NS::Copying<CompilerDescriptor>
 {

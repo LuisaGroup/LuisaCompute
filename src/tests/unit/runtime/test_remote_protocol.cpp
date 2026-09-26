@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "remote_protocol.h"
+#include <luisa/core/stl/memory.h>
 
 using namespace luisa;
 using namespace luisa::compute::remote;
@@ -55,8 +56,8 @@ void test_primitive_round_trip() {
     expect(reader.read_i64() == -17);
     expect(reader.read_bool());
     expect(!reader.read_bool());
-    expect(std::bit_cast<uint32_t>(reader.read_f32()) ==
-           std::bit_cast<uint32_t>(3.5f));
+    expect(luisa::bit_cast<uint32_t>(reader.read_f32()) ==
+           luisa::bit_cast<uint32_t>(3.5f));
     expect(reader.read_string() == "remote");
     auto decoded_blob = reader.read_blob();
     expect(decoded_blob.size() == blob.size());

@@ -24,6 +24,7 @@
 #include <luisa/ast/variable.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/core/stl/optional.h>
 #ifdef alloca
 #undef alloca
 #endif
@@ -726,8 +727,8 @@ void LLVMCodegenUtility::InitializeSPIRVModule() {
     llvm::TargetOptions opt;
     _target_machine.reset(target->createTargetMachine(
         llvm::Triple("spirv64-unknown-vulkan1.2"), "generic",
-        "", opt, std::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
-        std::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
+        "", opt, luisa::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
+        luisa::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
         llvm::CodeGenOptLevel::Default, false));
 
     if (!_target_machine) {

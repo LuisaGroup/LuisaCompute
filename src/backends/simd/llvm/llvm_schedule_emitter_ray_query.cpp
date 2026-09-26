@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -968,7 +969,7 @@ void ScheduleEmitter::_ray_query_update_status(
                 ::llvm::Constant::getNullValue(_layout.mask_type()));
             auto add_output_callbacks =
                 [&](const std::vector<::llvm::AllocaInst *> &storage,
-                    std::string_view name) noexcept {
+                    luisa::string_view name) noexcept {
                     if (slot >= storage.size()) { return; }
                     auto *callbacks = _builder.CreateMaskedLoad(
                         callback_lanes, storage[slot],

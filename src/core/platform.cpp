@@ -112,7 +112,7 @@ void set_dll_directory(const PathChar *path) noexcept {
 }// namespace win_detail
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     bool has_parent_path = path.has_parent_path();
-    using PathType = std::filesystem::path::value_type;
+    using PathType = luisa::filesystem::path::value_type;
     if (has_parent_path) {
         win_detail::set_dll_directory(path.parent_path().c_str());
     }
@@ -260,7 +260,7 @@ luisa::string cpu_name() noexcept {
 
 luisa::string current_executable_path() noexcept {
     constexpr auto max_path_length = std::max<size_t>(MAX_PATH, 4096);
-    std::filesystem::path::value_type path[max_path_length] = {};
+    luisa::filesystem::path::value_type path[max_path_length] = {};
     auto nchar = GetModuleFileNameW(nullptr, path, max_path_length);
     if (nchar == 0 ||
         (nchar == MAX_PATH &&
@@ -268,7 +268,7 @@ luisa::string current_executable_path() noexcept {
           (path[MAX_PATH - 1] != 0)))) {
         LUISA_ERROR_WITH_LOCATION("Failed to get current executable path.");
     }
-    return luisa::to_string(std::filesystem::canonical(path));
+    return luisa::to_string(luisa::filesystem::canonical(path));
 }
 char env_separator() noexcept {
     return ';';
@@ -377,7 +377,7 @@ luisa::vector<TraceItem> backtrace() noexcept {
         iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
         item.symbol = demangle(item.symbol.c_str());
 #else
-        if (std::string_view raw_item{info[i]}; !raw_item.empty()) {
+        if (luisa::string_view raw_item{info[i]}; !raw_item.empty()) {
             // the returned string is in the format of "binary_name(function_name+offset) [address]"
             // parse address
             auto right_bracket = raw_item.rfind(']');
@@ -459,7 +459,7 @@ luisa::string current_executable_path() noexcept {
     luisa::vector<char> pathbuf(size);
     if (_NSGetExecutablePath(pathbuf.data(), &size) == 0) {
         return luisa::to_string(
-            std::filesystem::canonical(pathbuf.data()));
+            luisa::filesystem::canonical(pathbuf.data()));
     }
     LUISA_ERROR_WITH_LOCATION(
         "Failed to get current executable path on iOS.");
@@ -468,7 +468,7 @@ luisa::string current_executable_path() noexcept {
     auto pid = getpid();
     if (auto size = proc_pidpath(pid, pathbuf, sizeof(pathbuf)); size > 0) {
         luisa::string_view path{pathbuf, static_cast<size_t>(size)};
-        return luisa::to_string(std::filesystem::canonical(path));
+        return luisa::to_string(luisa::filesystem::canonical(path));
     }
     LUISA_ERROR_WITH_LOCATION(
         "Failed to get current executable path (PID = {}): {}.",
@@ -481,7 +481,7 @@ luisa::string current_executable_path() noexcept {
     for (auto p : {"/proc/self/exe", "/proc/curproc/file", "/proc/self/path/a.out"}) {
         if (auto size = readlink(p, pathbuf, sizeof(pathbuf)); size > 0) {
             luisa::string_view path{pathbuf, static_cast<size_t>(size)};
-            return luisa::to_string(std::filesystem::canonical(path));
+            return luisa::to_string(luisa::filesystem::canonical(path));
         }
     }
     LUISA_ERROR_WITH_LOCATION(

@@ -1,4 +1,6 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <chrono>
@@ -74,8 +76,8 @@ public:
         auto by_total = [](auto &&lhs, auto &&rhs) noexcept {
             return lhs.second.total_ms > rhs.second.total_ms;
         };
-        std::sort(gpu_stats.begin(), gpu_stats.end(), by_total);
-        std::sort(host_stats.begin(), host_stats.end(), by_total);
+        luisa::sort(gpu_stats.begin(), gpu_stats.end(), by_total);
+        luisa::sort(host_stats.begin(), host_stats.end(), by_total);
         for (auto &&[stage, profile] : gpu_stats) {
             std::fprintf(
                 stderr,
@@ -315,7 +317,7 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
                     label == nullptr ? "<unlabeled>" : label->utf8String();
                 auto start_stage = metal_command_buffer_profile_start_stage();
                 if (start_stage != nullptr &&
-                    std::string_view{label_name} == start_stage) {
+                    luisa::string_view{label_name} == start_stage) {
                     profiler.begin_scope_once();
                 }
                 profiler.record_gpu(label_name, (end - begin) * 1.0e3);

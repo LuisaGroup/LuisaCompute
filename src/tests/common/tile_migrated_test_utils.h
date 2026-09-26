@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::test::tile_migrated {
 
@@ -29,11 +30,11 @@ inline constexpr std::array names{
     "copy", "add", "saxpy", "clamp", "exp", "rmsnorm", "sum", "max", "min",
     "abssum", "absmax", "cumsum", "cummax", "transpose", "gemm"};
 
-[[nodiscard]] inline std::optional<Operation> parse(string_view name) {
+[[nodiscard]] inline luisa::optional<Operation> parse(string_view name) {
     for (auto i = 0u; i < names.size(); i++) {
         if (name == names[i]) { return static_cast<Operation>(i); }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] inline bool is_reduction(Operation op) {

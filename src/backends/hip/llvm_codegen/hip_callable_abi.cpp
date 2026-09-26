@@ -16,6 +16,8 @@
 #include <llvm/Transforms/Utils/Local.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/optional.h>
 
 #include <algorithm>
 #include <limits>
@@ -129,7 +131,7 @@ struct ConstantArgumentCallGroup {
         old_parameter_count - removed_parameters.size());
     for (auto parameter_index = 0u;
          parameter_index < old_parameter_count; parameter_index++) {
-        if (!std::binary_search(
+        if (!luisa::binary_search(
                 removed_parameters.begin(), removed_parameters.end(),
                 parameter_index)) {
             parameter_attributes.emplace_back(
@@ -181,11 +183,11 @@ void simplify_constant_argument_clone(
 // convention may promote them; 16-bit vector pairs are legal packed values,
 // while wider vector leaves occupy one location per 32-bit chunk. Returning
 // nullopt rejects scalable or unsized types rather than guessing.
-[[nodiscard]] std::optional<size_t> amdgpu_value_vgpr_count(
+[[nodiscard]] luisa::optional<size_t> amdgpu_value_vgpr_count(
     llvm::Type *type, const llvm::DataLayout &data_layout) noexcept {
     if (type->isVoidTy()) { return 0u; }
     if (auto *structure = llvm::dyn_cast<llvm::StructType>(type)) {
-        if (structure->isOpaque()) { return std::nullopt; }
+        if (structure->isOpaque()) { return luisa::nullopt; }
         auto count = size_t{};
         for (auto *element : structure->elements()) {
             auto element_count =
@@ -193,7 +195,7 @@ void simplify_constant_argument_clone(
             if (!element_count ||
                 *element_count >
                     std::numeric_limits<size_t>::max() - count) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
             count += *element_count;
         }
@@ -206,17 +208,17 @@ void simplify_constant_argument_clone(
             (array->getNumElements() != 0u &&
              *element_count > std::numeric_limits<size_t>::max() /
                                   array->getNumElements())) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return *element_count * array->getNumElements();
     }
     if (llvm::isa<llvm::ScalableVectorType>(type) || !type->isSized()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
         auto *element = vector->getElementType();
         auto element_bits = data_layout.getTypeSizeInBits(element);
-        if (element_bits.isScalable()) { return std::nullopt; }
+        if (element_bits.isScalable()) { return luisa::nullopt; }
         const auto bits = element_bits.getFixedValue();
         const auto lanes = vector->getNumElements();
         if (bits < 16u) {
@@ -230,12 +232,12 @@ void simplify_constant_argument_clone(
         if (lanes != 0u &&
             locations_per_lane >
                 std::numeric_limits<size_t>::max() / lanes) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return locations_per_lane * lanes;
     }
     auto bits = data_layout.getTypeSizeInBits(type);
-    if (bits.isScalable()) { return std::nullopt; }
+    if (bits.isScalable()) { return luisa::nullopt; }
     return std::max<size_t>(
         1u, (bits.getFixedValue() + 31u) / 32u);
 }
@@ -530,7 +532,7 @@ specialize_marked_constant_integer_arguments(
             }
             group->calls.emplace_back(call);
         }
-        std::sort(
+        luisa::sort(
             groups.begin(), groups.end(),
             [](const auto &lhs, const auto &rhs) noexcept {
                 return std::lexicographical_compare(
@@ -568,7 +570,7 @@ specialize_marked_constant_integer_arguments(
                     call->arg_size() - marked_arguments.size());
                 for (auto actual_index = 0u;
                      actual_index < call->arg_size(); actual_index++) {
-                    if (!std::binary_search(
+                    if (!luisa::binary_search(
                             marked_arguments.begin(),
                             marked_arguments.end(), actual_index)) {
                         arguments.emplace_back(
@@ -657,7 +659,7 @@ specialize_generated_callable_aggregate_arguments(
             for (auto &projection : projections) {
                 paths.emplace_back(projection.path);
             }
-            std::sort(paths.begin(), paths.end());
+            luisa::sort(paths.begin(), paths.end());
             paths.erase(
                 std::unique(paths.begin(), paths.end()), paths.end());
 

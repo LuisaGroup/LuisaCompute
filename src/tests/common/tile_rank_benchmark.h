@@ -9,6 +9,7 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -48,17 +49,17 @@ namespace luisa::test::tile_rank {
                      (backend == "simd" || backend == "metal4" || backend == "metal") &&
                      samples <= 101 && target_ms <= 10000 && warmup_ms <= 60000,
                  "Invalid ranking operation, direction, backend or timing limits");
-    auto prefix = std::filesystem::path{argv[10]};
+    auto prefix = luisa::filesystem::path{argv[10]};
     auto input_path = prefix.string() + ".input.f32";
     auto values_path = prefix.string() + ".values.f32";
     auto indices_path = prefix.string() + ".indices.i64";
-    auto require_missing = [](const std::filesystem::path &path) {
+    auto require_missing = [](const luisa::filesystem::path &path) {
         std::error_code error;
-        auto exists = std::filesystem::exists(path, error);
+        auto exists = luisa::filesystem::exists(path, error);
         LUISA_ASSERT(!error && !exists, "Ranking benchmark path unavailable or already exists: {} ({})", path.string(), error.message());
     };
     for (auto &path : {input_path, values_path, indices_path}) { require_missing(path); }
-    auto write = []<typename T>(const std::filesystem::path &path, span<const T> data) {
+    auto write = []<typename T>(const luisa::filesystem::path &path, span<const T> data) {
         std::ofstream file{path, std::ios::binary};
         file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size_bytes()));
         file.close();

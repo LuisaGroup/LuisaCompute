@@ -52,6 +52,8 @@
 #include <luisa/xir/instructions/raster_discard.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/runtime/rtx/ray.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 #include <SPIRV/disassemble.h>
 #include "../../indirect_dispatch_layout.h"
 
@@ -535,7 +537,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     auto *indirect_block = _create_physical_block(function);
     auto *merge_block = _create_physical_block(function);
     auto selection_merge =
-        std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+        luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2u);
     selection_merge->addIdOperand(merge_block->getId());
     selection_merge->addImmediateOperand(
@@ -585,7 +587,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     _builder.createBranch(false, merge_block);
 
     _builder.setBuildPoint(merge_block);
-    auto phi = std::make_unique<spv::Instruction>(
+    auto phi = luisa::make_unique<spv::Instruction>(
         _builder.getUniqueId(), uint4_type, spv::Op::OpPhi);
     auto packed = phi->getResultId();
     phi->reserveOperands(4u);
@@ -864,7 +866,7 @@ void SpirvCodegenEntry::_predeclare_phis() noexcept {
             std::stable_sort(
                 node.incomings.begin(), node.incomings.end(),
                 [](auto &lhs, auto &rhs) noexcept { return lhs.order < rhs.order; });
-            auto instruction = std::make_unique<spv::Instruction>(
+            auto instruction = luisa::make_unique<spv::Instruction>(
                 _builder.getUniqueId(), phi_type, spv::Op::OpPhi);
             instruction->reserveOperands(layout.operand_word_count);
             node.instruction = instruction.get();
@@ -1274,7 +1276,7 @@ void SpirvCodegenEntry::_emit_kernel(
         selection_merge->addIdOperand(body_block->getId());
         selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
         metadata_merge->addInstruction(
-            std::unique_ptr<spv::Instruction>(selection_merge));
+            luisa::unique_ptr<spv::Instruction>(selection_merge));
 
         // Branch conditional
         _builder.createConditionalBranch(cmp, return_block, body_block);
@@ -1595,7 +1597,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     luisa::vector<const Type *> ordered_types;
     ordered_types.reserve(analysis.used_types.size());
     for (auto *type : analysis.used_types) { ordered_types.emplace_back(type); }
-    std::sort(ordered_types.begin(), ordered_types.end(), [](const Type *lhs, const Type *rhs) noexcept {
+    luisa::sort(ordered_types.begin(), ordered_types.end(), [](const Type *lhs, const Type *rhs) noexcept {
         if (lhs == nullptr || rhs == nullptr) { return lhs == nullptr && rhs != nullptr; }
         return lhs->description() < rhs->description();
     });
@@ -1613,7 +1615,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     luisa::vector<const xir::Constant *> ordered_constants;
     ordered_constants.reserve(analysis.used_constants.size());
     for (auto *constant : analysis.used_constants) { ordered_constants.emplace_back(constant); }
-    std::sort(ordered_constants.begin(), ordered_constants.end(), [](const xir::Constant *lhs, const xir::Constant *rhs) noexcept {
+    luisa::sort(ordered_constants.begin(), ordered_constants.end(), [](const xir::Constant *lhs, const xir::Constant *rhs) noexcept {
         auto lhs_type = lhs->type();
         auto rhs_type = rhs->type();
         if (lhs_type->description() != rhs_type->description()) {

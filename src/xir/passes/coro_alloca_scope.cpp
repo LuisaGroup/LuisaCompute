@@ -21,6 +21,7 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/passes/coro_alloca_scope.h>
 #include <luisa/xir/passes/pointer_usage.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "coro_frame_access.h"
 #include "coro_discriminated_prefix.h"
@@ -930,7 +931,7 @@ struct OrderedLifetimeUser {
     // The fixed-point equations are order independent. Sort the sparse
     // reverse slice by semantic block id to retain the previous deterministic
     // traversal order without materializing one empty vector per CFG block.
-    std::sort(worklist.begin(), worklist.end());
+    luisa::sort(worklist.begin(), worklist.end());
     problem.active_blocks = std::move(worklist);
     problem.events.resize(problem.active_blocks.size());
     if (timings != nullptr) {
@@ -956,7 +957,7 @@ struct OrderedLifetimeUser {
         ordered_users.emplace_back(
             OrderedLifetimeUser{instruction, iter->second});
     }
-    std::sort(
+    luisa::sort(
         ordered_users.begin(), ordered_users.end(),
         [](auto lhs, auto rhs) noexcept {
             return lhs.location.block_id < rhs.location.block_id ||
@@ -1140,7 +1141,7 @@ void kill_predicates(PredicateCube &cube,
         std::remove_if(
             cube.begin(), cube.end(),
             [killed](auto literal) noexcept {
-                return std::binary_search(
+                return luisa::binary_search(
                     killed.begin(), killed.end(),
                     literal.predicate);
             }),

@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <string_view>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::detail {
 
@@ -11,7 +12,7 @@ namespace luisa::compute::detail {
 [[nodiscard]] inline bool env_flag(const char *name) noexcept {
     auto *value = std::getenv(name);
     if (value == nullptr) { return false; }
-    auto flag = std::string_view{value};
+    auto flag = luisa::string_view{value};
     return flag == "1" || flag == "true" || flag == "TRUE" ||
            flag == "on" || flag == "ON";
 }

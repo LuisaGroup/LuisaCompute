@@ -24,6 +24,9 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 
@@ -76,8 +79,8 @@ constexpr std::array widths{2u, 3u, 4u, 8u, 16u};
 constexpr auto packet_count = uint64_t{4096u};
 
 struct MathModule {
-    std::unique_ptr<::llvm::LLVMContext> context;
-    std::unique_ptr<::llvm::Module> module;
+    luisa::unique_ptr<::llvm::LLVMContext> context;
+    luisa::unique_ptr<::llvm::Module> module;
 };
 
 struct Measurement {
@@ -87,7 +90,7 @@ struct Measurement {
     size_t fast_instructions;
 };
 
-[[nodiscard]] constexpr std::string_view operation_name(
+[[nodiscard]] constexpr luisa::string_view operation_name(
     Operation operation) noexcept {
     switch (operation) {
         case Operation::sin: return "sin";
@@ -276,8 +279,8 @@ void add_entry(
 }
 
 [[nodiscard]] MathModule make_math_module() {
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "native-math-benchmark", *context);
     for (auto mode : {cpu::LLVMNativeMathMode::precise,
                       cpu::LLVMNativeMathMode::fast}) {
@@ -371,30 +374,30 @@ using Entry = void(
 }
 
 [[nodiscard]] double median(std::vector<double> values) {
-    std::sort(values.begin(), values.end());
+    luisa::sort(values.begin(), values.end());
     return values[values.size() / 2u];
 }
 
 [[nodiscard]] size_t instruction_count(
-    std::string_view assembly, std::string_view function) {
+    luisa::string_view assembly, luisa::string_view function) {
     auto label = std::string{"\n"} + std::string{function} + ":";
     auto begin = assembly.find(label);
-    if (begin == std::string_view::npos) { return 0u; }
+    if (begin == luisa::string_view::npos) { return 0u; }
     begin += label.size();
     auto end = assembly.find("\n.Lfunc_end", begin);
-    if (end == std::string_view::npos) {
+    if (end == luisa::string_view::npos) {
         end = assembly.find("\n\t.size", begin);
     }
-    if (end == std::string_view::npos) { end = assembly.size(); }
+    if (end == luisa::string_view::npos) { end = assembly.size(); }
     auto count = size_t{0u};
     while (begin < end) {
         auto line_end = assembly.find('\n', begin);
-        if (line_end == std::string_view::npos || line_end > end) {
+        if (line_end == luisa::string_view::npos || line_end > end) {
             line_end = end;
         }
         auto line = assembly.substr(begin, line_end - begin);
         auto first = line.find_first_not_of(" \t");
-        if (first != std::string_view::npos &&
+        if (first != luisa::string_view::npos &&
             line[first] != '.' && line[first] != '#' &&
             line.back() != ':') {
             ++count;
@@ -405,7 +408,7 @@ using Entry = void(
 }
 
 [[nodiscard]] bool has_scalar_libm_symbol(std::string assembly) {
-    std::transform(
+    luisa::transform(
         assembly.begin(), assembly.end(), assembly.begin(),
         [](unsigned char c) noexcept {
             return static_cast<char>(std::tolower(c));
@@ -421,7 +424,7 @@ using Entry = void(
 }
 
 [[nodiscard]] Measurement benchmark_pair(
-    simd::LLVMJIT &jit, std::string_view assembly,
+    simd::LLVMJIT &jit, luisa::string_view assembly,
     Operation operation, uint32_t width) {
     auto precise_name = entry_name(
         operation, width, cpu::LLVMNativeMathMode::precise);
@@ -478,7 +481,7 @@ using Entry = void(
 }
 
 void print_row(
-    std::string_view surface, uint32_t width, Operation operation,
+    luisa::string_view surface, uint32_t width, Operation operation,
     const Measurement &measurement, bool scalar_libm) {
     std::cout << surface << ',' << width << ','
               << operation_name(operation) << ',' << std::fixed
@@ -495,7 +498,7 @@ void print_row(
 int main(int argc, char *argv[]) {
     auto canonicalization_only =
         argc == 2 &&
-        std::string_view{argv[1]} == "--canonicalization-only";
+        luisa::string_view{argv[1]} == "--canonicalization-only";
     auto assembly_module = make_math_module();
     simd::LLVMJIT assembly_target;
     if (!assembly_target.succeeded()) {

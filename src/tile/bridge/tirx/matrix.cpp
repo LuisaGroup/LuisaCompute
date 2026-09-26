@@ -14,6 +14,8 @@
 #include <tvm/tirx/transform.h>
 
 #include <luisa/tile/bridge/tirx/layout.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 #include "execution.h"
 
@@ -94,7 +96,7 @@ struct AffineIndex {
 // Prove a positive strided matrix projection, rather than guessing it from
 // buffer rank or dimension names. Uniform pipeline-slot coordinates remain
 // symbolic. Nonlinear/reversed element maps conservatively keep the loop.
-[[nodiscard]] std::optional<AffineIndex> affine_index(const tvm::PrimExpr &expression, const Axes &axes) {
+[[nodiscard]] luisa::optional<AffineIndex> affine_index(const tvm::PrimExpr &expression, const Axes &axes) {
     for (auto i = 0u; i < axes.size(); i++) {
         if (expression.same_as(axes[i])) {
             AffineIndex result;
@@ -193,7 +195,7 @@ struct MatrixView {
     return covered(left, right) && covered(right, left);
 }
 
-[[nodiscard]] std::optional<MatrixView> matrix_projection(
+[[nodiscard]] luisa::optional<MatrixView> matrix_projection(
     tvm::tirx::BufferVar buffer, const tvm::ffi::Array<tvm::PrimExpr> &indices, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
     tvm::tirx::BufferVar source) {
@@ -228,10 +230,10 @@ struct MatrixView {
     return {};
 }
 
-[[nodiscard]] std::optional<MatrixView> matrix_view(
+[[nodiscard]] luisa::optional<MatrixView> matrix_view(
     const tvm::tirx::BufferLoadNode *load, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer, bool writable = false) {
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer, bool writable = false) {
     if (load == nullptr || load->predicate || load->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
     auto buffer = map_buffer(load->buffer);
     // The caller authorizes compiler-owned shared allocations and explicitly
@@ -241,10 +243,10 @@ struct MatrixView {
     return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer);
 }
 
-[[nodiscard]] std::optional<MatrixView> matrix_input(
+[[nodiscard]] luisa::optional<MatrixView> matrix_input(
     const tvm::PrimExpr &value, const Axes &axes, uint32_t row_axis, uint32_t column_axis,
     uint64_t rows, uint64_t columns,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> domain) {
     if (auto direct = matrix_view(value.as<tvm::tirx::BufferLoadNode>(), axes, row_axis, column_axis, rows, columns, map_buffer)) { return direct; }
     auto conditional = value.as<tvm::CallNode>();
@@ -388,7 +390,7 @@ namespace {
 struct MatchedMatrix {
     Axes axes;
     MatrixView a, b, d;
-    std::optional<MatrixView> c;
+    luisa::optional<MatrixView> c;
     tvm::PrimExpr initial;
     int64_t m, n, k;
     tvm::PrimExpr reduction_length;
@@ -399,7 +401,7 @@ struct MatchedMatrix {
 // min(cap, base + stride * ordinal). Sum it analytically, without unrolling
 // kernels or sampling endpoints as a proxy for a nonlinear expression.
 // More general piecewise/multi-axis cases retain the nominal cost bound.
-[[nodiscard]] std::optional<double> mean_extent(
+[[nodiscard]] luisa::optional<double> mean_extent(
     const tvm::PrimExpr &expression, luisa::span<const tvm::tirx::ForNode *const> domain) {
     tvm::arith::Analyzer analyzer;
     tvm::ffi::Array<tvm::tirx::PrimVar> variables;
@@ -415,7 +417,7 @@ struct MatchedMatrix {
     }
     auto value = analyzer->Simplify(expression);
     if (auto constant = value.as<tvm::IntImmNode>()) {
-        return constant->value > 0 ? std::optional{static_cast<double>(constant->value)} : std::nullopt;
+        return constant->value > 0 ? luisa::optional{static_cast<double>(constant->value)} : luisa::nullopt;
     }
     auto cap = std::numeric_limits<int64_t>::max();
     // Preserve the original cap before simplifying its affine operand.
@@ -477,9 +479,9 @@ struct MatchedMatrix {
     return static_cast<int32_t>(constant->value);
 }
 
-[[nodiscard]] std::optional<MatchedMatrix> match_metal_matrix(
+[[nodiscard]] luisa::optional<MatchedMatrix> match_metal_matrix(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {}) {
     auto permission = loop->annotations.Get(mma_annotation);
     auto independent = loop->annotations.Get(independent_elements_annotation);
@@ -523,7 +525,7 @@ struct MatchedMatrix {
                 annotations.Set(mma_annotation, permission.value());
             }
             point = tvm::tirx::For{axis->loop_var, axis->min, axis->extent, tvm::tirx::ForKind::kSerial,
-                                   std::move(point), std::nullopt, std::move(annotations)};
+                                   std::move(point), luisa::nullopt, std::move(annotations)};
         }
         return match_metal_matrix(point.as_or_throw<tvm::tirx::For>(), map_buffer, bounded_k, ancestors);
     }
@@ -773,9 +775,9 @@ struct MatchedMatrix {
 
 }// namespace
 
-std::optional<MatrixWorkload> metal_matrix_workload(
+luisa::optional<MatrixWorkload> metal_matrix_workload(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     if (auto matched = match_metal_matrix(loop, map_buffer, bounded_k, ancestors)) {
         MatrixWorkload result{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
@@ -788,9 +790,9 @@ std::optional<MatrixWorkload> metal_matrix_workload(
     return {};
 }
 
-std::optional<MatrixCarry> metal_matrix_carry(
+luisa::optional<MatrixCarry> metal_matrix_carry(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     auto matrix = match_metal_matrix(loop, map_buffer, bounded_k, ancestors);
     if (!matrix || !matrix->c) { return {}; }
@@ -829,7 +831,7 @@ bool metal_matrix_epilogue_binding(const tvm::tirx::For &loop, const MatrixCarry
     return true;
 }
 
-std::optional<MatrixLoopEmission::Output> metal_matrix_output(
+luisa::optional<MatrixLoopEmission::Output> metal_matrix_output(
     const tvm::tirx::For &loop, const MatrixCarry &carry, luisa::span<const tvm::tirx::ForNode *const> ancestors,
     bool bounded, const MatrixEpilogue *epilogue) {
     auto independent = loop->annotations.Get(independent_elements_annotation);
@@ -852,9 +854,9 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     MatrixElementReads reads{carry, graph, loop->loop_var, column->loop_var};
     auto value = reads.value(store->value);
     if (!reads.valid || value.ty() != tvm::PrimType::Float(32) || store->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
-    std::optional<MatrixEpilogue> scalar_epilogue;
+    luisa::optional<MatrixEpilogue> scalar_epilogue;
     if (!value.same_as(graph.input) || !graph.bindings.empty()) {
-        auto capability = bounded && epilogue != nullptr ? tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version") : std::nullopt;
+        auto capability = bounded && epilogue != nullptr ? tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version") : luisa::nullopt;
         if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
         scalar_epilogue = graph;
         scalar_epilogue->value = std::move(value);
@@ -872,7 +874,7 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     if (view && prove_in_loop_domain(valid && bounds, domain)) {
         return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var, view->stride, view->transpose, {}, {}, std::move(scalar_epilogue)};
     }
-    auto capability = bounded ? tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version") : std::nullopt;
+    auto capability = bounded ? tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version") : luisa::nullopt;
     if (!capability || (*capability)().cast<int64_t>() != 1 || store->indices.size() != 2u || store->buffer->shape.size() != 2u ||
         !equivalent_conjunctions(valid, bounds, domain)) { return {}; }
     // A bounds guard is not an arbitrary mask. Prove a unit row/column
@@ -903,7 +905,7 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
 
 tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     Diagnostic &diagnostic, const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp,
     luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     if (diagnostic.failed() || threads < 32u || threads % 32u != 0u) { return {}; }

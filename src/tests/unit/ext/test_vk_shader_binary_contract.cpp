@@ -10,6 +10,7 @@
 
 #include <luisa/core/binary_io.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #if defined(LUISA_XIR_TO_SPIRV) || defined(LUISA_AST_LLVM_TO_SPIRV)
 #include <spirv-tools/libspirv.hpp>
@@ -129,9 +130,9 @@ public:
 
 [[nodiscard]] std::vector<uint32_t> assemble_shader_module(
     lc::vk::detail::ShaderArtifactSpirvStage stage,
-    std::string_view extra_capabilities = {}) {
+    luisa::string_view extra_capabilities = {}) {
 #if defined(LUISA_XIR_TO_SPIRV) || defined(LUISA_AST_LLVM_TO_SPIRV)
-    auto execution_model = std::string_view{};
+    auto execution_model = luisa::string_view{};
     auto execution_modes = std::string{};
     switch (stage) {
         case lc::vk::detail::ShaderArtifactSpirvStage::COMPUTE:
@@ -518,7 +519,7 @@ int main(int argc, char *argv[]) {
                "little-endian field order";
         expect(eq(shader_semantic_header_byte_size, 200u));
 
-        auto rejects = [&](std::string_view field, auto mutate) {
+        auto rejects = [&](luisa::string_view field, auto mutate) {
             auto tampered = header;
             mutate(tampered);
             expect(!valid_shader_semantic_header(tampered))
@@ -570,7 +571,7 @@ int main(int argc, char *argv[]) {
                "little-endian field order";
         expect(eq(raster_semantic_header_byte_size, 184u));
 
-        auto rejects = [&](std::string_view field, auto mutate) {
+        auto rejects = [&](luisa::string_view field, auto mutate) {
             auto tampered = header;
             mutate(tampered);
             expect(!valid_raster_semantic_header(tampered))
@@ -638,7 +639,7 @@ int main(int argc, char *argv[]) {
         constexpr std::array valid{
             'x', '=', '\0', 'u', 'i', 'n', 't', '\0',
             'y', '\0', 'f', 'l', 'o', 'a', 't', '\0'};
-        std::vector<std::pair<std::string_view, std::string_view>> records;
+        std::vector<std::pair<luisa::string_view, luisa::string_view>> records;
         auto accepted = lc::vk::detail::for_each_printer_record(
             luisa::span{valid}, 2u,
             [&](auto name, auto type) { records.emplace_back(name, type); });

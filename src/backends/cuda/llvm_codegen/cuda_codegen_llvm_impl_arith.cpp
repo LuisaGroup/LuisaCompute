@@ -6,6 +6,8 @@
 #include <numbers>
 
 #include "cuda_codegen_llvm_impl.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::cuda {
 
@@ -815,12 +817,12 @@ namespace detail {
                                                       llvm::Type *t, bool enable_fast_math) noexcept {
     auto op_suffix = t->isDoubleTy() ? "" : "f";
     if (enable_fast_math) {
-        auto nv_fast_op_name = fmt::format("__nv_fast_{}{}", std::string_view{op_name}, op_suffix);
+        auto nv_fast_op_name = fmt::format("__nv_fast_{}{}", luisa::string_view{op_name}, op_suffix);
         if (auto op = m.getFunction(nv_fast_op_name)) {
             return op;
         }
     }
-    auto nv_op_name = fmt::format("__nv_{}{}", std::string_view{op_name}, op_suffix);
+    auto nv_op_name = fmt::format("__nv_{}{}", luisa::string_view{op_name}, op_suffix);
     auto op = m.getFunction(nv_op_name);
     LUISA_ASSERT(op != nullptr, "libdevice function {} not found.", op_name);
     return op;

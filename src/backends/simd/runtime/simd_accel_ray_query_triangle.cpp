@@ -9,6 +9,8 @@
 #include <limits>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../../common/env_flag.h"
 
@@ -337,17 +339,17 @@ template<size_t packet_width>
     constexpr auto magnitude_mask = 0x7fffffffu;
     constexpr auto minimum_normal_bits = 0x00800000u;
     constexpr auto infinity_bits = 0x7f800000u;
-    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto bits = luisa::bit_cast<uint32_t>(tnear);
     auto magnitude = bits & magnitude_mask;
     if (magnitude >= infinity_bits) { return tnear; }
     if (magnitude == 0u) {
-        return std::bit_cast<float>(sign_bit | minimum_normal_bits);
+        return luisa::bit_cast<float>(sign_bit | minimum_normal_bits);
     }
     bits = (bits & sign_bit) != 0u ? bits + 1u : bits - 1u;
     if ((bits & magnitude_mask) < minimum_normal_bits) {
         bits = sign_bit | minimum_normal_bits;
     }
-    return std::bit_cast<float>(bits);
+    return luisa::bit_cast<float>(bits);
 }
 
 template<size_t packet_width, typename RayPacket>
@@ -661,7 +663,7 @@ void install_ray_query_candidate_batch(
     } else if (build.descending && !build.ascending) {
         std::reverse(begin, end);
     } else if (!build.ascending) {
-        std::sort(begin, end, ray_query_candidate_before);
+        luisa::sort(begin, end, ray_query_candidate_before);
     }
     state->candidate_batch_index = 0u;
     state->candidate_batch_initialized = 1u;

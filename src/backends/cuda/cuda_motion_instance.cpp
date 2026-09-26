@@ -6,6 +6,7 @@
 #include "cuda_device.h"
 #include "cuda_command_encoder.h"
 #include "cuda_motion_instance.h"
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::cuda {
 

@@ -9,6 +9,7 @@
 #include <limits>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::simd::triangle_ray_query {
 
@@ -54,17 +55,17 @@ static_assert(offsetof(SurfaceFilterPipelineContext, rtc) == 0u);
     constexpr auto magnitude_mask = 0x7fffffffu;
     constexpr auto minimum_normal_bits = 0x00800000u;
     constexpr auto infinity_bits = 0x7f800000u;
-    auto bits = std::bit_cast<uint32_t>(tnear);
+    auto bits = luisa::bit_cast<uint32_t>(tnear);
     auto magnitude = bits & magnitude_mask;
     if (magnitude >= infinity_bits) { return tnear; }
     if (magnitude == 0u) {
-        return std::bit_cast<float>(sign_bit | minimum_normal_bits);
+        return luisa::bit_cast<float>(sign_bit | minimum_normal_bits);
     }
     bits = (bits & sign_bit) != 0u ? bits + 1u : bits - 1u;
     if ((bits & magnitude_mask) < minimum_normal_bits) {
         bits = sign_bit | minimum_normal_bits;
     }
-    return std::bit_cast<float>(bits);
+    return luisa::bit_cast<float>(bits);
 }
 
 [[nodiscard]] bool instance_is_opaque(
@@ -392,7 +393,7 @@ void initialize_ray_packet_from_logical_packet(
     };
     auto load_float = [&](uint32_t field,
                           uint32_t lane) noexcept {
-        return std::bit_cast<float>(load_word(field, lane));
+        return luisa::bit_cast<float>(load_word(field, lane));
     };
     auto lane_mask = (uint64_t{1u} << lane_count) - 1u;
     auto active = active_mask_bits & lane_mask;

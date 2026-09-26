@@ -4,6 +4,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/managed_ilist.h>
 #include <luisa/xir/traits.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::xir {
 
@@ -53,9 +54,9 @@ namespace detail {
 [[nodiscard]] LUISA_XIR_API Metadata *luisa_xir_metadata_list_mixin_create_metadata(MetadataList &list, DerivedMetadataTag tag) noexcept;
 [[nodiscard]] LUISA_XIR_API Metadata *luisa_xir_metadata_list_mixin_find_or_create_metadata(MetadataList &list, DerivedMetadataTag tag) noexcept;
 [[nodiscard]] LUISA_XIR_API luisa::optional<luisa::string_view> luisa_xir_metadata_list_mixin_get_name(const MetadataList &list) noexcept;
-LUISA_XIR_API void luisa_xir_metadata_list_mixin_set_name(MetadataList &list, std::string_view name) noexcept;
-LUISA_XIR_API void luisa_xir_metadata_list_mixin_set_location(MetadataList &list, const std::filesystem::path &file, int line) noexcept;
-LUISA_XIR_API void luisa_xir_metadata_list_mixin_add_comment(MetadataList &list, std::string_view comment) noexcept;
+LUISA_XIR_API void luisa_xir_metadata_list_mixin_set_name(MetadataList &list, luisa::string_view name) noexcept;
+LUISA_XIR_API void luisa_xir_metadata_list_mixin_set_location(MetadataList &list, const luisa::filesystem::path &file, int line) noexcept;
+LUISA_XIR_API void luisa_xir_metadata_list_mixin_add_comment(MetadataList &list, luisa::string_view comment) noexcept;
 }// namespace detail
 
 class MetadataListMixin {
@@ -101,13 +102,13 @@ public:
         return static_cast<T *>(find_or_create_metadata(T::static_derived_metadata_tag()));
     }
 
-    void set_name(std::string_view name) noexcept {
+    void set_name(luisa::string_view name) noexcept {
         detail::luisa_xir_metadata_list_mixin_set_name(_metadata_list, name);
     }
-    void set_location(const std::filesystem::path &file, int line = -1) noexcept {
+    void set_location(const luisa::filesystem::path &file, int line = -1) noexcept {
         detail::luisa_xir_metadata_list_mixin_set_location(_metadata_list, file, line);
     }
-    void add_comment(std::string_view comment) noexcept {
+    void add_comment(luisa::string_view comment) noexcept {
         detail::luisa_xir_metadata_list_mixin_add_comment(_metadata_list, comment);
     }
 

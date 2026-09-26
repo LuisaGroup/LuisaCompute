@@ -7,6 +7,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/op.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::xir {
 class Value;
@@ -209,7 +210,7 @@ spirv_texture_sample_op_info(
 }
 
 struct SpirvSamplerSelectorDecodeResult {
-    std::optional<uint32_t> value;
+    luisa::optional<uint32_t> value;
     luisa::string diagnostic;
 
     [[nodiscard]] bool succeeded() const noexcept {

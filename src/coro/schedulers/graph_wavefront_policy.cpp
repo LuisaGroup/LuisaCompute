@@ -6,6 +6,7 @@
 #include <utility>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::coro {
 
@@ -64,7 +65,7 @@ GraphWavefrontMarkovModel::GraphWavefrontMarkovModel(
     _alpha.resize(_targets.size());
     for (auto source = 0u; source < _targets.size(); ++source) {
         auto &row = _targets[source];
-        std::sort(row.begin(), row.end());
+        luisa::sort(row.begin(), row.end());
         row.erase(std::unique(row.begin(), row.end()), row.end());
         for (auto target : row) {
             LUISA_ASSERT(target != 0u && target < _targets.size(),

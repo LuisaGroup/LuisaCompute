@@ -11,6 +11,7 @@
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <array>
@@ -32,10 +33,10 @@ constexpr auto timed_dispatch_count = 128u;
 constexpr auto sample_count = 7u;
 
 [[nodiscard]] uint32_t parse_width(
-    int argc, char *argv[], std::string_view backend) noexcept {
+    int argc, char *argv[], luisa::string_view backend) noexcept {
     if (backend != "simd") { return 0u; }
     if (argc < 3 || argv[2] == nullptr) { return 0u; }
-    auto text = std::string_view{argv[2]};
+    auto text = luisa::string_view{argv[2]};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(
         text.data(), text.data() + text.size(), width);
@@ -49,12 +50,12 @@ constexpr auto sample_count = 7u;
 }
 
 [[nodiscard]] uint32_t parse_candidate_count(
-    int argc, char *argv[], std::string_view backend) noexcept {
+    int argc, char *argv[], luisa::string_view backend) noexcept {
     auto argument = backend == "simd" ? 3 : 2;
     if (argc <= argument || argv[argument] == nullptr) {
         return default_candidate_count;
     }
-    auto text = std::string_view{argv[argument]};
+    auto text = luisa::string_view{argv[argument]};
     auto count = uint32_t{0u};
     auto parsed = std::from_chars(
         text.data(), text.data() + text.size(), count);
@@ -75,7 +76,7 @@ int main(int argc, char *argv[]) {
                      "[structured|explicit] [counted|capture-free]\n";
         return 1;
     }
-    auto backend = std::string_view{argv[1]};
+    auto backend = luisa::string_view{argv[1]};
     if (backend != "fallback" && backend != "simd") {
         std::cerr << "Expected fallback or simd backend\n";
         return 1;
@@ -93,8 +94,8 @@ int main(int argc, char *argv[]) {
     auto query_form_argument = backend == "simd" ? 4 : 3;
     auto query_form = argc > query_form_argument &&
                               argv[query_form_argument] != nullptr ?
-                          std::string_view{argv[query_form_argument]} :
-                          std::string_view{"structured"};
+                          luisa::string_view{argv[query_form_argument]} :
+                          luisa::string_view{"structured"};
     if (query_form != "structured" && query_form != "explicit") {
         std::cerr << "Expected structured or explicit query form\n";
         return 1;
@@ -103,8 +104,8 @@ int main(int argc, char *argv[]) {
     auto payload_argument = query_form_argument + 1;
     auto payload = argc > payload_argument &&
                            argv[payload_argument] != nullptr ?
-                       std::string_view{argv[payload_argument]} :
-                       std::string_view{"counted"};
+                       luisa::string_view{argv[payload_argument]} :
+                       luisa::string_view{"counted"};
     if (payload != "counted" && payload != "capture-free") {
         std::cerr << "Expected counted or capture-free payload\n";
         return 1;
@@ -237,7 +238,7 @@ int main(int argc, char *argv[]) {
                               .count();
     }
     auto sorted = samples;
-    std::sort(sorted.begin(), sorted.end());
+    luisa::sort(sorted.begin(), sorted.end());
     auto median_seconds = sorted[sample_count / 2u];
     auto minimum_seconds = sorted.front();
     auto rays = static_cast<double>(ray_count) * timed_dispatch_count;

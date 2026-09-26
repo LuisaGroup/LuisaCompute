@@ -22,6 +22,7 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
 #include <luisa/backends/ext/vk_cuda_interop.h>
+#include <luisa/core/stl/memory.h>
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
 #endif
@@ -151,13 +152,13 @@ void set_config_resource_restore_state(
 uint64_t ReorderFuncTable::canonical_buffer_handle(
     uint64_t handle) const noexcept {
     auto buffer = reinterpret_cast<Buffer const *>(handle);
-    return std::bit_cast<uint64_t>(buffer->vk_buffer());
+    return luisa::bit_cast<uint64_t>(buffer->vk_buffer());
 }
 
 uint64_t ReorderFuncTable::canonical_texture_handle(
     uint64_t handle) const noexcept {
     auto texture = reinterpret_cast<Texture const *>(handle);
-    return std::bit_cast<uint64_t>(texture->vk_image());
+    return luisa::bit_cast<uint64_t>(texture->vk_image());
 }
 
 void ReorderFuncTable::traverse_bindless_resources(

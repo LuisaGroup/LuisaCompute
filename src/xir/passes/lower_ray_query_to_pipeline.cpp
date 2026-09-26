@@ -21,6 +21,7 @@
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <limits>
@@ -144,7 +145,7 @@ static void clone_metadata(const MetadataListMixin &source,
     const RayQueryHandlerRegion &rhs) noexcept {
     auto *smaller = &lhs.blocks;
     auto *larger = &rhs.blocks;
-    if (smaller->size() > larger->size()) { std::swap(smaller, larger); }
+    if (smaller->size() > larger->size()) { luisa::swap(smaller, larger); }
     for (auto *block : *smaller) {
         if (larger->contains(block)) { return true; }
     }
@@ -1109,7 +1110,7 @@ public:
         }
         for (auto &[block, ordered] : instruction_schedule) {
             static_cast<void>(block);
-            std::sort(
+            luisa::sort(
                 ordered.begin(), ordered.end(),
                 [&](const Instruction *lhs,
                     const Instruction *rhs) noexcept {

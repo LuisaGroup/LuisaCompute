@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace llvm {
 class LLVMContext;
@@ -64,7 +66,7 @@ public:
     // be submitted to this JIT.
     [[nodiscard]] std::string emit_assembly_copy(
         const ::llvm::Module &module) noexcept;
-    [[nodiscard]] void *lookup(std::string_view name) noexcept;
+    [[nodiscard]] void *lookup(luisa::string_view name) noexcept;
 
     [[nodiscard]] bool succeeded() const noexcept {
         return _jit != nullptr && _error.empty();

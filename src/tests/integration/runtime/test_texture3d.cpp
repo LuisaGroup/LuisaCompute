@@ -16,6 +16,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/core/stl/filesystem.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -366,7 +367,7 @@ void test_texture3d(Device &device, int argc, const char *const *argv) {
             }
         }
 
-        auto output_path = std::filesystem::path{opts.output_dir} / "texture3d_output.png";
+        auto output_path = luisa::filesystem::path{opts.output_dir} / "texture3d_output.png";
         int success = stbi_write_png(output_path.string().c_str(), resolution.x, resolution.y, 4, image_data.data(), resolution.x * 4);
         boost::ut::expect(static_cast<bool>(success != 0)) << "Failed to save output image.";
         if (!success) {

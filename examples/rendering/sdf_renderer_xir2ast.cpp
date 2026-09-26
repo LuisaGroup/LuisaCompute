@@ -22,6 +22,8 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -226,10 +228,10 @@ int main(int argc, char *argv[]) {
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 #if ENABLE_DISPLAY
     Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("SDF Renderer", width, height);
+        window = luisa::make_unique<Window>("SDF Renderer", width, height);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

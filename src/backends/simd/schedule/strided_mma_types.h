@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/string.h>
 
 #include "strided_mma.h"
 
@@ -8,7 +9,7 @@ namespace luisa::compute::simd::schedule {
 
 // Deliberately separate from the dependency-light Schedule dialect. Both
 // typed boundaries share this adapter and the same geometry/capacity check.
-[[nodiscard]] inline std::string_view validate_strided_mma(
+[[nodiscard]] inline luisa::string_view validate_strided_mma(
     const StridedMmaMetadata &d, const std::array<const Type *, 4u> &types) noexcept {
     std::array<uint64_t, 4u> capacities{};
     for (auto i = size_t{0u}; i < types.size(); i++) {

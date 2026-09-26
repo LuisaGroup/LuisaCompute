@@ -8,6 +8,7 @@
 #include <luisa/backends/ext/dx_cuda_interop.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
 #include <luisa/core/dynamic_module.h>
+#include <luisa/core/stl/filesystem.h>
 #include <dstorage/dstorage.h>
 #include "../d3dx12.h"
 #ifdef LCDX_ENABLE_CUDA
@@ -221,7 +222,7 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
 public:
     auto factory() const { return _factory.Get(); }
     DeviceInterface *device() const noexcept override;
-    DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
+    DStorageExtImpl(luisa::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
     FileCreationInfo open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;

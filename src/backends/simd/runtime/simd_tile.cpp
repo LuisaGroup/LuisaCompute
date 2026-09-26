@@ -13,6 +13,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/string.h>
 
 #include "simd_device.h"
 #include "simd_shader.h"
@@ -48,7 +49,7 @@ public:
     tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
     auto text = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES");
     if (text == nullptr) { return true; }
-    auto remaining = std::string_view{text};
+    auto remaining = luisa::string_view{text};
     luisa::vector<uint32_t> tiles;
     while (true) {
         auto delimiter = remaining.find(',');
@@ -60,7 +61,7 @@ public:
             return false;
         }
         tiles.emplace_back(tile);
-        if (delimiter == std::string_view::npos) { break; }
+        if (delimiter == luisa::string_view::npos) { break; }
         remaining.remove_prefix(delimiter + 1u);
     }
     if (!options.root_axis_tiles.empty() && options.root_axis_tiles != tiles) {
@@ -74,7 +75,7 @@ public:
 [[nodiscard]] bool native_mma_from_environment(tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
     auto text = std::getenv("LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH");
     if (text == nullptr) { return true; }
-    auto token = std::string_view{text};
+    auto token = luisa::string_view{text};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
     if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() ||
@@ -89,7 +90,7 @@ public:
 [[nodiscard]] bool native_copy_from_environment(tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
     auto text = std::getenv("LUISA_SIMD_NATIVE_COPY_VECTOR_WIDTH");
     if (text == nullptr) { return true; }
-    auto token = std::string_view{text};
+    auto token = luisa::string_view{text};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
     if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() ||

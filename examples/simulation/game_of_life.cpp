@@ -30,6 +30,11 @@
 #include <luisa/runtime/event.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -52,7 +57,7 @@ struct ImagePair {
     ImagePair(Device &device, PixelStorage storage, uint width, uint height) noexcept
         : prev{device.create_image<uint>(storage, width, height)},
           curr{device.create_image<uint>(storage, width, height)} {}
-    void swap() noexcept { std::swap(prev, curr); }
+    void swap() noexcept { luisa::swap(prev, curr); }
 };
 
 int main(int argc, char *argv[]) {
@@ -69,8 +74,8 @@ int main(int argc, char *argv[]) {
     }
     auto force_offline = opts.offline;
     auto compare_path = opts.compare_path;
-    auto executable_name = std::filesystem::path{argv[0]}.filename().string();
-    if (std::string_view{executable_name}.starts_with("test_")) {
+    auto executable_name = luisa::filesystem::path{argv[0]}.filename().string();
+    if (luisa::string_view{executable_name}.starts_with("test_")) {
         force_offline = true;
     }
 #if !ENABLE_DISPLAY
@@ -132,10 +137,10 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     std::mt19937 rng{force_offline ? 42u : std::random_device{}()};
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Game of Life", display_width, display_height);
+        window = luisa::make_unique<Window>("Game of Life", display_width, display_height);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

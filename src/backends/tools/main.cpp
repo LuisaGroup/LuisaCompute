@@ -106,6 +106,8 @@
 #include <luisa/core/stl/optional.h>
 #include <luisa/runtime/context.h>
 #include <luisa/vstl/md5.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 #include "../common/hlsl/shader_compiler.h"
 #include "../common/hlsl/shader_property.h"
 #include "../common/subprocess.h"
@@ -149,12 +151,12 @@ enum class Action : uint8_t {
 struct Options {
     Action action{Action::COMPILE};
     Target target{Target::DX};
-    std::filesystem::path input;
-    std::filesystem::path prepend;
-    std::filesystem::path output;
-    std::vector<std::filesystem::path> inputs;
-    std::filesystem::path embedded_source;
-    std::filesystem::path embedded_header;
+    luisa::filesystem::path input;
+    luisa::filesystem::path prepend;
+    luisa::filesystem::path output;
+    std::vector<luisa::filesystem::path> inputs;
+    luisa::filesystem::path embedded_source;
+    luisa::filesystem::path embedded_header;
     std::string name{kDefaultKernelName};
     std::string entry{"main"};
     std::string target_env{"vulkan1.2"};
@@ -173,9 +175,9 @@ struct Options {
     bool install{false};
     bool verify{false};
     bool store_cache{false};
-    std::filesystem::path glslang;
-    std::filesystem::path validator;
-    std::filesystem::path embedder;
+    luisa::filesystem::path glslang;
+    luisa::filesystem::path validator;
+    luisa::filesystem::path embedder;
     /**
      * \brief True when dxc must emit SPIR-V (`vk`).
      */
@@ -189,9 +191,9 @@ struct Options {
         return target == Target::VK_HLSL_SPIRV || (target == Target::VK_BUILTIN && container && !raw);
     }
 };
-[[nodiscard]] std::filesystem::path absolute_path(std::string_view p) {
-    auto path = std::filesystem::path{p};
-    return path.is_absolute() ? path : std::filesystem::absolute(path);
+[[nodiscard]] luisa::filesystem::path absolute_path(luisa::string_view p) {
+    auto path = luisa::filesystem::path{p};
+    return path.is_absolute() ? path : luisa::filesystem::absolute(path);
 }
 void print_usage(const char *exe) {
     LUISA_INFO(
@@ -238,18 +240,18 @@ void print_usage(const char *exe) {
  */
 [[nodiscard]] bool parse_options(int argc, char *argv[], Options &opt) noexcept {
     // Usage problems are reported without aborting so the caller gets exit code 1.
-    auto usage_error = [&](std::string_view message) noexcept {
+    auto usage_error = [&](luisa::string_view message) noexcept {
         LUISA_WARNING("{}", message);
     };
-    auto parse_block_size_argument = [&](std::string_view value) noexcept {
+    auto parse_block_size_argument = [&](luisa::string_view value) noexcept {
         uint32_t dims[3]{1u, 1u, 1u};
         size_t index{};
         size_t pos{};
         while (index < 3u) {
             auto comma = value.find(',', pos);
-            auto token = value.substr(pos, comma == std::string_view::npos ? std::string_view::npos : comma - pos);
+            auto token = value.substr(pos, comma == luisa::string_view::npos ? luisa::string_view::npos : comma - pos);
             dims[index++] = static_cast<uint32_t>(std::strtoul(token.data(), nullptr, 10));
-            if (comma == std::string_view::npos) { break; }
+            if (comma == luisa::string_view::npos) { break; }
             pos = comma + 1u;
         }
         std::memcpy(opt.block_size, dims, sizeof(dims));
@@ -257,7 +259,7 @@ void print_usage(const char *exe) {
     };
     std::vector<std::string> positional;
     for (int i = 1; i < argc; ++i) {
-        auto arg = std::string_view{argv[i]};
+        auto arg = luisa::string_view{argv[i]};
         if (arg == "--help") {
             print_usage(argc > 0 ? argv[0] : "lc-compile-builtin");
             return false;
@@ -317,7 +319,7 @@ void print_usage(const char *exe) {
             usage_error("option "s + std::string{arg} + " requires a value.");
             return false;
         }
-        auto value = std::string_view{argv[++i]};
+        auto value = luisa::string_view{argv[++i]};
         if (arg == "--entry") {
             opt.entry = std::string{value};
         } else if (arg == "--name") {
@@ -363,7 +365,7 @@ void print_usage(const char *exe) {
         return false;
     }
     // <dx|vk|spv> [inspect|embed] <inputs...> <output>
-    auto backend = std::string_view{positional[0]};
+    auto backend = luisa::string_view{positional[0]};
     auto arguments = std::vector<std::string>{positional.begin() + 1, positional.end()};
     if (backend == "dx") {
         opt.target = Target::DX;
@@ -397,7 +399,7 @@ void print_usage(const char *exe) {
             usage_error("inspect takes exactly one artifact path.");
             return false;
         }
-        if (opt.input = absolute_path(arguments[0]); !std::filesystem::is_regular_file(opt.input)) {
+        if (opt.input = absolute_path(arguments[0]); !luisa::filesystem::is_regular_file(opt.input)) {
             usage_error("artifact file not found: " + opt.input.string());
             return false;
         }
@@ -415,7 +417,7 @@ void print_usage(const char *exe) {
         opt.inputs.reserve(arguments.size());
         for (auto &&argument : arguments) {
             auto path = absolute_path(argument);
-            if (!std::filesystem::is_regular_file(path)) {
+            if (!luisa::filesystem::is_regular_file(path)) {
                 usage_error("SPIR-V module not found: " + path.string());
                 return false;
             }
@@ -435,18 +437,18 @@ void print_usage(const char *exe) {
         usage_error("--embed/--container apply to the 'spv' (Vulkan builtin) target only.");
         return false;
     }
-    if (opt.input = absolute_path(arguments[0]); !std::filesystem::is_regular_file(opt.input)) {
+    if (opt.input = absolute_path(arguments[0]); !luisa::filesystem::is_regular_file(opt.input)) {
         usage_error("input shader file not found: " + opt.input.string());
         return false;
     }
-    if (!opt.prepend.empty() && !std::filesystem::is_regular_file(opt.prepend)) {
+    if (!opt.prepend.empty() && !luisa::filesystem::is_regular_file(opt.prepend)) {
         usage_error("--prepend file not found: " + opt.prepend.string());
         return false;
     }
     opt.output = absolute_path(arguments[1]);
     return true;
 }
-[[nodiscard]] std::string read_file(const std::filesystem::path &path) {
+[[nodiscard]] std::string read_file(const luisa::filesystem::path &path) {
     std::ifstream f{path, std::ios::binary};
     if (!f) {
         LUISA_ERROR("Failed to open input shader file: {}", path.string());
@@ -456,7 +458,7 @@ void print_usage(const char *exe) {
 /**
  * \brief Read a whole file as bytes.
  */
-[[nodiscard]] std::vector<std::byte> read_bytes(const std::filesystem::path &path) {
+[[nodiscard]] std::vector<std::byte> read_bytes(const luisa::filesystem::path &path) {
     std::ifstream f{path, std::ios::binary | std::ios::ate};
     if (!f) {
         LUISA_ERROR("Failed to open {}.", path.string());
@@ -488,12 +490,12 @@ void print_usage(const char *exe) {
  * (`THREAD_GROUP_SIZE` in the BC headers), so a `[numthreads(...)]` that is not
  * a literal can still be resolved without running a preprocessor.
  */
-[[nodiscard]] std::vector<std::pair<std::string, uint32_t>> parse_scalar_consts(std::string_view src) {
+[[nodiscard]] std::vector<std::pair<std::string, uint32_t>> parse_scalar_consts(luisa::string_view src) {
     std::vector<std::pair<std::string, uint32_t>> constants;
     size_t search_from{};
     while (search_from < src.size()) {
         auto mark = src.find("#define", search_from);
-        if (mark != std::string_view::npos) {
+        if (mark != luisa::string_view::npos) {
             auto p = mark + 7u;
             search_from = p;
             while (p < src.size() && is_space(src[p])) { ++p; }
@@ -521,7 +523,7 @@ void print_usage(const char *exe) {
             continue;
         }
         auto static_mark = src.find("static const uint", search_from);
-        if (static_mark == std::string_view::npos) { break; }
+        if (static_mark == luisa::string_view::npos) { break; }
         auto p = static_mark + 17u;
         search_from = p;
         while (p < src.size() && is_space(src[p])) { ++p; }
@@ -547,8 +549,8 @@ void print_usage(const char *exe) {
  * by the `*.def` layout contracts.
  */
 [[nodiscard]] bool eval_block_size_operand(
-    std::string_view token,
-    std::span<const std::pair<std::string, uint32_t>> constants,
+    luisa::string_view token,
+    luisa::span<const std::pair<std::string, uint32_t>> constants,
     uint32_t &value) noexcept {
     auto trimmed = token;
     while (!trimmed.empty() && is_space(trimmed.front())) { trimmed.remove_prefix(1u); }
@@ -582,11 +584,11 @@ void print_usage(const char *exe) {
  * Returns false when an operand is neither a literal nor a mirrored constant.
  */
 [[nodiscard]] bool parse_block_size(
-    std::string_view src,
-    std::span<const std::pair<std::string, uint32_t>> constants,
+    luisa::string_view src,
+    luisa::span<const std::pair<std::string, uint32_t>> constants,
     uint32_t block[3]) noexcept {
     auto pos = src.find("numthreads(");
-    if (pos == std::string_view::npos) { return false; }
+    if (pos == luisa::string_view::npos) { return false; }
     pos += 11u;
     for (uint32_t i = 0u; i < 3u; ++i) {
         auto token_begin = pos;
@@ -604,7 +606,7 @@ void print_usage(const char *exe) {
 }
 // Resource type keywords, ordered so that the most specific match comes first:
 // `RWStructuredBuffer` must never resolve to the `StructuredBuffer` it contains.
-constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeywords[] = {
+constexpr std::pair<luisa::string_view, hlsl::ShaderVariableType> kResourceKeywords[] = {
     {"RWStructuredBuffer", hlsl::ShaderVariableType::RWStructuredBuffer},
     {"ConstantBuffer", hlsl::ShaderVariableType::CBVBufferHeap},
     {"StructuredBuffer", hlsl::ShaderVariableType::StructuredBuffer},
@@ -637,12 +639,12 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
 /**
  * \brief Collect every `:register(<kind><index>[, space<n>])` annotation.
  */
-[[nodiscard]] std::vector<Binding> parse_bindings(std::string_view src) {
+[[nodiscard]] std::vector<Binding> parse_bindings(luisa::string_view src) {
     std::vector<Binding> bindings;
     size_t search_from{};
     while (search_from < src.size()) {
         auto rp = src.find("register", search_from);
-        if (rp == std::string_view::npos) { break; }
+        if (rp == luisa::string_view::npos) { break; }
         search_from = rp + 8u;
         // Skip a leading `:` and whitespace, then the opening parenthesis.
         auto p = rp + 8u;
@@ -686,12 +688,12 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
         // The declaration is the text between the previous statement terminator
         // and the annotation.
         auto decl_start = src.rfind(';', rp);
-        if (auto brace = src.rfind('}', rp); brace != std::string_view::npos && brace > decl_start) {
+        if (auto brace = src.rfind('}', rp); brace != luisa::string_view::npos && brace > decl_start) {
             decl_start = brace;
         }
-        decl_start = decl_start == std::string_view::npos ? 0u : decl_start + 1u;
+        decl_start = decl_start == luisa::string_view::npos ? 0u : decl_start + 1u;
         auto decl = src.substr(decl_start, rp - decl_start);
-        std::string_view keyword;
+        luisa::string_view keyword;
         hlsl::ShaderVariableType type{};
         size_t after_keyword{};
         for (size_t i = 0u; i < decl.size() && keyword.empty(); ++i) {
@@ -709,9 +711,9 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
         // A `[` after the keyword (and after the `<...>` template arguments) is
         // the variable's array size.
         auto lt = decl.find('<', after_keyword);
-        auto search_from_bracket = lt == std::string_view::npos ? after_keyword : decl.find('>', lt);
-        if (search_from_bracket != std::string_view::npos && search_from_bracket < decl.size()) {
-            if (auto lb = decl.find('[', search_from_bracket); lb != std::string_view::npos) {
+        auto search_from_bracket = lt == luisa::string_view::npos ? after_keyword : decl.find('>', lt);
+        if (search_from_bracket != luisa::string_view::npos && search_from_bracket < decl.size()) {
+            if (auto lb = decl.find('[', search_from_bracket); lb != luisa::string_view::npos) {
                 auto q = lb + 1u;
                 while (q < decl.size() && is_space(decl[q])) { ++q; }
                 uint32_t count{};
@@ -736,7 +738,7 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
     static constexpr uint8_t value{};
     return &value;
 }
-[[nodiscard]] vstd::MD5 md5_of(std::string_view s) {
+[[nodiscard]] vstd::MD5 md5_of(luisa::string_view s) {
     return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(s.data()), s.size()}};
 }
 [[nodiscard]] vstd::MD5 md5_of(const void *data, size_t size) {
@@ -798,7 +800,7 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
  * \brief Serialize the root signature exactly like `dx::ShaderSerializer` does
  * (root signature 1.0, one descriptor range per heap-style property).
  */
-[[nodiscard]] std::vector<std::byte> serialize_root_signature(std::span<const hlsl::Property> properties) {
+[[nodiscard]] std::vector<std::byte> serialize_root_signature(luisa::span<const hlsl::Property> properties) {
     std::vector<D3D12_DESCRIPTOR_RANGE> ranges;
     ranges.reserve(properties.size());
     std::vector<D3D12_ROOT_PARAMETER> parameters;
@@ -885,8 +887,8 @@ constexpr std::pair<std::string_view, hlsl::ShaderVariableType> kResourceKeyword
     ID3DBlob *error{nullptr};
     if (auto hr = D3D12SerializeVersionedRootSignature(&desc, &blob, &error); FAILED(hr)) {
         auto message = error != nullptr && error->GetBufferSize() > 0u
-                           ? std::string_view{reinterpret_cast<char const *>(error->GetBufferPointer()), error->GetBufferSize()}
-                           : std::string_view{"unknown error"};
+                           ? luisa::string_view{reinterpret_cast<char const *>(error->GetBufferPointer()), error->GetBufferSize()}
+                           : luisa::string_view{"unknown error"};
         if (error != nullptr) { error->Release(); }
         LUISA_ERROR("Failed to serialize the builtin root signature (hr=0x{:x}): {}", static_cast<uint32_t>(hr), message);
     }
@@ -987,7 +989,7 @@ private:
  * \brief Hash the property table as four 32-bit words per property (type
  * widened), so that the digest never depends on host struct padding.
  */
-[[nodiscard]] vstd::MD5 vk_property_md5(std::span<const hlsl::Property> properties) {
+[[nodiscard]] vstd::MD5 vk_property_md5(luisa::span<const hlsl::Property> properties) {
     std::vector<uint8_t> records;
     records.reserve(properties.size() * 16u);
     auto append = [&](uint32_t v) noexcept {
@@ -1030,10 +1032,10 @@ private:
     LUISA_ASSERT(bytes.size() == 200u, "Vulkan shader semantic-header encoding must produce 200 bytes, got {}.", bytes.size());
     return bytes.digest();
 }
-void write_bytes(const std::filesystem::path &path, std::span<const std::byte> bytes) {
+void write_bytes(const luisa::filesystem::path &path, luisa::span<const std::byte> bytes) {
     if (auto parent = path.parent_path(); !parent.empty()) {
         std::error_code ec;
-        std::filesystem::create_directories(parent, ec);
+        luisa::filesystem::create_directories(parent, ec);
     }
     if (bytes.empty()) { return; }
     std::ofstream f{path, std::ios::binary | std::ios::trunc};
@@ -1048,8 +1050,8 @@ void write_bytes(const std::filesystem::path &path, std::span<const std::byte> b
         LUISA_ERROR("Failed to write the output file: {}", path.string());
     }
 }
-void write_text(const std::filesystem::path &path, std::string_view text) {
-    write_bytes(path, std::span<const std::byte>{reinterpret_cast<std::byte const *>(text.data()), text.size()});
+void write_text(const luisa::filesystem::path &path, luisa::string_view text) {
+    write_bytes(path, luisa::span<const std::byte>{reinterpret_cast<std::byte const *>(text.data()), text.size()});
 }
 void append_bytes(std::vector<std::byte> &dst, const void *src, size_t size) {
     auto *p = reinterpret_cast<std::byte const *>(src);
@@ -1069,7 +1071,7 @@ void append_value(std::vector<std::byte> &dst, const T &value) {
  * the fields at their exact offsets keeps the layout bit-identical to what
  * `ShaderSerializer` produces while making the output reproducible.
  */
-void append_properties(std::vector<std::byte> &dst, std::span<const hlsl::Property> properties) {
+void append_properties(std::vector<std::byte> &dst, luisa::span<const hlsl::Property> properties) {
     for (auto &&property : properties) {
         append_bytes(dst, &property.type, sizeof(property.type));
         auto pad = std::array<std::byte, 3>{};
@@ -1084,9 +1086,9 @@ void append_properties(std::vector<std::byte> &dst, std::span<const hlsl::Proper
  */
 [[nodiscard]] std::vector<std::byte> encode_dx_artifact(
     const Options &opt,
-    std::string_view source,
-    std::span<const hlsl::Property> properties,
-    std::span<const std::byte> bytecode) {
+    luisa::string_view source,
+    luisa::span<const hlsl::Property> properties,
+    luisa::span<const std::byte> bytecode) {
 #ifdef _WIN32
     auto root_sig = serialize_root_signature(properties);
     auto header = DxShaderSerHeader{};
@@ -1127,9 +1129,9 @@ void append_properties(std::vector<std::byte> &dst, std::span<const hlsl::Proper
  */
 [[nodiscard]] std::vector<std::byte> encode_vk_artifact(
     const Options &opt,
-    std::string_view source,
-    std::span<const hlsl::Property> properties,
-    std::span<const std::byte> spirv) {
+    luisa::string_view source,
+    luisa::span<const hlsl::Property> properties,
+    luisa::span<const std::byte> spirv) {
     LUISA_ASSERT(!spirv.empty() && spirv.size() % sizeof(uint32_t) == 0u,
                  "A Vulkan artifact needs a word-aligned SPIR-V payload, got {} bytes.",
                  spirv.size());
@@ -1177,7 +1179,7 @@ void append_properties(std::vector<std::byte> &dst, std::span<const hlsl::Proper
  * loader attaches to every backend-private kernel, and the `[numthreads(...)]`
  * side of `detail::vulkan_builtin_kernel_contract`.
  */
-[[nodiscard]] bool vk_builtin_contract(std::string_view contract,
+[[nodiscard]] bool vk_builtin_contract(luisa::string_view contract,
                                        std::vector<hlsl::Property> &properties,
                                        uint32_t block[3]) noexcept {
     if (contract == "indirect_prepare") {
@@ -1204,11 +1206,11 @@ void append_properties(std::vector<std::byte> &dst, std::span<const hlsl::Proper
  */
 class DirectoryBinaryIO final : public BinaryIO {
 public:
-    DirectoryBinaryIO(std::filesystem::path data_dir, std::filesystem::path cache_dir) noexcept
+    DirectoryBinaryIO(luisa::filesystem::path data_dir, luisa::filesystem::path cache_dir) noexcept
         : _data_dir{std::move(data_dir)}, _cache_dir{std::move(cache_dir)} {}
     void clear_shader_cache() const noexcept override {
         std::error_code ec;
-        std::filesystem::remove_all(_cache_dir, ec);
+        luisa::filesystem::remove_all(_cache_dir, ec);
     }
     [[nodiscard]] luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override {
         return open(name, _data_dir);
@@ -1230,14 +1232,14 @@ public:
     }
 
 private:
-    [[nodiscard]] static std::filesystem::path resolve(const std::filesystem::path &dir, luisa::string_view name) {
-        auto path = std::filesystem::path{name};
+    [[nodiscard]] static luisa::filesystem::path resolve(const luisa::filesystem::path &dir, luisa::string_view name) {
+        auto path = luisa::filesystem::path{name};
         return path.is_absolute() ? path : dir / path.filename();
     }
-      [[nodiscard]] static luisa::unique_ptr<BinaryStream> open(luisa::string_view name, const std::filesystem::path &dir) {
+      [[nodiscard]] static luisa::unique_ptr<BinaryStream> open(luisa::string_view name, const luisa::filesystem::path &dir) {
           auto path = resolve(dir, name);
           std::error_code ec;
-          if (!std::filesystem::is_regular_file(path, ec)) { return {}; }
+          if (!luisa::filesystem::is_regular_file(path, ec)) { return {}; }
           // Let BinaryFileStream open the file itself: the FILE* must be created and
           // consumed by the same CRT instance (luisa-core), see the note at the top
           // of luisa/core/binary_file_stream.h.
@@ -1245,26 +1247,26 @@ private:
           if (!stream->valid() || stream->length() == 0u) [[unlikely]] { return {}; }
           return stream;
       }
-    [[nodiscard]] luisa::filesystem::path store(const std::filesystem::path &dir, luisa::string_view name, luisa::span<std::byte const> data) const {
+    [[nodiscard]] luisa::filesystem::path store(const luisa::filesystem::path &dir, luisa::string_view name, luisa::span<std::byte const> data) const {
         auto path = resolve(dir, name);
         write_bytes(path, data);
         return path;
     }
-    std::filesystem::path _data_dir;
-    std::filesystem::path _cache_dir;
+    luisa::filesystem::path _data_dir;
+    luisa::filesystem::path _cache_dir;
 };
 /**
  * \brief Locate a build-tree host tool (`luisa-glslang`, `luisa-validate-spirv`,
  * `luisa-embed-device-lib`): it lives next to this executable, i.e. in the
  * runtime directory the `Context` resolves.
  */
-[[nodiscard]] std::filesystem::path find_host_tool(const Context &context, std::string_view name) {
+[[nodiscard]] luisa::filesystem::path find_host_tool(const Context &context, luisa::string_view name) {
     auto file_name = std::string{name}
 #ifdef _WIN32
                      + ".exe"
 #endif
         ;
-    if (auto candidate = context.runtime_directory() / file_name; std::filesystem::is_regular_file(candidate)) {
+    if (auto candidate = context.runtime_directory() / file_name; luisa::filesystem::is_regular_file(candidate)) {
         return candidate;
     }
     LUISA_WARNING("Host tool '{}' not found in the runtime directory {}.", name, context.runtime_directory().string());
@@ -1290,7 +1292,7 @@ struct ToolRunResult {
                    : luisa::format("{}", exit_code);
     }
 };
-[[nodiscard]] ToolRunResult run_tool(const std::filesystem::path &program, const std::vector<std::string> &arguments) {
+[[nodiscard]] ToolRunResult run_tool(const luisa::filesystem::path &program, const std::vector<std::string> &arguments) {
     auto argv = std::vector<std::string>{};
     argv.reserve(arguments.size() + 1u);
     argv.emplace_back(program.string());
@@ -1309,18 +1311,18 @@ struct ToolRunResult {
  * \brief The include search path for a shader source: its own directory (where a
  * mirrored `*.def` contract lives) plus the common backend directory.
  */
-[[nodiscard]] std::vector<std::string> default_include_dirs(const std::filesystem::path &source) {
+[[nodiscard]] std::vector<std::string> default_include_dirs(const luisa::filesystem::path &source) {
     auto dirs = std::vector<std::string>{};
-    auto push = [&dirs](const std::filesystem::path &dir) {
+    auto push = [&dirs](const luisa::filesystem::path &dir) {
         std::error_code ec;
-        if (dir.empty() || !std::filesystem::is_directory(dir, ec)) { return; }
+        if (dir.empty() || !luisa::filesystem::is_directory(dir, ec)) { return; }
         auto key = dir.generic_string();
         if (std::find(dirs.begin(), dirs.end(), key) == dirs.end()) { dirs.emplace_back(key); }
     };
     push(source.parent_path());
     push(source.parent_path().parent_path() / "common");
-    push(std::filesystem::current_path() / "src" / "backends" / "common");
-    push(std::filesystem::path{__FILE__}.parent_path().parent_path() / "common");
+    push(luisa::filesystem::current_path() / "src" / "backends" / "common");
+    push(luisa::filesystem::path{__FILE__}.parent_path().parent_path() / "common");
     return dirs;
 }
 /**
@@ -1342,7 +1344,7 @@ struct ToolRunResult {
     auto scratch_module = scratch_dir / (opt.name + ".spv");
     {
         std::error_code ec;
-        std::filesystem::remove(scratch_module, ec);
+        luisa::filesystem::remove(scratch_module, ec);
     }
     auto arguments = std::vector<std::string>{
         "-D",// read HLSL
@@ -1387,9 +1389,9 @@ struct ToolRunResult {
     }
     {
         std::error_code ec;
-        std::filesystem::remove(scratch_source, ec);
-        std::filesystem::remove(scratch_module, ec);
-        std::filesystem::remove(scratch_dir, ec);// only succeeds when empty
+        luisa::filesystem::remove(scratch_source, ec);
+        luisa::filesystem::remove(scratch_module, ec);
+        luisa::filesystem::remove(scratch_dir, ec);// only succeeds when empty
     }
     return module;
 }
@@ -1397,7 +1399,7 @@ struct ToolRunResult {
  * \brief Emit the generated device-library pair for finished SPIR-V modules by
  * driving `luisa-embed-device-lib` with the arguments the VK backend build uses.
  */
-void embed_spirv_modules(const Context &context, const Options &opt, std::span<const std::filesystem::path> modules) {
+void embed_spirv_modules(const Context &context, const Options &opt, luisa::span<const luisa::filesystem::path> modules) {
     LUISA_ASSERT(!modules.empty(), "embed received no SPIR-V modules.");
     auto embedder = opt.embedder.empty() ? find_host_tool(context, "luisa-embed-device-lib") : opt.embedder;
     LUISA_ASSERT(!embedder.empty(),
@@ -1419,7 +1421,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
     if (!result.ok()) {
         LUISA_ERROR("luisa-embed-device-lib failed (exit {}):\n{}", result.exit_code_text(), result.output);
     }
-    if (!std::filesystem::is_regular_file(opt.embedded_source)) {
+    if (!luisa::filesystem::is_regular_file(opt.embedded_source)) {
         LUISA_ERROR("luisa-embed-device-lib did not write {}.", opt.embedded_source.string());
     }
     LUISA_INFO("Embedded {} SPIR-V module(s) -> {}{}",
@@ -1430,7 +1432,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
  * \brief Read a stored artifact back through the runtime \c BinaryIO interface,
  * exactly the way `read_binary_io(SerdeType::kBuiltin, ...)` does.
  */
-[[nodiscard]] std::vector<std::byte> read_artifact_bytes(const std::filesystem::path &path) {
+[[nodiscard]] std::vector<std::byte> read_artifact_bytes(const luisa::filesystem::path &path) {
     auto io = DirectoryBinaryIO{path.parent_path(), path.parent_path()};
     auto name = std::string{path.filename().string()};
     auto stream = io.read_internal_shader(name);
@@ -1447,7 +1449,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
  * \brief Decode a DX `ShaderSerializer` v5 container read back through the
  * runtime `BinaryIO` interface and validate its contract.
  */
-[[nodiscard]] bool verify_dx_artifact(const std::filesystem::path &path, std::string_view name) {
+[[nodiscard]] bool verify_dx_artifact(const luisa::filesystem::path &path, luisa::string_view name) {
 #ifdef _WIN32
     auto bytes = read_artifact_bytes(path);
     auto total = bytes.size();
@@ -1488,10 +1490,10 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
     auto *code = reinterpret_cast<char const *>(bytes.data() + sizeof(header) + header.root_sig_bytes);
     // The code blob must be a DXBC container so that
     // CreateComputePipelineState (psoDesc.CS.pShaderBytecode) can consume it.
-    if (std::string_view{code, 4u} != "DXBC") {
-        LUISA_ERROR("DX artifact '{}' code blob is not a DXBC container ('{}').", name, std::string_view{code, 4u});
+    if (luisa::string_view{code, 4u} != "DXBC") {
+        LUISA_ERROR("DX artifact '{}' code blob is not a DXBC container ('{}').", name, luisa::string_view{code, 4u});
     }
-    auto properties = std::span<const hlsl::Property>{
+    auto properties = luisa::span<const hlsl::Property>{
         reinterpret_cast<hlsl::Property const *>(code + header.code_bytes),
         header.property_count};
     LUISA_INFO("DX artifact '{}' is loadable: header v{}, md5 {}, type md5 {}, block "
@@ -1499,7 +1501,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
                "container {} bytes.",
                name, header.header_version, header.md5.to_string(false), header.type_md5.to_string(false),
                header.block_size[0], header.block_size[1], header.block_size[2],
-               properties.size(), header.root_sig_bytes, std::string_view{root_sig, 4u},
+               properties.size(), header.root_sig_bytes, luisa::string_view{root_sig, 4u},
                header.code_bytes, total);
     for (auto &&property : properties) {
         LUISA_INFO("  property: type={} space={} register={} array_size={}",
@@ -1516,7 +1518,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
  * runtime `BinaryIO` interface and validate the contract the backend loader
  * checks (version, semantic header, digests, sizes, SPIR-V header, interface).
  */
-[[nodiscard]] bool verify_vk_artifact(const std::filesystem::path &path, std::string_view name) {
+[[nodiscard]] bool verify_vk_artifact(const luisa::filesystem::path &path, luisa::string_view name) {
     auto bytes = read_artifact_bytes(path);
     auto total = bytes.size();
     if (total < sizeof(VkShaderSerHeader)) {
@@ -1626,7 +1628,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
 /**
  * \brief Validate an artifact of the requested dialect.
  */
-[[nodiscard]] bool verify_artifact(Target target, const std::filesystem::path &path, std::string_view name) {
+[[nodiscard]] bool verify_artifact(Target target, const luisa::filesystem::path &path, luisa::string_view name) {
     return target == Target::DX ? verify_dx_artifact(path, name) : verify_vk_artifact(path, name);
 }
 /**
@@ -1636,7 +1638,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
  * v2 Vulkan builtin blobs - and a stale container is a finding to report, not a
  * fatal error. Returns nullopt when the file is too small to carry a version.
  */
-[[nodiscard]] luisa::optional<bool> artifact_version_supported(Target target, const std::filesystem::path &path) {
+[[nodiscard]] luisa::optional<bool> artifact_version_supported(Target target, const luisa::filesystem::path &path) {
     auto bytes = read_bytes(path);
     if (target == Target::DX) {
         if (bytes.size() < sizeof(uint64_t)) { return luisa::nullopt; }
@@ -1669,7 +1671,7 @@ void embed_spirv_modules(const Context &context, const Options &opt, std::span<c
  * \brief Decode the literal string operand of a SPIR-V instruction, starting at
  * `index` (its first word) and stopping at the first NUL byte.
  */
-[[nodiscard]] std::string spirv_string_operand(std::span<const uint32_t> words, size_t index, size_t limit) {
+[[nodiscard]] std::string spirv_string_operand(luisa::span<const uint32_t> words, size_t index, size_t limit) {
     auto text = std::string{};
     for (auto i = index; i < limit && i < words.size(); ++i) {
         auto word = words[i];
@@ -1696,7 +1698,7 @@ struct SpirvModuleInfo {
         return version >= 0x00010000u && version <= 0x00010600u && id_bound != 0u;
     }
 };
-[[nodiscard]] SpirvModuleInfo inspect_spirv_module(std::span<const uint32_t> words) {
+[[nodiscard]] SpirvModuleInfo inspect_spirv_module(luisa::span<const uint32_t> words) {
     auto info = SpirvModuleInfo{};
     if (words.size() < 5u) { return info; }
     info.version = words[1];
@@ -1723,7 +1725,7 @@ struct SpirvModuleInfo {
  * `LocalSize` execution mode are authoritative, so the block size recorded in a
  * container always matches what the driver will dispatch with.
  */
-[[nodiscard]] SpirvModuleInfo describe_spirv(std::span<const std::byte> module, std::string_view name) {
+[[nodiscard]] SpirvModuleInfo describe_spirv(luisa::span<const std::byte> module, luisa::string_view name) {
     LUISA_ASSERT(module.size() >= 5u * sizeof(uint32_t) && module.size() % sizeof(uint32_t) == 0u,
                  "SPIR-V module '{}' is not a word-aligned module ({} bytes).", name, module.size());
     auto words = std::vector<uint32_t>(module.size() / sizeof(uint32_t));
@@ -1745,7 +1747,7 @@ struct SpirvModuleInfo {
 /**
  * \brief Validate a bare SPIR-V module (the `spv` route's default output).
  */
-[[nodiscard]] bool verify_spirv_module(const std::filesystem::path &path, std::string_view name) {
+[[nodiscard]] bool verify_spirv_module(const luisa::filesystem::path &path, luisa::string_view name) {
     auto bytes = read_bytes(path);
     auto info = describe_spirv(bytes, name);
     LUISA_INFO("SPIR-V module '{}': {} words ({} bytes), version 0x{:08x}, id bound {}, "
@@ -1760,12 +1762,12 @@ struct SpirvModuleInfo {
  * \brief Copy the artifact into the runtime's own data/cache store so a backend
  * device can pick it up without a rebuild (`--install`).
  */
-void install_artifact(const Context &context, const Options &opt, std::span<const std::byte> artifact) {
+void install_artifact(const Context &context, const Options &opt, luisa::span<const std::byte> artifact) {
     auto dir = opt.store_cache
                    ? context.create_runtime_subdir(".cache")
                    : context.create_runtime_subdir(".data");
     auto io = DirectoryBinaryIO{dir, dir};
-    auto name = std::filesystem::path{opt.output}.filename().string();
+    auto name = luisa::filesystem::path{opt.output}.filename().string();
     auto path = opt.store_cache
                     ? io.write_shader_cache(name, artifact)
                     : io.write_internal_shader(name, artifact);
@@ -1813,7 +1815,7 @@ int main(int argc, char *argv[]) {
         }
         source.insert(0, header);
     }
-    auto source_view = std::string_view{source};
+    auto source_view = luisa::string_view{source};
     auto contract_properties = std::vector<hlsl::Property>{};
     auto contract_block = std::array<uint32_t, 3>{};
     if (!opt.contract.empty()) {
@@ -1916,7 +1918,7 @@ int main(int argc, char *argv[]) {
                 return std::vector<std::byte>{begin, begin + blob->GetBufferSize()};
             },
             [&](auto &&error) {
-                LUISA_ERROR("DXC compile error for builtin '{}': {}", opt.name, std::string_view{error});
+                LUISA_ERROR("DXC compile error for builtin '{}': {}", opt.name, luisa::string_view{error});
                 return std::vector<std::byte>{};
             });
     }
@@ -1938,7 +1940,7 @@ int main(int argc, char *argv[]) {
         LUISA_ERROR("Failed to encode the builtin artifact for '{}'.", opt.name);
     }
     write_bytes(opt.output, artifact);
-    if (!std::filesystem::is_regular_file(opt.output)) {
+    if (!luisa::filesystem::is_regular_file(opt.output)) {
         LUISA_ERROR("Bytecode was not written to {}", opt.output.string());
     }
     if (opt.verify) {
@@ -1962,8 +1964,8 @@ int main(int argc, char *argv[]) {
         // derives the symbol name from the file stem plus (with --preserve-ext)
         // the extension, so the module must be named `<kernel>.spv` to produce
         // `luisa_compute_vk_builtin_<kernel>_spv`.
-        auto scratch_dir = std::filesystem::path{};
-        auto module_path = std::filesystem::path{};
+        auto scratch_dir = luisa::filesystem::path{};
+        auto module_path = luisa::filesystem::path{};
         if (opt.raw) {
             module_path = opt.output;// already the bare module
         } else {
@@ -1978,12 +1980,12 @@ int main(int argc, char *argv[]) {
         embed_options.embedded_header = opt.embedded_header.empty()
                                             ? opt.output.parent_path() / "vulkan_builtin_spirv_embedded.h"
                                             : opt.embedded_header;
-        auto modules = std::vector<std::filesystem::path>{module_path};
+        auto modules = std::vector<luisa::filesystem::path>{module_path};
         embed_spirv_modules(context, embed_options, modules);
         if (!scratch_dir.empty()) {
             std::error_code ec;
-            std::filesystem::remove(module_path, ec);
-            std::filesystem::remove(scratch_dir, ec);
+            luisa::filesystem::remove(module_path, ec);
+            luisa::filesystem::remove(scratch_dir, ec);
         }
     }
     LUISA_INFO("Builtin '{}' ({}{}): {} properties, block ({}, {}, {}), {} bytes -> {}",
@@ -1992,7 +1994,7 @@ int main(int argc, char *argv[]) {
                package ? "" : ", raw",
                properties.size(),
                opt.block_size[0], opt.block_size[1], opt.block_size[2],
-               std::filesystem::file_size(opt.output),
+               luisa::filesystem::file_size(opt.output),
                opt.output.string());
     for (auto &&property : properties) {
         LUISA_INFO("  property: type={} space={} register={} array_size={}",

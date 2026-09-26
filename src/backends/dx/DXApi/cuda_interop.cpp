@@ -9,6 +9,7 @@
 #include <Resource/DefaultBuffer.h>
 #include <Resource/RenderTexture.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/stl/functional.h>
 #include <Shader/ComputeShader.h>
 #include "TypeCheck.h"
 #include "../../cuda/cuda_stream.h"
@@ -54,7 +55,7 @@ struct CudaCtxGuard {
 template<typename F>
 decltype(auto) with_cuda(CUcontext ctx, F &&f) {
     CudaCtxGuard _{ctx};
-    return std::invoke(std::forward<F>(f));
+    return luisa::invoke(std::forward<F>(f));
 }
 
 WindowsSecurityAttributes::WindowsSecurityAttributes()

@@ -7,6 +7,7 @@
 #include <llvm/IR/LLVMContext.h>
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 using namespace luisa::compute::simd;
@@ -88,7 +89,7 @@ template<size_t Width>
 
 int main() {
     struct Test {
-        std::string_view name;
+        luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{

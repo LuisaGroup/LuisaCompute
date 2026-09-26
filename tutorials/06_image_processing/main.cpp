@@ -29,7 +29,7 @@ using namespace luisa::compute;
 
 namespace {
 
-[[nodiscard]] auto has_flag(int argc, char *argv[], std::string_view flag) noexcept {
+[[nodiscard]] auto has_flag(int argc, char *argv[], luisa::string_view flag) noexcept {
     for (auto i = 2; i < argc; i++) {
         if (flag == argv[i]) {
             return true;
@@ -51,10 +51,10 @@ int main(int argc, char *argv[]) {
 
     log_level_verbose();
 
-    auto offline = has_flag(argc, argv, "--offline") || (argc > 1 && std::string_view{argv[1]} == "--offline");
+    auto offline = has_flag(argc, argv, "--offline") || (argc > 1 && luisa::string_view{argv[1]} == "--offline");
     luisa::string backend;
     for (int i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} != "--offline" && backend.empty()) {
+        if (luisa::string_view{argv[i]} != "--offline" && backend.empty()) {
             backend = argv[i];
         }
     }

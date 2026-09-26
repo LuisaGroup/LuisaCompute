@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <utility>
+#include <luisa/core/stl/memory.h>
 
 namespace mla {
 

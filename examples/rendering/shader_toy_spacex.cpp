@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     auto compare_path = opts.compare_path;
     const char *input_image = nullptr;
     for (int i = 2; i < argc; i++) {
-        auto argument = std::string_view{argv[i]};
+        auto argument = luisa::string_view{argv[i]};
         if (argument == "--compare" || argument == "-c" ||
             argument == "--iterations") {
             i++;
@@ -121,10 +121,10 @@ int main(int argc, char *argv[]) {
     auto resolution = make_uint2(1280u, 720u);
 
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swapchain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swapchain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Starship", resolution);
+        window = luisa::make_unique<Window>("Starship", resolution);
         SwapchainOption swapchain_option{
             .display = window->native_display(),
             .window = window->native_handle(),

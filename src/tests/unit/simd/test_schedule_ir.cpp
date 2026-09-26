@@ -4,6 +4,8 @@
 #include <iostream>
 #include <string_view>
 #include <utility>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::simd::schedule;
 
@@ -26,7 +28,7 @@ namespace {
     } while (false)
 
 [[nodiscard]] bool contains_error(const VerificationResult &result,
-                                  std::string_view needle) noexcept {
+                                  luisa::string_view needle) noexcept {
     for (auto &&error : result.errors) {
         if (error.message.find(needle) != std::string::npos) { return true; }
     }
@@ -43,7 +45,7 @@ namespace {
 
     auto condition = function.add_value(
         ValueClass::varying, nullptr, ValueOrigin::parameter,
-        std::nullopt, "condition");
+        luisa::nullopt, "condition");
     auto true_value = function.add_value(
         ValueClass::varying, nullptr, ValueOrigin::instruction,
         true_block, "true_value");
@@ -112,10 +114,10 @@ namespace {
     function.set_entry(entry);
     auto condition = function.add_value(
         ValueClass::varying, nullptr, ValueOrigin::parameter,
-        std::nullopt, "condition");
+        luisa::nullopt, "condition");
     auto initial = function.add_value(
         ValueClass::warp_uniform, nullptr, ValueOrigin::parameter,
-        std::nullopt, "initial");
+        luisa::nullopt, "initial");
     auto state = function.add_value(
         ValueClass::varying, nullptr, ValueOrigin::state_slot,
         header, "state");
@@ -238,7 +240,7 @@ namespace {
         entry, "sum");
     auto mask = function.add_value(
         ValueClass::mask, nullptr, ValueOrigin::scheduler_builtin,
-        std::nullopt, "active_mask");
+        luisa::nullopt, "active_mask");
     function.block(entry)->instructions.emplace_back(Instruction{
         .opcode = Opcode::warp_collective,
         .result = value,
@@ -309,7 +311,7 @@ namespace {
     function.set_entry(blocks.front());
     auto seed = function.add_value(
         ValueClass::warp_uniform, nullptr, ValueOrigin::parameter,
-        std::nullopt, "seed");
+        luisa::nullopt, "seed");
     for (auto i = 1u; i < block_count; i++) {
         states.emplace_back(function.add_value(
             ValueClass::varying, nullptr, ValueOrigin::state_slot,
@@ -326,7 +328,7 @@ namespace {
     }
     function.block(blocks.back())->terminator = ReturnTerminator{};
 
-    std::optional<ConvergenceId> parent;
+    luisa::optional<ConvergenceId> parent;
     for (auto i = 0u; i < block_count; i++) {
         parent = function.add_convergence(blocks.back(), parent);
     }
@@ -373,7 +375,7 @@ namespace {
 
 int main() {
     struct Test {
-        std::string_view name;
+        luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{

@@ -33,6 +33,9 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "../common/env_flag.h"
 #include "llvm/llvm_schedule_codegen.h"
@@ -49,7 +52,7 @@ namespace {
 [[nodiscard]] ::llvm::Function *build_w1_ray_query_handler_thunk(
     ::llvm::Module &module, ::llvm::Function *on_surface,
     ::llvm::Function *on_procedural,
-    std::string_view name) {
+    luisa::string_view name) {
     if (on_surface == nullptr || on_procedural == nullptr ||
         on_surface->arg_size() < 4u ||
         on_surface->arg_size() != on_procedural->arg_size() ||
@@ -265,7 +268,7 @@ void strip_debug_call_metadata_for_legalization(
 
 SIMDCompiledKernel compile_simd_kernel(
     const xir::Function *function, uint32_t warp_width,
-    std::string_view entry_name, bool enable_fast_math,
+    luisa::string_view entry_name, bool enable_fast_math,
     bool enable_uniform_buffer_broadcast,
     bool enable_lane_affine_buffer, bool capture_assembly,
     uint32_t dispatch_worker_count,
@@ -351,7 +354,7 @@ SIMDCompiledKernel compile_simd_kernel(
         parameter_value_classes.emplace_back(
             schedule::ValueClass::varying);
         for (auto operand :
-             std::span{pipeline_instruction->operands}.subspan(1u)) {
+             luisa::span{pipeline_instruction->operands}.subspan(1u)) {
             auto *value = schedule_result.function->value(operand);
             if (value == nullptr ||
                 value->value_class == schedule::ValueClass::mask ||
@@ -363,8 +366,8 @@ SIMDCompiledKernel compile_simd_kernel(
             parameter_value_classes.emplace_back(value->value_class);
         }
         auto lower_handler = [&](const xir::Function *handler,
-                                 std::string_view kind)
-            -> std::optional<schedule::Function> {
+                                 luisa::string_view kind)
+            -> luisa::optional<schedule::Function> {
             auto handler_options = schedule_options;
             handler_options.parameter_value_classes =
                 parameter_value_classes;
@@ -380,7 +383,7 @@ SIMDCompiledKernel compile_simd_kernel(
                             diagnostic.code)} +
                         ": " + diagnostic.message);
                 }
-                return std::nullopt;
+                return luisa::nullopt;
             }
             return std::move(*lowered.function);
         };
@@ -416,7 +419,7 @@ SIMDCompiledKernel compile_simd_kernel(
                 pipeline.embree_surface_filter_safe;
         }
     }
-    auto jit = std::make_unique<LLVMJIT>(capture_assembly);
+    auto jit = luisa::make_unique<LLVMJIT>(capture_assembly);
     if (!jit->succeeded()) {
         result.diagnostics.emplace_back(jit->error());
         return result;
@@ -467,8 +470,8 @@ SIMDCompiledKernel compile_simd_kernel(
         }
     }
 
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "luisa-simd-kernel", *context);
     auto static_block_size = std::array<uint32_t, 3u>{};
     if (function->isa<xir::KernelFunction>()) {
@@ -497,7 +500,7 @@ SIMDCompiledKernel compile_simd_kernel(
          pipeline_index < pipeline_schedules.size();
          pipeline_index++) {
         auto lower_handler = [&](const schedule::Function &handler,
-                                 std::string_view kind) {
+                                 luisa::string_view kind) {
             auto name = handler_name_base + ".ray_query." +
                         std::to_string(pipeline_index) + "." +
                         std::string{kind} + ".simd_w" +
@@ -983,7 +986,7 @@ SIMDCompiledKernel compile_simd_kernel(
 
 SIMDCompiledKernel compile_simd_kernel(
     const compute::Function &kernel, uint32_t warp_width,
-    std::string_view entry_name, bool enable_fast_math,
+    luisa::string_view entry_name, bool enable_fast_math,
     bool capture_assembly,
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,

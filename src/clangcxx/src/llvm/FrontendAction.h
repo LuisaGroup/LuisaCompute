@@ -2,6 +2,7 @@
 #include <luisa/core/dll_export.h>
 #include <luisa/runtime/device.h>
 #include <luisa/clangcxx/build_arguments.h>
+#include <luisa/core/stl/memory.h>
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
 #include "clang/AST/ASTConsumer.h"

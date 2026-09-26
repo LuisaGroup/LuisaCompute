@@ -60,7 +60,7 @@ void SIMDStream::dispatch(CommandList &&list) noexcept {
                 auto shader = reinterpret_cast<SIMDShader *>(raw->handle());
                 shader->dispatch(
                     *_thread_pool, _log_callback,
-                    luisa::unique_ptr<ShaderDispatchCommand>{raw});
+                    std::unique_ptr<ShaderDispatchCommand>{raw});
                 break;
             }
             case Command::Tag::EBufferToTextureCopyCommand: {

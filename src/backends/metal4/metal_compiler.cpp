@@ -2,6 +2,8 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
 #include "metal_device.h"
 #include "metal_compiler.h"
 
@@ -11,8 +13,8 @@ namespace detail {
 
 [[nodiscard]] static auto temp_unique_file_path() noexcept {
     std::error_code ec;
-    auto temp_dir = std::filesystem::temp_directory_path(ec);
-    std::filesystem::path temp_path;
+    auto temp_dir = luisa::filesystem::temp_directory_path(ec);
+    luisa::filesystem::path temp_path;
     if (ec) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to find temporary directory: {}.",
@@ -20,7 +22,7 @@ namespace detail {
     } else {
         auto uuid = CFUUIDCreate(nullptr);
         auto uuid_string = CFUUIDCreateString(nullptr, uuid);
-        temp_path = std::filesystem::absolute(
+        temp_path = luisa::filesystem::absolute(
             temp_dir / CFStringGetCStringPtr(uuid_string, kCFStringEncodingUTF8));
         CFRelease(uuid);
         CFRelease(uuid_string);
@@ -123,7 +125,7 @@ void MetalCompiler::_store_disk_archive(luisa::string_view name, bool is_aot,
 
     // read the dumped library
     std::error_code ec;
-    auto file_size = std::filesystem::file_size(temp_file_path, ec);
+    auto file_size = luisa::filesystem::file_size(temp_file_path, ec);
     if (ec) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to store Metal shader "
@@ -188,7 +190,7 @@ void MetalCompiler::_store_metal4_archive(
     }
 
     std::error_code ec;
-    auto archive_size = std::filesystem::file_size(temp_file_path, ec);
+    auto archive_size = luisa::filesystem::file_size(temp_file_path, ec);
     if (ec) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to store Metal 4 pipeline archive for '{}': {}.",
@@ -226,7 +228,7 @@ void MetalCompiler::_store_metal4_archive(
     file.read(reinterpret_cast<char *>(destination),
               static_cast<ssize_t>(archive_size));
     file.close();
-    std::filesystem::remove(temp_file_path, ec);
+    luisa::filesystem::remove(temp_file_path, ec);
 
     auto io = _device->io();
     if (is_aot) {
@@ -399,7 +401,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
         auto archive = NS::TransferPtr(
             _device->handle()->newArchive(url, &error));
         std::error_code remove_error;
-        std::filesystem::remove(temp_file_path, remove_error);
+        luisa::filesystem::remove(temp_file_path, remove_error);
         if (error != nullptr || !archive) {
             LUISA_WARNING_WITH_LOCATION(
                 "Failed to open Metal 4 pipeline archive '{}': {}.",
@@ -460,7 +462,7 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
             "Metal shader archive for '{}' dumped to '{}'.",
             name, temp_file_path.string());
     } else {
-        std::filesystem::remove(temp_file_path);
+        luisa::filesystem::remove(temp_file_path);
     }
 
     if (error != nullptr) {

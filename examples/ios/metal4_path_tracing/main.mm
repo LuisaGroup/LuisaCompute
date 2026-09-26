@@ -68,7 +68,7 @@ static_assert(sizeof(DispatchSize) == 16u);
 
 #if defined(LUISA_IOS_ON_DEVICE_AIR)
 [[nodiscard]] luisa::compute::metal::MetalAIRVersion parse_air_version(
-    std::string_view text) noexcept {
+    luisa::string_view text) noexcept {
     using luisa::compute::metal::MetalAIRVersion;
     MetalAIRVersion version{};
     uint32_t *components[]{
@@ -84,7 +84,7 @@ static_assert(sizeof(DispatchSize) == 16u);
             end != token.data() + token.size()) {
             return {};
         }
-        if (separator == std::string_view::npos) { break; }
+        if (separator == luisa::string_view::npos) { break; }
         text.remove_prefix(separator + 1u);
     }
     return version;
@@ -1033,7 +1033,7 @@ render_path_tracing_runtime(
     LuisaMetalView *_metal_view;
     UILabel *_status_label;
     UIActivityIndicatorView *_spinner;
-    std::unique_ptr<luisa::compute::Window> _luisa_window;
+    luisa::unique_ptr<luisa::compute::Window> _luisa_window;
     BOOL _started;
 }
 
@@ -1109,7 +1109,7 @@ render_path_tracing_runtime(
     metal_layer.opaque = YES;
     auto native_layer = reinterpret_cast<uint64_t>(
         (__bridge void *)metal_layer);
-    _luisa_window = std::make_unique<luisa::compute::Window>(
+    _luisa_window = luisa::make_unique<luisa::compute::Window>(
         "Luisa Path Tracing",
         luisa::make_uint2(1024u),
         luisa::compute::Window::NativeHandle{

@@ -18,6 +18,7 @@
 #ifdef LUISA_TEST_TILE_CUDA_TIRX
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
+#include <luisa/core/stl/optional.h>
 #endif
 
 #include <algorithm>
@@ -585,7 +586,7 @@ inline void set_force_patch_env(bool enabled) noexcept {
 
 struct DeviceWithIO {
     compute::DeviceConfig config;
-          std::optional<test::DeviceContext> owner;
+          luisa::optional<test::DeviceContext> owner;
 
     explicit DeviceWithIO(MemoryBinaryIO &io) {
         config.binary_io = &io;

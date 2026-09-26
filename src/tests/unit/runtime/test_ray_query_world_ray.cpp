@@ -282,18 +282,18 @@ void test_negative_surface_barycentric_hit_type(Device &device) {
     // negative barycentric coordinate for the triangle that owns the edge.
     // Hit identity must therefore be carried independently of barycentrics.
     const std::array vertices{
-        make_float3(std::bit_cast<float>(0x3fc545ffu),
-                    std::bit_cast<float>(0x3ddc59cbu),
-                    std::bit_cast<float>(0x3f68f44fu)),
-        make_float3(std::bit_cast<float>(0x3fc56935u),
-                    std::bit_cast<float>(0x3df097c8u),
-                    std::bit_cast<float>(0x3f66331eu)),
-        make_float3(std::bit_cast<float>(0x3fc3cad4u),
-                    std::bit_cast<float>(0x3e020697u),
-                    std::bit_cast<float>(0x3f67c6feu)),
-        make_float3(std::bit_cast<float>(0x3fc38515u),
-                    std::bit_cast<float>(0x3ded2a7eu),
-                    std::bit_cast<float>(0x3f6a9e9au))};
+        make_float3(luisa::bit_cast<float>(0x3fc545ffu),
+                    luisa::bit_cast<float>(0x3ddc59cbu),
+                    luisa::bit_cast<float>(0x3f68f44fu)),
+        make_float3(luisa::bit_cast<float>(0x3fc56935u),
+                    luisa::bit_cast<float>(0x3df097c8u),
+                    luisa::bit_cast<float>(0x3f66331eu)),
+        make_float3(luisa::bit_cast<float>(0x3fc3cad4u),
+                    luisa::bit_cast<float>(0x3e020697u),
+                    luisa::bit_cast<float>(0x3f67c6feu)),
+        make_float3(luisa::bit_cast<float>(0x3fc38515u),
+                    luisa::bit_cast<float>(0x3ded2a7eu),
+                    luisa::bit_cast<float>(0x3f6a9e9au))};
     const std::array triangles{
         Triangle{0u, 1u, 2u},
         Triangle{0u, 2u, 3u}};

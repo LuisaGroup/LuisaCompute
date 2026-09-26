@@ -27,6 +27,7 @@
 #include "clang/Tooling/CompilationDatabase.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::clangcxx
 {

@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/pool.h>
 #include <luisa/runtime/bindless_array.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "hip_check.h"
 #include "hip_buffer.h"
@@ -228,7 +229,7 @@ void HIPBindlessArray::update(HIPCommandEncoder &encoder,
 
     if (dirty_slots.empty()) { return; }
 
-    std::sort(dirty_slots.begin(), dirty_slots.end());
+    luisa::sort(dirty_slots.begin(), dirty_slots.end());
     dirty_slots.erase(std::unique(dirty_slots.begin(), dirty_slots.end()),
                       dirty_slots.end());
 

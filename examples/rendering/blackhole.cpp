@@ -16,6 +16,8 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <stb/stb_image_write.h>
 #include <filesystem>
 #include <memory>
@@ -76,10 +78,10 @@ int main(int argc, char *argv[]) {
     float roll_angle = 0.0f;
 
     // Setup window and swapchain conditionally
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Black Hole - Interstellar Style", make_uint2(width, height));
+        window = luisa::make_unique<Window>("Black Hole - Interstellar Style", make_uint2(width, height));
 
         window->set_mouse_callback([&left_mouse_down, &right_mouse_down, &last_mouse_pos](MouseButton button, Action a, float2 p) noexcept {
             if (a == Action::ACTION_PRESSED) {

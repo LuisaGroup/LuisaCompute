@@ -7,6 +7,9 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/translators/xir_interchange.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 #include <array>
 #include <charconv>
 #include <cstdlib>
@@ -33,15 +36,15 @@ struct ExecutionResult {
 // Missing operands, uninitialized memory, unsupported types/operations, and
 // nontermination all fail. Compare the complete observable store sequence so
 // duplicated or dropped side effects cannot hide behind an equal final value.
-std::optional<ExecutionResult> execute(FunctionDefinition *f, Value *input, Value *output, uint32_t argument) {
+luisa::optional<ExecutionResult> execute(FunctionDefinition *f, Value *input, Value *output, uint32_t argument) {
     std::unordered_map<const Value *, uint32_t> values{{input, argument}};
     struct Address {
         const Value *root;
         uint32_t index;
     };
     std::unordered_map<const Value *, Address> addresses{{output, {output, 0u}}};
-    std::unordered_map<const Value *, std::vector<std::optional<uint32_t>>> memory{{output, {std::nullopt}}};
-    auto locate = [&](const Value *variable) -> std::optional<uint32_t> * {
+    std::unordered_map<const Value *, std::vector<luisa::optional<uint32_t>>> memory{{output, {luisa::nullopt}}};
+    auto locate = [&](const Value *variable) -> luisa::optional<uint32_t> * {
         auto address = addresses.find(variable);
         if (address == addresses.end()) { return nullptr; }
         auto allocation = memory.find(address->second.root);
@@ -79,44 +82,44 @@ std::optional<ExecutionResult> execute(FunctionDefinition *f, Value *input, Valu
                 auto *type = inst->type();
                 auto scalar = type == Type::of<uint32_t>() || type == Type::of<bool>();
                 auto array = type->is_array() && type->element() == Type::of<uint32_t>();
-                if (!scalar && !array) { return std::nullopt; }
+                if (!scalar && !array) { return luisa::nullopt; }
                 addresses[inst] = {inst, 0u};
-                memory[inst] = std::vector<std::optional<uint32_t>>(scalar ? 1u : type->dimension());
+                memory[inst] = std::vector<luisa::optional<uint32_t>>(scalar ? 1u : type->dimension());
             } else if (inst->isa<GEPInst>()) {
                 auto *gep = static_cast<GEPInst *>(inst);
                 auto base = addresses.find(gep->base());
-                if (base == addresses.end()) { return std::nullopt; }
+                if (base == addresses.end()) { return luisa::nullopt; }
                 auto address = base->second;
                 if (gep->index_count() != 0u) {
                     auto *type = gep->base()->type();
-                    if (gep->index_count() != 1u || !type->is_array() || type->element() != Type::of<uint32_t>()) { return std::nullopt; }
+                    if (gep->index_count() != 1u || !type->is_array() || type->element() != Type::of<uint32_t>()) { return luisa::nullopt; }
                     auto index = get(gep->index(0u));
-                    if (!valid || index >= type->dimension()) { return std::nullopt; }
+                    if (!valid || index >= type->dimension()) { return luisa::nullopt; }
                     address.index += index;
                 }
                 addresses[inst] = address;
-                if (locate(inst) == nullptr) { return std::nullopt; }
+                if (locate(inst) == nullptr) { return luisa::nullopt; }
             } else if (inst->isa<LoadInst>()) {
                 auto *slot = locate(static_cast<LoadInst *>(inst)->variable());
-                if (slot == nullptr || !slot->has_value()) { return std::nullopt; }
+                if (slot == nullptr || !slot->has_value()) { return luisa::nullopt; }
                 values[inst] = **slot;
             } else if (inst->isa<StoreInst>()) {
                 auto *s = static_cast<StoreInst *>(inst);
                 auto *slot = locate(s->variable());
-                if (slot == nullptr) { return std::nullopt; }
+                if (slot == nullptr) { return luisa::nullopt; }
                 auto value = get(s->value());
-                if (!valid) { return std::nullopt; }
+                if (!valid) { return luisa::nullopt; }
                 *slot = value;
                 if (addresses.at(s->variable()).root == output) { stores.emplace_back(value); }
             } else if (inst->isa<ArithmeticInst>()) {
                 auto *a = static_cast<ArithmeticInst *>(inst);
-                if (a->operand_count() != 1u && a->operand_count() != 2u) { return std::nullopt; }
+                if (a->operand_count() != 1u && a->operand_count() != 2u) { return luisa::nullopt; }
                 auto x = get(a->operand(0));
                 if (a->operand_count() == 1u) {
                     switch (a->op()) {
                         case ArithmeticOp::UNARY_MINUS: values[a] = 0u - x; break;
                         case ArithmeticOp::UNARY_BIT_NOT: values[a] = a->type()->is_bool() ? uint32_t(!x) : ~x; break;
-                        default: return std::nullopt;
+                        default: return luisa::nullopt;
                     }
                 } else {
                     auto y = get(a->operand(1));
@@ -133,13 +136,13 @@ std::optional<ExecutionResult> execute(FunctionDefinition *f, Value *input, Valu
                         case ArithmeticOp::BINARY_GREATER_EQUAL: values[a] = x >= y; break;
                         case ArithmeticOp::BINARY_EQUAL: values[a] = x == y; break;
                         case ArithmeticOp::BINARY_NOT_EQUAL: values[a] = x != y; break;
-                        default: return std::nullopt;
+                        default: return luisa::nullopt;
                     }
                 }
             } else if (inst->isa<ReturnInst>()) {
-                if (static_cast<ReturnInst *>(inst)->return_value() != nullptr) { return std::nullopt; }
+                if (static_cast<ReturnInst *>(inst)->return_value() != nullptr) { return luisa::nullopt; }
                 auto *slot = locate(output);
-                return valid && slot != nullptr && slot->has_value() ? std::optional{ExecutionResult{**slot, std::move(stores)}} : std::nullopt;
+                return valid && slot != nullptr && slot->has_value() ? luisa::optional{ExecutionResult{**slot, std::move(stores)}} : luisa::nullopt;
             } else if (inst->isa<LoopInst>()) {
                 next = static_cast<LoopInst *>(inst)->prepare_block();
             } else if (inst->isa<SimpleLoopInst>()) {
@@ -163,32 +166,32 @@ std::optional<ExecutionResult> execute(FunctionDefinition *f, Value *input, Valu
             } else if (inst->isa<BranchInst>() || inst->isa<BreakInst>() || inst->isa<ContinueInst>()) {
                 next = static_cast<BranchTerminatorInstruction *>(inst)->target_block();
             } else {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
-        if (next == nullptr) { return std::nullopt; }
+        if (next == nullptr) { return luisa::nullopt; }
         block = next;
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
-std::optional<uint32_t> environment_uint(const char *name, uint32_t upper_bound) {
+luisa::optional<uint32_t> environment_uint(const char *name, uint32_t upper_bound) {
     if (auto *text = std::getenv(name)) {
         uint32_t value = 0u;
-        std::string_view str{text};
+        luisa::string_view str{text};
         auto [end, error] = std::from_chars(str.data(), str.data() + str.size(), value);
         auto valid = error == std::errc{} && end == str.data() + str.size() && value <= upper_bound;
         expect(valid) << "invalid " << name;
         if (valid) { return value; }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 // Opt-in repro artifacts are named per case/mode and use a caller-provided
 // directory, so a routine test run neither writes /tmp nor overwrites evidence.
-void dump_graph(Module &module, std::string_view name, RestructureCFGMutationMode mode, bool before) {
+void dump_graph(Module &module, luisa::string_view name, RestructureCFGMutationMode mode, bool before) {
     if (auto *directory = std::getenv("LUISA_XIR_CFG_TEST_DUMP_DIR")) {
-        std::filesystem::create_directories(directory);
+        luisa::filesystem::create_directories(directory);
         auto suffix = mode == RestructureCFGMutationMode::TRANSACTIONAL ? "-transactional" : "-in-place";
         auto filename = std::string{name} + suffix + (before ? "-input.xir" : "-output.xir");
         auto interchange = xir_to_interchange_text(&module);
@@ -199,7 +202,7 @@ void dump_graph(Module &module, std::string_view name, RestructureCFGMutationMod
             XIRDebugPrinter printer;
             printer.emit_module(interchange.text, &module);
         }
-        std::ofstream file{std::filesystem::path{directory} / filename};
+        std::ofstream file{luisa::filesystem::path{directory} / filename};
         file << interchange.text;
         expect(file.good());
     }
@@ -207,11 +210,11 @@ void dump_graph(Module &module, std::string_view name, RestructureCFGMutationMod
 
 template<typename Oracle>
 void check_execution(Module &module, FunctionDefinition *f, Value *input, Value *output,
-                     RestructureCFGMutationMode mode, std::string_view name, uint32_t input_count, Oracle &&oracle) {
+                     RestructureCFGMutationMode mode, luisa::string_view name, uint32_t input_count, Oracle &&oracle) {
     auto before_verification = xir_verify_module(&module);
     expect(before_verification.succeeded()) << name;
     if (!before_verification.succeeded()) { return; }
-    std::vector<std::optional<ExecutionResult>> expected(input_count);
+    std::vector<luisa::optional<ExecutionResult>> expected(input_count);
     for (auto i = 0u; i < input_count; ++i) {
         expected[i] = execute(f, input, output, i);
         expect(expected[i].has_value()) << name << " source input=" << i;
@@ -453,7 +456,7 @@ void check_nested_loop_graph(uint32_t seed, RestructureCFGMutationMode mode) {
     b.return_void();
     auto name = std::string{"nested-loops-"} + std::to_string(seed);
     check_execution(module, f, input, output, mode, name, 64u, [&](uint32_t argument, auto const &expected) {
-        expect(expected == std::optional{nested_loop_oracle(argument, seed)}) << name << " oracle input=" << argument;
+        expect(expected == luisa::optional{nested_loop_oracle(argument, seed)}) << name << " oracle input=" << argument;
     });
 }
 
@@ -503,7 +506,7 @@ void check_cloned_frontier_graph(RestructureCFGMutationMode mode, bool dynamic_g
         ExecutionResult oracle{4u * argument + 7u, {17u}};
         if ((argument & 1u) != 0u) { oracle.stores.emplace_back(100u); }
         oracle.stores.emplace_back(oracle.value);
-        expect(expected == std::optional{oracle}) << "cloned frontier oracle input=" << argument;
+        expect(expected == luisa::optional{oracle}) << "cloned frontier oracle input=" << argument;
     });
 }
 
@@ -565,7 +568,7 @@ void check_cloned_merge_graph(RestructureCFGMutationMode mode) {
         }
         oracle.value += 7u;
         oracle.stores.emplace_back(oracle.value);
-        expect(expected == std::optional{oracle}) << "cloned merge oracle input=" << argument;
+        expect(expected == luisa::optional{oracle}) << "cloned merge oracle input=" << argument;
     });
 }
 
@@ -687,7 +690,7 @@ void check_crossing_loop_epoch_graph(RestructureCFGMutationMode mode, uint32_t r
             emit(1u);
         }
         emit(18u);
-        expect(expected == std::optional{oracle}) << "crossing loop epoch oracle input=" << argument;
+        expect(expected == luisa::optional{oracle}) << "crossing loop epoch oracle input=" << argument;
     });
 }
 
@@ -738,7 +741,7 @@ void check_terminal_payload_graph(RestructureCFGMutationMode mode, bool shared_t
     // sharing the same terminal across arms still requires a common merge.
     check_execution(module, f, input, output, mode, shared_terminal ? "shared-terminal-payload" : "owned-terminal-payload", 32u, [](uint32_t argument, auto const &expected) {
         auto value = argument + ((argument & 1u) == 0u ? 100u : 200u);
-        expect(expected == std::optional{ExecutionResult{value * 3u, {17u, value, value * 3u}}});
+        expect(expected == luisa::optional{ExecutionResult{value * 3u, {17u, value, value * 3u}}});
     });
     if (!shared_terminal) {
         auto allocas = 0u;
@@ -829,7 +832,7 @@ void check_nested_exit_cut_graph(RestructureCFGMutationMode mode) {
             emit(66u);
         }
         emit(55u);
-        expect(expected == std::optional{oracle}) << "nested exit cut oracle input=" << argument;
+        expect(expected == luisa::optional{oracle}) << "nested exit cut oracle input=" << argument;
     });
 }
 
@@ -907,7 +910,7 @@ void check_nested_loop_exit_to_outer_header(RestructureCFGMutationMode mode, uin
             if (iteration >= limit) { break; }
         }
         emit(0xf1u);
-        expect(expected == std::optional{oracle}) << "nested loop outer exit oracle input=" << argument;
+        expect(expected == luisa::optional{oracle}) << "nested loop outer exit oracle input=" << argument;
     });
 }
 
@@ -968,7 +971,7 @@ void check_update_bypass(RestructureCFGMutationMode mode, uint32_t rotation,
                 (explicit_continue ? "-continue" : "-branch");
     check_execution(module, f, input, output, mode, name, 3u, [](uint32_t selector, auto const &actual) {
         auto expected = selector == 0u ? ExecutionResult{42u, {7u, 42u}} : ExecutionResult{7u, {7u}};
-        expect(actual == std::optional{expected});
+        expect(actual == luisa::optional{expected});
     });
 }
 

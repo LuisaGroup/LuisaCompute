@@ -29,6 +29,7 @@
 
 #define LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
 #include "../cuda/cuda_event.h"
+#include <luisa/core/stl/functional.h>
 #ifndef LUISA_CHECK_CUDA
 #define LUISA_CHECK_CUDA(...)                            \
     do {                                                 \
@@ -114,7 +115,7 @@ struct CudaCtxGuard {
 template<typename F>
 decltype(auto) with_cuda(CUcontext ctx, F &&f) {
     CudaCtxGuard _{ctx};
-    return std::invoke(std::forward<F>(f));
+    return luisa::invoke(std::forward<F>(f));
 }
 
 static bool initialize_cuda() noexcept {

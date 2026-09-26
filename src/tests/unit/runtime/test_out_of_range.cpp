@@ -46,7 +46,7 @@ struct LogCapture {
         messages.emplace_back(message);
     }
 
-    [[nodiscard]] bool contains(std::string_view needle) const noexcept {
+    [[nodiscard]] bool contains(luisa::string_view needle) const noexcept {
         std::scoped_lock lock{mutex};
         for (auto const &message : messages) {
             if (message.find(needle) != luisa::string::npos) { return true; }

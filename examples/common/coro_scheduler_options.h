@@ -21,12 +21,12 @@ enum class CoroSchedulerKind {
     auto kind = default_kind;
     for (auto i = 2; i < argc; i++) {
         if (argv[i] == nullptr) { break; }
-        std::string_view arg{argv[i]};
+        luisa::string_view arg{argv[i]};
         if (arg == "--scheduler") {
             if (i + 1 >= argc || argv[i + 1] == nullptr) {
                 LUISA_ERROR("Missing value for --scheduler. Expected state_machine, wavefront, or persistent.");
             }
-            std::string_view value{argv[++i]};
+            luisa::string_view value{argv[++i]};
             if (value == "state_machine" || value == "statemachine" || value == "state") {
                 kind = CoroSchedulerKind::state_machine;
             } else if (value == "wavefront" || value == "wave") {

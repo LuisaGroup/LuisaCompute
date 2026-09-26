@@ -16,6 +16,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -40,7 +41,7 @@ void set_environment_variable(
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
 
     ScopedEnvironmentVariable(
         const char *env_name, const char *value)

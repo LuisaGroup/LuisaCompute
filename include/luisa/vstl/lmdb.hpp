@@ -65,7 +65,7 @@ class LUISA_VSTL_API LMDB {
 public:
     LMDB();
     LMDB(
-        std::filesystem::path const &db_dir,
+        luisa::filesystem::path const &db_dir,
         size_t max_reader = 126ull,
         // 64G as default (should be enough for shader?)
         size_t map_size = 1024ull * 1024ull * 1024ull * 64ull) noexcept;
@@ -94,7 +94,7 @@ public:
     void write_all(luisa::vector<LMDBWriteCommand> &&commands) const noexcept;
     void remove(luisa::span<const std::byte> key) const noexcept;
     void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) const noexcept;
-    void copy_to(std::filesystem::path const& path) const noexcept;
+    void copy_to(luisa::filesystem::path const& path) const noexcept;
     ~LMDB() noexcept;
     [[nodiscard]] LMDBIterator begin() const noexcept;
     [[nodiscard]] LMDBIteratorEndTag end() const noexcept { return {}; }

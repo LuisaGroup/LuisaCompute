@@ -28,6 +28,7 @@
 #include "NSString.hpp"
 #include "NSTypes.hpp"
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -44,7 +45,7 @@ public:
 };
 
 using ObserverBlock = void(^)(Notification*);
-using ObserverFunction = std::function<void(Notification*)>;
+using ObserverFunction = luisa::function<void(Notification*)>;
 
 class NotificationCenter : public NS::Referencing<NotificationCenter>
 {

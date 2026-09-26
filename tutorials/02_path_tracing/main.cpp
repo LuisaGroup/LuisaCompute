@@ -73,9 +73,9 @@ int main(int argc, char *argv[]) {
     bool offline = false;
     uint requested_spp = 0u;
     for (int i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
+        if (luisa::string_view{argv[i]} == "--offline") {
             offline = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
+        } else if (luisa::string_view{argv[i]} == "--spp" && i + 1 < argc) {
             requested_spp = static_cast<uint>(std::atoi(argv[++i]));
         } else if (backend.empty()) {
             backend = argv[i];
@@ -411,12 +411,12 @@ int main(int argc, char *argv[]) {
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     Image<float> output_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
-    std::optional<Image<float>> display_image;
+    luisa::optional<Image<float>> display_image;
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swapchain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swapchain;
     if (!offline) {
-        window = std::make_unique<Window>("Tutorial 02 - Path Tracing", resolution, false);
+        window = luisa::make_unique<Window>("Tutorial 02 - Path Tracing", resolution, false);
         swapchain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

@@ -21,6 +21,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/core/stl/memory.h>
 
 #include "remote_command_codec.h"
 #include "remote_transport.h"
@@ -1212,7 +1213,7 @@ public:
 RemoteDevice::RemoteDevice(Context &&context,
                            const DeviceConfig *config) noexcept
     : DeviceInterface{Context{context}},
-      _impl{std::make_unique<Impl>(
+      _impl{luisa::make_unique<Impl>(
           std::move(context), client_options(config))} {}
 
 RemoteDevice::~RemoteDevice() noexcept = default;

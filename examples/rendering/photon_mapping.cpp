@@ -121,7 +121,7 @@ int main(int argc, char *argv[]) {
     obj_reader_config.vertex_color = false;
     tinyobj::ObjReader obj_reader;
     if (!obj_reader.ParseFromString(obj_string, "", obj_reader_config)) {
-        std::string_view error_message = "unknown error.";
+        luisa::string_view error_message = "unknown error.";
         if (auto &&e = obj_reader.Error(); !e.empty()) { error_message = e; }
         LUISA_ERROR_WITH_LOCATION("Failed to load OBJ file: {}", error_message);
     }
@@ -626,10 +626,10 @@ int main(int argc, char *argv[]) {
     bool infinite_render = !opts.offline;
     uint total_spp = opts.offline ? (opts.spp == 0u ? 256u : opts.spp) : 0u;
 
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!opts.offline) {
-        window = std::make_unique<Window>("Display", resolution.x, resolution.y);
+        window = luisa::make_unique<Window>("Display", resolution.x, resolution.y);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

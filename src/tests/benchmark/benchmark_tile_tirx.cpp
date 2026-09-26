@@ -11,6 +11,10 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include <tvm/script/printer/printer.h>
 
@@ -42,17 +46,17 @@ using Clock = std::chrono::steady_clock;
 
 [[nodiscard]] bool path_exists(const char *path) {
     std::error_code error;
-    auto exists = std::filesystem::exists(path, error);
+    auto exists = luisa::filesystem::exists(path, error);
     LUISA_ASSERT(!error, "Cannot query path '{}': {}", path, error.message());
     return exists;
 }
 
 #if defined(__clang__)
-constexpr std::string_view compiler_version = __clang_version__;
+constexpr luisa::string_view compiler_version = __clang_version__;
 #elif defined(__GNUC__)
-constexpr std::string_view compiler_version = __VERSION__;
+constexpr luisa::string_view compiler_version = __VERSION__;
 #else
-constexpr std::string_view compiler_version = "unknown";
+constexpr luisa::string_view compiler_version = "unknown";
 #endif
 
 struct Configuration {
@@ -66,37 +70,37 @@ struct Configuration {
     uint32_t pipeline_window{2u};
 };
 
-[[nodiscard]] bool uses_matrix(std::string_view operation) noexcept {
+[[nodiscard]] bool uses_matrix(luisa::string_view operation) noexcept {
     return operation == "gemm" || operation == "gemm_relu" || operation == "gemm_gelu";
 }
 
-[[nodiscard]] bool uses_auxiliary_input(std::string_view operation) noexcept {
+[[nodiscard]] bool uses_auxiliary_input(luisa::string_view operation) noexcept {
     return uses_matrix(operation) || operation == "add" || operation == "gelu_add" ||
            operation == "rmsnorm" || operation == "layernorm" ||
            operation == "residual_layernorm";
 }
 
-[[nodiscard]] bool uses_label_input(std::string_view operation) noexcept {
+[[nodiscard]] bool uses_label_input(luisa::string_view operation) noexcept {
     return operation == "cross_entropy";
 }
 
-[[nodiscard]] bool has_row_output(std::string_view operation) noexcept {
+[[nodiscard]] bool has_row_output(luisa::string_view operation) noexcept {
     return operation == "sum" || operation == "cross_entropy";
 }
 
-[[nodiscard]] bool has_paired_output(std::string_view operation) noexcept {
+[[nodiscard]] bool has_paired_output(luisa::string_view operation) noexcept {
     return operation == "sigmoid_pair" || operation == "gelu_pair";
 }
 
 [[nodiscard]] int64_t auxiliary_input_rows(
-    std::string_view operation, const Configuration &cfg) noexcept {
+    luisa::string_view operation, const Configuration &cfg) noexcept {
     if (uses_matrix(operation)) { return cfg.k; }
     if (operation == "rmsnorm") { return 1; }
     if (operation == "layernorm") { return 2; }
     return cfg.m;
 }
 
-[[nodiscard]] exec::Scope parse_execution_scope(std::string_view name) {
+[[nodiscard]] exec::Scope parse_execution_scope(luisa::string_view name) {
     if (name == "auto") { return exec::Scope::AUTOMATIC; }
     if (name == "worker") { return exec::Scope::WORKER; }
     if (name == "group") { return exec::Scope::GROUP; }
@@ -104,7 +108,7 @@ struct Configuration {
 }
 
 [[nodiscard]] int64_t positive_integer(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     int64_t value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
     LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0, "Expected a positive integer, got '{}'.", input);
@@ -115,13 +119,13 @@ struct Configuration {
     return std::chrono::duration<double, std::milli>{Clock::now() - start}.count();
 }
 
-[[nodiscard]] bridge::tirx::ReductionServiceModel parse_reduction_service_profile(std::string_view text) {
-    constexpr auto prefix = std::string_view{"service-v1,"};
+[[nodiscard]] bridge::tirx::ReductionServiceModel parse_reduction_service_profile(luisa::string_view text) {
+    constexpr auto prefix = luisa::string_view{"service-v1,"};
     LUISA_ASSERT(text.starts_with(prefix), "Reduction cost profile must be analytic or service-v1,C,D,R,K,G,W,P; got '{}'.", text);
     text.remove_prefix(prefix.size());
     bridge::tirx::ReductionServiceModel model;
     auto capacity_end = text.find(',');
-    LUISA_ASSERT(capacity_end != std::string_view::npos, "Missing reduction service coefficients after subgroup capacity in '{}'.", text);
+    LUISA_ASSERT(capacity_end != luisa::string_view::npos, "Missing reduction service coefficients after subgroup capacity in '{}'.", text);
     auto capacity = std::from_chars(text.data(), text.data() + capacity_end, model.concurrent_subgroups);
     LUISA_ASSERT(capacity.ec == std::errc{} && capacity.ptr == text.data() + capacity_end, "Invalid reduction service subgroup capacity '{}'.", text.substr(0u, capacity_end));
     text.remove_prefix(capacity_end + 1u);
@@ -129,7 +133,7 @@ struct Configuration {
                                    &model.global_program_byte, &model.global_worker_byte, &model.private_worker_byte};
     for (auto i = size_t{0u}; i < coefficients.size(); i++) {
         auto end = text.find(',');
-        LUISA_ASSERT((end == std::string_view::npos) == (i + 1u == coefficients.size()), "Reduction service profile requires exactly six coefficients; invalid remainder at coefficient {}: '{}'.", i + 1u, text);
+        LUISA_ASSERT((end == luisa::string_view::npos) == (i + 1u == coefficients.size()), "Reduction service profile requires exactly six coefficients; invalid remainder at coefficient {}: '{}'.", i + 1u, text);
         auto token = text.substr(0u, end);
         // Floating-point from_chars requires macOS 26 in Apple's libc++;
         // retain the benchmark's macOS 13 deployment target.
@@ -137,7 +141,7 @@ struct Configuration {
         parser.imbue(std::locale::classic());
         parser >> std::noskipws >> *coefficients[i];
         LUISA_ASSERT(!token.empty() && token.front() != '+' && parser && parser.peek() == std::char_traits<char>::eof(), "Invalid reduction service coefficient {}: '{}'.", i + 1u, token);
-        if (end != std::string_view::npos) { text.remove_prefix(end + 1u); }
+        if (end != luisa::string_view::npos) { text.remove_prefix(end + 1u); }
     }
     LUISA_ASSERT(bridge::tirx::ServiceExecutionCostPolicy{model}.valid(), "Reduction service profile requires positive capacity and finite nonnegative coefficients; capacity={}, coefficients=[{},{},{},{},{},{}].", model.concurrent_subgroups, model.dispatch, model.scalar_round, model.collective, model.global_program_byte, model.global_worker_byte, model.private_worker_byte);
     return model;
@@ -150,7 +154,7 @@ void print_access_demand(const bridge::tirx::ReductionAccessDemand &demand) {
               << ",\"private_write_bytes\":" << demand.private_write_bytes << '}';
 }
 
-void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_view reduction_cost_profile) {
+void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, luisa::string_view reduction_cost_profile) {
     std::cout << "\"execution_plans\":[";
     auto separator = "";
     for (auto &plan : plans) {
@@ -271,11 +275,11 @@ void dump_tile_ir(std::ostream &out, const Region &region, uint32_t depth = 0u) 
 // semantic MMA operations or a requested compiler capability.
 [[nodiscard]] size_t matrix_intrinsics(const tvm::ffi::Module &module, bool mpp = false) {
     auto count = size_t{0u};
-    if (std::string_view{module->kind()} == "metal") {
+    if (luisa::string_view{module->kind()} == "metal") {
         auto source = module->InspectSource("metal");
-        auto code = std::string_view{source.data(), source.size()};
-        auto call = mpp ? std::string_view{"{}.run("} : std::string_view{"simdgroup_multiply_accumulate("};
-        for (auto position = code.find(call); position != std::string_view::npos; position = code.find(call, position + call.size())) { count++; }
+        auto code = luisa::string_view{source.data(), source.size()};
+        auto call = mpp ? luisa::string_view{"{}.run("} : luisa::string_view{"simdgroup_multiply_accumulate("};
+        for (auto position = code.find(call); position != luisa::string_view::npos; position = code.find(call, position + call.size())) { count++; }
     }
     for (auto &&child : module->imports()) { count += matrix_intrinsics(child.cast<tvm::ffi::Module>(), mpp); }
     return count;
@@ -283,13 +287,13 @@ void dump_tile_ir(std::ostream &out, const Region &region, uint32_t depth = 0u) 
 
 [[nodiscard]] size_t external_matrix_calls(const tvm::ffi::Module &module) {
     auto count = size_t{0u};
-    if (std::string_view{module->kind()} == "llvm") {
+    if (luisa::string_view{module->kind()} == "llvm") {
         auto source = module->InspectSource("ll");
-        auto code = std::string_view{source.data(), source.size()};
-        constexpr auto provider = std::string_view{"tvm.contrib.cblas.matmul"};
+        auto code = luisa::string_view{source.data(), source.size()};
+        constexpr auto provider = luisa::string_view{"tvm.contrib.cblas.matmul"};
         // LowerTVMBuiltin emits several references to one cached provider
         // symbol. Report the single semantic call site, not textual uses.
-        count += code.find(provider) != std::string_view::npos;
+        count += code.find(provider) != luisa::string_view::npos;
     }
     for (auto &&child : module->imports()) {
         count += external_matrix_calls(child.cast<tvm::ffi::Module>());
@@ -299,13 +303,13 @@ void dump_tile_ir(std::ostream &out, const Region &region, uint32_t depth = 0u) 
 
 [[nodiscard]] size_t external_vector_math_calls(const tvm::ffi::Module &module) {
     auto count = size_t{0u};
-    if (std::string_view{module->kind()} == "llvm") {
+    if (luisa::string_view{module->kind()} == "llvm") {
         auto source = module->InspectSource("ll");
-        auto code = std::string_view{source.data(), source.size()};
+        auto code = luisa::string_view{source.data(), source.size()};
         // Report semantic static call sites; declarations do not contain the
         // direct-call spelling used by LLVM instructions.
-        constexpr auto call = std::string_view{"call void @luisa_tile_accelerate_"};
-        for (auto position = code.find(call); position != std::string_view::npos;
+        constexpr auto call = luisa::string_view{"call void @luisa_tile_accelerate_"};
+        for (auto position = code.find(call); position != luisa::string_view::npos;
              position = code.find(call, position + call.size())) { count++; }
     }
     for (auto &&child : module->imports()) {
@@ -316,8 +320,8 @@ void dump_tile_ir(std::ostream &out, const Region &region, uint32_t depth = 0u) 
 
 // Explicit opt-in diagnostics, outside all timed phases. For Metal inspect
 // the device module, not the LLVM host launch wrapper.
-void dump_source(const tvm::ffi::Module &module, std::string_view kind, const char *path) {
-    if (std::string_view{module->kind()} == kind) {
+void dump_source(const tvm::ffi::Module &module, luisa::string_view kind, const char *path) {
+    if (luisa::string_view{module->kind()} == kind) {
         LUISA_ASSERT(!path_exists(path), "Source dump path already exists: '{}'.", path);
         auto source = module->InspectSource(kind == "metal" ? "metal" : "ll");
         std::ofstream file{path};
@@ -328,7 +332,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
     for (auto &&child : module->imports()) { dump_source(child.cast<tvm::ffi::Module>(), kind, path); }
 }
 
-[[nodiscard]] Kernel capture(std::string_view operation, Configuration cfg) {
+[[nodiscard]] Kernel capture(luisa::string_view operation, Configuration cfg) {
     if (uses_matrix(operation)) {
         auto definition = tile_kernel("benchmark_gemm", [=](TensorView<const float, 2> A,
                                                             TensorView<const float, 2> B,
@@ -529,7 +533,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
     return result;
 }
 
-[[nodiscard]] double batch(const Runtime &runtime, const std::function<void()> &invoke, uint64_t repetitions) {
+[[nodiscard]] double batch(const Runtime &runtime, const luisa::function<void()> &invoke, uint64_t repetitions) {
     runtime.synchronize();
     auto start = Clock::now();
     for (auto i = 0u; i < repetitions; i++) { invoke(); }
@@ -537,7 +541,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
     return milliseconds(start);
 }
 
-void print_samples(std::string_view name, const std::vector<double> &samples) {
+void print_samples(luisa::string_view name, const std::vector<double> &samples) {
     std::cout << std::quoted(name) << ":[";
     for (auto i = 0u; i < samples.size(); i++) {
         if (i != 0u) { std::cout << ','; }
@@ -548,7 +552,7 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 // Same capture() and bridge options as the TVM-runtime path. Only the native
 // compilation policy / Runtime binding and submission path change here.
-void run_luisa(const char *program, const char *output_path, std::string_view operation, Configuration cfg,
+void run_luisa(const char *program, const char *output_path, luisa::string_view operation, Configuration cfg,
                int64_t sample_count, int64_t target_ms, int64_t warmup_ms,
                const bridge::tirx::CompileOptions &options, bool fast_math) {
     using namespace luisa::compute;
@@ -589,7 +593,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto b = device.create_buffer<float>(host_b.size());
     auto labels = device.create_buffer<int64_t>(host_labels.size());
     auto c = device.create_buffer<float>(output.size());
-    std::optional<Buffer<float>> d;
+    luisa::optional<Buffer<float>> d;
     if (paired) { d = device.create_buffer<float>(output.size()); }
     stream << a.copy_from(luisa::span{host_a}) << b.copy_from(luisa::span{host_b})
            << labels.copy_from(luisa::span{host_labels}) << c.copy_from(luisa::span{output})
@@ -646,10 +650,10 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     LUISA_ASSERT(file, "Cannot write benchmark output to '{}'.", output_path);
     auto matrix_calls = size_t{0};
     auto mpp_calls = size_t{0};
-    constexpr auto call = std::string_view{"simdgroup_multiply_accumulate("};
+    constexpr auto call = luisa::string_view{"simdgroup_multiply_accumulate("};
     auto &source = shader.metadata().source;
     for (auto pos = source.find(call); pos != std::string::npos; pos = source.find(call, pos + call.size())) { matrix_calls++; }
-    constexpr auto mpp_call = std::string_view{"{}.run("};
+    constexpr auto mpp_call = luisa::string_view{"{}.run("};
     for (auto pos = source.find(mpp_call); pos != std::string::npos; pos = source.find(mpp_call, pos + mpp_call.size())) { mpp_calls++; }
     std::cout << std::setprecision(12)
               << "{\"backend\":\"metal\",\"runtime\":\"luisa\",\"timing\":\"synchronized_host_wall\","
@@ -691,11 +695,11 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc > 1 && std::string_view{argv[1]} == "llm") {
+    if (argc > 1 && luisa::string_view{argv[1]} == "llm") {
         bridge::tirx::CompileOptions options;
         options.cooperative_matrix = true;
         if (auto value = std::getenv("LUISA_TILE_BENCH_REDUCTION_TREE")) {
-            auto text = std::string_view{value};
+            auto text = luisa::string_view{value};
             LUISA_ASSERT(text == "0" || text == "1", "LUISA_TILE_BENCH_REDUCTION_TREE must be 0 or 1; got '{}'.", text);
             options.planner.metal_subgroup_reductions = text == "1";
         }
@@ -705,19 +709,19 @@ int main(int argc, char *argv[]) {
             options.planner.threads_per_group = static_cast<uint32_t>(threads);
         }
         if (auto value = std::getenv("LUISA_TILE_BENCH_INPUT_VIEWS")) {
-            auto text = std::string_view{value};
+            auto text = luisa::string_view{value};
             LUISA_ASSERT(text == "0" || text == "1", "LUISA_TILE_BENCH_INPUT_VIEWS must be 0 or 1; got '{}'.", text);
             options.forward_readonly_tile_loads = text == "1";
         }
         auto attention_qk_reduction = false;
         if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_QK")) {
-            auto text = std::string_view{value};
+            auto text = luisa::string_view{value};
             LUISA_ASSERT(text == "mma" || text == "reduce", "LUISA_TILE_BENCH_ATTENTION_QK must be mma or reduce; got '{}'.", text);
             attention_qk_reduction = text == "reduce";
         }
         auto attention_pv_reduction = false;
         if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_PV")) {
-            auto text = std::string_view{value};
+            auto text = luisa::string_view{value};
             LUISA_ASSERT(text == "mma" || text == "reduce", "LUISA_TILE_BENCH_ATTENTION_PV must be mma or reduce; got '{}'.", text);
             attention_pv_reduction = text == "reduce";
         }
@@ -730,23 +734,23 @@ int main(int argc, char *argv[]) {
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N] [retain-fragment-epilogues|fuse-fragment-epilogues]\n";
         return 1;
     }
-    auto backend = std::string_view{argv[1]};
-    auto operation = std::string_view{argv[2]};
+    auto backend = luisa::string_view{argv[1]};
+    auto operation = luisa::string_view{argv[2]};
     Configuration cfg{positive_integer(argv[3]), positive_integer(argv[4]), positive_integer(argv[5]),
                       positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
-    auto execution_scope = argc >= 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
+    auto execution_scope = argc >= 14 ? luisa::string_view{argv[13]} : luisa::string_view{"auto"};
     cfg.execution_scope = parse_execution_scope(execution_scope);
     auto pipeline_window = argc >= 15 ? positive_integer(argv[14]) : 2;
     LUISA_ASSERT(pipeline_window <= 2, "Benchmark pipeline window must be 1 or 2; got {}.", pipeline_window);
     cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
-    auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
+    auto matrix_mode = argc >= 16 ? luisa::string_view{argv[15]} : luisa::string_view{"scalar"};
     LUISA_ASSERT(matrix_mode == "scalar" || matrix_mode == "subgroup-reduce" || matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views", "Realization mode must be scalar, subgroup-reduce, matrix, mpp, or mpp-views; got '{}'.", matrix_mode);
     auto metal_subgroup_reductions = matrix_mode == "subgroup-reduce";
     auto cooperative_matrix = matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views";
     auto forward_readonly_tile_loads = matrix_mode == "mpp-views" || metal_subgroup_reductions;
     auto metal_mpp = matrix_mode == "mpp" || matrix_mode == "mpp-views";
     if (argc >= 24) {
-        auto policy = std::string_view{argv[23]};
+        auto policy = luisa::string_view{argv[23]};
         LUISA_ASSERT(policy == "retain-input-snapshots" || policy == "forward-input-views", "Unknown input snapshot policy '{}'; expected retain-input-snapshots or forward-input-views.", policy);
         if (policy == "forward-input-views") {
             forward_readonly_tile_loads = true;
@@ -754,14 +758,14 @@ int main(int argc, char *argv[]) {
     }
     LUISA_ASSERT(!metal_mpp || (backend == "metal" && uses_matrix(operation) && cfg.execution_scope == exec::Scope::GROUP), "MPP benchmarking requires Metal group GEMM; backend='{}', operation='{}', scope='{}'.", backend, operation, execution_scope);
     LUISA_ASSERT(!metal_subgroup_reductions || (backend == "metal" && cfg.execution_scope == exec::Scope::AUTOMATIC && (operation == "sum" || operation == "softmax" || operation == "rmsnorm" || operation == "layernorm" || operation == "residual_layernorm" || operation == "cross_entropy")), "SIMD-group reductions require automatic Metal sum, softmax, RMSNorm, residual LayerNorm, LayerNorm, or cross-entropy; backend='{}', operation='{}', scope='{}'.", backend, operation, execution_scope);
-    auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
+    auto vector_mode = argc >= 17 ? luisa::string_view{argv[16]} : luisa::string_view{"vectorize"};
     LUISA_ASSERT(vector_mode == "vectorize" || vector_mode == "no-vectorize" || vector_mode == "auto-vectorize", "Vector mode must be vectorize, no-vectorize, or auto-vectorize; got '{}'.", vector_mode);
     auto vectorize = vector_mode != "no-vectorize";
     auto auto_vectorize = vector_mode == "auto-vectorize";
     bridge::tirx::PlannerOptions planner;
     planner.metal_subgroup_reductions = metal_subgroup_reductions;
     if (argc >= 37) {
-        auto policy = std::string_view{argv[36]};
+        auto policy = luisa::string_view{argv[36]};
         LUISA_ASSERT(policy == "retain-fragment-epilogues" || policy == "fuse-fragment-epilogues", "Unknown matrix epilogue policy '{}'; expected retain-fragment-epilogues or fuse-fragment-epilogues.", policy);
         planner.fuse_matrix_epilogues = policy == "fuse-fragment-epilogues";
         LUISA_ASSERT(!planner.fuse_matrix_epilogues || metal_mpp, "Fragment epilogues require MPP; realization='{}'.", matrix_mode);
@@ -771,7 +775,7 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(size <= std::numeric_limits<uint32_t>::max() && (size == 1 || (backend == "metal" && cfg.execution_scope == exec::Scope::GROUP)), "Program traversal requires positive uint32 rectangle sizes and Metal group execution when non-default; size={}, backend='{}', scope='{}'.", size, backend, execution_scope);
         (index == 34 ? planner.program_order_rows : planner.program_order_columns) = static_cast<uint32_t>(size);
     }
-    auto reduction_cost_profile = argc >= 34 ? std::string_view{argv[33]} : "analytic";
+    auto reduction_cost_profile = argc >= 34 ? luisa::string_view{argv[33]} : "analytic";
     auto service_policy = bridge::tirx::ServiceExecutionCostPolicy{
         reduction_cost_profile == "analytic" ? bridge::tirx::ReductionServiceModel{} :
                                                parse_reduction_service_profile(reduction_cost_profile)};
@@ -780,7 +784,7 @@ int main(int argc, char *argv[]) {
         planner.cost_policy = &service_policy;
     }
     if (argc >= 33) {
-        auto inputs = std::string_view{argv[32]};
+        auto inputs = luisa::string_view{argv[32]};
         LUISA_ASSERT(inputs == "reload" || (inputs == "cache" && metal_subgroup_reductions), "Reduction inputs require reload or cache, and subgroup-reduce for cache; inputs='{}', realization='{}'.", inputs, matrix_mode);
         planner.cache_reduction_inputs = inputs == "cache";
     }
@@ -794,17 +798,17 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(factor <= 16 && (factor == 1 || metal_subgroup_reductions), "Reduction unrolling requires a factor in [1,16] and subgroup-reduce when non-default; factor={}, realization='{}'.", factor, matrix_mode);
         planner.reduction_unroll_factor = static_cast<uint32_t>(factor);
     }
-    if (argc >= 29 && std::string_view{argv[28]} != "auto") {
+    if (argc >= 29 && luisa::string_view{argv[28]} != "auto") {
         auto programs = positive_integer(argv[28]);
         LUISA_ASSERT(metal_subgroup_reductions && programs <= 8, "Reduction packing requires subgroup-reduce and 1..8 programs; programs={}, realization='{}'.", programs, matrix_mode);
         planner.reduction_programs_per_group = static_cast<uint32_t>(programs);
     }
     if (argc >= 30) {
-        auto mapping = std::string_view{argv[29]};
+        auto mapping = luisa::string_view{argv[29]};
         LUISA_ASSERT(mapping == "auto" || mapping == "reference", "Element grid must be auto or reference; got '{}'.", mapping);
         planner.fuse_gpu_elementwise = mapping == "auto";
     }
-    if (argc >= 18 && std::string_view{argv[17]} != "auto") {
+    if (argc >= 18 && luisa::string_view{argv[17]} != "auto") {
         auto requested = positive_integer(argv[17]);
         LUISA_ASSERT(requested <= std::numeric_limits<uint32_t>::max() && backend == "metal" && (cfg.execution_scope == exec::Scope::GROUP || metal_subgroup_reductions), "Explicit group threads require a uint32 count and Metal group execution or the subgroup-reduction planner; threads={}, backend='{}', scope='{}', realization='{}'.", requested, backend, execution_scope, matrix_mode);
         planner.threads_per_group = static_cast<uint32_t>(requested);
@@ -819,10 +823,10 @@ int main(int argc, char *argv[]) {
     auto warmup_ms = positive_integer(argv[11]);
     LUISA_ASSERT(cfg.m <= 16384 && cfg.n <= 16384 && cfg.k <= 16384 && cfg.bm <= 512 && cfg.bn <= 16384 && cfg.bk <= 16384 && sample_count <= 101, "Benchmark dimensions or sample count exceed limits M/N/K<=16384, BM<=512, BN/BK<=16384, samples<=101; M={}, N={}, K={}, BM={}, BN={}, BK={}, samples={}.", cfg.m, cfg.n, cfg.k, cfg.bm, cfg.bn, cfg.bk, sample_count);
     LUISA_ASSERT(!path_exists(argv[12]), "Benchmark output path already exists: '{}'.", argv[12]);
-    auto runtime_choice = argc >= 20 ? std::string_view{argv[19]} : "tvm";
-    auto cpu_model = argc >= 25 ? std::string_view{argv[24]} : "generic";
+    auto runtime_choice = argc >= 20 ? luisa::string_view{argv[19]} : "tvm";
+    auto cpu_model = argc >= 25 ? luisa::string_view{argv[24]} : "generic";
     LUISA_ASSERT(cpu_model == "generic" || (cpu_model == "native" && backend == "cpu" && runtime_choice == "tvm"), "CPU model must be generic or native, and native requires the CPU TVM runtime; model='{}', backend='{}', runtime='{}'.", cpu_model, backend, runtime_choice);
-    auto cpu_matrix_name = argc >= 26 ? std::string_view{argv[25]} : "reference";
+    auto cpu_matrix_name = argc >= 26 ? luisa::string_view{argv[25]} : "reference";
     auto cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::REFERENCE;
     if (cpu_matrix_name == "cblas") {
         LUISA_ASSERT(backend == "cpu" && runtime_choice == "tvm", "CBLAS realization requires the CPU TVM runtime; backend='{}', runtime='{}'.", backend, runtime_choice);
@@ -830,7 +834,7 @@ int main(int argc, char *argv[]) {
     } else {
         LUISA_ASSERT(cpu_matrix_name == "reference", "CPU matrix realization must be reference or cblas; got '{}'.", cpu_matrix_name);
     }
-    auto cpu_math_name = argc >= 27 ? std::string_view{argv[26]} : "reference";
+    auto cpu_math_name = argc >= 27 ? luisa::string_view{argv[26]} : "reference";
     auto cpu_math_backend = bridge::tirx::CpuMathBackend::REFERENCE;
     if (cpu_math_name == "accelerate") {
         LUISA_ASSERT(backend == "cpu" && runtime_choice == "tvm", "Accelerate array math requires the CPU TVM runtime; backend='{}', runtime='{}'.", backend, runtime_choice);
@@ -838,7 +842,7 @@ int main(int argc, char *argv[]) {
     } else {
         LUISA_ASSERT(cpu_math_name == "reference", "CPU array-math realization must be reference or accelerate; got '{}'.", cpu_math_name);
     }
-    auto shared_tiles_name = argc >= 28 ? std::string_view{argv[27]} : "preserve";
+    auto shared_tiles_name = argc >= 28 ? luisa::string_view{argv[27]} : "preserve";
     auto lower_options = bridge::tirx::LowerOptions{};
     if (shared_tiles_name == "expensive-only") {
         lower_options.shared_tiles = bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY;
@@ -851,12 +855,12 @@ int main(int argc, char *argv[]) {
         planner.max_cpu_vector_lanes = static_cast<uint32_t>(lanes);
     }
     if (argc >= 22) {
-        auto budget = std::string_view{argv[21]} == "0" ? 0 : positive_integer(argv[21]);
+        auto budget = luisa::string_view{argv[21]} == "0" ? 0 : positive_integer(argv[21]);
         LUISA_ASSERT(budget <= 65536 && (budget == 0 || backend == "cpu"), "CPU stack budget must be in [0,65536] and requires the CPU backend when nonzero; budget={}, backend='{}'.", budget, backend);
         planner.max_cpu_stack_bytes = static_cast<uint32_t>(budget);
     }
     if (argc >= 21) {
-        auto policy = std::string_view{argv[20]};
+        auto policy = luisa::string_view{argv[20]};
         LUISA_ASSERT(policy == "retain-subgroup-fences" || policy == "elide-subgroup-fences", "Unknown subgroup-fence policy '{}'; expected retain-subgroup-fences or elide-subgroup-fences.", policy);
         planner.elide_independent_subgroup_barriers = policy == "elide-subgroup-fences";
         LUISA_ASSERT(!planner.elide_independent_subgroup_barriers || forward_readonly_tile_loads, "Subgroup-fence elision requires forwarded read-only Tile loads; realization='{}'.", matrix_mode);
@@ -929,7 +933,7 @@ int main(int argc, char *argv[]) {
     if (paired) { derivative = runtime.allocate<float>({cfg.m, cfg.n}); }
     runtime.synchronize();
     auto allocation_upload_ms = milliseconds(start);
-    std::function<void()> invoke = [&] {
+    luisa::function<void()> invoke = [&] {
         if (paired) {
             (*executable.entry)(a, out, derivative);
         } else if (labeled) {

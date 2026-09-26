@@ -1,6 +1,7 @@
 #include <luisa/vstl/md5.h>
 #include <luisa/core/platform.h>
 #include <luisa/vstl/string_utility.h>
+#include <luisa/core/stl/string.h>
 
 /* Little-endian detection for the fast load/store paths. MD5 blocks and
    the final digest are defined to be little-endian, so on little-endian
@@ -467,7 +468,7 @@ MD5::MD5(string const &str)
         md5.GetDigest();
     }
 }
-MD5::MD5(std::string_view str)
+MD5::MD5(luisa::string_view str)
     : data{} {
     using namespace detail;
     span<uint8_t const> bin{reinterpret_cast<uint8_t const *>(str.data()), str.size()};

@@ -38,6 +38,9 @@
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_codegen_xir.h"
 #include "native_shader_ext.h"
@@ -45,7 +48,7 @@
 namespace luisa::compute::cuda {
 namespace {
 [[nodiscard]] bool _xir_pass_enabled(const char *name, bool default_value) noexcept {
-      if (auto env = getenv(name)) { return std::string_view{env} == "1"; }
+      if (auto env = getenv(name)) { return luisa::string_view{env} == "1"; }
       return default_value;
   }
   // The structured CUDA XIR codegen requires normalized, restructured CFG:
@@ -63,7 +66,7 @@ namespace luisa::compute::cuda {
 namespace {
 const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
     if (auto env = getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -77,14 +80,14 @@ namespace {
 
 const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     if (auto env = getenv("LUISA_EXPERIMENTAL_XIR_CODEGEN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -96,7 +99,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         if (LUISA_SHOULD_DUMP_XIR) {
             auto module_name = module->name().value_or("unnamed");
             auto dump_dir = getenv("LUISA_DUMP_XIR_DIR");
-            auto dump_path = std::filesystem::path{
+            auto dump_path = luisa::filesystem::path{
                 dump_dir == nullptr ? "." : dump_dir};
             auto stem = luisa::format("{}.invalid", module_name);
             {
@@ -317,7 +320,7 @@ static const bool LUISA_CUDA_DUMP_SOURCE = [] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
-    return std::string_view{env} == "1";
+    return luisa::string_view{env} == "1";
 }();
 #endif
 
@@ -325,7 +328,7 @@ static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = [] {
     // read env LUISA_OPTIX_VALIDATION
     auto env = std::getenv("LUISA_OPTIX_VALIDATION");
     if (env == nullptr) return false;
-    return std::string_view{env} == "1";
+    return luisa::string_view{env} == "1";
 }();
 
 namespace luisa::compute::cuda {
@@ -396,7 +399,7 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
         // examples cannot hand a DeviceConfigExt to create_device()); the
         // supported surface stays `DeviceConfigExt::use_fallback_rtx()`.
         if (auto env = std::getenv("LUISA_CUDA_FALLBACK_RTX")) {
-            return std::string_view{env} == "1";
+            return luisa::string_view{env} == "1";
         }
         return !optix::available();
     }();
@@ -1147,13 +1150,13 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
             types.reserve(kernel.arguments().size());
-            std::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(types),
+            luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(types),
                            [](auto &&arg) noexcept { return luisa::string{arg.type()->description()}; });
             return types; }(),
         .argument_usages = [kernel] {
             luisa::vector<Usage> usages;
             usages.reserve(kernel.arguments().size());
-            std::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
+            luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
         .format_types = [&fmt = print_formats] {
@@ -1187,7 +1190,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
         .argument_types = [arg_types] {
             luisa::vector<luisa::string> types;
             types.reserve(arg_types.size());
-            std::transform(arg_types.begin(), arg_types.end(), std::back_inserter(types),
+            luisa::transform(arg_types.begin(), arg_types.end(), std::back_inserter(types),
                            [](auto &&arg) noexcept { return luisa::string{arg->description()}; });
             return types; }(),
     };
@@ -1561,7 +1564,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
         LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
     }
 
-std::string_view CUDADevice::Handle::name() const noexcept {
+luisa::string_view CUDADevice::Handle::name() const noexcept {
     static constexpr auto device_name_length = 1024u;
     static thread_local char device_name[device_name_length];
     LUISA_CHECK_CUDA(cuDeviceGetName(device_name, device_name_length, _device));

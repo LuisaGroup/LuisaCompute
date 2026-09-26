@@ -1,5 +1,6 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/core/stl/memory.h>
 #include "metal_command_encoder.h"
 #include "metal_buffer.h"
 #include "metal_curve.h"

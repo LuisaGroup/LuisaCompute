@@ -4,6 +4,7 @@
 
 #include <span>
 #include "cuda_codegen_llvm_impl.h"
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::cuda {
 

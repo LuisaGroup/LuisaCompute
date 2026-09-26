@@ -26,6 +26,9 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/fast_math_simplify.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute;
 
@@ -63,8 +66,8 @@ namespace {
     } while (false)
 
 struct FallbackMathModule {
-    std::unique_ptr<::llvm::LLVMContext> context;
-    std::unique_ptr<::llvm::Module> module;
+    luisa::unique_ptr<::llvm::LLVMContext> context;
+    luisa::unique_ptr<::llvm::Module> module;
     size_t canonicalized_radix_pow_count{0u};
 };
 
@@ -106,7 +109,7 @@ constexpr std::array operations{
            operation == Operation::pow;
 }
 
-[[nodiscard]] constexpr std::string_view operation_name(
+[[nodiscard]] constexpr luisa::string_view operation_name(
     Operation operation) noexcept {
     switch (operation) {
         case Operation::acos: return "acos";
@@ -194,8 +197,8 @@ void add_math_callable(
         add_math_callable(xir_module, 3u, operation);
         add_math_callable(xir_module, 4u, operation);
     }
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "fallback-native-math", *context);
     static_cast<void>(fallback::luisa_fallback_backend_codegen(
         *context, module.get(), &xir_module, fast_math));
@@ -231,8 +234,8 @@ void add_math_callable(
     }
     auto info = xir::fast_math_simplify_pass_run_on_module(
         &xir_module, {.enable_fast_math = fast_math});
-    auto context = std::make_unique<::llvm::LLVMContext>();
-    auto module = std::make_unique<::llvm::Module>(
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
         "fallback-radix-pow", *context);
     static_cast<void>(fallback::luisa_fallback_backend_codegen(
         *context, module.get(), &xir_module, fast_math));
@@ -477,7 +480,7 @@ template<size_t Width, Operation Op>
         auto assembly = assembly_target.emit_assembly(
             std::move(assembly_module.module),
             std::move(assembly_module.context));
-        std::transform(
+        luisa::transform(
             assembly.begin(), assembly.end(), assembly.begin(),
             [](unsigned char c) noexcept {
                 return static_cast<char>(std::tolower(c));

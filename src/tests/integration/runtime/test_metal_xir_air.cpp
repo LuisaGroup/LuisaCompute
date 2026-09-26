@@ -13,6 +13,7 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/struct.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -857,9 +858,9 @@ int main(int argc, char *argv[]) {
            << unpacked_scalar_short_buffer.copy_to(luisa::span{unpacked_scalar_shorts})
            << synchronize();
     expect(packed_words[0] == 0x01010001u);
-    expect(packed_words[1] == std::bit_cast<uint>(packed_vector.x));
-    expect(packed_words[2] == std::bit_cast<uint>(packed_vector.y));
-    expect(packed_words[3] == std::bit_cast<uint>(packed_vector.z));
+    expect(packed_words[1] == luisa::bit_cast<uint>(packed_vector.x));
+    expect(packed_words[2] == luisa::bit_cast<uint>(packed_vector.y));
+    expect(packed_words[3] == luisa::bit_cast<uint>(packed_vector.z));
     expect(packed_words[5] == 0x04030201u);
     expect(packed_words[6] == 0x00000001u);
     expect(packed_words[7] == 0x0000005au);
@@ -964,7 +965,7 @@ int main(int argc, char *argv[]) {
     }();
     expect(indirect_print_completed);
     if (indirect_print_completed) {
-        std::sort(indirect_print_messages.begin(), indirect_print_messages.end());
+        luisa::sort(indirect_print_messages.begin(), indirect_print_messages.end());
         for (auto lane = 0u; lane < indirect_print_count; lane++) {
             expect(indirect_print_messages[lane] ==
                    luisa::format("indirect-air-print kernel={} lane={}",

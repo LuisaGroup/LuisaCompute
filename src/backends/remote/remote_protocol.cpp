@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include <luisa/core/stl/hash.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::remote {
 
@@ -47,7 +48,7 @@ void Writer::write_u64(uint64_t value) noexcept {
 }
 
 void Writer::write_i64(int64_t value) noexcept {
-    write_u64(std::bit_cast<uint64_t>(value));
+    write_u64(luisa::bit_cast<uint64_t>(value));
 }
 
 void Writer::write_bool(bool value) noexcept {
@@ -55,7 +56,7 @@ void Writer::write_bool(bool value) noexcept {
 }
 
 void Writer::write_f32(float value) noexcept {
-    write_u32(std::bit_cast<uint32_t>(value));
+    write_u32(luisa::bit_cast<uint32_t>(value));
 }
 
 void Writer::write_bytes(luisa::span<const std::byte> value) noexcept {
@@ -112,7 +113,7 @@ uint64_t Reader::read_u64() noexcept {
 }
 
 int64_t Reader::read_i64() noexcept {
-    return std::bit_cast<int64_t>(read_u64());
+    return luisa::bit_cast<int64_t>(read_u64());
 }
 
 bool Reader::read_bool() noexcept {
@@ -122,7 +123,7 @@ bool Reader::read_bool() noexcept {
 }
 
 float Reader::read_f32() noexcept {
-    return std::bit_cast<float>(read_u32());
+    return luisa::bit_cast<float>(read_u32());
 }
 
 luisa::span<const std::byte> Reader::read_bytes(size_t size) noexcept {

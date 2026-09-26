@@ -7,6 +7,7 @@
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -108,7 +109,7 @@ int main(int argc, char *argv[]) {
 
     expect(final_counter == thread_count)
         << "conflicting atomic increments must not be lost";
-    std::sort(old.begin(), old.end());
+    luisa::sort(old.begin(), old.end());
     for (auto i = 0u; i < thread_count; i++) {
         expect(old[i] == i)
             << "fetch_add must return every old value exactly once";
@@ -126,7 +127,7 @@ int main(int argc, char *argv[]) {
             active_filtered_old.emplace_back(filtered_old[tid]);
         }
     }
-    std::sort(active_filtered_old.begin(), active_filtered_old.end());
+    luisa::sort(active_filtered_old.begin(), active_filtered_old.end());
     for (auto i = 0u; i < active_filtered_old.size(); i++) {
         expect(active_filtered_old[i] == i)
             << "predicated atomics must return a dense old-value sequence";

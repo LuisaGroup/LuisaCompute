@@ -14,6 +14,8 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace luisa;
@@ -22,15 +24,15 @@ using namespace luisa::compute;
 namespace {
 
 [[nodiscard]] bool contains_agent_atomic(
-    const std::string &module, std::string_view operation) noexcept {
+    const std::string &module, luisa::string_view operation) noexcept {
     auto position = module.find(operation);
     while (position != std::string::npos) {
         const auto line_end = module.find('\n', position);
-        const auto line = std::string_view{module}.substr(
+        const auto line = luisa::string_view{module}.substr(
             position, line_end == std::string::npos ?
                           std::string::npos : line_end - position);
-        if (line.find("syncscope(\"agent\")") != std::string_view::npos &&
-            line.find("monotonic") != std::string_view::npos) {
+        if (line.find("syncscope(\"agent\")") != luisa::string_view::npos &&
+            line.find("monotonic") != luisa::string_view::npos) {
             return true;
         }
         position = module.find(operation, position + operation.size());
@@ -46,14 +48,14 @@ int main(int argc, char *argv[]) {
 
     std::error_code filesystem_error;
     const auto original_directory =
-        std::filesystem::current_path(filesystem_error);
+        luisa::filesystem::current_path(filesystem_error);
     const auto dump_directory =
-        std::filesystem::temp_directory_path(filesystem_error) /
+        luisa::filesystem::temp_directory_path(filesystem_error) /
         ("luisa_hip_float_atomic_memory_model_" +
          std::to_string(
              std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(dump_directory, filesystem_error);
-    std::filesystem::current_path(dump_directory, filesystem_error);
+    luisa::filesystem::create_directories(dump_directory, filesystem_error);
+    luisa::filesystem::current_path(dump_directory, filesystem_error);
     expect(!filesystem_error)
         << "failed to prepare isolated HIP LLVM dump directory";
 #if defined(_WIN32)
@@ -128,7 +130,7 @@ int main(int argc, char *argv[]) {
     auto retained_raw_float_load = false;
     auto retained_raw_cmpxchg = false;
     for (const auto &entry :
-         std::filesystem::directory_iterator(dump_directory)) {
+         luisa::filesystem::directory_iterator(dump_directory)) {
         const auto filename = entry.path().filename().string();
         if (!filename.starts_with("hip_kernel_before_opt_") ||
             entry.path().extension() != ".ll") {
@@ -158,6 +160,6 @@ int main(int argc, char *argv[]) {
     expect(!retained_raw_cmpxchg)
         << "HIP float CAS RMW escaped LLVM's atomic memory model";
 
-    std::filesystem::current_path(original_directory, filesystem_error);
-    std::filesystem::remove_all(dump_directory, filesystem_error);
+    luisa::filesystem::current_path(original_directory, filesystem_error);
+    luisa::filesystem::remove_all(dump_directory, filesystem_error);
 }

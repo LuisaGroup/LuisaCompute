@@ -3,6 +3,7 @@
 //
 
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../cuda_buffer.h"
 #include "../cuda_texture.h"
@@ -51,13 +52,13 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
     auto llvm_type_info = [this, type]() noexcept {
         if (type == nullptr) {
             auto llvm_void_type = llvm::Type::getVoidTy(_llvm_context);
-            return luisa::make_unique<LLVMTypeInfo>(llvm_void_type, llvm_void_type, luisa::vector<size_t>{});
+            return std::make_unique<LLVMTypeInfo>(llvm_void_type, llvm_void_type, luisa::vector<size_t>{});
         }
         auto make_llvm_type_info = [this](auto mem_t, auto reg_t, size_t s, size_t a,
                                           luisa::vector<size_t> member_indices = {},
                                           luisa::vector<size_t> member_offsets = {}) noexcept {
             detail::luisa_check_llvm_type_size_and_alignment(*_data_layout, mem_t, s, a);
-            return luisa::make_unique<LLVMTypeInfo>(mem_t, reg_t, std::move(member_indices), std::move(member_offsets));
+            return std::make_unique<LLVMTypeInfo>(mem_t, reg_t, std::move(member_indices), std::move(member_offsets));
         };
         switch (type->tag()) {
             case Type::Tag::BOOL: {
@@ -232,7 +233,7 @@ const CUDACodegenLLVMImpl::KernelArgumentStruct *CUDACodegenLLVMImpl::_get_kerne
     auto llvm_i32x4_type = llvm::ArrayType::get(llvm::Type::getInt32Ty(_llvm_context), 4);
     llvm_arg_members.emplace_back(llvm_i32x4_type);
     auto llvm_arg_struct_type = llvm::StructType::create(_llvm_context, llvm_arg_members, "kernel.params.struct");
-    auto kernel_arg_struct = luisa::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
+    auto kernel_arg_struct = std::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
         .llvm_type = llvm_arg_struct_type,
         .argument_indices = std::move(llvm_arg_member_indices),
         .dispatch_size_and_kernel_id_index = dispatch_size_and_kernel_id_index,

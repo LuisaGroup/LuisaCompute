@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <string_view>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::simd;
 
@@ -113,7 +114,7 @@ template<size_t Width>
 
 int main() {
     struct Test {
-        std::string_view name;
+        luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{

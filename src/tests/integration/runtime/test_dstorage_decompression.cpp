@@ -16,6 +16,7 @@
 #include <luisa/backends/ext/dstorage_ext.hpp>
 #include "reference_image.h"
 #include <luisa/core/clock.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include <filesystem>
 
@@ -40,7 +41,7 @@ void test_dstorage_decompression(Device &device) {
         return;
     }
     auto compressed_path = *opts.input_path;
-    if (!std::filesystem::is_regular_file(compressed_path)) {
+    if (!luisa::filesystem::is_regular_file(compressed_path)) {
         boost::ut::expect(false) << "Missing direct-storage test input: " << compressed_path;
         return;
     }

@@ -10,6 +10,7 @@
 #endif
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
 #include <charconv>
 #include <chrono>
 #include <filesystem>
@@ -52,11 +53,11 @@ int run(int argc, char *argv[]) {
                      block.m <= 128 && block.n <= 128 && block.k <= 256 && samples <= 101 && sample_ms <= 10000 && warmup_ms <= 60000 &&
                      (*operation == migrated::Operation::GEMM || depth == 1),
                  "invalid shape, block or timing limits");
-    auto prefix = std::filesystem::path{argv[12]};
+    auto prefix = luisa::filesystem::path{argv[12]};
     for (auto suffix : {input0_suffix, input1_suffix, output_suffix, ".expected.f64", ".source.txt"}) {
         auto path = prefix.string() + suffix;
         std::error_code error;
-        auto exists = std::filesystem::exists(path, error);
+        auto exists = luisa::filesystem::exists(path, error);
         LUISA_ASSERT(!error, "cannot inspect benchmark artifact {}: {}", path, error.message());
         LUISA_ASSERT(!exists, "output prefix already exists: {}", path);
     }
@@ -129,7 +130,7 @@ int run(int argc, char *argv[]) {
         auto dx = integer(argv[14]), dy = integer(argv[15]);
         LUISA_ASSERT(dx <= UINT32_MAX && dy <= UINT32_MAX, "invalid legacy dispatch extent");
         std::error_code error;
-        auto bytes = std::filesystem::file_size(argv[13], error);
+        auto bytes = luisa::filesystem::file_size(argv[13], error);
         LUISA_ASSERT(!error, "cannot inspect legacy AST {}: {}", argv[13], error.message());
         LUISA_ASSERT(bytes != 0u && bytes <= ASTJsonLimits{}.max_document_bytes, "invalid legacy AST document size");
         std::ifstream input{argv[13], std::ios::binary};

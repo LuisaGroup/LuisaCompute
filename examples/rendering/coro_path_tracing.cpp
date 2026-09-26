@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    std::string_view backend_name{argv[1]};
+    luisa::string_view backend_name{argv[1]};
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
     if (!opts.valid()) {
         LUISA_WARNING("Invalid command line: {}", opts.error_message);
@@ -81,13 +81,13 @@ int main(int argc, char *argv[]) {
     auto sample_dispatch = LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT != 0;
     for (auto i = 2; i < argc; i++) {
         if (argv[i] == nullptr) { break; }
-        std::string_view arg{argv[i]};
+        luisa::string_view arg{argv[i]};
         if (arg == "--resolution") {
             if (i + 1 >= argc || argv[i + 1] == nullptr) {
                 LUISA_WARNING("Invalid command line: Missing value for --resolution.");
                 return 1;
             }
-            std::string_view value{argv[++i]};
+            luisa::string_view value{argv[++i]};
             auto parsed_value = luisa::ref::parse_uint32_option_value(value);
             if (!parsed_value) {
                 LUISA_WARNING("Invalid command line: Invalid unsigned integer for --resolution: '{}'.", value);
@@ -359,10 +359,10 @@ int main(int argc, char *argv[]) {
     luisa::example::dump_coro_frame_rw(coro);
 
     using Scheduler = CoroScheduler<Image<float>, Image<uint>, Accel, uint2>;
-    std::unique_ptr<Scheduler> scheduler;
+    luisa::unique_ptr<Scheduler> scheduler;
     switch (scheduler_kind) {
         case luisa::example::CoroSchedulerKind::state_machine:
-            scheduler = std::make_unique<StateMachineCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro);
+            scheduler = luisa::make_unique<StateMachineCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro);
             break;
         case luisa::example::CoroSchedulerKind::wavefront: {
             WavefrontCoroSchedulerConfig cfg{
@@ -370,12 +370,12 @@ int main(int argc, char *argv[]) {
                 .global_memory_soa = true,
                 .gather_by_sorting = false,
             };
-            scheduler = std::make_unique<WavefrontCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
+            scheduler = luisa::make_unique<WavefrontCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
         case luisa::example::CoroSchedulerKind::persistent: {
             PersistentThreadsCoroSchedulerConfig cfg{.block_size = 32u};
-            scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
+            scheduler = luisa::make_unique<PersistentThreadsCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
     }

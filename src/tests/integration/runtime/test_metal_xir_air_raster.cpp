@@ -78,14 +78,14 @@ constexpr auto kWrongBaseInstance = 11u;
 }
 
 [[nodiscard]] std::string read_text_file(
-    const std::filesystem::path &path) {
+    const luisa::filesystem::path &path) {
     std::ifstream stream{path, std::ios::binary};
     return {std::istreambuf_iterator<char>{stream},
             std::istreambuf_iterator<char>{}};
 }
 
-void expect_contains(const std::string &text, std::string_view token,
-                     std::string_view description) {
+void expect_contains(const std::string &text, luisa::string_view token,
+                     luisa::string_view description) {
     expect(text.find(token) != std::string::npos)
         << description << " (missing '" << token << "')";
 }
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
     auto nonce = std::chrono::steady_clock::now()
                      .time_since_epoch()
                      .count();
-    auto dump_prefix = std::filesystem::temp_directory_path() /
+    auto dump_prefix = luisa::filesystem::temp_directory_path() /
                        ("luisa_metal_raster_air_" + std::to_string(nonce));
     auto dump_prefix_string = dump_prefix.string();
     ShaderOption option{};
@@ -219,8 +219,8 @@ int main(int argc, char *argv[]) {
 
     auto check_depth_qualifier = [&]<typename Kernel>(
                                      const Kernel &qualifier_kernel,
-                                     std::string_view suffix,
-                                     std::string_view qualifier) {
+                                     luisa::string_view suffix,
+                                     luisa::string_view qualifier) {
         auto qualifier_prefix = dump_prefix_string + std::string{suffix};
         ShaderOption qualifier_option{};
         qualifier_option.enable_cache = false;
@@ -228,17 +228,17 @@ int main(int argc, char *argv[]) {
             qualifier_prefix.data(), qualifier_prefix.size()};
         static_cast<void>(dc->device.compile(
             qualifier_kernel, mesh_format, qualifier_option));
-        auto qualifier_ir_path = std::filesystem::path{
+        auto qualifier_ir_path = luisa::filesystem::path{
             qualifier_prefix + ".fragment.air.ll"};
-        expect(std::filesystem::is_regular_file(qualifier_ir_path))
+        expect(luisa::filesystem::is_regular_file(qualifier_ir_path))
             << "fragment depth AIR LLVM dump was not written";
         auto qualifier_ir = read_text_file(qualifier_ir_path);
         expect_contains(
             qualifier_ir, qualifier,
             "fragment depth qualifier metadata must match the DSL operation");
         std::error_code ignored;
-        std::filesystem::remove(qualifier_ir_path, ignored);
-        std::filesystem::remove(
+        luisa::filesystem::remove(qualifier_ir_path, ignored);
+        luisa::filesystem::remove(
             qualifier_prefix + ".vertex.air.ll", ignored);
     };
     check_depth_qualifier(
@@ -246,21 +246,21 @@ int main(int argc, char *argv[]) {
     check_depth_qualifier(
         depth_less_equal_kernel, ".depth_less_equal", "!\"air.less\"");
 
-    auto vertex_ir_path = std::filesystem::path{
+    auto vertex_ir_path = luisa::filesystem::path{
         dump_prefix_string + ".vertex.air.ll"};
-    auto fragment_ir_path = std::filesystem::path{
+    auto fragment_ir_path = luisa::filesystem::path{
         dump_prefix_string + ".fragment.air.ll"};
-    auto depth_only_fragment_ir_path = std::filesystem::path{
+    auto depth_only_fragment_ir_path = luisa::filesystem::path{
         depth_only_prefix + ".fragment.air.ll"};
-    auto interpolation_fragment_ir_path = std::filesystem::path{
+    auto interpolation_fragment_ir_path = luisa::filesystem::path{
         interpolation_prefix + ".fragment.air.ll"};
-    expect(std::filesystem::is_regular_file(vertex_ir_path))
+    expect(luisa::filesystem::is_regular_file(vertex_ir_path))
         << "vertex AIR LLVM dump was not written";
-    expect(std::filesystem::is_regular_file(fragment_ir_path))
+    expect(luisa::filesystem::is_regular_file(fragment_ir_path))
         << "fragment AIR LLVM dump was not written";
-    expect(std::filesystem::is_regular_file(depth_only_fragment_ir_path))
+    expect(luisa::filesystem::is_regular_file(depth_only_fragment_ir_path))
         << "depth-only fragment AIR LLVM dump was not written";
-    expect(std::filesystem::is_regular_file(
+    expect(luisa::filesystem::is_regular_file(
         interpolation_fragment_ir_path))
         << "interpolation fragment AIR LLVM dump was not written";
     auto vertex_ir = read_text_file(vertex_ir_path);
@@ -636,12 +636,12 @@ int main(int argc, char *argv[]) {
         << "wrong-base-instance draw produced "
         << wrong_base_colored_pixels << " colored pixel(s)";
 
-    auto archive_path = std::filesystem::path{
+    auto archive_path = luisa::filesystem::path{
         dump_prefix_string + ".raster.air.archive"};
     auto archive_path_string = archive_path.string();
     dc->device.compile_to(
         kernel, mesh_format, archive_path_string);
-    expect(std::filesystem::is_regular_file(archive_path))
+    expect(luisa::filesystem::is_regular_file(archive_path))
         << "raster AIR archive was not written";
     auto aot_shader = dc->device.load_raster_shader<
         float, Buffer<uint>, float, Image<float>,
@@ -723,14 +723,14 @@ int main(int argc, char *argv[]) {
             << "AOT wrong-base-instance output differs from JIT output";
     }
 
-    auto interpolation_archive_path = std::filesystem::path{
+    auto interpolation_archive_path = luisa::filesystem::path{
         dump_prefix_string + ".interpolation.raster.air.archive"};
     auto interpolation_archive_path_string =
         interpolation_archive_path.string();
     dc->device.compile_to(
         interpolation_kernel, mesh_format,
         interpolation_archive_path_string);
-    expect(std::filesystem::is_regular_file(
+    expect(luisa::filesystem::is_regular_file(
         interpolation_archive_path))
         << "interpolation raster AIR archive was not written";
     auto interpolation_aot_shader =
@@ -765,14 +765,14 @@ int main(int argc, char *argv[]) {
             << "AOT interpolation output differs from JIT output";
     }
 
-    auto depth_only_archive_path = std::filesystem::path{
+    auto depth_only_archive_path = luisa::filesystem::path{
         dump_prefix_string + ".depth_only.raster.air.archive"};
     auto depth_only_archive_path_string =
         depth_only_archive_path.string();
     dc->device.compile_to(
         depth_only_kernel, mesh_format,
         depth_only_archive_path_string);
-    expect(std::filesystem::is_regular_file(depth_only_archive_path))
+    expect(luisa::filesystem::is_regular_file(depth_only_archive_path))
         << "depth-only raster AIR archive was not written";
     auto depth_only_aot_shader =
         dc->device.load_raster_shader<float, Buffer<uint>>(
@@ -805,29 +805,29 @@ int main(int argc, char *argv[]) {
             << "depth-only AOT output differs from JIT output";
     }
     std::error_code ignored;
-    std::filesystem::remove(vertex_ir_path, ignored);
-    std::filesystem::remove(fragment_ir_path, ignored);
-    std::filesystem::remove(depth_only_fragment_ir_path, ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(vertex_ir_path, ignored);
+    luisa::filesystem::remove(fragment_ir_path, ignored);
+    luisa::filesystem::remove(depth_only_fragment_ir_path, ignored);
+    luisa::filesystem::remove(
         interpolation_fragment_ir_path, ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(
         depth_only_prefix + ".vertex.air.ll", ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(
         interpolation_prefix + ".vertex.air.ll", ignored);
-    std::filesystem::remove(archive_path, ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(archive_path, ignored);
+    luisa::filesystem::remove(
         archive_path_string + ".vertex.air.ll", ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(
         archive_path_string + ".fragment.air.ll", ignored);
-    std::filesystem::remove(interpolation_archive_path, ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(interpolation_archive_path, ignored);
+    luisa::filesystem::remove(
         interpolation_archive_path_string + ".vertex.air.ll", ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(
         interpolation_archive_path_string + ".fragment.air.ll", ignored);
-    std::filesystem::remove(depth_only_archive_path, ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(depth_only_archive_path, ignored);
+    luisa::filesystem::remove(
         depth_only_archive_path_string + ".vertex.air.ll", ignored);
-    std::filesystem::remove(
+    luisa::filesystem::remove(
         depth_only_archive_path_string + ".fragment.air.ll", ignored);
     return 0;
 }

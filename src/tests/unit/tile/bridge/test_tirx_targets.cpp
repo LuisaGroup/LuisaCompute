@@ -38,11 +38,11 @@ struct Executable {
 
 class GlobalFunctionRestorer {
 private:
-    std::string_view _name;
+    luisa::string_view _name;
     tvm::ffi::Optional<tvm::ffi::Function> _original;
 
 public:
-    explicit GlobalFunctionRestorer(std::string_view name)
+    explicit GlobalFunctionRestorer(luisa::string_view name)
         : _name{name}, _original{tvm::ffi::Function::GetGlobal(name)} {}
     GlobalFunctionRestorer(const GlobalFunctionRestorer &) = delete;
     GlobalFunctionRestorer &operator=(const GlobalFunctionRestorer &) = delete;
@@ -247,7 +247,7 @@ void test_cpu_target_model_reaches_codegen() {
         auto source = compiled.module().value()->InspectSource("ll");
         auto expected_cpu = model_compute || gpu_compute ? luisa::string{cpu.data(), cpu.size()} : luisa::string{"generic"};
         auto attribute = luisa::string{"\"target-cpu\"=\""} + expected_cpu + "\"";
-        expect(std::string_view{source.data(), source.size()}.find(attribute) != std::string_view::npos)
+        expect(luisa::string_view{source.data(), source.size()}.find(attribute) != luisa::string_view::npos)
             << "requested target=" << options.target << " host=" << options.host << " must emit " << attribute;
         auto entry = compiled.module().value()->GetFunction("cpu_target_policy", true);
         expect(entry.has_value());
@@ -300,7 +300,7 @@ void test_ordered_metal_reduction_missing_contract_is_recoverable() {
             tvm::ffi::Function::SetGlobal(runtime_contract, version_one, true);
             tvm::ffi::Function::RemoveGlobal(tvm::ffi::String{missing});
             expect(!tvm::ffi::Function::GetGlobal(missing).has_value());
-            auto present_name = std::string_view{missing} == target_contract ? runtime_contract : target_contract;
+            auto present_name = luisa::string_view{missing} == target_contract ? runtime_contract : target_contract;
             auto present = tvm::ffi::Function::GetGlobal(present_name);
             expect(present.has_value());
             if (present) { expect(eq((*present)().cast<int64_t>(), int64_t{1})); }

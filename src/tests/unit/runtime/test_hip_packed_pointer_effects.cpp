@@ -11,13 +11,14 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 
 int main(int argc, char **argv) {
-    const auto backend = std::string_view{argc > 1 ? argv[1] : "hip"};
+    const auto backend = luisa::string_view{argc > 1 ? argv[1] : "hip"};
     Context context{argv[0]};
     auto device = context.create_device(backend);
 

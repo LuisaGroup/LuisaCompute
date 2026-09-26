@@ -3,6 +3,8 @@
 #include <bit>
 
 #include "../../common/indirect_dispatch_layout.h"
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -14,7 +16,7 @@ namespace luisa::compute::simd::detail {
     return stride == 1u ? extended : _builder.CreateMul(extended, _builder.CreateVectorSplat(_width, _builder.getInt64(stride)));
 }
 
-[[nodiscard]] std::optional<uint64_t> ScheduleEmitter::_constant_aggregate_index(
+[[nodiscard]] luisa::optional<uint64_t> ScheduleEmitter::_constant_aggregate_index(
     schedule::ValueId id) const noexcept {
     auto *value = _source.value(id);
     if (value == nullptr ||
@@ -22,13 +24,13 @@ namespace luisa::compute::simd::detail {
         value->type == nullptr || !value->type->is_scalar() ||
         value->type->is_float() || value->type->size() == 0u ||
         value->type->size() > sizeof(uint64_t)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *metadata = std::get_if<schedule::ConstantValueMetadata>(
         &value->metadata);
     if (metadata == nullptr ||
         metadata->bytes.size() < value->type->size()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto result = uint64_t{0u};
     std::memcpy(
@@ -39,7 +41,7 @@ namespace luisa::compute::simd::detail {
     }
     if (value->type->is_int() &&
         (result & (uint64_t{1u} << (bits - 1u))) != 0u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return result;
 }
@@ -600,7 +602,7 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
 }
 
 [[nodiscard]] ::llvm::AllocaInst *ScheduleEmitter::_entry_scratch(
-    ::llvm::Type *type, std::string_view name) {
+    ::llvm::Type *type, luisa::string_view name) {
     auto &entry_block = _entry->getEntryBlock();
     ::llvm::IRBuilder<> builder{
         &entry_block, entry_block.begin()};

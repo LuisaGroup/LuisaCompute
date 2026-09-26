@@ -5,6 +5,7 @@
 #include "hip_llvm_pipeline.h"
 
 #include <string_view>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::hip {
 
@@ -13,8 +14,8 @@ size_t preserve_hardware_ray_query_loop_form(
     // LLVM serializes SimplifyCFG options as semicolon-delimited tokens inside
     // angle brackets. Matching the delimiters is intentional: a pass name or
     // a future longer option containing this text must remain untouched.
-    constexpr std::string_view noncanonical{";no-keep-loops;"};
-    constexpr std::string_view canonical{";keep-loops;"};
+    constexpr luisa::string_view noncanonical{";no-keep-loops;"};
+    constexpr luisa::string_view canonical{";keep-loops;"};
     auto replacement_count = size_t{0u};
     auto offset = size_t{0u};
     while ((offset = pipeline.find(noncanonical, offset)) != std::string::npos) {

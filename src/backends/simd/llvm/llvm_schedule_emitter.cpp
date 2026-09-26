@@ -4,6 +4,9 @@
 #include <unordered_set>
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -38,7 +41,7 @@ namespace {
 
 ScheduleEmitter::ScheduleEmitter(
     ::llvm::Module &module, const schedule::Function &source, uint32_t width,
-    std::string_view entry_name, bool enable_fast_math,
+    luisa::string_view entry_name, bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
     bool enable_lane_affine_buffer,
@@ -49,7 +52,7 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_runtime_packet_geometry,
     bool enable_linear_1d_packet_tail_narrowing,
     ScheduleEntryABI entry_abi,
-    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers,
     size_t print_format_id_base,
     bool enable_predicated_acyclic_control_flow,
@@ -304,7 +307,7 @@ void ScheduleEmitter::_fail(std::string message) {
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_assemble(
     const Type *type, bool varying,
-    const std::function<::llvm::Value *(uint32_t)> &child) {
+    const luisa::function<::llvm::Value *(uint32_t)> &child) {
     auto *llvm_type = _data_type(type, varying);
     if (llvm_type == nullptr) { return nullptr; }
     auto *result = static_cast<::llvm::Value *>(
@@ -434,7 +437,7 @@ void ScheduleEmitter::_fail(std::string message) {
 
 void ScheduleEmitter::_for_each_assignment(
     const schedule::BasicBlock &block,
-    const std::function<void(schedule::EdgeAssignment)> &visit) {
+    const luisa::function<void(schedule::EdgeAssignment)> &visit) {
     auto visit_edge = [&](const schedule::ControlEdge &edge) {
         for (auto assignment : edge.assignments) { visit(assignment); }
     };

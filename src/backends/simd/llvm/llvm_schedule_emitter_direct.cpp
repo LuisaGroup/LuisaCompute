@@ -7,6 +7,8 @@
 #include <unordered_set>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 #include "../../common/env_flag.h"
 
@@ -88,7 +90,7 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
     return true;
 }
 
-[[nodiscard]] std::optional<std::vector<schedule::BlockId>>
+[[nodiscard]] luisa::optional<std::vector<schedule::BlockId>>
 ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
     static constexpr auto max_block_count = size_t{16u};
     static constexpr auto max_instruction_count = size_t{32u};
@@ -97,19 +99,19 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
         _source.blocks().empty() ||
         _source.blocks().size() > max_block_count ||
         !_source.loops().empty()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto instruction_count = size_t{0u};
     for (auto &&block : _source.blocks()) {
         instruction_count += block.instructions.size();
     }
     if (instruction_count > max_instruction_count) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto block_count = _source.blocks().size();
     if (_source.entry().value >= block_count) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     std::vector<std::vector<schedule::BlockId>> successors(block_count);
     std::vector<size_t> indegrees(block_count, 0u);
@@ -127,7 +129,7 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
     for (auto &&block : _source.blocks()) {
         if (block.id.value >= block_count ||
             seen_blocks[block.id.value] != 0u) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         seen_blocks[block.id.value] = 1u;
         auto supported = std::visit(
@@ -163,19 +165,19 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
                 }
             },
             block.terminator);
-        if (!supported) { return std::nullopt; }
+        if (!supported) { return luisa::nullopt; }
     }
 
     // Only the entry may start without a predecessor. Kahn's algorithm below
     // then simultaneously proves that every block is reachable and that the
     // handler has no cycle hidden outside Schedule's natural-loop table.
     if (indegrees[_source.entry().value] != 0u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     for (auto index = size_t{0u}; index < block_count; index++) {
         if (indegrees[index] == 0u &&
             index != _source.entry().value) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
     std::vector<schedule::BlockId> ready;
@@ -192,11 +194,11 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
             }
         }
     }
-    if (order.size() != block_count) { return std::nullopt; }
+    if (order.size() != block_count) { return luisa::nullopt; }
     return order;
 }
 
-[[nodiscard]] std::optional<
+[[nodiscard]] luisa::optional<
     ScheduleEmitter::InterleavedScalarBufferReadGroup>
 ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
     const schedule::BasicBlock &block,
@@ -208,7 +210,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
         _static_block_size[0u] < _width ||
         _static_block_size[0u] % _width != 0u ||
         begin_instruction >= block.instructions.size()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     auto defining_instruction = [&](schedule::ValueId id) noexcept
@@ -227,7 +229,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
         return nullptr;
     };
     auto constant_nonnegative_integer =
-        [&](schedule::ValueId id) noexcept -> std::optional<uint64_t> {
+        [&](schedule::ValueId id) noexcept -> luisa::optional<uint64_t> {
         auto *value = _source.value(id);
         if (value == nullptr ||
             value->origin != schedule::ValueOrigin::constant ||
@@ -235,13 +237,13 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             (!value->type->is_int() && !value->type->is_uint()) ||
             value->type->size() == 0u ||
             value->type->size() > sizeof(uint64_t)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto *metadata = std::get_if<schedule::ConstantValueMetadata>(
             &value->metadata);
         if (metadata == nullptr ||
             metadata->bytes.size() < value->type->size()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto decoded = uint64_t{0u};
         std::memcpy(&decoded, metadata->bytes.data(),
@@ -250,20 +252,20 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             auto sign_bit = uint64_t{1u}
                             << (value->type->size() * 8u - 1u);
             if ((decoded & sign_bit) != 0u) {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
         return decoded;
     };
     std::unordered_set<uint32_t> visiting;
-    std::function<std::optional<int64_t>(schedule::ValueId)>
+    luisa::function<luisa::optional<int64_t>(schedule::ValueId)>
         lane_stride = [&](schedule::ValueId id)
-        -> std::optional<int64_t> {
+        -> luisa::optional<int64_t> {
         auto *value = _source.value(id);
         if (value == nullptr || value->type == nullptr ||
             !value->type->is_scalar() ||
             (!value->type->is_int() && !value->type->is_uint())) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (schedule::is_uniform(value->value_class)) {
             return int64_t{0};
@@ -278,10 +280,10 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
                     xir::DerivedSpecialRegisterTag::WARP_LANE_ID) {
                 return int64_t{1};
             }
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (!visiting.emplace(id.value).second) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto leave = [&]() noexcept { visiting.erase(id.value); };
         auto *instruction = defining_instruction(id);
@@ -289,14 +291,14 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             instruction->opcode != schedule::Opcode::arithmetic ||
             !instruction->source_op) {
             leave();
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto op = static_cast<xir::ArithmeticOp>(
             *instruction->source_op);
         if (op == xir::ArithmeticOp::EXTRACT &&
             instruction->operands.size() == 2u &&
             constant_nonnegative_integer(instruction->operands[1u]) ==
-                std::optional<uint64_t>{0u}) {
+                luisa::optional<uint64_t>{0u}) {
             auto *aggregate = _source.value(instruction->operands[0u]);
             auto *metadata = aggregate == nullptr ? nullptr :
                                                     std::get_if<
@@ -312,16 +314,16 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
                 }
             }
             leave();
-            return std::nullopt;
+            return luisa::nullopt;
         }
         if (instruction->operands.size() != 2u) {
             leave();
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto lhs = lane_stride(instruction->operands[0u]);
         auto rhs = lane_stride(instruction->operands[1u]);
-        std::optional<int64_t> result;
-        auto bounded = [](std::optional<int64_t> value) noexcept {
+        luisa::optional<int64_t> result;
+        auto bounded = [](luisa::optional<int64_t> value) noexcept {
             return value && *value >= 0 && *value <= 4;
         };
         if (op == xir::ArithmeticOp::BINARY_ADD &&
@@ -363,7 +365,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             auto rhs_constant = constant_nonnegative_integer(
                 instruction->operands[1u]);
             schedule::ValueId next{};
-            std::optional<uint64_t> increment;
+            luisa::optional<uint64_t> increment;
             if (lhs_constant && !rhs_constant) {
                 next = instruction->operands[1u];
                 increment = lhs_constant;
@@ -375,12 +377,12 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             }
             if (*increment >
                 std::numeric_limits<uint64_t>::max() - offset) {
-                return std::optional<std::pair<schedule::ValueId, uint64_t>>{};
+                return luisa::optional<std::pair<schedule::ValueId, uint64_t>>{};
             }
             root = next;
             offset += *increment;
         }
-        return std::optional{
+        return luisa::optional{
             std::pair{root, offset}};
     };
     auto is_parameter_buffer = [&](schedule::ValueId id) noexcept {
@@ -423,7 +425,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
                                xir::ResourceReadOp::BUFFER_READ) ||
         !first.result || first.operands.size() != 2u ||
         !is_parameter_buffer(first.operands[0u])) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto *buffer = _source.value(first.operands[0u]);
     auto *result = _source.value(*first.result);
@@ -435,20 +437,20 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
         buffer->type->element() != result->type ||
         index->type == nullptr || !index->type->is_uint() ||
         index->type->size() != sizeof(uint32_t)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto normalized = affine_root(first.operands[1u]);
-    if (!normalized) { return std::nullopt; }
+    if (!normalized) { return luisa::nullopt; }
     visiting.clear();
     auto stride = lane_stride(normalized->first);
     if (!stride || *stride < 2 || *stride > 4) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto field_count = static_cast<uint32_t>(*stride);
     if (normalized->second >
         std::numeric_limits<uint32_t>::max() -
             (field_count - 1u)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     InterleavedScalarBufferReadGroup group{
         .begin_instruction = begin_instruction,
@@ -482,7 +484,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
             case schedule::Opcode::resource_read: {
                 if (instruction.source_op != static_cast<uint32_t>(
                                                  xir::ResourceReadOp::BUFFER_READ)) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
                 break;
             }
@@ -491,7 +493,7 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
                                                  xir::ResourceWriteOp::BUFFER_WRITE) ||
                     instruction.operands.size() != 3u ||
                     !is_parameter_buffer(instruction.operands[0u])) {
-                    return std::nullopt;
+                    return luisa::nullopt;
                 }
                 if (std::find(
                         group.crossed_write_buffers.begin(),
@@ -503,10 +505,10 @@ ScheduleEmitter::_find_interleaved_scalar_buffer_read_group(
                 }
                 break;
             }
-            default: return std::nullopt;
+            default: return luisa::nullopt;
         }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] ::llvm::Value *

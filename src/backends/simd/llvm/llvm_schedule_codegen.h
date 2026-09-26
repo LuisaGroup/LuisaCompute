@@ -8,6 +8,8 @@
 #include <string_view>
 #include <span>
 #include <vector>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace llvm {
 class Function;
@@ -826,7 +828,7 @@ enum class FullPacketSpecializationDecision : uint8_t {
     simplified_selected,
 };
 
-[[nodiscard]] constexpr std::string_view full_packet_specialization_decision_name(
+[[nodiscard]] constexpr luisa::string_view full_packet_specialization_decision_name(
     FullPacketSpecializationDecision decision) noexcept {
     switch (decision) {
         case FullPacketSpecializationDecision::not_requested: return "not_requested";
@@ -978,7 +980,7 @@ struct LLVMScheduleCodegenResult {
 // register allocation, and scheduling.
 [[nodiscard]] LLVMScheduleCodegenResult lower_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name = {},
+    uint32_t specialization_width, luisa::string_view entry_name = {},
     bool enable_fast_math = false,
     // A zero dimension selects the generic launch-config path. Nonzero static
     // dimensions must be powers of two and are lowered with shifts and masks.
@@ -1010,7 +1012,7 @@ struct LLVMScheduleCodegenResult {
     // block-local packet wrapper internal. A guarded linear-1D refinement may
     // collapse a proven block-agnostic range into one packet loop.
     bool enable_block_batch_entry = false,
-    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers = {},
     size_t print_format_id_base = 0u,
     bool enable_native_vector_compress = false,
@@ -1046,7 +1048,7 @@ struct LLVMScheduleCodegenResult {
 [[nodiscard]] LLVMScheduleCodegenResult
 lower_ray_query_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name,
+    uint32_t specialization_width, luisa::string_view entry_name,
     bool enable_fast_math = false,
     std::array<uint32_t, 3u> static_block_size = {},
     bool enable_uniform_buffer_broadcast = true,
@@ -1068,7 +1070,7 @@ lower_ray_query_handler_schedule_to_llvm(
 [[nodiscard]] LLVMScheduleCodegenResult
 lower_ray_query_surface_filter_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name,
+    uint32_t specialization_width, luisa::string_view entry_name,
     bool enable_fast_math = false,
     std::array<uint32_t, 3u> static_block_size = {},
     bool enable_uniform_buffer_broadcast = true,

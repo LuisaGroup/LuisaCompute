@@ -1036,8 +1036,8 @@ int test_device_math(Device &device) {
             auto matches = [](float actual, float expected) noexcept {
                 return std::isnan(expected) ?
                            std::isnan(actual) :
-                           std::bit_cast<uint32_t>(actual) ==
-                               std::bit_cast<uint32_t>(expected);
+                           luisa::bit_cast<uint32_t>(actual) ==
+                               luisa::bit_cast<uint32_t>(expected);
             };
             for (auto i = 0u; i < strict_fmod_cases.size(); ++i) {
                 const auto &test = strict_fmod_cases[i];

@@ -29,6 +29,10 @@
 #include <luisa/xir/argument.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "llvm_schedule_codegen.h"
 #include "llvm_value_layout.h"
@@ -71,7 +75,7 @@ private:
     bool _enable_linear_1d_packet_tail_narrowing{false};
     bool _enable_predicated_acyclic_control_flow{true};
     ScheduleEntryABI _entry_abi{ScheduleEntryABI::packet};
-    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
         _ray_query_pipeline_handlers{};
     size_t _print_format_id_base{0u};
     bool _use_scalar_frame_metadata{false};
@@ -180,11 +184,11 @@ private:
     std::array<::llvm::Value *, 3u> _dispatch_id{};
     std::vector<::llvm::BasicBlock *> _schedule_blocks{};
 
-    using UnaryLeaf = std::function<::llvm::Value *(
+    using UnaryLeaf = luisa::function<::llvm::Value *(
         ::llvm::Value *, const Type *)>;
-    using BinaryLeaf = std::function<::llvm::Value *(
+    using BinaryLeaf = luisa::function<::llvm::Value *(
         ::llvm::Value *, ::llvm::Value *, const Type *, const Type *)>;
-    using TernaryLeaf = std::function<::llvm::Value *(
+    using TernaryLeaf = luisa::function<::llvm::Value *(
         ::llvm::Value *, ::llvm::Value *, ::llvm::Value *,
         const Type *, const Type *, const Type *)>;
 
@@ -251,7 +255,7 @@ private:
         };
         GuardedPredicatedMathDiamond first_diamond{};
         std::vector<Continuation> continuations{};
-        std::optional<NestedContinuation> nested_continuation{};
+        luisa::optional<NestedContinuation> nested_continuation{};
         std::vector<const schedule::BasicBlock *> terminal_blocks{};
         std::vector<const schedule::BasicBlock *> inlined_blocks{};
         schedule::BlockId merge{};
@@ -284,7 +288,7 @@ private:
         size_t instruction_count{0u};
     };
 
-    std::optional<StructuredEarlyExitLoop>
+    luisa::optional<StructuredEarlyExitLoop>
         _structured_early_exit_loop{};
 
     struct CoherentAllOnRegion {
@@ -334,7 +338,7 @@ private:
         const Type *type, uint32_t index, bool varying);
     [[nodiscard]] ::llvm::Value *_assemble(
         const Type *type, bool varying,
-        const std::function<::llvm::Value *(uint32_t)> &child);
+        const luisa::function<::llvm::Value *(uint32_t)> &child);
     [[nodiscard]] ::llvm::Value *_splat_data(
         ::llvm::Value *value, const Type *type);
     [[nodiscard]] ::llvm::Value *_extract_lane(
@@ -361,7 +365,7 @@ private:
         schedule::ValueId id) const noexcept;
     static void _for_each_assignment(
         const schedule::BasicBlock &block,
-        const std::function<void(schedule::EdgeAssignment)> &visit);
+        const luisa::function<void(schedule::EdgeAssignment)> &visit);
     void _analyze_local_lvalues();
     void _preflight_typed_calls();
     void _analyze_ray_query_scratch();
@@ -416,7 +420,7 @@ private:
     [[nodiscard]] ::llvm::Value *_componentwise_varying_to_uniform(
         const Type *result_type, ::llvm::Value *operand,
         const Type *operand_type, const UnaryLeaf &leaf);
-    [[nodiscard]] static std::optional<uint64_t> _constant_index(
+    [[nodiscard]] static luisa::optional<uint64_t> _constant_index(
         ::llvm::Value *value) noexcept;
     [[nodiscard]] ::llvm::Value *_index_constant_like(
         ::llvm::Value *index, uint64_t value);
@@ -440,7 +444,7 @@ private:
         ::llvm::Value *operand_sanitization_mask = nullptr);
     [[nodiscard]] ::llvm::Value *_lane_offsets(
         ::llvm::Value *index, uint64_t stride);
-    [[nodiscard]] std::optional<uint64_t> _constant_aggregate_index(
+    [[nodiscard]] luisa::optional<uint64_t> _constant_aggregate_index(
         schedule::ValueId id) const noexcept;
     [[nodiscard]] bool _advance_aggregate_offset(
         ::llvm::Value *&offsets, const Type *&current_type,
@@ -468,7 +472,7 @@ private:
         ::llvm::Value *base, ::llvm::Value *offsets,
         size_t leaf_offset);
     [[nodiscard]] ::llvm::AllocaInst *_entry_scratch(
-        ::llvm::Type *type, std::string_view name);
+        ::llvm::Type *type, luisa::string_view name);
     struct NativeTexturePacketInfo {
         ::llvm::Value *guard{nullptr};
         ::llvm::Value *access_guard{nullptr};
@@ -572,7 +576,7 @@ private:
         ::llvm::Value *ray_packet, ::llvm::Value *call_packet,
         ::llvm::Value *active_mask_bits, uint32_t runtime_flag,
         ::llvm::Value *narrowing_eligible,
-        std::string_view label);
+        luisa::string_view label);
     [[nodiscard]] ::llvm::Value *_ray_query_state_handles(
         schedule::ValueId object_id);
     [[nodiscard]] ::llvm::AllocaInst *_ray_query_status_slot(
@@ -650,7 +654,7 @@ private:
         ::llvm::Value *static_id);
     [[nodiscard]] ::llvm::Value *_ready_element_pointer(
         ::llvm::AllocaInst *array, ::llvm::Value *index);
-    void _trap_if(::llvm::Value *condition, std::string_view label);
+    void _trap_if(::llvm::Value *condition, luisa::string_view label);
     void _declare_convergence(schedule::ConvergenceId convergence,
                               ::llvm::Value *divergent);
     [[nodiscard]] ::llvm::Value *_arrive_at_convergence_target(
@@ -679,7 +683,7 @@ private:
     void _emit_block_barrier(
         const schedule::BlockBarrierTerminator &barrier);
     void _finish_entry();
-    [[nodiscard]] std::optional<PredicatedMemoryDiamond>
+    [[nodiscard]] luisa::optional<PredicatedMemoryDiamond>
     _find_predicated_memory_diamond(
         const schedule::BasicBlock &block) const noexcept;
     void _emit_predicated_memory_diamond(
@@ -689,7 +693,7 @@ private:
         const std::vector<::llvm::BasicBlock *> *direct_blocks);
     [[nodiscard]] const schedule::Loop *_innermost_loop_containing(
         schedule::BlockId block) const noexcept;
-    [[nodiscard]] std::optional<GuardedPredicatedMathDiamond>
+    [[nodiscard]] luisa::optional<GuardedPredicatedMathDiamond>
     _find_guarded_predicated_math_diamond(
         const schedule::BasicBlock &block,
         bool allow_tiny_speculation = false) const noexcept;
@@ -697,7 +701,7 @@ private:
         const schedule::SplitTerminator &control,
         const GuardedPredicatedMathDiamond &diamond,
         bool continue_at_merge = true);
-    [[nodiscard]] std::optional<NestedPredicatedRegion>
+    [[nodiscard]] luisa::optional<NestedPredicatedRegion>
     _find_nested_predicated_region(
         const schedule::BasicBlock &block,
         bool allow_tiny_speculation = false) const noexcept;
@@ -705,23 +709,23 @@ private:
         const schedule::SplitTerminator &control,
         const NestedPredicatedRegion &region,
         bool continue_at_merge = true);
-    [[nodiscard]] std::optional<ChainedPredicatedRegion>
+    [[nodiscard]] luisa::optional<ChainedPredicatedRegion>
     _find_chained_predicated_region(
         const schedule::BasicBlock &block) const noexcept;
     void _emit_chained_predicated_region(
         const schedule::SplitTerminator &control,
         const ChainedPredicatedRegion &region,
         bool continue_at_merge = true);
-    [[nodiscard]] std::optional<PredicatedLoop>
+    [[nodiscard]] luisa::optional<PredicatedLoop>
     _find_predicated_loop(
         const schedule::BasicBlock &header) const noexcept;
     void _emit_predicated_loop(const PredicatedLoop &loop);
-    [[nodiscard]] std::optional<StructuredEarlyExitLoop>
+    [[nodiscard]] luisa::optional<StructuredEarlyExitLoop>
     _find_structured_early_exit_loop(
         const schedule::BasicBlock &header) const noexcept;
     void _emit_structured_early_exit_loop(
         const StructuredEarlyExitLoop &loop);
-    [[nodiscard]] std::optional<CoherentAllOnRegion>
+    [[nodiscard]] luisa::optional<CoherentAllOnRegion>
     _find_coherent_all_on_region(
         const schedule::SplitTerminator &control,
         const schedule::ControlEdge &entry_edge) const noexcept;
@@ -735,9 +739,9 @@ private:
         const schedule::BasicBlock &block,
         const std::vector<::llvm::BasicBlock *> &blocks);
     [[nodiscard]] bool _can_emit_direct_control_flow() const noexcept;
-    [[nodiscard]] std::optional<std::vector<schedule::BlockId>>
+    [[nodiscard]] luisa::optional<std::vector<schedule::BlockId>>
     _find_predicated_acyclic_order() const noexcept;
-    [[nodiscard]] std::optional<InterleavedScalarBufferReadGroup>
+    [[nodiscard]] luisa::optional<InterleavedScalarBufferReadGroup>
     _find_interleaved_scalar_buffer_read_group(
         const schedule::BasicBlock &block,
         size_t begin_instruction) const noexcept;
@@ -768,7 +772,7 @@ private:
 public:
     ScheduleEmitter(::llvm::Module &module,
                     const schedule::Function &source, uint32_t width,
-                    std::string_view entry_name,
+                    luisa::string_view entry_name,
                     bool enable_fast_math,
                     std::array<uint32_t, 3u> static_block_size,
                     bool enable_uniform_buffer_broadcast,
@@ -780,7 +784,7 @@ public:
                     bool enable_runtime_packet_geometry,
                     bool enable_linear_1d_packet_tail_narrowing,
                     ScheduleEntryABI entry_abi = ScheduleEntryABI::packet,
-                    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+                    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
                         ray_query_pipeline_handlers = {},
                     size_t print_format_id_base = 0u,
                     bool enable_predicated_acyclic_control_flow = true,

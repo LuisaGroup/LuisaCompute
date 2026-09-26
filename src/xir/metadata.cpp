@@ -9,6 +9,8 @@
 #include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/metadata.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::xir {
 
@@ -64,19 +66,19 @@ Metadata *luisa_xir_metadata_list_mixin_find_or_create_metadata(MetadataList &li
     return luisa_xir_metadata_list_mixin_create_metadata(list, tag);
 }
 
-void luisa_xir_metadata_list_mixin_set_name(MetadataList &list, std::string_view name) noexcept {
+void luisa_xir_metadata_list_mixin_set_name(MetadataList &list, luisa::string_view name) noexcept {
     auto m = luisa_xir_metadata_list_mixin_find_or_create_metadata(list, DerivedMetadataTag::NAME);
     LUISA_DEBUG_ASSERT(m->isa<NameMD>(), "Invalid metadata type.");
     static_cast<NameMD *>(m)->set_name(name);
 }
 
-void luisa_xir_metadata_list_mixin_set_location(MetadataList &list, const std::filesystem::path &file, int line) noexcept {
+void luisa_xir_metadata_list_mixin_set_location(MetadataList &list, const luisa::filesystem::path &file, int line) noexcept {
     auto m = luisa_xir_metadata_list_mixin_find_or_create_metadata(list, DerivedMetadataTag::LOCATION);
     LUISA_DEBUG_ASSERT(m->isa<LocationMD>(), "Invalid metadata type.");
     static_cast<LocationMD *>(m)->set_location(file, line);
 }
 
-void luisa_xir_metadata_list_mixin_add_comment(MetadataList &list, std::string_view comment) noexcept {
+void luisa_xir_metadata_list_mixin_add_comment(MetadataList &list, luisa::string_view comment) noexcept {
     auto m = luisa_xir_metadata_list_mixin_create_metadata(list, DerivedMetadataTag::COMMENT);
     LUISA_DEBUG_ASSERT(m->isa<CommentMD>(), "Invalid metadata type.");
     static_cast<CommentMD *>(m)->set_comment(comment);

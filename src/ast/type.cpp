@@ -11,6 +11,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 
@@ -639,7 +640,7 @@ const Type *Type::element() const noexcept {
     return static_cast<const detail::TypeImpl *>(this)->members.front();
 }
 
-const Type *Type::from(std::string_view description) noexcept {
+const Type *Type::from(luisa::string_view description) noexcept {
     return detail::TypeRegistry::instance().decode_type(description);
 }
 

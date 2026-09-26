@@ -9,6 +9,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/functional.h>
 
 #include "remote_protocol.h"
 
@@ -28,13 +29,13 @@ struct Response {
 class Connection final {
 
 public:
-    using NotificationHandler = std::function<void(
+    using NotificationHandler = luisa::function<void(
         MessageKind, uint64_t, luisa::span<const std::byte>)>;
-    using CloseHandler = std::function<void(luisa::string_view)>;
+    using CloseHandler = luisa::function<void(luisa::string_view)>;
 
 private:
     class Impl;
-    std::unique_ptr<Impl> _impl;
+    luisa::unique_ptr<Impl> _impl;
 
 public:
     explicit Connection(ProtocolLimits limits = {}) noexcept;

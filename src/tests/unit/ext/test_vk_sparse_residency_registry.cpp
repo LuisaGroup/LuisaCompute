@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -62,7 +63,7 @@ int main(int argc, char *argv[]) {
             expect(static_cast<bool>(transaction.commit()));
         }
         auto mappings = registry.mapping_snapshot();
-        std::sort(
+        luisa::sort(
             mappings.begin(), mappings.end(),
             [](auto const &lhs, auto const &rhs) noexcept {
                 return lhs.buffer.offset < rhs.buffer.offset;

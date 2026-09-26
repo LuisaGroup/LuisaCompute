@@ -23,6 +23,9 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -187,9 +190,9 @@ int main(int argc, char *argv[]) {
     static constexpr uint display_height = height * display_scale;
 
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
+    luisa::unique_ptr<Window> window;
     if (!force_offline) {
-        window = std::make_unique<Window>("Water Ripples - Click and Drag!", make_uint2(display_width, display_height));
+        window = luisa::make_unique<Window>("Water Ripples - Click and Drag!", make_uint2(display_width, display_height));
     }
 #endif
 
@@ -215,7 +218,7 @@ int main(int argc, char *argv[]) {
             mouse_pos = p;
         });
     }
-    std::optional<Swapchain> swap_chain;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -285,8 +288,8 @@ int main(int argc, char *argv[]) {
 
         for (int step = 0; step < 4; step++) {
             cmdlist << wave_shader(height_prev, height_curr, height_next).dispatch(width, height);
-            std::swap(height_prev, height_curr);
-            std::swap(height_curr, height_next);
+            luisa::swap(height_prev, height_curr);
+            luisa::swap(height_curr, height_next);
         }
 
         time += 0.016f;

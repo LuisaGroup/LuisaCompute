@@ -14,6 +14,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/memory.h>
 
 #include "fallback_buffer.h"
 #include "fallback_texture.h"
@@ -208,7 +209,7 @@ public:
             LUISA_ERROR_WITH_LOCATION("Failed to create LLJIT.");
         }
 
-        auto llvm_ctx = std::make_unique<llvm::LLVMContext>();
+        auto llvm_ctx = luisa::make_unique<llvm::LLVMContext>();
         llvm::MemoryBufferRef llvm_bc{llvm::StringRef{reinterpret_cast<const char *>(fallback_tex_compress_llvm_bc),
                                                       std::size(fallback_tex_compress_llvm_bc)},
                                       "fallback_tex_compress_bc"};
@@ -237,8 +238,8 @@ public:
         _bc7_encode_blocks = _jit->lookup(fallback_tex_compress_llvm_bc_bc7_kernel_name)
                                  ->toPtr<func_type_bc7_encode_blocks>();
     }
-    std::unique_ptr<::llvm::orc::LLJIT> _jit;
-    std::unique_ptr<::llvm::TargetMachine> _target_machine;
+    luisa::unique_ptr<::llvm::orc::LLJIT> _jit;
+    luisa::unique_ptr<::llvm::TargetMachine> _target_machine;
     func_type_bc6h_encode_blocks *_bc6h_encode_blocks;
     func_type_bc7_encode_blocks *_bc7_encode_blocks;
 

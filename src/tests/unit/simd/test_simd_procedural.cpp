@@ -41,7 +41,7 @@ void set_environment_variable(
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
 
     explicit ScopedEnvironmentVariable(
         const char *env_name, const char *value)

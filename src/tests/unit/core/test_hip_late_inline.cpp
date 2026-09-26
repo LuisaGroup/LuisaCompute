@@ -11,6 +11,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/SourceMgr.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -18,8 +20,8 @@ using namespace boost::ut::literals;
 
 namespace {
 
-[[nodiscard]] std::unique_ptr<llvm::Module> parse_module(
-    llvm::LLVMContext &context, std::string_view text) {
+[[nodiscard]] luisa::unique_ptr<llvm::Module> parse_module(
+    llvm::LLVMContext &context, luisa::string_view text) {
     llvm::SMDiagnostic diagnostic;
     auto module = llvm::parseAssemblyString(text, diagnostic, context);
     if (!module) {

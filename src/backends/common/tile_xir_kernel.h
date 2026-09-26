@@ -15,6 +15,7 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/core/stl/string.h>
 
 #include "env_flag.h"
 
@@ -102,7 +103,7 @@ public:
 [[nodiscard]] inline uint64_t gpu_tile_max_local_bytes(uint64_t fallback) noexcept {
     auto *text = std::getenv("LUISA_TILE_XIR_MAX_LOCAL_BYTES");
     if (text == nullptr) { return fallback; }
-    auto view = std::string_view{text};
+    auto view = luisa::string_view{text};
     auto value = uint64_t{0u};
     auto parsed = std::from_chars(view.data(), view.data() + view.size(), value);
     if (parsed.ec == std::errc{} && parsed.ptr == view.data() + view.size() && value != 0u) {

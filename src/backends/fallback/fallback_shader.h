@@ -8,6 +8,7 @@
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/memory.h>
 
 namespace llvm {
 class LLVMContext;
@@ -43,8 +44,8 @@ private:
     luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>> _print_formatters;
 
     uint3 _block_size;
-    std::unique_ptr<::llvm::orc::LLJIT> _jit{};
-    std::unique_ptr<::llvm::TargetMachine> _target_machine{};
+    luisa::unique_ptr<::llvm::orc::LLJIT> _jit{};
+    luisa::unique_ptr<::llvm::TargetMachine> _target_machine{};
 
 private:
     void _initialize_target_machine_jit(const ShaderOption &option) noexcept;

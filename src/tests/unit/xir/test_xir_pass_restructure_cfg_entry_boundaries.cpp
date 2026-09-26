@@ -14,6 +14,7 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/translators/xir_interchange.h>
+#include <luisa/core/stl/filesystem.h>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -150,13 +151,13 @@ int main(int argc, char *argv[]) {
                 expect(verify_lifetimes());
                 auto dump = [&](bool before) {
                     if (auto *directory = std::getenv("LUISA_XIR_CFG_TEST_DUMP_DIR")) {
-                        std::filesystem::create_directories(directory);
+                        luisa::filesystem::create_directories(directory);
                         auto name = std::string{"affine-frontier-"} + std::to_string(shape) +
                                     (mode == RestructureCFGMutationMode::TRANSACTIONAL ? "-transactional" : "-in-place") +
                                     (before ? "-input.xir" : "-output.xir");
                         auto interchange = xir_to_interchange_text(&module);
                         expect(interchange.succeeded());
-                        std::ofstream file{std::filesystem::path{directory} / name};
+                        std::ofstream file{luisa::filesystem::path{directory} / name};
                         file << interchange.text;
                         expect(file.good());
                     }

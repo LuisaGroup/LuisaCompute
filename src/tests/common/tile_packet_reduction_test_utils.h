@@ -10,6 +10,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/tile/runtime.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -110,7 +111,7 @@ inline void packet_local_reductions(compute::Device &device, int64_t count, int6
         }
     } else {
         // No invented additive identity and no repeated initial accumulator.
-        expect(eq(std::bit_cast<uint32_t>(actual[pad]), std::bit_cast<uint32_t>(-0.0f)));
+        expect(eq(luisa::bit_cast<uint32_t>(actual[pad]), luisa::bit_cast<uint32_t>(-0.0f)));
     }
     for (auto values : {span{data}, span{actual}}) {
         expect(std::all_of(values.begin(), values.begin() + pad, [](float x) { return x == guard; }));

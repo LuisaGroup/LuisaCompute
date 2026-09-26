@@ -72,7 +72,7 @@ void set_environment_variable(
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
 
     explicit ScopedEnvironmentVariable(
         const char *env_name, const char *value)
@@ -1063,7 +1063,7 @@ void reg_restructure_cfg() {
     };
 
     "restructure_exit_dispatch_sink_priority_converges_for_target_orders"_test = [] {
-        std::optional<uint64_t> expected_hash;
+        luisa::optional<uint64_t> expected_hash;
         auto terminal_target_count = size_t{0u};
         auto terminal_fallback_reorder_count = size_t{0u};
         for (auto sink_created_first : {false, true}) {
@@ -1207,7 +1207,7 @@ void reg_restructure_cfg() {
     };
 
     "restructure_exit_selector_order_is_deterministic"_test = [] {
-        std::optional<uint64_t> expected_hash;
+        luisa::optional<uint64_t> expected_hash;
         for (auto iteration = 0u; iteration < 24u; ++iteration) {
             // Keep a differently sized block allocation alive while building
             // the fixture. Pointer-keyed unordered containers then receive a

@@ -14,6 +14,8 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace {
 
@@ -33,7 +35,7 @@ Gemm luisa_ispc_gemm_avx512_w16;
 }
 
 struct Variant {
-    std::string_view name;
+    luisa::string_view name;
     Gemm *function;
 };
 
@@ -47,29 +49,29 @@ constexpr std::array variants{
 
 struct Options {
     uint32_t worker_count;
-    std::string_view target;
+    luisa::string_view target;
 };
 
-[[nodiscard]] std::optional<Options> parse_options(
+[[nodiscard]] luisa::optional<Options> parse_options(
     int argc, char *argv[]) noexcept {
     if (argc > 3) {
         std::cerr << "Usage: " << (argc > 0 ? argv[0] : "benchmark")
                   << " [worker-count] [target]\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto options = Options{
         .worker_count = std::max(
             std::thread::hardware_concurrency(), 1u),
     };
     if (argc < 2 || argv[1] == nullptr) { return options; }
-    auto text = std::string_view{argv[1]};
+    auto text = luisa::string_view{argv[1]};
     auto result = std::from_chars(
         text.data(), text.data() + text.size(), options.worker_count);
     if (result.ec != std::errc{} ||
         result.ptr != text.data() + text.size() ||
         options.worker_count == 0u) {
         std::cerr << "Invalid worker count '" << text << "'\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (argc == 3) {
         options.target = argv[2];
@@ -79,7 +81,7 @@ struct Options {
             });
         if (!found) {
             std::cerr << "Unknown ISPC target '" << options.target << "'\n";
-            return std::nullopt;
+            return luisa::nullopt;
         }
     }
     return options;

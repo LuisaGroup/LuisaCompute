@@ -4,6 +4,8 @@
 #include "texture_sampling.h"
 #include <luisa/core/logging.h>
 #include <luisa/xir/passes/integer_alignment.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <SPIRV/GLSL.std.450.h>
 #include <algorithm>
 #include <limits>
@@ -1975,7 +1977,7 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(
     _builder.createBranch(false, loop_header);
 
     _set_current_tail(loop_header);
-    auto expected_phi = std::make_unique<spv::Instruction>(
+    auto expected_phi = luisa::make_unique<spv::Instruction>(
         _builder.getUniqueId(), uint_type, spv::Op::OpPhi);
     auto *expected_phi_inst = expected_phi.get();
     auto expected_uint = expected_phi_inst->getResultId();
@@ -2796,7 +2798,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
         auto uint_type = _builder.makeUintType(32);
         auto emit_bounded_selector =
             [&](const xir::Value *value,
-                std::optional<uint32_t> constant,
+                luisa::optional<uint32_t> constant,
                 luisa::string_view name) noexcept -> spv::Id {
             if (constant) {
                 LUISA_ASSERT(
@@ -3217,7 +3219,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                 auto *true_block = _create_physical_block();
                 auto *false_block = _create_physical_block();
                 auto *merge_block = _create_physical_block();
-                auto selection_merge = std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+                auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
                 selection_merge->reserveOperands(2);
                 selection_merge->addIdOperand(merge_block->getId());
                 selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
@@ -4706,7 +4708,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
 
             auto *write_block = _create_physical_block();
             auto *merge_block = _create_physical_block();
-            auto selection_merge = std::make_unique<spv::Instruction>(
+            auto selection_merge = luisa::make_unique<spv::Instruction>(
                 spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2u);
             selection_merge->addIdOperand(merge_block->getId());
@@ -5711,7 +5713,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             // OpSelect would still evaluate the invalid instruction eagerly.
             auto *committed_block = _create_physical_block();
             auto *merge_block = _create_physical_block();
-            auto selection_merge = std::make_unique<spv::Instruction>(
+            auto selection_merge = luisa::make_unique<spv::Instruction>(
                 spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2u);
             selection_merge->addIdOperand(merge_block->getId());
@@ -5774,7 +5776,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             // Branch before reading it; OpSelect would evaluate both arms.
             auto *committed_block = _create_physical_block();
             auto *merge_block = _create_physical_block();
-            auto selection_merge = std::make_unique<spv::Instruction>(
+            auto selection_merge = luisa::make_unique<spv::Instruction>(
                 spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2u);
             selection_merge->addIdOperand(merge_block->getId());
@@ -5845,12 +5847,12 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "committed_hit");
             auto zero_result = _builder.makeNullConstant(type);
             _builder.createStore(zero_result, result_var);
-            auto selection_merge = std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+            auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2);
             selection_merge->addIdOperand(merge_block->getId());
             selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
             _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
-            auto switch_inst = std::make_unique<spv::Instruction>(spv::Op::OpSwitch);
+            auto switch_inst = luisa::make_unique<spv::Instruction>(spv::Op::OpSwitch);
             switch_inst->reserveOperands(6);
             switch_inst->addIdOperand(committed_type);
             switch_inst->addIdOperand(merge_block->getId());// default (none) -> merge

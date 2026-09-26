@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
     luisa::string backend;
     bool force_offline = false;
     for (int i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
+        if (luisa::string_view{argv[i]} == "--offline") {
             force_offline = true;
         } else if (backend.empty()) {
             backend = argv[i];
@@ -298,10 +298,10 @@ int main(int argc, char *argv[]) {
     auto render_shader = device.compile(render_kernel);
 
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Tutorial 11 - Schwarzschild Black Hole", make_uint2(image_width, image_height));
+        window = luisa::make_unique<Window>("Tutorial 11 - Schwarzschild Black Hole", make_uint2(image_width, image_height));
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

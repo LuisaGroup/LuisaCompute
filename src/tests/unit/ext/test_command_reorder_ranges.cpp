@@ -24,6 +24,7 @@
 #include <random>
 #include <unordered_map>
 #include <vector>
+#include <luisa/core/stl/memory.h>
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
@@ -82,16 +83,16 @@ struct AccessList {
     static constexpr uint64_t buffer = 7u;
     static constexpr size_t range_size = 16u;
     std::array<std::byte, range_size> data{};
-    luisa::vector<std::unique_ptr<Command>> storage;
+    luisa::vector<luisa::unique_ptr<Command>> storage;
     luisa::vector<Command const *> order;
     void write(Reorder &reorder, size_t offset) {
-        auto cmd = std::make_unique<BufferUploadCommand>(buffer, offset, range_size, data.data());
+        auto cmd = luisa::make_unique<BufferUploadCommand>(buffer, offset, range_size, data.data());
         order.emplace_back(cmd.get());
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
     }
     void read(Reorder &reorder, size_t offset) {
-        auto cmd = std::make_unique<BufferDownloadCommand>(buffer, offset, range_size, data.data());
+        auto cmd = luisa::make_unique<BufferDownloadCommand>(buffer, offset, range_size, data.data());
         order.emplace_back(cmd.get());
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
@@ -227,9 +228,9 @@ void test_dispatch_commands_use_same_tracking() {
         return ShaderDispatchCommand{
             shader, std::move(argument_buffer), 1u, uint3{1u, 1u, 1u}};
     };
-    luisa::vector<std::unique_ptr<Command>> storage;
+    luisa::vector<luisa::unique_ptr<Command>> storage;
     for (size_t i = 0u; i < 64u; i++) {
-        auto cmd = std::make_unique<ShaderDispatchCommand>(make_dispatch(i * range_size));
+        auto cmd = luisa::make_unique<ShaderDispatchCommand>(make_dispatch(i * range_size));
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
     }
@@ -238,7 +239,7 @@ void test_dispatch_commands_use_same_tracking() {
     Reorder rotating{FakeReorderFuncTable{state}};
     for (size_t round = 0u; round < 4u; round++) {
         for (size_t r = 0u; r < 16u; r++) {
-            auto cmd = std::make_unique<ShaderDispatchCommand>(make_dispatch(r * range_size));
+            auto cmd = luisa::make_unique<ShaderDispatchCommand>(make_dispatch(r * range_size));
             rotating.visit(cmd.get());
             storage.emplace_back(std::move(cmd));
         }
@@ -304,9 +305,9 @@ void test_custom_dispatch_declared_usages() {
         // input stays a read, the disjoint output writes do not collide,
         // and all dispatches merge into one layer.
         Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
-        luisa::vector<std::unique_ptr<Command>> storage;
+        luisa::vector<luisa::unique_ptr<Command>> storage;
         for (auto i = 0u; i < 8u; i++) {
-            auto cmd = std::make_unique<FakeCustomDispatchCommand>(
+            auto cmd = luisa::make_unique<FakeCustomDispatchCommand>(
                 make_dispatch(i * range_size));
             cmd->accept(reorder);
             storage.emplace_back(std::move(cmd));
@@ -317,9 +318,9 @@ void test_custom_dispatch_declared_usages() {
         // Write tracking is unchanged: dispatches writing the SAME output
         // range still serialize per range chain.
         Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
-        luisa::vector<std::unique_ptr<Command>> storage;
+        luisa::vector<luisa::unique_ptr<Command>> storage;
         for (auto i = 0u; i < 4u; i++) {
-            auto cmd = std::make_unique<FakeCustomDispatchCommand>(
+            auto cmd = luisa::make_unique<FakeCustomDispatchCommand>(
                 make_dispatch(0u));
             cmd->accept(reorder);
             storage.emplace_back(std::move(cmd));
@@ -331,11 +332,11 @@ void test_custom_dispatch_declared_usages() {
         // range (the upload writes the input in layer 0, the dispatch
         // reading it must land in layer 1).
         Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
-        luisa::vector<std::unique_ptr<Command>> storage;
+        luisa::vector<luisa::unique_ptr<Command>> storage;
         std::array<std::byte, input_size> data{};
         BufferUploadCommand upload{input, 0u, input_size, data.data()};
         upload.accept(reorder);
-        auto first = std::make_unique<FakeCustomDispatchCommand>(
+        auto first = luisa::make_unique<FakeCustomDispatchCommand>(
             make_dispatch(0u));
         first->accept(reorder);
         storage.emplace_back(std::move(first));
@@ -452,7 +453,7 @@ void run_oracle_comparison(uint32_t seed, size_t access_count, size_t slot_count
     Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
     Oracle oracle;
     std::array<std::byte, 256u> data{};
-    luisa::vector<std::unique_ptr<Command>> storage;
+    luisa::vector<luisa::unique_ptr<Command>> storage;
     luisa::vector<std::pair<Command const *, int64_t>> expected;
     expected.reserve(access_count);
     luisa::vector<std::tuple<size_t, size_t, size_t, size_t, size_t, size_t>> access_log;// kind, buffer, offset, size, dst, dst_offset
@@ -467,13 +468,13 @@ void run_oracle_comparison(uint32_t seed, size_t access_count, size_t slot_count
         auto kind = kind_dist(rng);
         if (kind == 0) {
             access_log.emplace_back(kind, buffer, offset, size, buffer, offset);
-            auto cmd = std::make_unique<BufferUploadCommand>(buffer, offset, size, data.data());
+            auto cmd = luisa::make_unique<BufferUploadCommand>(buffer, offset, size, data.data());
             expected.emplace_back(cmd.get(), oracle.write(buffer, Range::from_offset_size(offset, size)));
             reorder.visit(cmd.get());
             storage.emplace_back(std::move(cmd));
         } else if (kind == 1) {
             access_log.emplace_back(kind, buffer, offset, size, buffer, offset);
-            auto cmd = std::make_unique<BufferDownloadCommand>(buffer, offset, size, data.data());
+            auto cmd = luisa::make_unique<BufferDownloadCommand>(buffer, offset, size, data.data());
             expected.emplace_back(cmd.get(), oracle.read(buffer, Range::from_offset_size(offset, size)));
             reorder.visit(cmd.get());
             storage.emplace_back(std::move(cmd));
@@ -481,7 +482,7 @@ void run_oracle_comparison(uint32_t seed, size_t access_count, size_t slot_count
             auto dst = dst_buffer_dist(rng);
             auto dst_offset = slot_dist(rng) * AccessList::range_size;
             access_log.emplace_back(kind, buffer, offset, size, dst, dst_offset);
-            auto cmd = std::make_unique<BufferCopyCommand>(buffer, dst, offset, dst_offset, size);
+            auto cmd = luisa::make_unique<BufferCopyCommand>(buffer, dst, offset, dst_offset, size);
             expected.emplace_back(cmd.get(), oracle.copy(buffer, Range::from_offset_size(offset, size),
                                                          dst, Range::from_offset_size(dst_offset, size)));
             reorder.visit(cmd.get());
@@ -613,9 +614,9 @@ void test_empty_range_semantics() {
     // not. This must match the previous exact-range implementation.
     Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
     std::array<std::byte, 16u> data{};
-    luisa::vector<std::unique_ptr<Command>> storage;
+    luisa::vector<luisa::unique_ptr<Command>> storage;
     auto write = [&](size_t offset, size_t size) {
-        auto cmd = std::make_unique<BufferUploadCommand>(AccessList::buffer, offset, size, data.data());
+        auto cmd = luisa::make_unique<BufferUploadCommand>(AccessList::buffer, offset, size, data.data());
         reorder.visit(cmd.get());
         storage.emplace_back(std::move(cmd));
     };

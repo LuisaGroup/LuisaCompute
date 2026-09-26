@@ -193,9 +193,9 @@ void test_motion_blur(Device &device) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    auto output_directory = std::filesystem::path{opts.output_dir};
+    auto output_directory = luisa::filesystem::path{opts.output_dir};
     std::error_code output_error;
-    std::filesystem::create_directories(output_directory, output_error);
+    luisa::filesystem::create_directories(output_directory, output_error);
     boost::ut::expect(!output_error)
         << luisa::format("Failed to create output directory '{}': {}",
                          output_directory.string(), output_error.message());

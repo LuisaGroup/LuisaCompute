@@ -9,6 +9,8 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 #include <algorithm>
 #include <bit>
@@ -121,7 +123,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                     << "every field array base must satisfy its ABI alignment";
                 ranges.emplace_back(begin, end);
             }
-            std::sort(ranges.begin(), ranges.end());
+            luisa::sort(ranges.begin(), ranges.end());
             auto cursor = size_t{0u};
             for (auto [begin, end] : ranges) {
                 expect(begin == cursor)
@@ -221,10 +223,10 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                    << synchronize();
 
             auto expected = luisa::vector<uint>{
-                101u, std::bit_cast<uint>(-2.0f), 303u,
-                std::bit_cast<uint>(-4.0f),
-                std::bit_cast<uint>(-5.0f),
-                std::bit_cast<uint>(-6.0f)};
+                101u, luisa::bit_cast<uint>(-2.0f), 303u,
+                luisa::bit_cast<uint>(-4.0f),
+                luisa::bit_cast<uint>(-5.0f),
+                luisa::bit_cast<uint>(-6.0f)};
             expect(host == expected)
                 << "selective relocation must copy certified fields and "
                    "leave every inactive destination field unchanged";
@@ -369,7 +371,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
         stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto expected_float_bits = [](float value) noexcept {
-            return std::bit_cast<uint>(value);
+            return luisa::bit_cast<uint>(value);
         };
         auto correct = true;
         for (auto tid = 0u; tid < active_count && correct; tid++) {
@@ -519,7 +521,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             auto instance = i / output_word_count;
             auto expected = lane < uint_value_count ?
                                 host_uint[instance * uint_value_count + lane] :
-                                std::bit_cast<uint>(host_float[
+                                luisa::bit_cast<uint>(host_float[
                                     instance * float_value_count +
                                     lane - uint_value_count]);
             if (host_soa[i] != expected || host_aos[i] != expected) {

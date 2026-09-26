@@ -8,6 +8,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "helpers.h"
 
@@ -327,7 +328,7 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
     }
     // sort the load/store instructions per block and eliminate them when possible
     for (auto &&[block, instructions] : seq) {
-        std::sort(instructions.begin(), instructions.end(), [&](Instruction *lhs, Instruction *rhs) noexcept {
+        luisa::sort(instructions.begin(), instructions.end(), [&](Instruction *lhs, Instruction *rhs) noexcept {
             return inst_indices.at(lhs) < inst_indices.at(rhs);
         });
         // eliminate redundant loads and overwritten stores

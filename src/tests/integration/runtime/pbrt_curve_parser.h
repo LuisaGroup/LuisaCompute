@@ -42,7 +42,7 @@ private:
     bool _failed{false};
 
 private:
-    void _fail(std::string_view message) noexcept {
+    void _fail(luisa::string_view message) noexcept {
         if (!_failed) {
             _result.error = std::string{message} + " at byte " + std::to_string(_offset) + ".";
             _failed = true;
@@ -53,20 +53,20 @@ private:
         return _stream.peek() == std::char_traits<char>::eof();
     }
 
-    [[nodiscard]] std::optional<char> _peek() noexcept {
+    [[nodiscard]] luisa::optional<char> _peek() noexcept {
         auto c = _stream.peek();
         if (c == std::char_traits<char>::eof()) {
             _fail("Unexpected EOF");
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return static_cast<char>(c);
     }
 
-    [[nodiscard]] std::optional<char> _pop() noexcept {
+    [[nodiscard]] luisa::optional<char> _pop() noexcept {
         auto c = _stream.get();
         if (c == std::char_traits<char>::eof()) {
             _fail("Unexpected EOF");
-            return std::nullopt;
+            return luisa::nullopt;
         }
         _offset++;
         return static_cast<char>(c);
@@ -90,41 +90,41 @@ private:
         }
     }
 
-    [[nodiscard]] std::optional<std::string> _read_string() noexcept {
+    [[nodiscard]] luisa::optional<std::string> _read_string() noexcept {
         _skip_whitespaces();
-        if (_failed || !_match('"')) { return std::nullopt; }
+        if (_failed || !_match('"')) { return luisa::nullopt; }
         std::string value;
         while (!_failed) {
             if (_eof()) {
                 _fail("Unexpected EOF while reading string");
-                return std::nullopt;
+                return luisa::nullopt;
             }
             auto c = _pop();
-            if (!c) { return std::nullopt; }
+            if (!c) { return luisa::nullopt; }
             if (*c == '"') { return value; }
             value.push_back(*c);
         }
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
-    [[nodiscard]] std::optional<std::string> _read_token() noexcept {
+    [[nodiscard]] luisa::optional<std::string> _read_token() noexcept {
         _skip_whitespaces();
         std::string value;
         while (!_failed && !_eof()) {
             auto c = _peek();
             if (!c || std::isspace(static_cast<unsigned char>(*c))) { break; }
             auto consumed = _pop();
-            if (!consumed) { return std::nullopt; }
+            if (!consumed) { return luisa::nullopt; }
             value.push_back(*consumed);
         }
         if (value.empty()) {
             _fail("Expected token");
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return value;
     }
 
-    [[nodiscard]] std::optional<float> _read_float() noexcept {
+    [[nodiscard]] luisa::optional<float> _read_float() noexcept {
         _skip_whitespaces();
         std::string token;
         auto is_float_character = [](char c) noexcept {
@@ -135,19 +135,19 @@ private:
             auto c = _peek();
             if (!c || !is_float_character(*c)) { break; }
             auto consumed = _pop();
-            if (!consumed) { return std::nullopt; }
+            if (!consumed) { return luisa::nullopt; }
             token.push_back(*consumed);
         }
         if (token.empty()) {
             _fail("Expected floating-point value");
-            return std::nullopt;
+            return luisa::nullopt;
         }
         errno = 0;
         char *parsed_end = nullptr;
         auto value = std::strtof(token.c_str(), &parsed_end);
         if (errno == ERANGE || parsed_end != token.data() + token.size() || !std::isfinite(value)) {
             _fail("Invalid floating-point value");
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return value;
     }
@@ -181,9 +181,9 @@ private:
         }
 
         luisa::vector<float3> vertices;
-        std::optional<float> width;
-        std::optional<float> width0;
-        std::optional<float> width1;
+        luisa::optional<float> width;
+        luisa::optional<float> width0;
+        luisa::optional<float> width1;
 
         while (!_failed) {
             _skip_whitespaces();
@@ -283,7 +283,7 @@ public:
 }
 
 [[nodiscard]] inline PbrtCurveParseResult parse_pbrt_curve_file(
-    const std::filesystem::path &path) noexcept {
+    const luisa::filesystem::path &path) noexcept {
     std::ifstream file{path};
     if (!file.is_open()) {
         PbrtCurveParseResult result;

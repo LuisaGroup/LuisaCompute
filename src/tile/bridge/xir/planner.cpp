@@ -7,6 +7,7 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 #include "representation.h"
 #include "program_plan.h"
 #include "root_mapping.h"
@@ -622,7 +623,7 @@ template<typename ResourceFn>
                     grains = {static_cast<uint32_t>(ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker)),
                               static_cast<uint32_t>(blocks)};
                     for (auto grain = uint64_t{1u}; grain < blocks; grain *= 2u) { grains.emplace_back(static_cast<uint32_t>(grain)); }
-                    std::sort(grains.begin(), grains.end());
+                    luisa::sort(grains.begin(), grains.end());
                     grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
                 }
                 for (auto grain : grains) {
@@ -792,7 +793,7 @@ template<typename ResourceFn>
     // Backend candidates are proposals, not permission to violate XIR/warp
     // invariants. Filter unsupported proposals; never relax a pinned width.
     widths.erase(std::remove_if(widths.begin(), widths.end(), [&](auto width) { return !valid_width(width); }), widths.end());
-    std::sort(widths.begin(), widths.end());
+    luisa::sort(widths.begin(), widths.end());
     widths.erase(std::unique(widths.begin(), widths.end()), widths.end());
     if (widths.empty()) {
         return reject("XIR target provided no legal block widths");
@@ -801,7 +802,7 @@ template<typename ResourceFn>
     auto fixed_order = !order.empty();
     if (fixed_order) {
         auto sorted = order;
-        std::sort(sorted.begin(), sorted.end());
+        luisa::sort(sorted.begin(), sorted.end());
         if (sorted.size() != rank) { return reject("XIR axis order must be a complete permutation"); }
         for (size_t i = 0u; i < rank; i++) {
             if (sorted[i] != i) { return reject("XIR axis order must be a complete permutation"); }

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::example::lbvh {
 
@@ -351,7 +352,7 @@ double BenchTiming::mean_ms() const noexcept {
 double BenchTiming::median_ms() const noexcept {
     if (samples_ms.empty()) { return 0.0; }
     luisa::vector<double> sorted{samples_ms};
-    std::sort(sorted.begin(), sorted.end());
+    luisa::sort(sorted.begin(), sorted.end());
     auto n = sorted.size();
     return n % 2u == 0u ? 0.5 * (sorted[n / 2u - 1u] + sorted[n / 2u]) : sorted[n / 2u];
 }

@@ -22,6 +22,7 @@
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "../instruction_semantics.h"
 
@@ -2457,7 +2458,7 @@ binary_instruction_tag(uint64_t id) noexcept {
             }
         }
     }
-    std::sort(strings.begin(), strings.end());
+    luisa::sort(strings.begin(), strings.end());
     strings.erase(std::unique(strings.begin(), strings.end()), strings.end());
     auto total_size = size_t{0u};
     for (auto &&string : strings) {

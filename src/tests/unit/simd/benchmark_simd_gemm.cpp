@@ -13,6 +13,8 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <array>
@@ -36,31 +38,31 @@ constexpr auto timed_dispatch_count = 128u;
 constexpr auto sample_count = size_t{7u};
 
 struct Options {
-    std::string_view backend;
+    luisa::string_view backend;
     uint32_t width{0u};
     uint32_t worker_count{0u};
 };
 
 [[nodiscard]] bool parse_uint32(
-    std::string_view text, uint32_t &value) noexcept {
+    luisa::string_view text, uint32_t &value) noexcept {
     auto result = std::from_chars(
         text.data(), text.data() + text.size(), value);
     return result.ec == std::errc{} &&
            result.ptr == text.data() + text.size();
 }
 
-[[nodiscard]] std::optional<Options> parse_options(
+[[nodiscard]] luisa::optional<Options> parse_options(
     int argc, char *argv[]) noexcept {
     if (argc < 2 || argv[1] == nullptr) {
         std::cerr << "Usage: " << (argc > 0 ? argv[0] : "benchmark")
                   << " <fallback|simd> [simd-width] [simd-worker-count]\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     Options options{.backend = argv[1]};
     if (options.backend == "fallback") {
         if (argc != 2) {
             std::cerr << "Fallback benchmark takes no width or worker count\n";
-            return std::nullopt;
+            return luisa::nullopt;
         }
         return options;
     }
@@ -70,18 +72,18 @@ struct Options {
          options.width != 4u && options.width != 8u &&
          options.width != 16u)) {
         std::cerr << "SIMD benchmark requires width 1, 2, 4, 8, or 16\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (argc >= 4 &&
         (argv[3] == nullptr ||
          !parse_uint32(argv[3], options.worker_count) ||
          options.worker_count == 0u)) {
         std::cerr << "Invalid SIMD worker count\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (argc > 4) {
         std::cerr << "Too many benchmark arguments\n";
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return options;
 }

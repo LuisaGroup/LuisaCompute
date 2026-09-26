@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <luisa/core/stl/algorithm.h>
 
 namespace lc::fallback_rtx {
 
@@ -495,7 +496,7 @@ void FallbackRtxSort::sort(CommandList &commands, const Buffer<FallbackRtxKey> &
         } else {
             encode_multi_block_pass(commands, *in, *out, base, count, shift);
         }
-        std::swap(in, out);
+        luisa::swap(in, out);
     }
 }
 

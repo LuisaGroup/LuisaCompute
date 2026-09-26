@@ -2,12 +2,14 @@
 #include "llvm/FrontendAction.h"
 #include <luisa/vstl/vector.h>
 #include <luisa/vstl/ranges.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
 
 namespace tooling = clang::tooling;
 
 namespace luisa::clangcxx {
 namespace detail {
-string path_to_string(std::filesystem::path const &path) {
+string path_to_string(luisa::filesystem::path const &path) {
     auto str = luisa::to_string(path);
     for (auto &i : str) {
         if (i == '\\') {
@@ -54,7 +56,7 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3(compute::Callab
 
 luisa::vector<luisa::string> Compiler::compile_args(
     vstd::IRange<luisa::string_view> &defines,
-    const std::filesystem::path &shader_path,
+    const luisa::filesystem::path &shader_path,
     vstd::IRange<luisa::string> &include_paths,
     bool is_lsp,
     bool is_export) LUISA_NOEXCEPT {
@@ -98,7 +100,7 @@ bool Compiler::create_shader(
     const compute::ShaderOption &option,
     compute::Device *device,
     vstd::IRange<luisa::string_view> &defines,
-    const std::filesystem::path &shader_path,
+    const luisa::filesystem::path &shader_path,
     vstd::IRange<luisa::string> &include_paths,
     ShaderReflection *kernel_arg_reflect) LUISA_NOEXCEPT {
 
@@ -128,7 +130,7 @@ bool Compiler::create_shader(
 }
 compute::CallableLibrary Compiler::export_callables(
     vstd::IRange<luisa::string_view> &defines,
-    const std::filesystem::path &shader_path,
+    const luisa::filesystem::path &shader_path,
     vstd::IRange<luisa::string> &include_paths) LUISA_NOEXCEPT {
     compute::CallableLibrary lib;
     auto args_holder = compile_args(defines, shader_path, include_paths, false, true);
@@ -156,8 +158,8 @@ compute::CallableLibrary Compiler::export_callables(
 
 void Compiler::lsp_compile_commands(
     vstd::IRange<luisa::string_view> &defines,
-    const std::filesystem::path &shader_dir,
-    const std::filesystem::path &shader_relative_dir,
+    const luisa::filesystem::path &shader_dir,
+    const luisa::filesystem::path &shader_relative_dir,
     vstd::IRange<luisa::string> &include_paths,
     luisa::vector<char> &result) LUISA_NOEXCEPT {
     using namespace std::string_view_literals;

@@ -203,11 +203,11 @@ int main(int argc, char *argv[]) {
     });
     auto render_shader = device.compile(render_kernel);
 
-    std::optional<Swapchain> swap_chain;
+    luisa::optional<Swapchain> swap_chain;
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
+    luisa::unique_ptr<Window> window;
     if (interactive) {
-        window = std::make_unique<Window>("Procedural Primitive Ray Query", width, height);
+        window = luisa::make_unique<Window>("Procedural Primitive Ray Query", width, height);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

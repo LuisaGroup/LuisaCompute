@@ -12,6 +12,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include <array>
 #include <cstdlib>
@@ -217,10 +218,10 @@ int main(int argc, char *argv[]) {
                     auto graph = xir_to_interchange_text(&module);
                     expect(graph.succeeded());
                     if (auto *directory = std::getenv("LUISA_XIR_CFG_TEST_DUMP_DIR")) {
-                        std::filesystem::create_directories(directory);
+                        luisa::filesystem::create_directories(directory);
                         auto mode_name = mutation == RestructureCFGMutationMode::TRANSACTIONAL ? "transactional" : "in-place";
                         auto filename = std::string{"crossing-epochs-"} + mode_name + "-pass-" + std::to_string(invocation) + ".xir";
-                        std::ofstream file{std::filesystem::path{directory} / filename};
+                        std::ofstream file{luisa::filesystem::path{directory} / filename};
                         file << graph.text;
                         expect(file.good());
                         LUISA_INFO(

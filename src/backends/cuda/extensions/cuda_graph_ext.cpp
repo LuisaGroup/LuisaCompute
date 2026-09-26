@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::cuda {
 
@@ -259,7 +260,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             // Deduplicate the accumulated dependency indices, drop self
             // edges and map the survivors to their CUDA graph nodes.
             [[nodiscard]] luisa::span<const CUgraphNode> finish_deps(uint32_t self) noexcept {
-                std::sort(deps.begin(), deps.end());
+                luisa::sort(deps.begin(), deps.end());
                 deps.erase(std::unique(deps.begin(), deps.end()), deps.end());
                 dep_nodes.clear();
                 for (auto d : deps) {

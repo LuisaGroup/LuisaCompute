@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::simd {
 

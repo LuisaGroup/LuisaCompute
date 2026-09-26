@@ -9,6 +9,7 @@
 #include <optional>
 #include <utility>
 #include <vector>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute::simd::schedule {
 
@@ -115,13 +116,13 @@ public:
         return result;
     }
 
-    [[nodiscard]] constexpr std::optional<size_t> first() const noexcept {
+    [[nodiscard]] constexpr luisa::optional<size_t> first() const noexcept {
         for (auto i = 0u; i < word_count; i++) {
             if (auto word = _words[i]; word != 0u) {
                 return i * 64u + static_cast<size_t>(std::countr_zero(word));
             }
         }
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     [[nodiscard]] constexpr bool intersects(LaneMask rhs) const noexcept {
@@ -283,9 +284,9 @@ private:
             });
     }
 
-    [[nodiscard]] std::optional<CohortType> _take_at(
+    [[nodiscard]] luisa::optional<CohortType> _take_at(
         size_t selected) noexcept {
-        if (selected >= _ready.size()) { return std::nullopt; }
+        if (selected >= _ready.size()) { return luisa::nullopt; }
         auto cohort = _ready[selected];
         _queued = _queued - cohort.mask;
         _ready.erase(_ready.begin() +
@@ -408,8 +409,8 @@ public:
         return true;
     }
 
-    [[nodiscard]] std::optional<CohortType> take() noexcept {
-        if (_ready.empty()) { return std::nullopt; }
+    [[nodiscard]] luisa::optional<CohortType> take() noexcept {
+        if (_ready.empty()) { return luisa::nullopt; }
         auto selected = size_t{0u};
         for (auto i = size_t{1u}; i < _ready.size(); i++) {
             auto choose = false;
@@ -431,7 +432,7 @@ public:
     // rather than only the two production policies. This method deliberately
     // selects by ready-set index and otherwise performs the same transition
     // as take().
-    [[nodiscard]] std::optional<CohortType> take_at(
+    [[nodiscard]] luisa::optional<CohortType> take_at(
         size_t ready_index) noexcept {
         return _take_at(ready_index);
     }

@@ -20,6 +20,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/byte_buffer.h>
 #include <luisa/backends/ext/registry.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute {
 
@@ -946,7 +947,7 @@ NativeShaderLauncher::_plan() const noexcept {
 
     // Canonical argument order: resources sorted by binding index, then the
     // uniform arguments.
-    std::sort(resolved.begin(), resolved.end(),
+    luisa::sort(resolved.begin(), resolved.end(),
               [](auto const &a, auto const &b) noexcept { return a.first < b.first; });
     plan.arguments.reserve(_resources.size());
     plan.usages.reserve(resolved.size());

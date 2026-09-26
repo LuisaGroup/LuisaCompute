@@ -12,6 +12,8 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::metal {
 namespace {
@@ -486,7 +488,7 @@ public:
         _module.setTargetTriple(
             llvm::Triple{detail::air_target_triple(_config)});
         _module.setSourceFileName(
-            std::string_view{_config.source_file});
+            luisa::string_view{_config.source_file});
     }
 
     [[nodiscard]] MetalCodegenLLVMResult generate(

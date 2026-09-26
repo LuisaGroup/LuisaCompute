@@ -5,6 +5,7 @@
 #include <bit>
 
 #include <luisa/tile/algorithms.h>
+#include <luisa/core/stl/memory.h>
 
 using namespace luisa::compute::tile;
 using namespace boost::ut;
@@ -49,7 +50,7 @@ void test_reduction_fold_policies(Runtime &runtime) {
             for (auto r = int64_t{0}; r < rows; r++) {
                 auto expected = cases::reference(luisa::span<const float>{values}.subspan(r * stride, width), seed);
                 for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
-                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])))
+                    expect(eq(luisa::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), luisa::bit_cast<uint32_t>(expected[mode])))
                         << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
                 }
             }
@@ -84,7 +85,7 @@ void test_fold_overrides_llvm_fast_math(Runtime &runtime) {
         (*entry)(input, output);
         auto actual = runtime.download<float>(output, cases::outputs);
         for (auto mode = size_t{0}; mode < cases::outputs; mode++) {
-            expect(eq(std::bit_cast<uint32_t>(actual[mode]), std::bit_cast<uint32_t>(expected[mode]))) << "mode=" << mode;
+            expect(eq(luisa::bit_cast<uint32_t>(actual[mode]), luisa::bit_cast<uint32_t>(expected[mode]))) << "mode=" << mode;
         }
     }
 }

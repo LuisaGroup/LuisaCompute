@@ -8,6 +8,8 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -25,7 +27,7 @@ using Clock = std::chrono::steady_clock;
 namespace {
 
 [[nodiscard]] int64_t positive(const char *text) {
-    auto input = std::string_view{text};
+    auto input = luisa::string_view{text};
     int64_t n{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), n);
     LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && n > 0, "expected positive integer: {}", text);
@@ -55,13 +57,13 @@ void samples(const char *name, span<const double> values) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc > 1 && std::string_view{argv[1]} == "llm") { return test::tile_llm::benchmark(argc, argv, "metal"); }
-    if (argc > 1 && std::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, "metal"); }
+    if (argc > 1 && luisa::string_view{argv[1]} == "llm") { return test::tile_llm::benchmark(argc, argv, "metal"); }
+    if (argc > 1 && luisa::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, "metal"); }
     if (argc != 14) {
         std::cerr << "Usage: benchmark_tile_native fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N op-subgroups group-subgroups cohort-M\n";
         return 1;
     }
-    LUISA_ASSERT(std::string_view{argv[1]} == "fp32", "only FP32 supported");
+    LUISA_ASSERT(luisa::string_view{argv[1]} == "fp32", "only FP32 supported");
     test::tile_native::Gemm cfg{positive(argv[2]), positive(argv[3]), positive(argv[4]), positive(argv[9]), positive(argv[10])};
     auto count = positive(argv[5]), target_ms = positive(argv[6]), warmup_ms = positive(argv[7]);
     auto op_sg = positive(argv[11]), group_sg = positive(argv[12]), cohort_m = positive(argv[13]);
@@ -75,7 +77,7 @@ int main(int argc, char *argv[]) {
     }
     auto require_missing = [](const char *path) {
         std::error_code error;
-        auto exists = std::filesystem::exists(path, error);
+        auto exists = luisa::filesystem::exists(path, error);
         LUISA_ASSERT(!error, "cannot inspect benchmark path {}: {}", path, error.message());
         LUISA_ASSERT(!exists, "benchmark path already exists: {}", path);
     };

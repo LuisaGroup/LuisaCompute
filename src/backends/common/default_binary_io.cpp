@@ -161,7 +161,7 @@ DefaultBinaryIO::~DefaultBinaryIO() noexcept {
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {
-    std::filesystem::path local_path{name};
+    luisa::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
         return _read(luisa::to_string(name));
     }
@@ -175,7 +175,7 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_cache(luisa::string
         if (r.empty()) return {};
         return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
     } else {
-        std::filesystem::path local_path{name};
+        luisa::filesystem::path local_path{name};
         if (local_path.is_absolute()) {
             return _read(luisa::to_string(name));
         }
@@ -190,7 +190,7 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
         if (r.empty()) return {};
         return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
     } else {
-        std::filesystem::path local_path{name};
+        luisa::filesystem::path local_path{name};
         if (local_path.is_absolute()) {
             return _read(luisa::to_string(name));
         }
@@ -200,13 +200,13 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_source(luisa::string_view name) const noexcept {
-    std::filesystem::path local_path{name};
+    luisa::filesystem::path local_path{name};
     if (local_path.is_absolute()) { return _read(luisa::to_string(name)); }
     return _read(luisa::to_string(_cache_dir / name));
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    std::filesystem::path local_path{name};
+    luisa::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
         _write(luisa::to_string(name), data);
         return local_path;
@@ -217,7 +217,7 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_vie
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_shader_source(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    std::filesystem::path local_path{name};
+    luisa::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
         _write(luisa::to_string(name), data);
         return local_path;
@@ -232,7 +232,7 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view n
         _cache_lmdb->write(name, data);
         return _cache_dir / name;
     } else {
-        std::filesystem::path local_path{name};
+        luisa::filesystem::path local_path{name};
         if (local_path.is_absolute()) {
             _write(luisa::to_string(name), data);
             return local_path;
@@ -248,7 +248,7 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
         _data_lmdb->write(name, data);
         return _data_dir / name;
     } else {
-        std::filesystem::path local_path{name};
+        luisa::filesystem::path local_path{name};
         if (local_path.is_absolute()) {
             _write(luisa::to_string(name), data);
             return local_path;
@@ -267,7 +267,7 @@ void DefaultBinaryIO::clear_shader_cache() const noexcept {
     // path of a cold cache is exactly where this is called. Everything below
     // must stay noexcept — an exception escaping this function terminates
     // the process.
-    std::filesystem::create_directories(_cache_dir, ec);
+    luisa::filesystem::create_directories(_cache_dir, ec);
     if (ec) [[unlikely]] {
         LUISA_WARNING(
             "Failed to create shader cache directory '{}': {}.",
@@ -282,10 +282,10 @@ void DefaultBinaryIO::clear_shader_cache() const noexcept {
     // (e.g. multiple headless compiler processes started together on a cold
     // cache). A leftover entry is only stale cache data, so degrade every
     // failure to a warning and keep going.
-    std::filesystem::directory_iterator iter{_cache_dir, ec};
-    std::filesystem::directory_iterator end;
+    luisa::filesystem::directory_iterator iter{_cache_dir, ec};
+    luisa::filesystem::directory_iterator end;
     while (!ec && iter != end) {
-        std::filesystem::remove_all(iter->path(), ec);
+        luisa::filesystem::remove_all(iter->path(), ec);
         if (ec) [[unlikely]] {
             LUISA_WARNING(
                 "Failed to remove '{}': {}.",

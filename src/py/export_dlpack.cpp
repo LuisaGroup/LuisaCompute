@@ -1,6 +1,8 @@
 #include <pybind11/pybind11.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -11,7 +13,7 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 
-std::optional<DLDevice> get_dldevice(luisa::string_view backend_name, int32_t device_id) {
+luisa::optional<DLDevice> get_dldevice(luisa::string_view backend_name, int32_t device_id) {
     DLDevice device{};
     if (backend_name == "cuda") {
         device.device_type = DLDeviceType::kDLCUDA;
@@ -60,7 +62,7 @@ const Type *scalar_type_from_dldatatype(DLDataType datatype) {
     return nullptr;
 }
 
-std::optional<DLDataType> get_dldatatype(const Type *type) {
+luisa::optional<DLDataType> get_dldatatype(const Type *type) {
     DLDataType datatype{};
     switch (type->element()->tag()) {
         case Type::Tag::BOOL:
@@ -218,9 +220,9 @@ PyObject *to_py_dlpack(
     if (ndim == 0) { return nullptr; }
     auto datatype = get_dldatatype(type);
     if (!datatype) { return nullptr; }
-    auto t = std::make_unique<DLManagedTensor>();
-    auto shape = std::unique_ptr<int64_t[]>{get_dlshape(buffer_size, type)};
-    auto strides = std::unique_ptr<int64_t[]>{get_dlstrides(type)};
+    auto t = luisa::make_unique<DLManagedTensor>();
+    auto shape = luisa::unique_ptr<int64_t[]>{get_dlshape(buffer_size, type)};
+    auto strides = luisa::unique_ptr<int64_t[]>{get_dlstrides(type)};
     t->dl_tensor.data = reinterpret_cast<void *>(native_handle);
     t->dl_tensor.device = *device;
     t->dl_tensor.ndim = ndim;

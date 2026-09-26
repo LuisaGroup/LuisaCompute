@@ -19,6 +19,9 @@
 #include <llvm/Transforms/Utils/CodeExtractor.h>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_codegen_llvm_device_bitcode.h"
 #include "cuda_codegen_llvm_impl.h"
@@ -186,7 +189,7 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
     }
 }
 
-void CUDACodegenLLVMImpl::_dump_module(const std::filesystem::path &path) const noexcept {
+void CUDACodegenLLVMImpl::_dump_module(const luisa::filesystem::path &path) const noexcept {
     std::error_code ec;
     llvm::raw_fd_ostream out{path.string(), ec};
     if (ec) {
@@ -405,7 +408,7 @@ luisa::string CUDACodegenLLVMImpl::_generate_ptx() const noexcept {
 
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     _analyze_ray_tracing_usage(xir_module);
-    _llvm_module->setSourceFileName(std::string_view{_config.source_file});
+    _llvm_module->setSourceFileName(luisa::string_view{_config.source_file});
     _llvm_module->setModuleIdentifier(xir_module.name().value_or(""));
     for (auto func : xir_module.function_list()) {
         if (auto def = func->definition()) {

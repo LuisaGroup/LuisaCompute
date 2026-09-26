@@ -7,6 +7,8 @@
 
 #include "hip_codegen_llvm_impl.h"
 #include "hip_floating_remainder.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::hip {
 
@@ -1104,7 +1106,7 @@ namespace detail {
                                                   llvm::Type *t, bool enable_fast_math) noexcept {
     auto suffix = t->isDoubleTy() ? "_f64" : t->isHalfTy() ? "_f16" :
                                                              "_f32";
-    auto ocml_name = fmt::format("__ocml_{}{}", std::string_view{op_name}, suffix);
+    auto ocml_name = fmt::format("__ocml_{}{}", luisa::string_view{op_name}, suffix);
     auto op = m.getFunction(ocml_name);
     LUISA_ASSERT(op != nullptr, "OCML function {} not found.", ocml_name);
     return op;

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <luisa/core/stl/string.h>
 
 namespace lc::spirv {
 
@@ -64,7 +65,7 @@ inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull | sha
 
 struct SpirvTargetFeatureDescription {
     SpirvTargetFeatureMask bit{};
-    std::string_view name{};
+    luisa::string_view name{};
 };
 
 inline constexpr std::array spirv_target_feature_descriptions{
@@ -111,7 +112,7 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_untyped_pointers, "shaderUntypedPointers"},
     SpirvTargetFeatureDescription{target_feature::cooperative_vector, "cooperativeVector"}};
 
-[[nodiscard]] constexpr std::string_view spirv_target_feature_name(
+[[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {
     for (auto feature : spirv_target_feature_descriptions) {
         if (feature.bit == bit) { return feature.name; }

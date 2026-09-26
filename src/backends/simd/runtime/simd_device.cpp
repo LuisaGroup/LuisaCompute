@@ -19,6 +19,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/stl/string.h>
 
 #include "../../common/indirect_dispatch_layout.h"
 #include "simd_bindless_array.h"
@@ -123,7 +124,7 @@ SIMDDevice::SIMDDevice(
         if (auto *environment =
                 std::getenv("LUISA_SIMD_WARP_WIDTH");
             environment != nullptr) {
-            auto text = std::string_view{environment};
+            auto text = luisa::string_view{environment};
             auto result = std::from_chars(
                 text.data(), text.data() + text.size(),
                 requested_width);
@@ -151,7 +152,7 @@ SIMDDevice::SIMDDevice(
         if (auto *environment =
                 std::getenv("LUISA_SIMD_WORKER_COUNT");
             environment != nullptr) {
-            auto text = std::string_view{environment};
+            auto text = luisa::string_view{environment};
             auto result = std::from_chars(
                 text.data(), text.data() + text.size(),
                 requested_worker_count);
@@ -166,7 +167,7 @@ SIMDDevice::SIMDDevice(
     _rtc_device = shared_embree_device();
     auto hardware_worker_count = static_cast<uint32_t>(
         std::max(std::thread::hardware_concurrency(), 1u));
-    _thread_pool = luisa::make_unique<SIMDThreadPool>(
+    _thread_pool = std::make_unique<SIMDThreadPool>(
         requested_worker_count == 0u ?
             hardware_worker_count :
             requested_worker_count);

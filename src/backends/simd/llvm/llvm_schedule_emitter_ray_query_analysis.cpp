@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include "../../common/env_flag.h"
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -266,7 +267,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         constructions.size(), invalid);
     for (auto i = size_t{0u}; i < constructions.size(); i++) {
         auto &candidates = construction_roots[i];
-        std::sort(candidates.begin(), candidates.end());
+        luisa::sort(candidates.begin(), candidates.end());
         candidates.erase(
             std::unique(candidates.begin(), candidates.end()),
             candidates.end());
@@ -348,7 +349,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     }
 
     std::vector<uint32_t> variable_roots = construction_root;
-    std::sort(variable_roots.begin(), variable_roots.end());
+    luisa::sort(variable_roots.begin(), variable_roots.end());
     variable_roots.erase(
         std::unique(variable_roots.begin(), variable_roots.end()),
         variable_roots.end());

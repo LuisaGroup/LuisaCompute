@@ -10,6 +10,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/tile/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <cmath>
@@ -36,7 +37,7 @@ struct Shape {
 };
 
 [[nodiscard]] tvm::ffi::String metal_source(const tvm::ffi::Module &module) {
-    if (std::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
+    if (luisa::string_view{module->kind()} == "metal") { return module->InspectSource("metal"); }
     for (auto &&child : module->imports()) {
         auto source = metal_source(child.cast<tvm::ffi::Module>());
         if (!source.empty()) { return source; }
@@ -135,15 +136,15 @@ void test_matrix_cases(Runtime &runtime) {
                 if (!executable.ok()) { continue; }
                 if (runtime.target() == "metal") {
                     auto source = metal_source(executable.module.value());
-                    auto code = std::string_view{source.data(), source.size()};
-                    auto has_matrix = code.find("simdgroup_multiply_accumulate") != std::string_view::npos;
+                    auto code = luisa::string_view{source.data(), source.size()};
+                    auto has_matrix = code.find("simdgroup_multiply_accumulate") != luisa::string_view::npos;
                     auto expected = enabled && cfg.bm % 8 == 0 && cfg.bn % 8 == 0 && cfg.bk % 8 == 0;
                     expect(eq(has_matrix, expected)) << cfg.bm << "x" << cfg.bn << "x" << cfg.bk << " window=" << window << "\n"
                                                      << code;
                     if (expected) {
-                        expect(code.find("simdgroup_float8x8") != std::string_view::npos);
-                        expect(code.find("simdgroup_load") != std::string_view::npos);
-                        expect(code.find("simdgroup_store") != std::string_view::npos);
+                        expect(code.find("simdgroup_float8x8") != luisa::string_view::npos);
+                        expect(code.find("simdgroup_load") != luisa::string_view::npos);
+                        expect(code.find("simdgroup_store") != luisa::string_view::npos);
                     }
                 }
                 check_gemm(runtime, executable, cfg);
@@ -237,11 +238,11 @@ void test_mpp_memory_realization(Runtime &runtime) {
                                         << " window=" << window << " literal=" << literal;
                 if (!executable.ok()) { continue; }
                 auto source = metal_source(executable.module.value());
-                auto code = std::string_view{source.data(), source.size()};
-                expect(code.find("mpp::tensor_ops::matmul2d<") != std::string_view::npos) << code;
-                expect(code.find("::mode::multiply_accumulate") != std::string_view::npos);
-                expect(code.find("simdgroup_multiply_accumulate(") == std::string_view::npos);
-                expect(code.find("{}.run(") != std::string_view::npos);
+                auto code = luisa::string_view{source.data(), source.size()};
+                expect(code.find("mpp::tensor_ops::matmul2d<") != luisa::string_view::npos) << code;
+                expect(code.find("::mode::multiply_accumulate") != luisa::string_view::npos);
+                expect(code.find("simdgroup_multiply_accumulate(") == luisa::string_view::npos);
+                expect(code.find("{}.run(") != luisa::string_view::npos);
                 expect(!executable.plans.empty());
                 for (auto &plan : executable.plans) { expect(plan.metal_mpp); }
                 check_gemm(runtime, executable, cfg, 1.0, literal);
@@ -257,10 +258,10 @@ void test_mpp_memory_realization(Runtime &runtime) {
         expect(executable.ok()) << executable.error;
         if (!executable.ok()) { continue; }
         auto source = metal_source(executable.module.value());
-        auto code = std::string_view{source.data(), source.size()};
-        expect(eq(code.find("::mode::multiply);") != std::string_view::npos, pure)) << code;
-        expect(eq(code.find("::mode::multiply_accumulate") != std::string_view::npos, !pure)) << code;
-        expect(eq(code.find("get_capacity()") != std::string_view::npos, !pure)) << code;
+        auto code = luisa::string_view{source.data(), source.size()};
+        expect(eq(code.find("::mode::multiply);") != luisa::string_view::npos, pure)) << code;
+        expect(eq(code.find("::mode::multiply_accumulate") != luisa::string_view::npos, !pure)) << code;
+        expect(eq(code.find("get_capacity()") != luisa::string_view::npos, !pure)) << code;
         check_gemm(runtime, executable, cfg, 1.0, true, false, false, 0.0f);
     }
 }
@@ -364,7 +365,7 @@ void test_mpp_output_only_fragment_budget(Runtime &runtime) {
                     expect(eq(plan.shared_memory_bytes, views ? 0ull : static_cast<uint64_t>((cfg.bm + cfg.bn) * cfg.bk * 4)));
                 }
                 auto source = metal_source(executable.module.value());
-                expect(std::string_view{source.data(), source.size()}.find("mpp::tensor_ops::matmul2d<") != std::string_view::npos);
+                expect(luisa::string_view{source.data(), source.size()}.find("mpp::tensor_ops::matmul2d<") != luisa::string_view::npos);
                 check_gemm(runtime, executable, cfg, 1.0, true, false, false, initial);
             }
         }
@@ -506,7 +507,7 @@ void test_mpp_readonly_views(Runtime &runtime) {
                         expect(!plan.matrices.empty());
                     }
                     auto source = metal_source(executable.module.value());
-                    expect(std::string_view{source.data(), source.size()}.find("{}.run(") != std::string_view::npos);
+                    expect(luisa::string_view{source.data(), source.size()}.find("{}.run(") != luisa::string_view::npos);
                     check_gemm(runtime, executable, cfg, 1.0, literal);
                 }
             }
@@ -694,9 +695,9 @@ void test_mpp_bounded_k_views(Runtime &runtime) {
                     expect(executable.ok()) << cfg.k << " transpose=" << ta << '/' << tb << ": " << executable.error;
                     if (!executable.ok()) { continue; }
                     auto source = metal_source(executable.module.value());
-                    auto code = std::string_view{source.data(), source.size()};
-                    expect(code.find("dynamic_extent") != std::string_view::npos) << code;
-                    expect(code.find("{}.run(") != std::string_view::npos) << code;
+                    auto code = luisa::string_view{source.data(), source.size()};
+                    expect(code.find("dynamic_extent") != luisa::string_view::npos) << code;
+                    expect(code.find("{}.run(") != luisa::string_view::npos) << code;
                     for (auto &plan : executable.plans) {
                         expect(plan.metal_mpp && !plan.matrices.empty());
                         expect(plan.shared_memory_bytes <= 32768u);
@@ -734,7 +735,7 @@ void test_mpp_bounded_k_views(Runtime &runtime) {
             expect(static_cast<bool>(compiled)) << compiled.error();
             if (!compiled) { continue; }
             auto source = metal_source(compiled.module().value());
-            expect(std::string_view{source.data(), source.size()}.find("dynamic_extent") == std::string_view::npos) << source;
+            expect(luisa::string_view{source.data(), source.size()}.find("dynamic_extent") == luisa::string_view::npos) << source;
             auto entry = compiled.module().value()->GetFunction("matrix_gemm", true);
             expect(entry.has_value());
             if (!entry) { continue; }
@@ -780,7 +781,7 @@ void test_mpp_bounded_mn_views(Runtime &runtime) {
                         if (reference.ok()) { expect(plan.shared_memory_bytes < reference.plans[0].shared_memory_bytes); }
                     }
                     auto source = metal_source(executable.module.value());
-                    expect(std::string_view{source.data(), source.size()}.find("mpp_actual_m") != std::string_view::npos);
+                    expect(luisa::string_view{source.data(), source.size()}.find("mpp_actual_m") != luisa::string_view::npos);
                     check_gemm(runtime, executable, cfg, 1.0, literal, false, false, 0.0f);
                 }
             }
@@ -813,8 +814,8 @@ void test_mpp_subgroup_isolation(Runtime &runtime) {
                 expect(eq(plan.group_barrier_sites_after, enabled && elide ? uint64_t{0u} : plan.group_barrier_sites_before));
             }
             auto source = metal_source(executable.module.value());
-            auto code = std::string_view{source.data(), source.size()};
-            expect(eq(code.find("threadgroup_barrier(") == std::string_view::npos, enabled && elide));
+            auto code = luisa::string_view{source.data(), source.size()};
+            expect(eq(code.find("threadgroup_barrier(") == luisa::string_view::npos, enabled && elide));
             check_gemm(runtime, executable, cfg, 1.0, true);
         }
     }
@@ -863,7 +864,7 @@ void test_mpp_subgroup_isolation(Runtime &runtime) {
             if (kind != 2u) { expect(eq(plan.shared_memory_bytes, uint64_t{0u})) << " boundary=" << kind; }
         }
         auto source = metal_source(executable.module.value());
-        expect(eq(std::string_view{source.data(), source.size()}.find("threadgroup_barrier(") != std::string_view::npos, kind != 0u));
+        expect(eq(luisa::string_view{source.data(), source.size()}.find("threadgroup_barrier(") != luisa::string_view::npos, kind != 0u));
         auto a = runtime.upload<float>({32, 32}, vector<float>(1024u, 0.25f));
         auto b = runtime.upload<float>({32, 64}, vector<float>(2048u, 0.5f));
         auto d = runtime.upload<float>({32, 64}, vector<float>(2048u, -7.0f));
@@ -1177,7 +1178,7 @@ void test_mpp_bounded_mn_contract(Runtime &runtime) {
                             all_valid &= valid;
                             if (!valid && actual_m == 0 && actual_n == 16 && !ta && !tb && !overwrite && special == 0u) {
                                 auto source = metal_source(executable.module.value());
-                                LUISA_WARNING("bounded M/N source:\n{}", std::string_view{source.data(), source.size()});
+                                LUISA_WARNING("bounded M/N source:\n{}", luisa::string_view{source.data(), source.size()});
                             }
                         }
                     }
@@ -1291,9 +1292,9 @@ void test_matrix_policy_and_participants(Runtime &runtime) {
             if (!executable.ok()) { continue; }
             if (runtime.target() == "metal") {
                 auto source = metal_source(executable.module.value());
-                auto code = std::string_view{source.data(), source.size()};
+                auto code = luisa::string_view{source.data(), source.size()};
                 auto expected = !ordered && width == 32u && threads >= 32u;
-                expect(eq(code.find("simdgroup_multiply_accumulate") != std::string_view::npos, expected)) << code;
+                expect(eq(code.find("simdgroup_multiply_accumulate") != luisa::string_view::npos, expected)) << code;
             }
             check_gemm(runtime, executable, cfg);
         }
@@ -1341,7 +1342,7 @@ void test_stale_matrix_marker(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = metal_source(executable.module.value());
-    expect(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == std::string_view::npos);
+    expect(luisa::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == luisa::string_view::npos);
     check_gemm(runtime, executable, cfg, -1.0);
 }
 
@@ -1363,7 +1364,7 @@ void test_literal_initial_and_zero_contraction(Runtime &runtime) {
         if (!executable.ok()) { continue; }
         if (runtime.target() == "metal") {
             auto source = metal_source(executable.module.value());
-            expect(eq(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") != std::string_view::npos, contracted != 0)) << source;
+            expect(eq(luisa::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") != luisa::string_view::npos, contracted != 0)) << source;
         }
         auto a = runtime.upload<float>({8, 24}, vector<float>(8 * 24, 0.5f));
         auto b = runtime.upload<float>({24, 16}, vector<float>(24 * 16, -0.25f));
@@ -1397,7 +1398,7 @@ void test_worker_local_matrix_fallback(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = metal_source(executable.module.value());
-    expect(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == std::string_view::npos);
+    expect(luisa::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == luisa::string_view::npos);
     check_gemm(runtime, executable, {24, 8, 16, 8, 8, 16});
 }
 
@@ -1414,7 +1415,7 @@ void test_mixed_input_matrix_fallback(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = metal_source(executable.module.value());
-    expect(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == std::string_view::npos);
+    expect(luisa::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") == luisa::string_view::npos);
     auto a = runtime.upload<int32_t>({8, 16}, vector<int32_t>(8 * 16, 131073));
     auto b = runtime.upload<float>({16, 8}, vector<float>(16 * 8, 0.5f));
     auto d = runtime.allocate<float>({8, 8});
@@ -1438,14 +1439,14 @@ void test_cpu_matrix_vectors_and_tails(Runtime &runtime) {
                 check_gemm(runtime, executable, cfg);
                 if (vectorize && !cfg.transpose_b && cfg.bn == 16) {
                     auto source = executable.module.value()->InspectSource("ll");
-                    auto code = std::string_view{source.data(), source.size()};
+                    auto code = luisa::string_view{source.data(), source.size()};
                     auto vector_product = false;
                     for (auto lanes : {4, 8, 16}) {
-                        vector_product |= code.find(luisa::format("llvm.fmuladd.v{}f32", lanes)) != std::string_view::npos ||
-                                          code.find(luisa::format("llvm.fma.v{}f32", lanes)) != std::string_view::npos;
-                        for (auto start = code.find("fmul "); start != std::string_view::npos; start = code.find("fmul ", start + 5u)) {
+                        vector_product |= code.find(luisa::format("llvm.fmuladd.v{}f32", lanes)) != luisa::string_view::npos ||
+                                          code.find(luisa::format("llvm.fma.v{}f32", lanes)) != luisa::string_view::npos;
+                        for (auto start = code.find("fmul "); start != luisa::string_view::npos; start = code.find("fmul ", start + 5u)) {
                             auto end = code.find('\n', start);
-                            vector_product |= code.substr(start, end - start).find(luisa::format("<{} x float>", lanes)) != std::string_view::npos;
+                            vector_product |= code.substr(start, end - start).find(luisa::format("<{} x float>", lanes)) != luisa::string_view::npos;
                         }
                     }
                     expect(vector_product) << "ordered CPU MMA must contain vector products\n"
@@ -1484,7 +1485,7 @@ void test_cpu_stack_storage(Runtime &runtime) {
             expect(executable.ok()) << executable.error;
             if (!executable.ok()) { continue; }
             auto source = executable.module.value()->InspectSource("ll");
-            auto workspace = std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos;
+            auto workspace = luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos;
             expect(eq(workspace, manual != 0u || budget < 80u)) << "budget=" << budget << " manual=" << manual << "\n"
                                                                 << source;
             for (auto phase : {0.25f, 0.5f}) {
@@ -1519,7 +1520,7 @@ void test_cpu_stack_storage(Runtime &runtime) {
         expect(executable.ok()) << executable.error;
         if (!executable.ok()) { continue; }
         auto source = executable.module.value()->InspectSource("ll");
-        auto workspace = std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos;
+        auto workspace = luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos;
         expect(eq(workspace, budget < 160u)) << "the budget is cumulative, not per buffer: " << budget;
         auto input = values(34u, 0.25f);
         auto a = runtime.upload<float>({2, 17}, input);
@@ -1542,7 +1543,7 @@ void test_cpu_stack_storage(Runtime &runtime) {
             expect(executable.ok()) << executable.error;
             if (executable.ok()) {
                 auto source = executable.module.value()->InspectSource("ll");
-                expect(std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") == std::string_view::npos);
+                expect(luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") == luisa::string_view::npos);
                 check_gemm(runtime, executable, cfg);
             }
         }
@@ -1559,7 +1560,7 @@ void test_cpu_stack_storage(Runtime &runtime) {
     expect(escaped.ok()) << escaped.error;
     if (escaped.ok()) {
         auto source = escaped.module.value()->InspectSource("ll");
-        expect(std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos);
+        expect(luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos);
         check_gemm(runtime, escaped, cfg);
     }
     planner.enabled = false;
@@ -1567,7 +1568,7 @@ void test_cpu_stack_storage(Runtime &runtime) {
     expect(disabled.ok()) << disabled.error;
     if (disabled.ok()) {
         auto source = disabled.module.value()->InspectSource("ll");
-        expect(std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos);
+        expect(luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos);
         check_gemm(runtime, disabled, cfg);
     }
     planner.enabled = true;
@@ -1612,14 +1613,14 @@ void test_cpu_readonly_view_gemm(Runtime &runtime) {
                 expect(executable.ok()) << executable.error;
                 if (!executable.ok()) { continue; }
                 auto source = executable.module.value()->InspectSource("ll");
-                auto code = std::string_view{source.data(), source.size()};
+                auto code = luisa::string_view{source.data(), source.size()};
                 for (auto elements : {cfg.bm * cfg.bk, cfg.bk * cfg.bn}) {
                     auto array = luisa::format("alloca [{} x float]", elements * window);
-                    expect(eq(code.find(array) != std::string_view::npos, !forward)) << array << " forward=" << forward << "\n"
+                    expect(eq(code.find(array) != luisa::string_view::npos, !forward)) << array << " forward=" << forward << "\n"
                                                                                      << code;
                 }
                 if (forward) {
-                    expect(code.find(" x float> @llvm.fmuladd.v") != std::string_view::npos)
+                    expect(code.find(" x float> @llvm.fmuladd.v") != luisa::string_view::npos)
                         << "guarded input views must retain a vector arithmetic fast path\n"
                         << code;
                 }
@@ -1737,7 +1738,7 @@ void test_cpu_readonly_view_proofs(Runtime &runtime) {
             expect(compiled.ok()) << compiled.error();
             if (!compiled) { continue; }
             auto source = compiled.module().value()->InspectSource("ll");
-            auto workspace = std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos;
+            auto workspace = luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos;
             // An unguarded memory-dependent consumer index remains unknown.
             // A lazy branch that syntactically proves the complete temporary
             // bounds can instead forward the immutable source expression.
@@ -1794,7 +1795,7 @@ void test_cpu_readonly_view_aliases(Runtime &runtime) {
             expect(executable.ok()) << executable.error;
             if (!executable.ok()) { continue; }
             auto source = executable.module.value()->InspectSource("ll");
-            auto workspace = std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos;
+            auto workspace = luisa::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != luisa::string_view::npos;
             expect(eq(workspace, !noalias || manual != 0u));
             auto input = values(34u, 0.5f);
             auto a = runtime.upload<float>({2, 17}, input);
@@ -1999,19 +2000,19 @@ void test_planned_fragment_reuse(Runtime &runtime) {
         auto &plan = executable.plans[0];
         expect(eq(plan.optimized, enabled));
         auto source = metal_source(executable.module.value());
-        auto code = std::string_view{source.data(), source.size()};
+        auto code = luisa::string_view{source.data(), source.size()};
         if (enabled) {
             expect(eq(plan.threads, 128u));
             expect(eq(plan.cost.fragment_scalars_per_lane, 28ull));
-            expect(code.find("_mma_c[8]") != std::string_view::npos) << code;
-            expect(code.find("_mma_wave") == std::string_view::npos) << code;
+            expect(code.find("_mma_c[8]") != luisa::string_view::npos) << code;
+            expect(code.find("_mma_wave") == luisa::string_view::npos) << code;
             expect(plan.matrices[0].persistent_accumulator);
             expect(code.find("_mma_c[8]") < code.find("for (int pipeline_")) << code;
             expect(code.rfind("simdgroup_store(") > code.find("for (int pipeline_")) << code;
         } else {
             expect(eq(plan.threads, 256u));
-            expect(code.find("_mma_c[1]") != std::string_view::npos) << code;
-            expect(code.find("_mma_wave") != std::string_view::npos) << code;
+            expect(code.find("_mma_c[1]") != luisa::string_view::npos) << code;
+            expect(code.find("_mma_wave") != luisa::string_view::npos) << code;
         }
         check_gemm(runtime, executable, cfg);
     }
@@ -2046,9 +2047,9 @@ void test_late_matrix_prefetch(Runtime &runtime) {
             auto full_output = cfg.m % cfg.bm == 0 && cfg.n % cfg.bn == 0;
             expect(eq(plan.shared_memory_bytes, full_output ? 16384ull : 32768ull));
             auto source = metal_source(executable.module.value());
-            auto code = std::string_view{source.data(), source.size()};
-            expect(eq(code.find("_prefetch[16]") != std::string_view::npos, expected)) << code;
-            expect(code.find("luisa.tile.deferred_pipeline") == std::string_view::npos);
+            auto code = luisa::string_view{source.data(), source.size()};
+            expect(eq(code.find("_prefetch[16]") != luisa::string_view::npos, expected)) << code;
+            expect(code.find("luisa.tile.deferred_pipeline") == luisa::string_view::npos);
             check_gemm(runtime, executable, cfg, 1.0, true);
         }
     }
@@ -2267,8 +2268,8 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false, uint32_t
                 expect(eq(direct, expected)) << context << diagnostic;
                 if (mpp && epilogue != 0u) {
                     auto source = metal_source(executable.module.value());
-                    auto code = std::string_view{source.data(), source.size()};
-                    expect(eq(code.find("mpp_element_index") != std::string_view::npos, expected)) << context << code;
+                    auto code = luisa::string_view{source.data(), source.size()};
+                    expect(eq(code.find("mpp_element_index") != luisa::string_view::npos, expected)) << context << code;
                     if (direct) {
                         // Moving a scalar DAG into CF cannot erase its math
                         // from the planner's per-element work proxy.
@@ -2277,16 +2278,16 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false, uint32_t
                 }
                 if (direct && !mpp) {
                     auto source = metal_source(executable.module.value());
-                    auto code = std::string_view{source.data(), source.size()};
+                    auto code = luisa::string_view{source.data(), source.size()};
                     auto store = code.rfind("simdgroup_store(");
-                    expect(store != std::string_view::npos) << code;
-                    if (store != std::string_view::npos) { expect(code.substr(store, code.find('\n', store) - store).find("_shared") == std::string_view::npos) << code; }
+                    expect(store != luisa::string_view::npos) << code;
+                    if (store != luisa::string_view::npos) { expect(code.substr(store, code.find('\n', store) - store).find("_shared") == luisa::string_view::npos) << code; }
                     expect(executable.plans[0].cost.direct_fragment_stores > 0.0);
                 }
                 if (direct && mpp) {
                     auto source = metal_source(executable.module.value());
-                    auto code = std::string_view{source.data(), source.size()};
-                    expect(eq(code.find("mpp_store_rows") != std::string_view::npos, !full));
+                    auto code = luisa::string_view{source.data(), source.size()};
+                    expect(eq(code.find("mpp_store_rows") != luisa::string_view::npos, !full));
                     if (tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version")) {
                         // An old-output observation still owns its snapshot;
                         // only the closed accumulator may lose its backing.
@@ -2670,8 +2671,8 @@ void test_cpu_whole_gemm_library_realization(Runtime &runtime) {
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
     auto source = executable.module.value()->InspectSource("ll");
-    expect(std::string_view{source.data(), source.size()}.find("tvm.contrib.cblas.matmul") !=
-           std::string_view::npos);
+    expect(luisa::string_view{source.data(), source.size()}.find("tvm.contrib.cblas.matmul") !=
+           luisa::string_view::npos);
     auto a_values = values(static_cast<size_t>(cfg.m * cfg.k), 0.13f);
     auto b_values = values(static_cast<size_t>(cfg.k * cfg.n), 0.47f);
     auto a = runtime.upload<float>({cfg.m, cfg.k}, a_values);
@@ -2775,8 +2776,8 @@ void test_automatic_cooperative_programs(Runtime &runtime) {
                 expect(eq(executable.plans[0u].matrices.size(), size_t{1u}));
             }
             auto source = metal_source(executable.module.value());
-            expect(eq(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") !=
-                          std::string_view::npos,
+            expect(eq(luisa::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") !=
+                          luisa::string_view::npos,
                       mode == 0u));
             for (auto alias : {false, true}) { check_composed_program(runtime, executable, fixture, alias); }
         }

@@ -3,6 +3,7 @@
 #include <limits>
 
 #include <luisa/tile/bridge/tirx/planner.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::tile::bridge::tirx {
 
@@ -371,7 +372,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                 if (factor != groups / factor) { factors.emplace_back(groups / factor); }
             }
         }
-        std::sort(factors.begin(), factors.end());
+        luisa::sort(factors.begin(), factors.end());
         luisa::vector<PartialPlan> frontier(1u);
         for (auto &matrix : workload.matrices) {
             luisa::vector<Alternative> alternatives;

@@ -22,6 +22,8 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "spirv_codegen/atomic_buffer_plan.h"
 #include "spirv_codegen/atomic_target_contract.h"
@@ -42,7 +44,7 @@ namespace {
 [[nodiscard]] bool has_instruction_diagnostic(
     const lc::spirv::SpirvXIRDialectValidationResult &validation,
     const Instruction *instruction,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     for (auto &&diagnostic : validation.diagnostics) {
         if (diagnostic.instruction == instruction &&
             diagnostic.message.find(needle) != luisa::string::npos) {
@@ -68,7 +70,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,

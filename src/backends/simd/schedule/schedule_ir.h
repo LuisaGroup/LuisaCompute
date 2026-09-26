@@ -7,6 +7,7 @@
 #include <string>
 #include <variant>
 #include <vector>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::compute {
 class Type;
@@ -131,7 +132,7 @@ struct Value {
     ValueClass value_class{ValueClass::varying};
     ValueOrigin origin{ValueOrigin::instruction};
     const Type *type{nullptr};
-    std::optional<BlockId> defining_block{};
+    luisa::optional<BlockId> defining_block{};
     std::string name{};
     ValueMetadata metadata{};
 };
@@ -163,33 +164,33 @@ struct ContiguousCopyMetadata {
 
 struct Instruction {
     Opcode opcode{Opcode::opaque};
-    std::optional<ValueId> result{};
+    luisa::optional<ValueId> result{};
     std::vector<ValueId> operands{};
     // Preserves the exact XIR opcode during the first lowering. Schedule IR
     // owns execution class and scheduling; target codegen still needs the
     // source operation within broad categories such as arithmetic or atomic.
-    std::optional<uint32_t> source_op{};
+    luisa::optional<uint32_t> source_op{};
     // Exact user-visible payload for side-effecting debug operations. An
     // optional is required because an empty print format or assertion message
     // is still distinct from an instruction that carries no message.
-    std::optional<std::string> message{};
-    std::optional<uint32_t> collective_id{};
-    std::optional<ValueId> participant_mask{};
+    luisa::optional<std::string> message{};
+    luisa::optional<uint32_t> collective_id{};
+    luisa::optional<ValueId> participant_mask{};
     // One operand may be lane-equal only at this instruction's dynamic
     // continuation even when its backing state is varying across loop exits.
     // This is a use-site fact, not a global ValueClass refinement.
     // For a GEP index, users must establish the same dynamic epoch before
     // using equality to realize a contiguous private access.
-    std::optional<uint32_t> cohort_uniform_operand_index{};
+    luisa::optional<uint32_t> cohort_uniform_operand_index{};
     // One integer operand may be proven to increase by exactly one between
     // adjacent physical packet lanes. The proof is use-site-local and relies
     // on static block geometry, so it must not change the ValueClass of the
     // backing SSA value.
-    std::optional<uint32_t> lane_consecutive_operand_index{};
+    luisa::optional<uint32_t> lane_consecutive_operand_index{};
     // void(lhs, rhs, seed, output), all fixed-array<float> local references.
-    std::optional<StridedMmaMetadata> strided_mma{};
+    luisa::optional<StridedMmaMetadata> strided_mma{};
     // void(buffer<float>, uint64 element_offset, local array<float> reference).
-    std::optional<ContiguousCopyMetadata> contiguous_copy{};
+    luisa::optional<ContiguousCopyMetadata> contiguous_copy{};
 };
 
 struct EdgeAssignment {
@@ -205,7 +206,7 @@ struct ControlEdge {
     // arrival; codegen therefore validates the current dynamic token against
     // the target block even when that gate is absent from this hint list.
     std::vector<ConvergenceId> joins{};
-    std::optional<LoopId> loop_back{};
+    luisa::optional<LoopId> loop_back{};
     std::vector<EdgeAssignment> assignments{};
 
     constexpr ControlEdge() noexcept = default;
@@ -220,7 +221,7 @@ struct SplitTerminator {
     ValueId condition{};
     ControlEdge true_edge{};
     ControlEdge false_edge{};
-    std::optional<ConvergenceId> convergence{};
+    luisa::optional<ConvergenceId> convergence{};
     // The backing condition remains varying across loop exits, but all active
     // lanes in this dynamic continuation are proven to agree on it.
     bool cohort_uniform_condition{false};
@@ -235,7 +236,7 @@ struct SwitchTerminator {
     ValueId selector{};
     std::vector<SwitchCase> cases{};
     ControlEdge default_edge{};
-    std::optional<ConvergenceId> convergence{};
+    luisa::optional<ConvergenceId> convergence{};
 };
 
 // Arriving lanes park at the convergence gate. Once its expected live mask
@@ -257,7 +258,7 @@ struct BlockBarrierTerminator {
 };
 
 struct ReturnTerminator {
-    std::optional<ValueId> value{};
+    luisa::optional<ValueId> value{};
 };
 
 struct UnreachableTerminator {};
@@ -284,7 +285,7 @@ struct BasicBlock {
 struct ConvergencePoint {
     ConvergenceId id{};
     BlockId target{};
-    std::optional<ConvergenceId> parent{};
+    luisa::optional<ConvergenceId> parent{};
 };
 
 struct Loop {
@@ -298,8 +299,8 @@ struct Loop {
     std::vector<BlockId> exits{};
     // A proven finite upper bound. Additional early exits may make the
     // dynamic trip count smaller; no execution may take more iterations.
-    std::optional<uint64_t> max_trip_count{};
-    std::optional<LoopId> parent{};
+    luisa::optional<uint64_t> max_trip_count{};
+    luisa::optional<LoopId> parent{};
 };
 
 class Function {
@@ -321,20 +322,20 @@ public:
     [[nodiscard]] ValueId add_value(
         ValueClass value_class, const Type *type = nullptr,
         ValueOrigin origin = ValueOrigin::instruction,
-        std::optional<BlockId> defining_block = std::nullopt,
+        luisa::optional<BlockId> defining_block = luisa::nullopt,
         std::string name = {}, ValueMetadata metadata = {});
     [[nodiscard]] BlockId add_block(std::string name = {});
     [[nodiscard]] ConvergenceId add_convergence(
         BlockId target,
-        std::optional<ConvergenceId> parent = std::nullopt);
+        luisa::optional<ConvergenceId> parent = luisa::nullopt);
     [[nodiscard]] LoopId add_loop(
         BlockId header, std::vector<BlockId> blocks,
         std::vector<BlockId> exits,
-        std::optional<LoopId> parent = std::nullopt,
-        std::optional<uint64_t> max_trip_count = std::nullopt);
+        luisa::optional<LoopId> parent = luisa::nullopt,
+        luisa::optional<uint64_t> max_trip_count = luisa::nullopt);
     [[nodiscard]] LoopId add_loop(
         BlockId header, BlockId exit,
-        std::optional<LoopId> parent = std::nullopt) {
+        luisa::optional<LoopId> parent = luisa::nullopt) {
         return add_loop(header, std::vector<BlockId>{header},
                         std::vector<BlockId>{exit}, parent);
     }
@@ -376,7 +377,7 @@ public:
 
 struct VerificationError {
     std::string message;
-    std::optional<BlockId> block{};
+    luisa::optional<BlockId> block{};
 };
 
 struct VerificationResult {

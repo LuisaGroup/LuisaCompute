@@ -7,13 +7,15 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/backends/common/vulkan_check_error.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 
 class VolkInitializer {
 
 private:
-    [[nodiscard]] static DynamicModule _try_load_vulkan_dylib(const std::filesystem::path &search_path, std::string_view specified_name) noexcept {
+    [[nodiscard]] static DynamicModule _try_load_vulkan_dylib(const luisa::filesystem::path &search_path, luisa::string_view specified_name) noexcept {
         if (!specified_name.empty()) {
             return DynamicModule::load(search_path, specified_name);
         }
@@ -51,7 +53,7 @@ public:
             LUISA_CHECK_VULKAN(volkInitialize());
         } else {
             auto search_path = custom_path.empty() ?
-                                   std::filesystem::canonical(current_executable_path()).parent_path() :
+                                   luisa::filesystem::canonical(current_executable_path()).parent_path() :
                                    custom_path;
             vk_module = _try_load_vulkan_dylib(search_path, lib_name);
             LUISA_ASSERT(vk_module, "Failed to load vulkan module from {}/{}", search_path.string(), lib_name);

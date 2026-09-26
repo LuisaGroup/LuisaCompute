@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include <vulkan/vulkan_core.h>
+#include <luisa/core/stl/memory.h>
 
 namespace lc::vk::detail {
 
@@ -83,13 +84,13 @@ enum class TextureLayoutContract : uint8_t {
 [[nodiscard]] inline NativeBufferIdentity
 native_buffer_identity(VkBuffer buffer) noexcept {
     static_assert(sizeof(VkBuffer) == sizeof(NativeBufferIdentity));
-    return std::bit_cast<NativeBufferIdentity>(buffer);
+    return luisa::bit_cast<NativeBufferIdentity>(buffer);
 }
 
 [[nodiscard]] inline NativeImageIdentity
 native_image_identity(VkImage image) noexcept {
     static_assert(sizeof(VkImage) == sizeof(NativeImageIdentity));
-    return std::bit_cast<NativeImageIdentity>(image);
+    return luisa::bit_cast<NativeImageIdentity>(image);
 }
 
 // vkCmdDispatchIndirect is valid on compute-capable queues. Its synchronization

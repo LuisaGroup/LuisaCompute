@@ -11,6 +11,7 @@
 #include "hip_command_encoder.h"
 #include "hip_stream.h"
 #include "hip_accel.h"
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::hip {
 
@@ -432,7 +433,7 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
         _sorted_modifications.clear();
         _sorted_modifications.reserve(mods.size());
         for (auto &m : mods) { _sorted_modifications.emplace_back(&m); }
-        std::sort(_sorted_modifications.begin(), _sorted_modifications.end(),
+        luisa::sort(_sorted_modifications.begin(), _sorted_modifications.end(),
                   [](auto lhs, auto rhs) noexcept { return lhs->index < rhs->index; });
         encoder.with_upload_buffer(
             mods.size() * sizeof(CodegenInstance),

@@ -190,7 +190,7 @@ void test_render(Device &device, uint32_t scene) {
         }
         LUISA_INFO("Rendering scene {} / {}: max_error={}", scene, scheduler, error);
         if (auto *directory = std::getenv("LUISA_CORO_RENDER_OUTPUT")) {
-            std::filesystem::create_directories(directory);
+            luisa::filesystem::create_directories(directory);
             luisa::vector<uint8_t> pixels(count * 3u);
             for (uint32_t i = 0; i < count; ++i) {
                 for (uint32_t c = 0; c < 3u; ++c) {
@@ -198,7 +198,7 @@ void test_render(Device &device, uint32_t scene) {
                         std::clamp(std::isfinite(actual[i][c]) ? actual[i][c] : 0.f, 0.f, 1.f) * 255.f + 0.5f);
                 }
             }
-            auto file = std::filesystem::path{directory} / luisa::format("scene_{}_{}.png", scene, scheduler).c_str();
+            auto file = luisa::filesystem::path{directory} / luisa::format("scene_{}_{}.png", scene, scheduler).c_str();
             expect(stbi_write_png(file.string().c_str(), width, height, 3, pixels.data(), width * 3u) != 0);
         }
         expect(finite && error < 2e-4f) << scheduler;

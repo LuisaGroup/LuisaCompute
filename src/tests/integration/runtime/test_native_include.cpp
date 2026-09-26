@@ -16,6 +16,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
+#include <luisa/core/stl/filesystem.h>
 #include "reference_image.h"
 
 #include <filesystem>
@@ -157,9 +158,9 @@ entry:
             << "Native include test wrote an incorrect alpha channel.";
     }
 
-    auto output_directory = std::filesystem::path{opts.output_dir};
+    auto output_directory = luisa::filesystem::path{opts.output_dir};
     std::error_code filesystem_error;
-    std::filesystem::create_directories(output_directory, filesystem_error);
+    luisa::filesystem::create_directories(output_directory, filesystem_error);
     boost::ut::expect(!filesystem_error)
         << luisa::format("Failed to create output directory '{}': {}.",
                          output_directory.string(), filesystem_error.message());

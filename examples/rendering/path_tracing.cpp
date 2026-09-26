@@ -395,9 +395,9 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
     // Setup the platform Window and common Luisa Swapchain presentation path.
     // Desktop owns a GLFW window by default; iOS passes a Window that wraps the
     // UIKit-owned CAMetalLayer.
-    std::unique_ptr<Window> window;
+    luisa::unique_ptr<Window> window;
     Window *active_window = opts.window;
-    std::optional<Swapchain> swap_chain;
+    luisa::optional<Swapchain> swap_chain;
     if (!opts.offline) {
 #if defined(LUISA_PLATFORM_IOS)
         if (active_window == nullptr) {
@@ -407,7 +407,7 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
         }
 #else
         if (active_window == nullptr) {
-            window = std::make_unique<Window>("path tracing", resolution, false);
+            window = luisa::make_unique<Window>("path tracing", resolution, false);
             active_window = window.get();
         }
 #endif

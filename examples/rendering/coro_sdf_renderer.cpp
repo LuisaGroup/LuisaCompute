@@ -223,19 +223,19 @@ int main(int argc, char *argv[]) {
     static constexpr uint total_cells = width * height;
 
     using Scheduler = CoroScheduler<Image<uint>, Image<float>, uint>;
-    std::unique_ptr<Scheduler> scheduler;
+    luisa::unique_ptr<Scheduler> scheduler;
     switch (scheduler_kind) {
         case luisa::example::CoroSchedulerKind::state_machine:
-            scheduler = std::make_unique<StateMachineCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro);
+            scheduler = luisa::make_unique<StateMachineCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro);
             break;
         case luisa::example::CoroSchedulerKind::wavefront: {
             WavefrontCoroSchedulerConfig cfg{};
-            scheduler = std::make_unique<WavefrontCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
+            scheduler = luisa::make_unique<WavefrontCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
             break;
         }
         case luisa::example::CoroSchedulerKind::persistent: {
             PersistentThreadsCoroSchedulerConfig cfg{};
-            scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
+            scheduler = luisa::make_unique<PersistentThreadsCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
             break;
         }
     }
@@ -244,11 +244,11 @@ int main(int argc, char *argv[]) {
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 
-    std::optional<Swapchain> swap_chain;
+    luisa::optional<Swapchain> swap_chain;
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
+    luisa::unique_ptr<Window> window;
     if (interactive) {
-        window = std::make_unique<Window>("Coroutine SDF Renderer", width, height);
+        window = luisa::make_unique<Window>("Coroutine SDF Renderer", width, height);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

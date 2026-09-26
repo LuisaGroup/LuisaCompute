@@ -14,6 +14,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/algorithms.h>
 #include <luisa/backends/ext/simd_config_ext.h>
+#include <luisa/core/stl/memory.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -157,7 +158,7 @@ void root_traversal_recurrences(Device &device) {
             expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
             if (baseline.empty()) { baseline = actual; }
             expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float x, float y) {
-                return std::bit_cast<uint32_t>(x) == std::bit_cast<uint32_t>(y);
+                return luisa::bit_cast<uint32_t>(x) == luisa::bit_cast<uint32_t>(y);
             }));
             if (tiles.empty()) {
                 baseline_llvm = shader.metadata().source;
@@ -284,7 +285,7 @@ void map_chain(Device &device, int64_t width, uint32_t variant) {
         }
         if (enabled) {
             expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float a, float b) {
-                return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+                return luisa::bit_cast<uint32_t>(a) == luisa::bit_cast<uint32_t>(b);
             }));
         } else {
             baseline = actual;
@@ -457,7 +458,7 @@ void rope_shared_pointwise(Device &device, int64_t half_width) {
                 auto unchanged = true;
                 for (size_t j = 0u; j < allocation_count; j++) {
                     auto written = i == binding.output_allocation && j >= output_offset && j < output_offset + output_count;
-                    if (!written && std::bit_cast<uint32_t>(actual[i][j]) != std::bit_cast<uint32_t>(seeds[i][j])) {
+                    if (!written && luisa::bit_cast<uint32_t>(actual[i][j]) != luisa::bit_cast<uint32_t>(seeds[i][j])) {
                         unchanged = false;
                         break;
                     }
@@ -466,7 +467,7 @@ void rope_shared_pointwise(Device &device, int64_t half_width) {
                                   << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
                 if (enabled) {
                     expect(std::equal(actual[i].begin(), actual[i].end(), baselines[binding_index][i].begin(), baselines[binding_index][i].end(), [](float a, float b) {
-                        return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+                        return luisa::bit_cast<uint32_t>(a) == luisa::bit_cast<uint32_t>(b);
                     })) << "RoPE on/off mismatch: half="
                         << half_width << " allocation=" << i << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
                 }
@@ -647,7 +648,7 @@ void fused_expression_reductions(Device &device, int64_t width, uint32_t lanes, 
         if (!fusion) {
             baseline = actual;
         } else {
-            for (size_t i = 0u; i < actual.size(); i++) { expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(baseline[i]))); }
+            for (size_t i = 0u; i < actual.size(); i++) { expect(eq(luisa::bit_cast<uint32_t>(actual[i]), luisa::bit_cast<uint32_t>(baseline[i]))); }
         }
     }
 }
@@ -743,7 +744,7 @@ void reduction_fold_policies(Device &device) {
             for (auto r = int64_t{0}; r < rows; r++) {
                 auto expected = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
                 for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
-                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])))
+                    expect(eq(luisa::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), luisa::bit_cast<uint32_t>(expected[mode])))
                         << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
                 }
             }
@@ -1146,7 +1147,7 @@ void partitioned_reductions(Device &device, int64_t width, uint32_t partitions) 
     auto stream = device.create_stream(StreamTag::COMPUTE);
     stream << a.copy_from(span{input}) << shader(a, b).dispatch() << b.copy_to(span{actual}) << synchronize();
     for (size_t i = 0u; i < actual.size(); i++) {
-        expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(expected[i]))) << "width=" << width << " partitions=" << partitions << " index=" << i;
+        expect(eq(luisa::bit_cast<uint32_t>(actual[i]), luisa::bit_cast<uint32_t>(expected[i]))) << "width=" << width << " partitions=" << partitions << " index=" << i;
     }
 }
 
@@ -1202,8 +1203,8 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
     for (int64_t i = 0; i < rows * columns; i++) { input_c[pad + i] = static_cast<float>(i % 7 - 3) * 0.25f; }
     // Output (0, 0) distinguishes separate MUL + ADD (0) from FMA (-2^-46).
     // Keep the other columns' cancellation patterns to detect reassociation.
-    input_a[pad] = std::bit_cast<float>(0x3f800001u);// 1 + 2^-23
-    input_b[pad] = std::bit_cast<float>(0x3f7ffffeu);// 1 - 2^-23
+    input_a[pad] = luisa::bit_cast<float>(0x3f800001u);// 1 + 2^-23
+    input_b[pad] = luisa::bit_cast<float>(0x3f7ffffeu);// 1 - 2^-23
     input_c[pad] = -1.0f;
     for (int64_t k = 1; k < terms; k++) { input_b[b_index(k, 0)] = 0.0f; }
     auto expected = input_c;
@@ -1238,12 +1239,12 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                << shader(a.view(pad, rows * physical_terms), b.view(pad, physical_terms * columns), c.view(pad, rows * columns)).dispatch()
                << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
         for (size_t i = 0u; i < actual_c.size(); i++) {
-            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " 2d=" << enable_mma_2d_blocking << " rhs_transposed=" << rhs_transposed << " swapped=" << swapped << " carry=" << carry_seed << " output=" << i;
+            expect(eq(luisa::bit_cast<uint32_t>(actual_c[i]), luisa::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " 2d=" << enable_mma_2d_blocking << " rhs_transposed=" << rhs_transposed << " swapped=" << swapped << " carry=" << carry_seed << " output=" << i;
         }
         expect(actual_b == input_b);
         for (size_t i = 0u; i < actual_a.size(); i++) {
             auto unchanged = terms == 0 || i < pad || i >= actual_a.size() - pad;
-            expect(eq(std::bit_cast<uint32_t>(actual_a[i]), std::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
+            expect(eq(luisa::bit_cast<uint32_t>(actual_a[i]), luisa::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
         }
         if (width == 1u) {
             baseline = actual_c;
@@ -1283,13 +1284,13 @@ void native_copy_snapshots(Device &device, int64_t width) {
     constexpr uint32_t bits[]{0x00000000u, 0x80000000u, 0x7fc00001u, 0xffc01234u,
                               0x7f800000u, 0xff800000u, 0x00000001u, 0x80000001u,
                               0x3f800001u, 0xbf000003u, 0x41200000u};
-    vector<float> input_a(programs * rows * stride + 2u * pad, std::bit_cast<float>(guard));
+    vector<float> input_a(programs * rows * stride + 2u * pad, luisa::bit_cast<float>(guard));
     auto input_b = input_a;
-    vector<float> initial(programs * 2 * width + 2u * pad, std::bit_cast<float>(guard));
+    vector<float> initial(programs * 2 * width + 2u * pad, luisa::bit_cast<float>(guard));
     for (auto p = int64_t{0}; p < programs; p++) {
         for (auto i = int64_t{0}; i < rows * stride; i++) {
-            input_a[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i) % std::size(bits)]);
-            input_b[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i + 4) % std::size(bits)]);
+            input_a[pad + p * rows * stride + i] = luisa::bit_cast<float>(bits[(p + i) % std::size(bits)]);
+            input_b[pad + p * rows * stride + i] = luisa::bit_cast<float>(bits[(p + i + 4) % std::size(bits)]);
         }
     }
     auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size());
@@ -1331,14 +1332,14 @@ void native_copy_snapshots(Device &device, int64_t width) {
             // No floating-point comparison may canonicalize NaN payloads or
             // hide -0: this transfer performs no arithmetic on the payload.
             for (size_t i = 0u; i < actual_output.size(); i++) {
-                expect(eq(std::bit_cast<uint32_t>(actual_output[i]), std::bit_cast<uint32_t>(expected[i])))
+                expect(eq(luisa::bit_cast<uint32_t>(actual_output[i]), luisa::bit_cast<uint32_t>(expected[i])))
                     << "copy=" << vector_width << " packet=" << device.compute_warp_size()
                     << " width=" << width << " alias=" << alias << " index=" << i;
             }
             for (size_t i = 0u; i < actual_a.size(); i++) {
                 auto unchanged = i < pad || i >= actual_a.size() - pad;
-                expect(eq(std::bit_cast<uint32_t>(actual_a[i]), unchanged ? guard : std::bit_cast<uint32_t>(13.0f)));
-                expect(eq(std::bit_cast<uint32_t>(actual_b[i]), std::bit_cast<uint32_t>(input_b[i])));
+                expect(eq(luisa::bit_cast<uint32_t>(actual_a[i]), unchanged ? guard : luisa::bit_cast<uint32_t>(13.0f)));
+                expect(eq(luisa::bit_cast<uint32_t>(actual_b[i]), luisa::bit_cast<uint32_t>(input_b[i])));
             }
         }
     }
@@ -1405,8 +1406,8 @@ void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool 
         if (strict) {
             // (row 0,col 0): separate MUL+ADD gives +0, FMA gives -2^-46.
             // (row 1,col 1), K=4: ordered gives 0, pairwise gives 1.
-            input_a[a_index(p, 0, 0)] = std::bit_cast<float>(0x3f800001u);
-            input_b[b_index(p, 0, 0)] = std::bit_cast<float>(0x3f7ffffeu);
+            input_a[a_index(p, 0, 0)] = luisa::bit_cast<float>(0x3f800001u);
+            input_b[b_index(p, 0, 0)] = luisa::bit_cast<float>(0x3f7ffffeu);
             for (auto k = int64_t{1}; k < terms; k++) { input_b[b_index(p, k, 0)] = 0.0f; }
             input_c[c_index(p, 0, 0)] = terms == 0 ? -0.0f : -1.0f;
         } else if (p == programs - 1) {
@@ -1473,14 +1474,14 @@ void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool 
         // trees give the same exactly representable result. This checks the
         // native math without imposing a particular authorized tree.
         for (size_t i = 0u; i < actual_c.size(); i++) {
-            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i])))
+            expect(eq(luisa::bit_cast<uint32_t>(actual_c[i]), luisa::bit_cast<uint32_t>(expected[i])))
                 << "native MMA width=" << width << " strict=" << strict << " transposed=" << rhs_transposed << " K=" << terms << " index=" << i;
-            expect(eq(std::bit_cast<uint32_t>(actual_saved[i]), std::bit_cast<uint32_t>(input_c[i])));
+            expect(eq(luisa::bit_cast<uint32_t>(actual_saved[i]), luisa::bit_cast<uint32_t>(input_c[i])));
         }
         expect(actual_b == input_b);
         for (size_t i = 0u; i < actual_a.size(); i++) {
             auto unchanged = terms == 0 || i < pad || i >= actual_a.size() - pad;
-            expect(eq(std::bit_cast<uint32_t>(actual_a[i]), std::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
+            expect(eq(luisa::bit_cast<uint32_t>(actual_a[i]), luisa::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
         }
     }
 }

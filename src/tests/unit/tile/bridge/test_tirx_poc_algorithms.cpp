@@ -13,6 +13,7 @@
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/tile/algorithms.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include <algorithm>
 #include <array>
@@ -187,7 +188,7 @@ void test_sobel_and_ordered_median(Runtime &runtime) {
                     tap_index++;
                 }
             }
-            std::sort(window.begin(), window.end(), [](auto lhs, auto rhs) noexcept {
+            luisa::sort(window.begin(), window.end(), [](auto lhs, auto rhs) noexcept {
                 return lhs.first < rhs.first || (lhs.first == rhs.first && lhs.second < rhs.second);
             });
             auto index = static_cast<size_t>(iy * width + ix);
@@ -254,7 +255,7 @@ void test_stable_sort_and_topk(Runtime &runtime) {
             expected.emplace_back(
                 input[static_cast<size_t>(row * columns + column)], column);
         }
-        std::sort(expected.begin(), expected.end(), [](auto lhs, auto rhs) noexcept {
+        luisa::sort(expected.begin(), expected.end(), [](auto lhs, auto rhs) noexcept {
             return lhs.first > rhs.first || (lhs.first == rhs.first && lhs.second < rhs.second);
         });
         for (auto rank = 0; rank < columns; rank++) {

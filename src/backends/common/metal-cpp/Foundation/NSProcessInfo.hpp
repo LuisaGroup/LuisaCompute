@@ -29,6 +29,7 @@
 #include "NSTypes.hpp"
 
 #include <functional>
+#include <luisa/core/stl/functional.h>
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -100,9 +101,9 @@ public:
     class Object*           beginActivity(ActivityOptions options, const class String* pReason);
     void                    endActivity(class Object* pActivity);
     void                    performActivity(ActivityOptions options, const class String* pReason, void (^block)(void));
-    void                    performActivity(ActivityOptions options, const class String* pReason, const std::function<void()>& func);
+    void                    performActivity(ActivityOptions options, const class String* pReason, const luisa::function<void()>& func);
     void                    performExpiringActivity(const class String* pReason, void (^block)(bool expired));
-    void                    performExpiringActivity(const class String* pReason, const std::function<void(bool expired)>& func);
+    void                    performExpiringActivity(const class String* pReason, const luisa::function<void(bool expired)>& func);
 
     ProcessInfoThermalState thermalState() const;
     bool                    isLowPowerModeEnabled() const;
@@ -318,9 +319,9 @@ _NS_INLINE void NS::ProcessInfo::performActivity(ActivityOptions options, const 
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-_NS_INLINE void NS::ProcessInfo::performActivity(ActivityOptions options, const String* pReason, const std::function<void()>& function)
+_NS_INLINE void NS::ProcessInfo::performActivity(ActivityOptions options, const String* pReason, const luisa::function<void()>& function)
 {
-    __block std::function<void()> blockFunction = function;
+    __block luisa::function<void()> blockFunction = function;
 
     performActivity(options, pReason, ^() { blockFunction(); });
 }
@@ -334,9 +335,9 @@ _NS_INLINE void NS::ProcessInfo::performExpiringActivity(const String* pReason, 
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-_NS_INLINE void NS::ProcessInfo::performExpiringActivity(const String* pReason, const std::function<void(bool expired)>& function)
+_NS_INLINE void NS::ProcessInfo::performExpiringActivity(const String* pReason, const luisa::function<void(bool expired)>& function)
 {
-    __block std::function<void(bool expired)> blockFunction = function;
+    __block luisa::function<void(bool expired)> blockFunction = function;
 
     performExpiringActivity(pReason, ^(bool expired) { blockFunction(expired); });
 }

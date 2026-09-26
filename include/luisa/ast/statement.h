@@ -4,6 +4,7 @@
 #include <luisa/ast/coro_suspend.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 class CallableLibrary;
@@ -517,7 +518,7 @@ public:
     explicit CommentStmt(luisa::string comment) noexcept
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
-    [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
+    [[nodiscard]] auto comment() const noexcept { return luisa::string_view{_comment}; }
     LUISA_STATEMENT_COMMON()
 };
 

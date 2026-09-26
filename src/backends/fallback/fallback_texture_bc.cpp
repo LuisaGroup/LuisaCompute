@@ -6,6 +6,7 @@
 #if defined(_WIN32) && defined(_DEBUG)
 #define NOMINMAX
 #include <Windows.h>
+#include <luisa/core/stl/algorithm.h>
 #undef Yield
 #undef AddPointer
 #endif
@@ -640,9 +641,9 @@ void BC7Block::Decode(HDRColorA *pOut) const noexcept {
             }
 
             switch (uRotation) {
-                case 1: std::swap(outPixel.r, outPixel.a); break;
-                case 2: std::swap(outPixel.g, outPixel.a); break;
-                case 3: std::swap(outPixel.b, outPixel.a); break;
+                case 1: luisa::swap(outPixel.r, outPixel.a); break;
+                case 2: luisa::swap(outPixel.g, outPixel.a); break;
+                case 3: luisa::swap(outPixel.b, outPixel.a); break;
                 default: break;
             }
 
@@ -838,13 +839,13 @@ void BC7Block::Decode(int x, int y, float *out) const noexcept {
 
 			switch (uRotation) {
 				case 1:
-					std::swap(outPixel.r, outPixel.a);
+					luisa::swap(outPixel.r, outPixel.a);
 					break;
 				case 2:
-					std::swap(outPixel.g, outPixel.a);
+					luisa::swap(outPixel.g, outPixel.a);
 					break;
 				case 3:
-					std::swap(outPixel.b, outPixel.a);
+					luisa::swap(outPixel.b, outPixel.a);
 					break;
 				default:
 					break;

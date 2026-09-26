@@ -46,7 +46,7 @@ void set_environment_variable(
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
 
     explicit ScopedEnvironmentVariable(
         const char *env_name, const char *value)
@@ -629,7 +629,7 @@ int main(int argc, char *argv[]) {
             if (i < half4_special_bits.size()) {
                 bits = half4_special_bits[i];
             }
-            half4_input[i / 4u][i % 4u] = std::bit_cast<float>(bits);
+            half4_input[i / 4u][i % 4u] = luisa::bit_cast<float>(bits);
         }
         auto check_half4_image = [&](const char *failure_message) noexcept {
             auto image = device.create_image<float>(
@@ -650,9 +650,9 @@ int main(int argc, char *argv[]) {
                 expect(raw_output[i] == expected_half)
                     << failure_message;
                 auto expected_float = half_bits_to_float(expected_half);
-                expect(std::bit_cast<uint32_t>(
+                expect(luisa::bit_cast<uint32_t>(
                            read_output[i / 4u][i % 4u]) ==
-                       std::bit_cast<uint32_t>(expected_float))
+                       luisa::bit_cast<uint32_t>(expected_float))
                     << failure_message;
             }
         };

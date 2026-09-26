@@ -25,6 +25,7 @@
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute::xir {
 
@@ -696,7 +697,7 @@ public:
     // starts immediately after its prefix, so adjacent-prefix checks are both
     // necessary and sufficient (and avoid a quadratic pairwise scan).
     for (auto &[value, paths] : value_paths) {
-        std::sort(paths.begin(), paths.end());
+        luisa::sort(paths.begin(), paths.end());
         for (size_t i = 1u; i < paths.size(); ++i) {
             if (static_access_path_is_prefix(paths[i - 1u], paths[i])) {
                 return false;

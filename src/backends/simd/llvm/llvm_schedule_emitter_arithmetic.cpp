@@ -1,6 +1,8 @@
 #include "llvm_schedule_emitter.h"
 
 #include "../../common/llvm_native_math.h"
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -117,7 +119,7 @@ namespace luisa::compute::simd::detail {
     });
 }
 
-[[nodiscard]] std::optional<uint64_t> ScheduleEmitter::_constant_index(
+[[nodiscard]] luisa::optional<uint64_t> ScheduleEmitter::_constant_index(
     ::llvm::Value *value) noexcept {
     if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(value)) {
         return integer->getZExtValue();
@@ -129,7 +131,7 @@ namespace luisa::compute::simd::detail {
             }
         }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_index_constant_like(
@@ -367,7 +369,7 @@ namespace luisa::compute::simd::detail {
             return intrinsic(id, {lhs, rhs});
         });
     };
-    auto scalar_libm = [&](std::string_view operation,
+    auto scalar_libm = [&](luisa::string_view operation,
                            ::llvm::Value *value) -> ::llvm::Value * {
         auto *source_type = value->getType();
         auto half = source_type->isHalfTy();

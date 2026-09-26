@@ -10,6 +10,7 @@
 #include <asio.hpp>
 
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::remote {
 
@@ -405,7 +406,7 @@ public:
 };
 
 Connection::Connection(ProtocolLimits limits) noexcept
-    : _impl{std::make_unique<Impl>(limits)} {}
+    : _impl{luisa::make_unique<Impl>(limits)} {}
 
 Connection::~Connection() noexcept = default;
 

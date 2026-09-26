@@ -105,11 +105,11 @@ void test_printer_custom_callback(Device &device) {
             << "the error callback payload must preserve a boolean value";
     }
     if (messages[verbose].size() == 1u) {
-        auto payload = std::string_view{messages[verbose][0]};
+        auto payload = luisa::string_view{messages[verbose][0]};
         expect(payload.starts_with("location_value=17 ["))
             << "the verbose callback payload must preserve its scalar prefix";
         expect(payload.find("test_printer_custom_callback.cpp:") !=
-               std::string_view::npos)
+               luisa::string_view::npos)
             << "the location-aware message must name its source file";
         expect(payload.ends_with(":dispatch(0, 0, 0)]"))
             << "the location-aware message must preserve its dispatch ID";

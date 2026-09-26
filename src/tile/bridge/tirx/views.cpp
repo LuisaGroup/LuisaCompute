@@ -7,6 +7,7 @@
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/optional.h>
 
 #include "execution.h"
 
@@ -208,7 +209,7 @@ private:
     bool _preserve_guards;
     bool _cache_reused_inputs;
 
-    [[nodiscard]] std::optional<ForwardedView> _copy(const tvm::tirx::Stmt &statement, const tvm::tirx::BufferVar &buffer) const {
+    [[nodiscard]] luisa::optional<ForwardedView> _copy(const tvm::tirx::Stmt &statement, const tvm::tirx::BufferVar &buffer) const {
         auto body = statement;
         auto domain = _domain;
         tvm::ffi::Array<tvm::tirx::PrimVar> axes;

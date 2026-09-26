@@ -17,6 +17,7 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "coro_semantic_graph.h"
 #include "helpers.h"
@@ -68,7 +69,7 @@ struct GVNState;
     if (commutative && vns.size() == 2) [[unlikely]] {
         auto a = vns[0];
         auto b = vns[1];
-        if (a > b) std::swap(a, b);
+        if (a > b) luisa::swap(a, b);
         uint64_t pair[2] = {a, b};
         return luisa::hash64(pair, sizeof(pair), seed);
     }

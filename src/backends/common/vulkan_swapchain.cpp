@@ -13,6 +13,7 @@
 #include "moltenvk_surface.h"
 #endif
 #include <luisa/backends/common/vulkan_swapchain.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute {
 VkCompositeAlphaFlagBitsKHR choose_composite_alpha(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {

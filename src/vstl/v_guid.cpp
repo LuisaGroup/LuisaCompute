@@ -1,5 +1,6 @@
 #include <luisa/vstl/v_guid.h>
 #include <luisa/vstl/string_utility.h>
+#include <luisa/core/stl/string.h>
 
 #ifdef _WIN32
 #include <objbase.h>
@@ -45,7 +46,7 @@ uint8_t GetNumber(char c) {
         default: return 15;
     }
 };
-void ParseHex(std::string_view strv, Guid::GuidData &data) {
+void ParseHex(luisa::string_view strv, Guid::GuidData &data) {
     char const *ptr = strv.data();
     luisa::span<uint8_t> dst{reinterpret_cast<uint8_t *>(&data), sizeof(Guid::GuidData)};
     for (auto &i : dst) {
@@ -55,7 +56,7 @@ void ParseHex(std::string_view strv, Guid::GuidData &data) {
     }
 }
 }// namespace VGuid_Detail
-optional<Guid> Guid::TryParseGuid(std::string_view strv) {
+optional<Guid> Guid::TryParseGuid(luisa::string_view strv) {
     using namespace VGuid_Detail;
     switch (strv.size()) {
         case 22: {
@@ -71,7 +72,7 @@ optional<Guid> Guid::TryParseGuid(std::string_view strv) {
     }
     return {};
 }
-Guid::Guid(std::string_view strv) : data{0, 0} {
+Guid::Guid(luisa::string_view strv) : data{0, 0} {
     using namespace VGuid_Detail;
     switch (strv.size()) {
         case 22:
@@ -160,7 +161,7 @@ VENGINE_UNITY_EXTERN void vguid_get_from_std::string(
     char const *str,
     int32 strLen,
     Guid *guidData) {
-    *guidData = Guid(std::string_view(str, strLen)).to_binary();
+    *guidData = Guid(luisa::string_view(str, strLen)).to_binary();
 }
 VENGINE_UNITY_EXTERN void vguid_to_std::string(
     Guid const *guidData,

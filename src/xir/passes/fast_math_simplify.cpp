@@ -9,6 +9,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::xir {
 
@@ -94,18 +95,18 @@ static void simplify_function(
         auto identity = false;
         if (is_uniform_f32_zero(exponent) ||
             is_uniform_f32_bits(
-                base, std::bit_cast<uint32_t>(1.0f))) {
+                base, luisa::bit_cast<uint32_t>(1.0f))) {
             replacement = module->create_constant_one(power->type());
             identity = true;
         } else if (is_uniform_f32_bits(
                        base,
-                       std::bit_cast<uint32_t>(2.0f))) {
+                       luisa::bit_cast<uint32_t>(2.0f))) {
             builder.set_insertion_point(power);
             replacement = builder.call(
                 power->type(), ArithmeticOp::EXP2, {exponent});
         } else if (is_uniform_f32_bits(
                        base,
-                       std::bit_cast<uint32_t>(10.0f))) {
+                       luisa::bit_cast<uint32_t>(10.0f))) {
             builder.set_insertion_point(power);
             replacement = builder.call(
                 power->type(), ArithmeticOp::EXP10, {exponent});

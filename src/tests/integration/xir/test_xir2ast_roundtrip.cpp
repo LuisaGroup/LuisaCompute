@@ -66,89 +66,89 @@ using UIntBufferWrites = std::vector<std::pair<uint32_t, uint32_t>>;
 // Execute only the scalar subset used by the continue regression. Undefined
 // stores are permitted until overwritten; reading one, encountering an unknown
 // operation, or failing to return within the bound rejects the execution.
-[[nodiscard]] std::optional<UIntBufferWrites> execute_uint_continue_kernel(
+[[nodiscard]] luisa::optional<UIntBufferWrites> execute_uint_continue_kernel(
     FunctionDefinition *definition, uint32_t limit, uint32_t skip) {
     std::unordered_map<const Value *, uint32_t> values;
-    std::unordered_map<const Value *, std::optional<uint32_t>> memory;
+    std::unordered_map<const Value *, luisa::optional<uint32_t>> memory;
     Value *buffer = nullptr;
     auto argument_index = 0u;
     for (auto *argument : definition->arguments()) {
         if (argument->derived_argument_tag() == DerivedArgumentTag::RESOURCE) {
-            if (buffer != nullptr || !argument->type()->is_buffer()) { return std::nullopt; }
+            if (buffer != nullptr || !argument->type()->is_buffer()) { return luisa::nullopt; }
             buffer = argument;
         } else {
             if (argument->derived_argument_tag() != DerivedArgumentTag::VALUE ||
-                argument->type() != Type::of<uint32_t>() || argument_index >= 2u) { return std::nullopt; }
+                argument->type() != Type::of<uint32_t>() || argument_index >= 2u) { return luisa::nullopt; }
             values.emplace(argument, argument_index++ == 0u ? limit : skip);
         }
     }
-    if (buffer == nullptr || argument_index != 2u) { return std::nullopt; }
-    auto read = [&](const Value *value) -> std::optional<uint32_t> {
+    if (buffer == nullptr || argument_index != 2u) { return luisa::nullopt; }
+    auto read = [&](const Value *value) -> luisa::optional<uint32_t> {
         if (value == nullptr ||
-            (value->type() != Type::of<uint32_t>() && value->type() != Type::of<bool>())) { return std::nullopt; }
+            (value->type() != Type::of<uint32_t>() && value->type() != Type::of<bool>())) { return luisa::nullopt; }
         if (value->isa<xir::Constant>()) {
             auto *constant = static_cast<const xir::Constant *>(value);
             return value->type()->is_bool() ? uint32_t(constant->as<bool>()) : constant->as<uint32_t>();
         }
         auto iter = values.find(value);
-        return iter == values.end() ? std::nullopt : std::optional{iter->second};
+        return iter == values.end() ? luisa::nullopt : luisa::optional{iter->second};
     };
     UIntBufferWrites writes;
     auto *block = definition->body_block();
     for (auto steps = 0u; steps < 10000u; ++steps) {
-        if (block == nullptr || !block->is_terminated()) { return std::nullopt; }
+        if (block == nullptr || !block->is_terminated()) { return luisa::nullopt; }
         // A stale definition from a previous loop iteration cannot satisfy a
         // missing SSA operand in this iteration.
         for (auto *inst : block->instructions()) { values.erase(inst); }
         BasicBlock *next = nullptr;
         for (auto *inst : block->instructions()) {
             if (inst->isa<AllocaInst>()) {
-                if (inst->type() != Type::of<uint32_t>() && inst->type() != Type::of<bool>()) { return std::nullopt; }
-                memory[inst] = std::nullopt;
+                if (inst->type() != Type::of<uint32_t>() && inst->type() != Type::of<bool>()) { return luisa::nullopt; }
+                memory[inst] = luisa::nullopt;
             } else if (inst->isa<LoadInst>()) {
                 auto iter = memory.find(static_cast<LoadInst *>(inst)->variable());
-                if (iter == memory.end() || !iter->second.has_value()) { return std::nullopt; }
+                if (iter == memory.end() || !iter->second.has_value()) { return luisa::nullopt; }
                 values[inst] = *iter->second;
             } else if (inst->isa<StoreInst>()) {
                 auto *store = static_cast<StoreInst *>(inst);
                 auto iter = memory.find(store->variable());
-                if (iter == memory.end()) { return std::nullopt; }
+                if (iter == memory.end()) { return luisa::nullopt; }
                 if (store->value()->isa<Undefined>()) {
-                    iter->second = std::nullopt;
+                    iter->second = luisa::nullopt;
                 } else {
                     auto value = read(store->value());
-                    if (!value.has_value()) { return std::nullopt; }
+                    if (!value.has_value()) { return luisa::nullopt; }
                     iter->second = *value;
                 }
             } else if (inst->isa<ArithmeticInst>()) {
                 auto *arithmetic = static_cast<ArithmeticInst *>(inst);
-                if (arithmetic->operand_count() != 1u && arithmetic->operand_count() != 2u) { return std::nullopt; }
+                if (arithmetic->operand_count() != 1u && arithmetic->operand_count() != 2u) { return luisa::nullopt; }
                 auto x = read(arithmetic->operand(0u));
-                if (!x.has_value()) { return std::nullopt; }
+                if (!x.has_value()) { return luisa::nullopt; }
                 if (arithmetic->operand_count() == 1u) {
-                    if (arithmetic->op() != ArithmeticOp::UNARY_BIT_NOT || arithmetic->type() != Type::of<bool>()) { return std::nullopt; }
+                    if (arithmetic->op() != ArithmeticOp::UNARY_BIT_NOT || arithmetic->type() != Type::of<bool>()) { return luisa::nullopt; }
                     values[inst] = !*x;
                 } else {
                     auto y = read(arithmetic->operand(1u));
-                    if (!y.has_value()) { return std::nullopt; }
+                    if (!y.has_value()) { return luisa::nullopt; }
                     switch (arithmetic->op()) {
                         case ArithmeticOp::BINARY_ADD: values[inst] = *x + *y; break;
                         case ArithmeticOp::BINARY_LESS: values[inst] = *x < *y; break;
                         case ArithmeticOp::BINARY_EQUAL: values[inst] = *x == *y; break;
-                        default: return std::nullopt;
+                        default: return luisa::nullopt;
                     }
                 }
             } else if (inst->isa<ResourceWriteInst>()) {
                 auto *write = static_cast<ResourceWriteInst *>(inst);
-                if (write->op() != ResourceWriteOp::BUFFER_WRITE || write->operand_count() != 3u || write->operand(0u) != buffer) { return std::nullopt; }
+                if (write->op() != ResourceWriteOp::BUFFER_WRITE || write->operand_count() != 3u || write->operand(0u) != buffer) { return luisa::nullopt; }
                 auto index = read(write->operand(1u));
                 auto value = read(write->operand(2u));
-                if (!index.has_value() || !value.has_value()) { return std::nullopt; }
+                if (!index.has_value() || !value.has_value()) { return luisa::nullopt; }
                 writes.emplace_back(*index, *value);
             } else if (inst->isa<IfInst>() || inst->isa<ConditionalBranchInst>()) {
                 auto *branch = static_cast<ConditionalBranchTerminatorInstruction *>(inst);
                 auto condition = read(branch->condition());
-                if (!condition.has_value()) { return std::nullopt; }
+                if (!condition.has_value()) { return luisa::nullopt; }
                 next = *condition ? branch->true_block() : branch->false_block();
             } else if (inst->isa<BranchInst>() || inst->isa<BreakInst>() || inst->isa<ContinueInst>()) {
                 next = static_cast<BranchTerminatorInstruction *>(inst)->target_block();
@@ -157,15 +157,15 @@ using UIntBufferWrites = std::vector<std::pair<uint32_t, uint32_t>>;
             } else if (inst->isa<LoopInst>()) {
                 next = static_cast<LoopInst *>(inst)->prepare_block();
             } else if (inst->isa<ReturnInst>()) {
-                if (static_cast<ReturnInst *>(inst)->return_value() != nullptr) { return std::nullopt; }
+                if (static_cast<ReturnInst *>(inst)->return_value() != nullptr) { return luisa::nullopt; }
                 return writes;
             } else {
-                return std::nullopt;
+                return luisa::nullopt;
             }
         }
         block = next;
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 }// namespace

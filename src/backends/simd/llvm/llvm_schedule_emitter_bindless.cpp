@@ -4,6 +4,7 @@
 
 #include "../../common/env_flag.h"
 #include "../../common/llvm_native_math.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -131,13 +132,13 @@ void emit_byte1_linear_mirror_sample(
     std::array<::llvm::Value *, 4u> offsets{
         offset(x.lo, y.lo), offset(x.hi, y.lo),
         offset(x.lo, y.hi), offset(x.hi, y.hi)};
-    std::array<std::string_view, 4u> names{
+    std::array<luisa::string_view, 4u> names{
         "bindless.texture.byte1.v00",
         "bindless.texture.byte1.v01",
         "bindless.texture.byte1.v10",
         "bindless.texture.byte1.v11"};
     auto narrow_gather = [&](::llvm::Value *texel_offset,
-                             std::string_view name) {
+                             luisa::string_view name) {
         auto *pointers = builder.CreateGEP(
             builder.getInt8Ty(), data_lanes, texel_offset);
         auto *bytes = builder.CreateMaskedGather(
@@ -1325,7 +1326,7 @@ void ScheduleEmitter::_bindless_resource_write(
             _builder.getInt64Ty(), metadata_pointer,
             "bindless.texture.byte1.metadata");
         auto extent = [&](uint32_t shift,
-                          std::string_view name) {
+                          luisa::string_view name) {
             return _builder.CreateTrunc(
                 _builder.CreateAnd(
                     _builder.CreateLShr(

@@ -7,6 +7,7 @@
 #include <luisa/dsl/soa.h>
 #include <luisa/dsl/func.h>
 #include <luisa/runtime/shader.h>
+#include <luisa/core/stl/string.h>
 
 template<typename T>
 struct luisa_compute_extension {};
@@ -58,8 +59,8 @@ struct luisa_compute_extension {};
     private:                                                                                  \
         using this_type = S;                                                                  \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
-            constexpr const std::string_view member_names[]{                                  \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept { \
+            constexpr const luisa::string_view member_names[]{                                  \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
             return std::find(std::begin(member_names),                                        \
                              std::end(member_names),                                          \
@@ -79,8 +80,8 @@ struct luisa_compute_extension {};
         using this_type = S;                                                                  \
         const Expression *_expression;                                                        \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
-            constexpr const std::string_view member_names[]{                                  \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept { \
+            constexpr const luisa::string_view member_names[]{                                  \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
             return std::find(std::begin(member_names),                                        \
                              std::end(member_names),                                          \
@@ -113,8 +114,8 @@ struct luisa_compute_extension {};
         using this_type = S;                                                                  \
         const Expression *_expression;                                                        \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
-            constexpr const std::string_view member_names[]{                                  \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept { \
+            constexpr const luisa::string_view member_names[]{                                  \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
             return std::find(std::begin(member_names), std::end(member_names), name) -        \
                    std::begin(member_names);                                                  \
@@ -310,8 +311,8 @@ struct luisa_compute_extension {};
     private:                                                                                                     \
         using this_type = LUISA_MACRO_EVAL(S());                                                                 \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                                    \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
-            constexpr const std::string_view member_names[]{                                                     \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept {                    \
+            constexpr const luisa::string_view member_names[]{                                                     \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                   \
             return std::find(std::begin(member_names), std::end(member_names), name) - std::begin(member_names); \
         }                                                                                                        \
@@ -330,8 +331,8 @@ struct luisa_compute_extension {};
         using this_type = LUISA_MACRO_EVAL(S());                                                                 \
         const Expression *_expression;                                                                           \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, ##__VA_ARGS__)                                                  \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
-            constexpr const std::string_view member_names[]{                                                     \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept {                    \
+            constexpr const luisa::string_view member_names[]{                                                     \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                   \
             return std::find(std::begin(member_names), std::end(member_names), name) - std::begin(member_names); \
         }                                                                                                        \
@@ -364,8 +365,8 @@ struct luisa_compute_extension {};
         using this_type = LUISA_MACRO_EVAL(S());                                                                 \
         const Expression *_expression;                                                                           \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, ##__VA_ARGS__)                                                  \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
-            constexpr const std::string_view member_names[]{                                                     \
+        [[nodiscard]] static constexpr size_t _member_index(luisa::string_view name) noexcept {                    \
+            constexpr const luisa::string_view member_names[]{                                                     \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                   \
             return std::find(std::begin(member_names), std::end(member_names), name) - std::begin(member_names); \
         }                                                                                                        \

@@ -20,6 +20,8 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 using namespace boost::ut;
 using namespace luisa;
@@ -154,52 +156,52 @@ evaluate_normalized_vectors_through_callable(
 }
 
 [[nodiscard]] std::string read_text_file(
-    const std::filesystem::path &path) {
+    const luisa::filesystem::path &path) {
     std::ifstream stream{path};
     return {
         std::istreambuf_iterator<char>{stream},
         std::istreambuf_iterator<char>{}};
 }
 
-[[nodiscard]] std::string_view amdgpu_kernel_body(
+[[nodiscard]] luisa::string_view amdgpu_kernel_body(
     const std::string &module) noexcept {
     constexpr auto kernel_prefix =
-        std::string_view{"define amdgpu_kernel "};
+        luisa::string_view{"define amdgpu_kernel "};
     auto begin = module.find(kernel_prefix);
     if (begin == std::string::npos) { return {}; }
     auto end = module.find("\n}", begin);
     if (end == std::string::npos) { return {}; }
-    return std::string_view{module}.substr(
+    return luisa::string_view{module}.substr(
         begin, end + 2u - begin);
 }
 
-[[nodiscard]] std::string_view llvm_function_body(
+[[nodiscard]] luisa::string_view llvm_function_body(
     const std::string &module,
-    std::string_view function_name) noexcept {
+    luisa::string_view function_name) noexcept {
     for (auto name = module.find(function_name);
          name != std::string::npos;
          name = module.find(function_name, name + 1u)) {
         auto begin = module.rfind('\n', name);
         begin = begin == std::string::npos ? 0u : begin + 1u;
-        if (!std::string_view{module}.substr(begin).starts_with(
+        if (!luisa::string_view{module}.substr(begin).starts_with(
                 "define ")) {
             continue;
         }
         auto end = module.find("\n}", name);
         if (end == std::string::npos) { return {}; }
-        return std::string_view{module}.substr(
+        return luisa::string_view{module}.substr(
             begin, end + 2u - begin);
     }
     return {};
 }
 
 [[nodiscard]] bool contains_dynamic_fp_operation(
-    std::string_view body) noexcept {
+    luisa::string_view body) noexcept {
     constexpr std::array operations{
         " fadd ", " fsub ", " fmul ", " fdiv ",
         " frem ", " fneg ", " fcmp "};
     for (auto operation : operations) {
-        if (body.find(operation) != std::string_view::npos) {
+        if (body.find(operation) != luisa::string_view::npos) {
             return true;
         }
     }
@@ -207,10 +209,10 @@ evaluate_normalized_vectors_through_callable(
 }
 
 [[nodiscard]] size_t count_occurrences(
-    std::string_view text, std::string_view pattern) noexcept {
+    luisa::string_view text, luisa::string_view pattern) noexcept {
     auto count = size_t{0u};
     for (auto position = text.find(pattern);
-         position != std::string_view::npos;
+         position != luisa::string_view::npos;
          position = text.find(pattern, position + pattern.size())) {
         ++count;
     }
@@ -674,17 +676,17 @@ int main(int argc, char *argv[]) {
 
     std::error_code filesystem_error;
     const auto original_directory =
-        std::filesystem::current_path(filesystem_error);
+        luisa::filesystem::current_path(filesystem_error);
     const auto dump_directory =
-        std::filesystem::temp_directory_path(filesystem_error) /
+        luisa::filesystem::temp_directory_path(filesystem_error) /
         ("luisa_hip_callable_boundary_" +
          std::to_string(
              std::chrono::steady_clock::now()
                  .time_since_epoch()
                  .count()));
-    std::filesystem::create_directories(
+    luisa::filesystem::create_directories(
         dump_directory, filesystem_error);
-    std::filesystem::current_path(
+    luisa::filesystem::current_path(
         dump_directory, filesystem_error);
     expect(!filesystem_error)
         << "failed to prepare isolated HIP LLVM dump directory";
@@ -914,7 +916,7 @@ int main(int argc, char *argv[]) {
                 before_root.find(
                     "@luisa_pipeline_ray_query_trace_all_native_closest_"
                     "global_stack_stable_opacity(") !=
-                std::string_view::npos;
+                luisa::string_view::npos;
             // Selection is a codegen property, while outlining is an LLVM
             // profitability decision. Inspect the generated root before the
             // ordinary inliner instead of requiring trace wrappers to survive
@@ -923,43 +925,43 @@ int main(int argc, char *argv[]) {
                 expect(uses_static_native_closest &&
                        before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                           std::string_view::npos &&
+                           luisa::string_view::npos &&
                        before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") ==
-                           std::string_view::npos)
+                           luisa::string_view::npos)
                     << "gfx12 closest reduction did not select one static-"
                        "global HIPRT closest transaction";
             } else {
                 expect(before_root.find(
                            "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(") !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                     << "software closest reduction did not select one native "
                        "HIPRT closest traversal";
             }
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "RayQueryAny without device opacity writes did not select "
                    "its stable-opacity native traversal";
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") ==
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    before_root.find(
                        "@luisa_pipeline_ray_query_trace_any(") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "stable-opacity RayQuery retained a mutable-opacity "
                    "traversal entry point";
             expect(before_root.find(
                        "@luisa_pipeline_ray_query_trace(") ==
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "synchronous RayQuery regressed to a runtime-kind "
                    "traversal entry point";
             expect(root.find(
                        "alloca { i64, i64, i64, i64, i64 }") ==
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "HIP RayQuery regressed to the 40-byte source-layout "
                    "surrogate";
-            expect(root.find("alloca i32") == std::string_view::npos)
+            expect(root.find("alloca i32") == luisa::string_view::npos)
                 << "HIP RayQuery identity escaped the traversal state into "
                    "a separate private token allocation";
             expect(module.find("ray.query.context.projected") ==
@@ -972,9 +974,9 @@ int main(int argc, char *argv[]) {
                 // an addressable 112-byte transaction state, but no extra
                 // pointer-to-integer identity may escape it.
                 expect(root.find("ray.query.state.address") ==
-                           std::string_view::npos &&
+                           luisa::string_view::npos &&
                        root.find("ray.query.identity.address") ==
-                           std::string_view::npos)
+                           luisa::string_view::npos)
                     << "candidate-only RayQuery materialized an unobservable "
                        "private-state identity";
             }
@@ -991,36 +993,36 @@ int main(int argc, char *argv[]) {
             // the addrspace(5) state from that 32-bit identity. Do not tie the
             // regression to an optimizer-specific function boundary.
             expect(observing_module.find("ray.query.state") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    observing_module.find(" = inttoptr i32 ") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    observing_module.find(" to ptr addrspace(5)") !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "nested world-ray observation did not reconstruct the "
                    "lane-private query state from its dedicated identity";
             expect(observing_before_root.find(
                        "ray.query.identity.address") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    observing_before_root.find(
                        "ray.query.identity.field") !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "full-state RayQuery failed to materialize identity at "
                    "its observable callback boundary";
             expect(observing_module.find(
                        "@luisa_pipeline_ray_query_dispatch_compact(") ==
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "nested world-ray observation unsafely selected the "
                    "candidate-only transaction";
             expect(observing_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_native_closest") ==
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "mutable world-ray t_max observation unsafely selected "
                    "the order-independent closest reduction";
             expect(module.find("luisa-specialize-constant-argument") ==
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    observing_module.find(
                        "luisa-specialize-constant-argument") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "internal constant-specialization marker escaped HIP "
                    "codegen";
             if (uses_gfx12_hardware_stack) {
@@ -1049,7 +1051,7 @@ int main(int argc, char *argv[]) {
             // fail the closed-use proof and select the resumable ABI.
             expect(handler_only_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
-                   std::string_view::npos)
+                   luisa::string_view::npos)
                 << "large handler-only RayQuery did not retain native "
                    "synchronous traversal";
             expect(count_occurrences(
@@ -1059,18 +1061,18 @@ int main(int argc, char *argv[]) {
                    "an environment above the ordinary native budget";
             expect(observed_large_before_module.find(
                        "@luisa_ray_query_proceed(") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    observed_large_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "observable large RayQuery post-state did not fail closed "
                    "to the resumable traversal ABI";
             expect(full_candidate_large_before_module.find(
                        "@luisa_ray_query_proceed(") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    full_candidate_large_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "large full-candidate RayQuery did not fail closed to the "
                    "resumable traversal ABI";
 
@@ -1090,7 +1092,7 @@ int main(int argc, char *argv[]) {
                     "@luisa_pipeline_ray_query_trace_all_native_closest_stable_opacity(";
             expect(pure_reduction_before_root.find(
                        expected_pure_reduction_trace) !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    pure_reduction_before_module.find(
                        "@luisa_ray_query_proceed(") ==
                        std::string::npos)
@@ -1106,11 +1108,11 @@ int main(int argc, char *argv[]) {
                        std::string::npos &&
                    terminating_reduction_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_native_closest") ==
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    (!uses_gfx12_hardware_stack ||
                     terminating_reduction_before_root.find(
                         "@luisa_pipeline_ray_query_trace_all_stable_opacity(") ==
-                        std::string_view::npos))
+                        luisa::string_view::npos))
                 << "explicitly terminating RayQuery did not fail closed to "
                    "the resumable traversal ABI";
 
@@ -1123,26 +1125,26 @@ int main(int argc, char *argv[]) {
             // two simultaneous representations and selects exact state.
             expect(object_ray_before_root.find(
                        expected_pure_reduction_trace) !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    object_ray_before_root.find("i32 1024") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    object_ray_before_module.find(
                        "@luisa_pipeline_ray_query_dispatch_compact_object_ray(") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    object_ray_before_root.find(
                        "ray.query.identity.address") ==
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    object_ray_before_module.find(
                        "@luisa_ray_query_proceed(") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "procedural object-ray reduction did not retain the "
                    "split-mask native closest route and object-ray quotient";
             expect(joint_rays_before_module.find(
                        "@luisa_ray_query_proceed(") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    joint_rays_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_native_closest") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "one handler observing both ray spaces did not select "
                    "the exact resumable state domain";
 
@@ -1160,31 +1162,31 @@ int main(int argc, char *argv[]) {
                     "@luisa_pipeline_ray_query_trace_all_native_effect(";
             expect(effect_only_before_root.find(
                        expected_effect_only_trace) !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    effect_only_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_hardware_effect(") ==
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    effect_only_before_module.find(
                        "@luisa_ray_query_proceed(") ==
                        std::string::npos)
                 << "proven effect-only RayQueryAll did not select one "
                    "specialized candidate-effect traversal";
             expect(effect_commit_before_root.find(
-                       "native_effect") == std::string_view::npos &&
+                       "native_effect") == luisa::string_view::npos &&
                    effect_commit_before_root.find(
-                       "hardware_effect") == std::string_view::npos &&
+                       "hardware_effect") == luisa::string_view::npos &&
                    effect_commit_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all_stable_opacity(") !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "nested active-query commit did not reject native "
                    "effect-only enumeration";
             expect(effect_opacity_before_root.find(
-                       "native_effect") == std::string_view::npos &&
+                       "native_effect") == luisa::string_view::npos &&
                    effect_opacity_before_root.find(
-                       "hardware_effect") == std::string_view::npos &&
+                       "hardware_effect") == luisa::string_view::npos &&
                    effect_opacity_before_root.find(
                        "@luisa_pipeline_ray_query_trace_all(") !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "kernel-reachable opacity mutation did not retain the "
                    "exact mutable-opacity traversal";
 
@@ -1196,34 +1198,34 @@ int main(int argc, char *argv[]) {
             if (uses_gfx12_hardware_stack) {
                 expect(terminal_only_before_root.find(
                            "@luisa_pipeline_ray_query_trace_any_"
-                           "stable_opacity(") != std::string_view::npos &&
+                           "stable_opacity(") != luisa::string_view::npos &&
                        terminal_only_before_root.find(
-                           "native_terminal") == std::string_view::npos)
+                           "native_terminal") == luisa::string_view::npos)
                     << "isolated gfx12 terminal query abandoned its faster "
                        "single-frontier route";
             } else {
                 expect(terminal_only_before_root.find(
                            expected_terminal_trace) !=
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                     << "pre-gfx12 terminal query did not select native "
                        "AnyHit traversal";
             }
             expect(terminal_predicate_before_root.find(
-                       expected_terminal_trace) != std::string_view::npos &&
+                       expected_terminal_trace) != luisa::string_view::npos &&
                    terminal_predicate_before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") ==
-                       std::string_view::npos)
+                       luisa::string_view::npos)
                 << "hit-kind-only RayQueryAny did not select native terminal "
                    "AnyHit traversal";
             expect(terminal_full_hit_before_root.find(
                        "@luisa_pipeline_ray_query_trace_any_stable_opacity(") !=
-                       std::string_view::npos &&
+                       luisa::string_view::npos &&
                    terminal_full_hit_before_root.find(
-                       "native_terminal") == std::string_view::npos)
+                       "native_terminal") == luisa::string_view::npos)
                 << "RayQueryAny identity observation did not fail closed to "
                    "the complete committed-hit transaction";
             expect(terminal_mutable_opacity_before_root.find(
-                       expected_terminal_trace) != std::string_view::npos)
+                       expected_terminal_trace) != luisa::string_view::npos)
                 << "kernel-reachable opacity write rejected the live-opacity "
                    "native terminal traversal";
 
@@ -1242,13 +1244,13 @@ int main(int argc, char *argv[]) {
                        "resumable gfx12 RayQuery routes in one module";
                 expect(mixed_exact_state_domain.find(
                            "alloca [112 x i8]") !=
-                           std::string_view::npos &&
+                           luisa::string_view::npos &&
                        mixed_exact_state_domain.find(
                            "alloca [224 x i8]") ==
-                           std::string_view::npos &&
+                           luisa::string_view::npos &&
                        mixed_resumable_state_domain.find(
                            "alloca [224 x i8]") !=
-                           std::string_view::npos)
+                           luisa::string_view::npos)
                     << "mixed gfx12 RayQuery pipelines did not allocate one "
                        "ABI-consistent state representation per function";
                 expect(mixed_before_module.find(
@@ -1266,7 +1268,7 @@ int main(int argc, char *argv[]) {
             auto dumped_module_count = 0u;
             auto retained_vector_reduction = false;
             for (const auto &entry :
-                 std::filesystem::directory_iterator(dump_directory)) {
+                 luisa::filesystem::directory_iterator(dump_directory)) {
                 const auto filename =
                     entry.path().filename().string();
                 if (!filename.starts_with("hip_kernel_final_") ||
@@ -1304,14 +1306,14 @@ int main(int argc, char *argv[]) {
             expect(contains_dynamic_fp_operation(fast_root) &&
                    contains_dynamic_fp_operation(strict_root))
                 << "fast/strict regression kernel lost its dynamic FP work";
-            expect(fast_root.find(" fast ") != std::string_view::npos)
+            expect(fast_root.find(" fast ") != luisa::string_view::npos)
                 << "ShaderOption::enable_fast_math did not reach HIP LLVM IR";
-            expect(strict_root.find(" fast ") == std::string_view::npos)
+            expect(strict_root.find(" fast ") == luisa::string_view::npos)
                 << "strict HIP LLVM IR unexpectedly retained fast-math flags";
         };
 
-    std::filesystem::current_path(
+    luisa::filesystem::current_path(
         original_directory, filesystem_error);
-    std::filesystem::remove_all(
+    luisa::filesystem::remove_all(
         dump_directory, filesystem_error);
 }

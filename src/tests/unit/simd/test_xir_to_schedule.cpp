@@ -19,6 +19,8 @@
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "block_barrier.h"
 #include "xir_to_schedule.h"
@@ -44,7 +46,7 @@ namespace {
 
 [[nodiscard]] const simd::schedule::BasicBlock *find_block(
     const simd::schedule::Function &function,
-    std::string_view name) noexcept {
+    luisa::string_view name) noexcept {
     for (auto &&block : function.blocks()) {
         if (block.name == name) { return &block; }
     }
@@ -53,7 +55,7 @@ namespace {
 
 [[nodiscard]] const simd::schedule::Value *find_value(
     const simd::schedule::Function &function,
-    std::string_view name) noexcept {
+    luisa::string_view name) noexcept {
     for (auto &&value : function.values()) {
         if (value.name == name) { return &value; }
     }
@@ -1564,7 +1566,7 @@ void register_ray_query_pipeline_tests() {
             callable,
             {.logical_warp_width = 8u,
              .parameter_value_classes =
-                 std::span<const ValueClass>{}});
+                 luisa::span<const ValueClass>{}});
         expect(invalid_count.succeeded()) << diagnostics_text(invalid_count);
         std::array<ValueClass, 2u> too_many{
             ValueClass::varying, ValueClass::varying};

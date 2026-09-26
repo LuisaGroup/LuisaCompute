@@ -16,6 +16,9 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Transforms/Scalar/EarlyCSE.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -23,9 +26,9 @@ using namespace boost::ut::literals;
 
 namespace {
 
-[[nodiscard]] std::unique_ptr<llvm::Module> parse_module(
+[[nodiscard]] luisa::unique_ptr<llvm::Module> parse_module(
     llvm::LLVMContext &context,
-    std::string_view text) {
+    luisa::string_view text) {
     llvm::SMDiagnostic diagnostic;
     auto module = llvm::parseAssemblyString(text, diagnostic, context);
     if (!module) {
@@ -43,7 +46,7 @@ void run_hip_ipo_pipeline(llvm::Module &module) {
     llvm::ModuleAnalysisManager module_analyses;
     llvm::PassInstrumentationCallbacks instrumentation;
     llvm::PassBuilder builder{
-        nullptr, options, std::nullopt, &instrumentation};
+        nullptr, options, luisa::nullopt, &instrumentation};
     builder.registerModuleAnalyses(module_analyses);
     builder.registerCGSCCAnalyses(cgscc_analyses);
     builder.registerFunctionAnalyses(function_analyses);

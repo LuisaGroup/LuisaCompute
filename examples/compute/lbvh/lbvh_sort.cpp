@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::example::lbvh {
 
@@ -497,7 +498,7 @@ void LbvhRadixSort::sort_passes(Stream &stream, const Buffer<LbvhKey> &keys_a,
         } else {
             encode_multi_block_pass(commands, *in, *out, base, count, shift);
         }
-        std::swap(in, out);
+        luisa::swap(in, out);
     }
     if (_batched) { stream << commands.commit(); }
 }

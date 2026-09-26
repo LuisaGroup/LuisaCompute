@@ -2,6 +2,7 @@
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa {
 class BinaryIO;
@@ -328,7 +329,7 @@ public:
         return _create<Shader<N, Args...>>(shader_name);
     }
 
-    [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
+    [[nodiscard]] auto query(luisa::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);
     }
 

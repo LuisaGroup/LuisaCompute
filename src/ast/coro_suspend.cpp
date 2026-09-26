@@ -2,6 +2,7 @@
 
 #include <luisa/ast/coro_suspend.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute {
 namespace {
@@ -25,7 +26,7 @@ struct CoroSuspendExtensionStorage {
         LUISA_ASSERT(this->version != 0u,
                      "Coroutine suspend extension '{}' has reserved version 0.",
                      this->schema);
-        std::sort(this->attributes.begin(), this->attributes.end(),
+        luisa::sort(this->attributes.begin(), this->attributes.end(),
                   [](auto &&lhs, auto &&rhs) noexcept {
                       return lhs.name < rhs.name;
                   });

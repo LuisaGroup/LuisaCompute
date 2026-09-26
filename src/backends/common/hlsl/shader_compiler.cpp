@@ -5,6 +5,7 @@
 #include <luisa/vstl/string_utility.h>
 #include <luisa/core/logging.h>
 #include <luisa/vstl/spin_mutex.h>
+#include <luisa/core/stl/filesystem.h>
 #ifndef _WIN32
 #define WINAPI
 #endif
@@ -25,11 +26,11 @@ namespace {
 // deleted through the interface.
 class FileSystemIncludeHandler final : public IDxcIncludeHandler {
     IDxcUtils *_utils;
-    luisa::span<const std::filesystem::path> _include_dirs;
+    luisa::span<const luisa::filesystem::path> _include_dirs;
     std::atomic<ULONG> _ref_count{1};
 
     [[nodiscard]] bool try_load(
-        const std::filesystem::path &path,
+        const luisa::filesystem::path &path,
         IDxcBlob **ppIncludeSource) const {
         // The ate-open doubles as the existence test and the size probe.
         std::ifstream file{path, std::ios::in | std::ios::binary | std::ios::ate};
@@ -57,7 +58,7 @@ class FileSystemIncludeHandler final : public IDxcIncludeHandler {
 public:
     FileSystemIncludeHandler(
         IDxcUtils *utils,
-        luisa::span<const std::filesystem::path> include_dirs) noexcept
+        luisa::span<const luisa::filesystem::path> include_dirs) noexcept
         : _utils{utils}, _include_dirs{include_dirs} {}
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject) override {
@@ -116,7 +117,7 @@ IDxcLibrary *ShaderCompiler::library() const {
     return compiler_module.library;
 }
 ShaderCompiler::~ShaderCompiler() = default;
-ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path, bool is_spirv)
+ShaderCompilerModule::ShaderCompilerModule(luisa::filesystem::path const &path, bool is_spirv)
     : comp{nullptr},
       library{nullptr},
       utils{nullptr},
@@ -144,7 +145,7 @@ ShaderCompilerModule::~ShaderCompilerModule() {
     library->Release();
     comp->Release();
 }
-ShaderCompiler::ShaderCompiler(std::filesystem::path const &path, bool is_spirv)
+ShaderCompiler::ShaderCompiler(luisa::filesystem::path const &path, bool is_spirv)
     : compiler_module(path, is_spirv) {
 }
 CompileResult ShaderCompiler::compile(
@@ -222,7 +223,7 @@ CompileResult ShaderCompiler::compile_compute(
     bool spirv,
     bool debug,
     vstd::string_view entry_point,
-    luisa::span<const std::filesystem::path> include_dirs) const {
+    luisa::span<const luisa::filesystem::path> include_dirs) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");

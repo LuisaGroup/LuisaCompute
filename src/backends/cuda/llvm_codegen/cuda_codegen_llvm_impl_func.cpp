@@ -5,6 +5,8 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/pixel.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "../cuda_texture.h"
 #include "cuda_codegen_llvm_impl.h"
@@ -666,7 +668,7 @@ llvm::Function *CUDACodegenLLVMImpl::_get_texture3d_write_function(llvm::VectorT
     return llvm_func;
 }
 
-llvm::InlineAsm *CUDACodegenLLVMImpl::_get_inline_asm(std::string_view asm_string, std::string_view constraints, bool has_side_effects) noexcept {
+llvm::InlineAsm *CUDACodegenLLVMImpl::_get_inline_asm(luisa::string_view asm_string, luisa::string_view constraints, bool has_side_effects) noexcept {
     auto map_type = [this](char type) noexcept -> llvm::Type * {
         // "h" = .u16 reg
         // "r" = .u32 reg

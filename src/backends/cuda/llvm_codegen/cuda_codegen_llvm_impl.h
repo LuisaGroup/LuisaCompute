@@ -20,6 +20,9 @@
 #include <luisa/ast/type.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_codegen_llvm_config.h"
 
@@ -143,22 +146,22 @@ public:
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
 
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa.ray.query.world.space.ray";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_space_ray = "luisa.ray.query.object.space.ray";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa.ray.query.procedural.candidate.hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa.ray.query.surface.candidate.hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa.ray.query.committed.hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_surface_candidate = "luisa.ray.query.is.surface.candidate";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_procedural_candidate = "luisa.ray.query.is.procedural.candidate";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_is_terminated = "luisa.ray.query.is.terminated";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_commit_surface_hit = "luisa.ray.query.commit.surface.hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_commit_procedural_hit = "luisa.ray.query.commit.procedural.hit";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_state = "luisa.ray.query.state";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_initialize = "luisa.ray.query.initialize";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_spawn = "luisa.ray.query.spawn";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_proceed = "luisa.ray.query.proceed";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa.ray.query.dispatch";
-    static constexpr std::string_view llvm_ray_query_intrinsic_name_terminate = "luisa.ray.query.terminate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa.ray.query.world.space.ray";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_space_ray = "luisa.ray.query.object.space.ray";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa.ray.query.procedural.candidate.hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa.ray.query.surface.candidate.hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa.ray.query.committed.hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_surface_candidate = "luisa.ray.query.is.surface.candidate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_procedural_candidate = "luisa.ray.query.is.procedural.candidate";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_terminated = "luisa.ray.query.is.terminated";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_surface_hit = "luisa.ray.query.commit.surface.hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_procedural_hit = "luisa.ray.query.commit.procedural.hit";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_state = "luisa.ray.query.state";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_initialize = "luisa.ray.query.initialize";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_spawn = "luisa.ray.query.spawn";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_proceed = "luisa.ray.query.proceed";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa.ray.query.dispatch";
+    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_terminate = "luisa.ray.query.terminate";
 
 private:
     CUDACodegenLLVMConfig _config;
@@ -179,9 +182,9 @@ private:
     llvm::Type *_llvm_surface_hit_type{nullptr};        // { i32 inst_id, i32 prim_id, <2 x float> bary, float t }
     llvm::Type *_llvm_procedural_hit_type{nullptr};     // { i32 inst_id, i32 prim_id }
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
-    llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
+    llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
-    llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
+    llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
 
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>
@@ -221,7 +224,7 @@ private:
     void _initialize() noexcept;
     using LLVMModulePassManagerCallback = llvm::function_ref<void(llvm::ModulePassManager &)>;
     void _run_optimization_passes(LLVMModulePassManagerCallback callback = {}) noexcept;
-    void _dump_module(const std::filesystem::path &path) const noexcept;
+    void _dump_module(const luisa::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_ptx() const noexcept;
 
     /* the following methods are defined in cuda_codegen_llvm_impl_analysis.cpp */
@@ -263,7 +266,7 @@ private:
     [[nodiscard]] llvm::Function *_get_texture2d_write_function(llvm::VectorType *llvm_value_type) noexcept;
     [[nodiscard]] llvm::Function *_get_texture3d_read_function(llvm::VectorType *llvm_value_type) noexcept;
     [[nodiscard]] llvm::Function *_get_texture3d_write_function(llvm::VectorType *llvm_value_type) noexcept;
-    [[nodiscard]] llvm::InlineAsm *_get_inline_asm(std::string_view asm_string, std::string_view constraints, bool has_side_effects) noexcept;
+    [[nodiscard]] llvm::InlineAsm *_get_inline_asm(luisa::string_view asm_string, luisa::string_view constraints, bool has_side_effects) noexcept;
 
     /* the following methods are defined in cuda_codegen_llvm_impl_const.cpp */
     [[nodiscard]] llvm::Value *_get_llvm_literal(IB &b, const Type *type, const void *data) noexcept;

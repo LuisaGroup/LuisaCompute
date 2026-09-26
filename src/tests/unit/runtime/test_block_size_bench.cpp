@@ -28,6 +28,9 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include <algorithm>
 #include <chrono>
@@ -817,7 +820,7 @@ void print_markdown(const std::vector<BenchRow> &rows) {
     std::cout << std::endl;
 }
 
-void write_csv(const std::filesystem::path &path,
+void write_csv(const luisa::filesystem::path &path,
                const std::vector<BenchRow> &rows) {
     std::ofstream f(path, std::ios::trunc);
     if (!f) {
@@ -857,7 +860,7 @@ int main(int argc, char *argv[]) {
     // Optional --device-index N override.
     int device_index_override = -1;
     for (int i = 2; i < argc; ++i) {
-        if (std::string_view{argv[i]} == "--device-index" && i + 1 < argc) {
+        if (luisa::string_view{argv[i]} == "--device-index" && i + 1 < argc) {
             device_index_override = std::atoi(argv[i + 1]);
         }
     }
@@ -876,7 +879,7 @@ int main(int argc, char *argv[]) {
     } else {
         for (size_t i = 0; i < names.size(); ++i) {
             std::string lower{names[i]};
-            std::transform(lower.begin(), lower.end(), lower.begin(),
+            luisa::transform(lower.begin(), lower.end(), lower.begin(),
                            [](unsigned char c) { return std::tolower(c); });
             if (is_discrete_gpu_name(lower)) {
                 device_index = static_cast<uint32_t>(i);
@@ -972,8 +975,8 @@ int main(int argc, char *argv[]) {
     print_markdown(bc.rows);
 
     std::error_code ec;
-    std::filesystem::create_directories(k_results_dir, ec);
-    auto csv_path = std::filesystem::path{k_results_dir} /
+    luisa::filesystem::create_directories(k_results_dir, ec);
+    auto csv_path = luisa::filesystem::path{k_results_dir} /
                     (backend + "_block_size_bench.csv");
     write_csv(csv_path, bc.rows);
 

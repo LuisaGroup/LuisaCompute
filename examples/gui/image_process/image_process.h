@@ -355,23 +355,23 @@ struct PixelDiffStats {
 };
 
 /// Lower cased extension of a path, including the leading dot ("" if none).
-[[nodiscard]] luisa::string lower_extension(std::string_view path) noexcept;
+[[nodiscard]] luisa::string lower_extension(luisa::string_view path) noexcept;
 
 /// All extensions accepted by the loader (stb_image).
-[[nodiscard]] bool is_supported_load_extension(std::string_view extension) noexcept;
+[[nodiscard]] bool is_supported_load_extension(luisa::string_view extension) noexcept;
 /// Extensions the example can write (stb_image_write).
-[[nodiscard]] bool is_supported_save_extension(std::string_view extension) noexcept;
+[[nodiscard]] bool is_supported_save_extension(luisa::string_view extension) noexcept;
 
 /// Decode an image from memory (any stb_image format) into RGBA float pixels.
 [[nodiscard]] bool decode_image(luisa::span<const std::byte> bytes, ImageData &image,
                                 luisa::string &error) noexcept;
 
 /// Load an image from disk (UTF-8 path).
-[[nodiscard]] bool load_image_file(std::string_view utf8_path, ImageData &image,
+[[nodiscard]] bool load_image_file(luisa::string_view utf8_path, ImageData &image,
                                    luisa::string &error) noexcept;
 
 /// Encode RGBA float pixels into an image file format (extension decides).
-[[nodiscard]] bool encode_image(std::string_view extension, luisa::span<const float> rgba,
+[[nodiscard]] bool encode_image(luisa::string_view extension, luisa::span<const float> rgba,
                                 uint32_t width, uint32_t height,
                                 luisa::vector<std::byte> &bytes,
                                 luisa::string &error) noexcept;
@@ -383,7 +383,7 @@ struct PixelDiffStats {
                                         luisa::string &error) noexcept;
 
 /// Save RGBA float pixels to disk (UTF-8 path, extension decides the format).
-[[nodiscard]] bool save_image_file(std::string_view utf8_path, luisa::span<const float> rgba,
+[[nodiscard]] bool save_image_file(luisa::string_view utf8_path, luisa::span<const float> rgba,
                                    uint32_t width, uint32_t height,
                                    luisa::string &error) noexcept;
 
@@ -398,6 +398,6 @@ struct PixelDiffStats {
 /// Runs the headless test suite: every writable image format is generated with
 /// stb itself, loaded, processed on the device and saved again; operator chains
 /// are validated against the CPU reference. Returns the number of failures.
-[[nodiscard]] int run_headless_tests(Device &device, std::string_view output_directory) noexcept;
+[[nodiscard]] int run_headless_tests(Device &device, luisa::string_view output_directory) noexcept;
 
 }// namespace image_process

@@ -27,6 +27,7 @@
 #include "MTLHeaderBridge.hpp"
 #include "MTLPrivate.hpp"
 #include "MTLTypes.hpp"
+#include <luisa/core/stl/functional.h>
 
 namespace MTL
 {
@@ -115,7 +116,7 @@ _MTL_ENUM(NS::UInteger, LibraryError) {
 };
 
 using AutoreleasedArgument = MTL::Argument*;
-using FunctionCompletionHandlerFunction = std::function<void(MTL::Function* pFunction, NS::Error* pError)>;
+using FunctionCompletionHandlerFunction = luisa::function<void(MTL::Function* pFunction, NS::Error* pError)>;
 
 class VertexAttribute : public NS::Referencing<VertexAttribute>
 {

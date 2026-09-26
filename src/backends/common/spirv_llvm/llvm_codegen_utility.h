@@ -10,6 +10,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/core/stl/memory.h>
 
 #include "llvm_codegen_result.h"
 
@@ -59,9 +60,9 @@ public:
         const ShaderOption &option);
 
 private:
-    std::unique_ptr<llvm::LLVMContext> _context;
-    std::unique_ptr<llvm::Module> _module;
-    std::unique_ptr<llvm::IRBuilder<>> _builder;
+    luisa::unique_ptr<llvm::LLVMContext> _context;
+    luisa::unique_ptr<llvm::Module> _module;
+    luisa::unique_ptr<llvm::IRBuilder<>> _builder;
 
     // Current function being codegen'd (set during CodegenFunction)
     llvm::Function *_current_function{nullptr};
@@ -140,7 +141,7 @@ public:
 
 private:
     // LLVM SPIRV target machine
-    std::unique_ptr<llvm::TargetMachine> _target_machine;
+    luisa::unique_ptr<llvm::TargetMachine> _target_machine;
 };
 
 } // namespace lc::llvm_codegen

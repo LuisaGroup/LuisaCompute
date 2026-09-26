@@ -3,6 +3,7 @@
 #include "../runtime/simd_embree.h"
 
 #include <array>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute::simd::detail {
 
@@ -711,7 +712,7 @@ void ScheduleEmitter::_accel_motion_write(
         return;
     }
 
-    std::function<void(
+    luisa::function<void(
         ::llvm::Value *, const Type *, ::llvm::Value *, size_t)>
         store_uniform;
     store_uniform = [&](::llvm::Value *base, const Type *type,

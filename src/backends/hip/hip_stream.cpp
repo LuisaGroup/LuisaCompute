@@ -10,6 +10,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/pool.h>
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/string.h>
 
 #include "hip_check.h"
 #include "hip_device.h"
@@ -112,7 +113,7 @@ HIPStream::HIPStream(HIPDevice *device) noexcept
     _create_callback_semaphore();
     _spawn_callback_thread();
     if (auto env = std::getenv("LUISA_HIP_PROFILE"); env != nullptr) {
-        _profiling_enabled = (std::string_view{env} == "1" || std::string_view{env} == "true");
+        _profiling_enabled = (luisa::string_view{env} == "1" || luisa::string_view{env} == "true");
         if (_profiling_enabled) {
             LUISA_INFO("HIP stream profiling enabled (LUISA_HIP_PROFILE=1).");
         }

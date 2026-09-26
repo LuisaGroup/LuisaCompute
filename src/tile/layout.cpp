@@ -7,6 +7,8 @@
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/layout.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::tile {
 
@@ -212,7 +214,7 @@ private:
         // cancel it. In particular, 0 * (1 / 0) is not the constant zero map.
         if (!lhs || !rhs) { return luisa::nullopt; }
         if (node->kind == IndexExprKind::MULTIPLY) {
-            if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+            if (!rhs->is_constant()) { luisa::swap(lhs, rhs); }
             if (!rhs->is_constant()) { return luisa::nullopt; }
             auto factor = rhs->offset;
             auto offset = checked_multiply(lhs->offset, factor);
@@ -322,7 +324,7 @@ private:
         // multiplication by zero must not erase an undefined computation.
         if (!lhs || !rhs) { return luisa::nullopt; }
         if (lhs->is_constant() && rhs->is_constant()) {
-            auto value = evaluate_binary(node->kind, std::bit_cast<int64_t>(lhs->offset), std::bit_cast<int64_t>(rhs->offset));
+            auto value = evaluate_binary(node->kind, luisa::bit_cast<int64_t>(lhs->offset), luisa::bit_cast<int64_t>(rhs->offset));
             return value ? luisa::optional<BitLinearForm>{_constant(static_cast<uint64_t>(*value))} : luisa::nullopt;
         }
         switch (node->kind) {
@@ -336,7 +338,7 @@ private:
                 for (auto i = 0u; i < lhs->columns.size(); i++) { lhs->columns[i] ^= rhs->columns[i]; }
                 return lhs;
             case IndexExprKind::BIT_AND:
-                if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+                if (!rhs->is_constant()) { luisa::swap(lhs, rhs); }
                 if (!rhs->is_constant()) { return luisa::nullopt; }
                 return _transform(std::move(*lhs), [mask = rhs->offset](auto value) noexcept { return value & mask; });
             case IndexExprKind::SHIFT_LEFT:
@@ -348,7 +350,7 @@ private:
                 });
             }
             case IndexExprKind::MULTIPLY: {
-                if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+                if (!rhs->is_constant()) { luisa::swap(lhs, rhs); }
                 if (!rhs->is_constant()) { return luisa::nullopt; }
                 auto factor = rhs->offset;
                 if (factor == 0u) { return _constant(0u); }
@@ -464,7 +466,7 @@ public:
         auto pivot = rank;
         while (pivot < matrix.size() && matrix[pivot][column] == 0u) { pivot++; }
         if (pivot == matrix.size()) { continue; }
-        std::swap(matrix[rank], matrix[pivot]);
+        luisa::swap(matrix[rank], matrix[pivot]);
         auto inverse = power(matrix[rank][column], prime - 2u);
         for (auto row = rank + 1u; row < matrix.size(); row++) {
             auto factor = matrix[row][column] * inverse % prime;
@@ -556,7 +558,7 @@ public:
         for (auto &&axis : space.axes()) {
             if (axis.extent.constant_value() != 1u) { result.emplace_back(axis.extent.constant_value()); }
         }
-        std::sort(result.begin(), result.end());
+        luisa::sort(result.begin(), result.end());
         return result;
     };
     return extents(lhs) == extents(rhs);
@@ -1038,7 +1040,7 @@ LayoutCorrespondenceProperties LayoutCorrespondence::analyze_finite(uint64_t max
         placements.emplace_back(*logical_linear, *physical_linear);
     }
     if (properties.total) {
-        std::sort(placements.begin(), placements.end());
+        luisa::sort(placements.begin(), placements.end());
         placements.erase(std::unique(placements.begin(), placements.end()), placements.end());
         luisa::vector<uint64_t> multiplicity(*logical_volume, 0u);
         for (auto &&placement : placements) { multiplicity[placement.first]++; }

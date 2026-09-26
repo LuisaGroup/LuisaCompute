@@ -86,14 +86,14 @@ private:
     // desired public instance table. A buffer-only update must keep the old
     // payload alive until the following ordinary build detaches or replaces
     // its user geometry.
-    luisa::vector<luisa::unique_ptr<SIMDSRTMotionForwarder>>
+    luisa::vector<std::unique_ptr<SIMDSRTMotionForwarder>>
         _motion_forwarders;
     // Primitive kinds and last-built opacity for the committed Embree scene.
     // This remains at the committed geometry count across buffer-only
     // resize/rebind commands; current in-range opacity still comes directly
     // from the public table.
     luisa::vector<SIMDHostAccelCommittedInstance> _committed_instances;
-    luisa::vector<luisa::unique_ptr<MotionState>> _motion_states;
+    luisa::vector<std::unique_ptr<MotionState>> _motion_states;
     SIMDHostAccelInstanceTable _instance_table{
         .ray_query_proceed_status = simd_host_ray_query_proceed_status,
         .ray_query_proceed_wide_status = simd_host_ray_query_proceed_status};

@@ -16,6 +16,8 @@
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/functional.h>
+#include <luisa/core/stl/optional.h>
 
 #include "execution.h"
 
@@ -36,10 +38,10 @@ using BufferKey = const tvm::tirx::VarNode *;
            std::min(elements % stride, lane_elements);
 }
 
-[[nodiscard]] std::optional<uint64_t> static_extent(
+[[nodiscard]] luisa::optional<uint64_t> static_extent(
     const tvm::PrimExpr &expression, bool positive = false) noexcept {
     auto value = expression.as<tvm::IntImmNode>();
-    if (value == nullptr || value->value < (positive ? 1 : 0)) { return std::nullopt; }
+    if (value == nullptr || value->value < (positive ? 1 : 0)) { return luisa::nullopt; }
     return static_cast<uint64_t>(value->value);
 }
 
@@ -81,23 +83,23 @@ struct ElementDomain {
     uint64_t count{1u};
 };
 
-[[nodiscard]] std::optional<ElementDomain> element_domain(
+[[nodiscard]] luisa::optional<ElementDomain> element_domain(
     const tvm::tirx::ForNode *outer) noexcept {
     auto annotation = outer->annotations.Get(independent_elements_annotation);
     auto rank = annotation ? annotation.value().as<tvm::IntImmNode>() : nullptr;
-    if (rank == nullptr || rank->value <= 0) { return std::nullopt; }
+    if (rank == nullptr || rank->value <= 0) { return luisa::nullopt; }
     ElementDomain result;
     auto loop = outer;
     for (auto i = int64_t{0}; i < rank->value; i++) {
         if (loop == nullptr || !unit_serial_loop(loop) ||
             (i != 0 && !loop->annotations.empty()) ||
             loop->min.as<tvm::IntImmNode>() == nullptr) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto extent = static_extent(loop->extent);
         if (!extent || (*extent != 0u &&
                         result.count > std::numeric_limits<uint64_t>::max() / *extent)) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         result.count *= *extent;
         result.axes.emplace_back(loop);
@@ -123,7 +125,7 @@ struct StripedMaterialization {
     uint64_t elements{0u};
 };
 
-[[nodiscard]] std::optional<StripedMaterialization>
+[[nodiscard]] luisa::optional<StripedMaterialization>
 match_striped_materialization(const tvm::tirx::ForNode *outer) {
     auto contract =
         outer->annotations.Get(materialized_pure_tile_annotation);
@@ -131,12 +133,12 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
     auto domain = element_domain(outer);
     if (version == nullptr || version->value != 1 || !domain ||
         outer->annotations.size() != 2u) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto store = domain->body.as<tvm::tirx::BufferStoreNode>();
     if (store == nullptr || store->predicate ||
         store->indices.size() != domain->axes.size()) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto buffer = store->buffer;
     auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
@@ -146,7 +148,7 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
         !buffer->strides.empty() || buffer->layout ||
         !buffer->allocated_addr.empty() || offset == nullptr ||
         offset->value != 0) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto equal = tvm::ffi::StructuralEqual{};
     auto elements = uint64_t{1u};
@@ -156,7 +158,7 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
         if (!dimension || !extent || *dimension != *extent ||
             !equal(store->indices[i], domain->axes[i]->loop_var) ||
             elements > std::numeric_limits<uint64_t>::max() / *dimension) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         elements *= *dimension;
     }
@@ -176,7 +178,7 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
                                       pure &= variable != buffer.get();
                                   }
                               });
-    if (!pure || elements != domain->count) { return std::nullopt; }
+    if (!pure || elements != domain->count) { return luisa::nullopt; }
     return StripedMaterialization{
         std::move(buffer), store, elements};
 }
@@ -206,7 +208,7 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
     return valid;
 }
 
-[[nodiscard]] std::optional<ReductionMatch> match_reduction(
+[[nodiscard]] luisa::optional<ReductionMatch> match_reduction(
     const tvm::tirx::ForNode *loop) {
     auto contract = loop->annotations.Get(reduction_contract_annotation);
     auto kind = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
@@ -218,12 +220,12 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
          kind->value != reduction_min_contract) ||
         !unit_serial_loop(loop) || minimum == nullptr || minimum->value != 0 ||
         !elements || loop->loop_var.ty() != tvm::PrimType::Int(64)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     tvm::ffi::Array<tvm::tirx::Stmt> statements;
     flatten_sequence(loop->body, statements);
-    if (statements.size() != 3u) { return std::nullopt; }
+    if (statements.size() != 3u) { return luisa::nullopt; }
     auto temporary_allocation = statements[0u].as<tvm::tirx::AllocBufferNode>();
     auto combine_store = statements[1u].as<tvm::tirx::BufferStoreNode>();
     auto update_store = statements[2u].as<tvm::tirx::BufferStoreNode>();
@@ -234,30 +236,30 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
         !combine_store->buffer.same_as(temporary_allocation->buffer) ||
         !zero_index(combine_store->indices) || !zero_index(update_store->indices) ||
         !compact_local_scalar(update_store->buffer)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto forwarded = update_store->value.as<tvm::tirx::BufferLoadNode>();
     if (forwarded == nullptr || forwarded->predicate ||
         !forwarded->buffer.same_as(temporary_allocation->buffer) ||
         !zero_index(forwarded->indices)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
 
     tvm::PrimExpr lhs;
     tvm::PrimExpr rhs;
     if (kind->value == reduction_add_contract) {
         auto combine = combine_store->value.as<tvm::tirx::AddNode>();
-        if (combine == nullptr) { return std::nullopt; }
+        if (combine == nullptr) { return luisa::nullopt; }
         lhs = combine->a;
         rhs = combine->b;
     } else if (kind->value == reduction_max_contract) {
         auto combine = combine_store->value.as<tvm::tirx::MaxNode>();
-        if (combine == nullptr) { return std::nullopt; }
+        if (combine == nullptr) { return luisa::nullopt; }
         lhs = combine->a;
         rhs = combine->b;
     } else {
         auto combine = combine_store->value.as<tvm::tirx::MinNode>();
-        if (combine == nullptr) { return std::nullopt; }
+        if (combine == nullptr) { return luisa::nullopt; }
         lhs = combine->a;
         rhs = combine->b;
     }
@@ -273,10 +275,10 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
     } else if (is_carry(rhs)) {
         contribution = lhs;
     } else {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     if (!pure_contribution(contribution, carry, temporary_allocation->buffer)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return ReductionMatch{std::move(carry), std::move(contribution),
                           update_store, nullptr, nullptr, kind->value, *elements};
@@ -580,7 +582,7 @@ private:
     const ReductionAnalysis &_reductions;
     const luisa::unordered_map<BufferKey, StripedMaterialization> &_candidates;
     luisa::vector<const tvm::tirx::ForNode *> _domain;
-    std::optional<tvm::PrimExpr> _owner;
+    luisa::optional<tvm::PrimExpr> _owner;
 
     [[nodiscard]] bool _owned_access(
         const StripedMaterialization &candidate,
@@ -849,7 +851,7 @@ class DistributedLocalAudit final : public tvm::tirx::StmtExprVisitor {
 private:
     const ReductionAnalysis &_reductions;
     luisa::vector<const tvm::tirx::ForNode *> _domain;
-    std::optional<tvm::PrimExpr> _owner;
+    luisa::optional<tvm::PrimExpr> _owner;
     luisa::unordered_map<BufferKey, DistributedLocalAccess> _access;
 
     [[nodiscard]] static bool _requires_ownership(
@@ -962,7 +964,7 @@ private:
                                tvm::tirx::BufferVar> &_partials;
     const luisa::unordered_map<BufferKey, tvm::tirx::BufferVar>
         &_striped_buffers;
-    std::optional<tvm::PrimExpr> _striped_slot;
+    luisa::optional<tvm::PrimExpr> _striped_slot;
     uint32_t _lane_depth{0u};
 
     [[nodiscard]] tvm::tirx::Stmt _stripe_loop(const tvm::tirx::PrimVar &chunk, uint64_t chunks,
@@ -1259,7 +1261,7 @@ struct ReductionTileMatch {
     const tvm::tirx::BufferStoreNode *output;
 };
 
-[[nodiscard]] std::optional<ReductionTileMatch> match_reduction_tile(const tvm::tirx::For &loop) {
+[[nodiscard]] luisa::optional<ReductionTileMatch> match_reduction_tile(const tvm::tirx::For &loop) {
     auto domain = element_domain(loop.get());
     if (!domain || domain->count == 0u || domain->count > INT64_MAX ||
         loop->annotations.size() != 1u) { return {}; }
@@ -1281,14 +1283,14 @@ struct ReductionTileMatch {
 
 }// namespace
 
-std::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop) {
+luisa::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop) {
     auto match = match_reduction_tile(loop);
-    return match ? std::optional{match->domain.count} : std::nullopt;
+    return match ? luisa::optional{match->domain.count} : luisa::nullopt;
 }
 
 tvm::tirx::Stmt try_metal_reduction_tile(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
     if (threads < subgroup_size || threads % subgroup_size != 0u) { return {}; }
     auto tile = match_reduction_tile(loop);
     if (!tile) { return {}; }
@@ -1302,16 +1304,16 @@ tvm::tirx::Stmt try_metal_reduction_tile(
     // Independence of distinct outputs is the enclosing element contract.
     class AccessMapper final : public tvm::tirx::StmtExprMutator {
     private:
-        const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &_map;
+        const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &_map;
     protected:
         tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
             return tvm::tirx::BufferLoad{_map(load->buffer),
                                          load->indices.Map([this](auto &&index) { return VisitPrimExpr(index); }),
-                                         load->predicate ? tvm::ffi::Optional<tvm::PrimExpr>{VisitPrimExpr(load->predicate.value())} : std::nullopt,
+                                         load->predicate ? tvm::ffi::Optional<tvm::PrimExpr>{VisitPrimExpr(load->predicate.value())} : luisa::nullopt,
                                          load->span};
         }
     public:
-        explicit AccessMapper(const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map) noexcept : _map{map} {}
+        explicit AccessMapper(const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map) noexcept : _map{map} {}
         tvm::PrimExpr expression(const tvm::PrimExpr &value) { return VisitPrimExpr(value); }
     } mapper{map_buffer};
 

@@ -17,6 +17,8 @@
 #include <luisa/core/logging.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/special_register.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 #include "../../common/env_flag.h"
 
@@ -270,7 +272,7 @@ void apply_packet_wrapper_abi_attributes(
     auto *block_size64 = ::llvm::ConstantInt::get(
         i64_type, static_block_size_x);
     auto load_launch_u32 = [&](size_t offset,
-                               std::string_view value_name) {
+                               luisa::string_view value_name) {
         auto *address = builder.CreateConstInBoundsGEP1_64(
             i8_type, launch_config, offset,
             std::string{value_name} + ".address");
@@ -278,7 +280,7 @@ void apply_packet_wrapper_abi_attributes(
             i32_type, address, std::string{value_name});
     };
     auto minimum = [&](::llvm::Value *lhs, ::llvm::Value *rhs,
-                       std::string_view value_name) {
+                       luisa::string_view value_name) {
         return builder.CreateSelect(
             builder.CreateICmpULT(lhs, rhs), lhs, rhs,
             std::string{value_name});
@@ -533,7 +535,7 @@ void apply_packet_wrapper_abi_attributes(
             context, "block.batch.generic.prologue", block_entry);
         ::llvm::IRBuilder<> builder{guard};
         auto address = [&](size_t offset,
-                           std::string_view value_name) {
+                           luisa::string_view value_name) {
             return builder.CreateConstInBoundsGEP1_64(
                 i8_type, launch_config, offset, value_name);
         };
@@ -596,7 +598,7 @@ void apply_packet_wrapper_abi_attributes(
                              context, "block.batch.prologue", block_entry) :
                          generic_prologue;
     ::llvm::IRBuilder<> builder{prologue};
-    auto address = [&](size_t offset, std::string_view value_name) {
+    auto address = [&](size_t offset, luisa::string_view value_name) {
         return builder.CreateConstInBoundsGEP1_64(
             i8_type, launch_config, offset, value_name);
     };
@@ -696,7 +698,7 @@ void apply_packet_wrapper_abi_attributes(
 
 LLVMScheduleCodegenResult lower_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name,
+    uint32_t specialization_width, luisa::string_view entry_name,
     bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
@@ -707,7 +709,7 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_packet_batch_entry,
     bool enable_inlined_packet_batch,
     bool enable_block_batch_entry,
-    std::span<const LLVMSIMDRayQueryPipelineHandlers>
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
         ray_query_pipeline_handlers,
     size_t print_format_id_base,
     bool enable_native_vector_compress,
@@ -953,7 +955,7 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
 LLVMScheduleCodegenResult
 lower_ray_query_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name,
+    uint32_t specialization_width, luisa::string_view entry_name,
     bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,
@@ -970,7 +972,7 @@ lower_ray_query_handler_schedule_to_llvm(
 LLVMScheduleCodegenResult
 lower_ray_query_surface_filter_handler_schedule_to_llvm(
     ::llvm::Module &module, const schedule::Function &function,
-    uint32_t specialization_width, std::string_view entry_name,
+    uint32_t specialization_width, luisa::string_view entry_name,
     bool enable_fast_math,
     std::array<uint32_t, 3u> static_block_size,
     bool enable_uniform_buffer_broadcast,

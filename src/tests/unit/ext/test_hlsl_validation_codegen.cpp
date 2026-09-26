@@ -5,6 +5,8 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/dsl/raster/raster_kernel.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include "hlsl_codegen.h"
 #include "atomic_codegen_policy.h"
@@ -61,13 +63,13 @@ namespace {
 
 [[nodiscard]] bool contains(
     luisa::string_view text,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     return text.find(needle) != luisa::string_view::npos;
 }
 
 [[nodiscard]] size_t count_substring(
     luisa::string_view text,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     size_t count = 0u;
     for (auto offset = size_t{0u};;) {
         auto position = text.find(needle, offset);
@@ -86,7 +88,7 @@ namespace {
 
 [[nodiscard]] bool calls_have_arity(
     luisa::string_view text,
-    std::string_view name,
+    luisa::string_view name,
     size_t expected_arity,
     size_t expected_count,
     bool exact_identifier = true) noexcept {
@@ -168,7 +170,7 @@ struct DxcSpirvAtomicFacts {
 
 [[nodiscard]] DxcSpirvAtomicFacts compile_and_inspect_dxc_spirv(
     luisa::string_view source,
-    const std::filesystem::path &runtime_directory) {
+    const luisa::filesystem::path &runtime_directory) {
     DxcSpirvAtomicFacts facts;
     lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
     auto compiled = compiler.compile_compute(
@@ -279,7 +281,7 @@ int main(int argc, char *argv[]) {
         expect(contains(integer_program, "InterlockedAdd("));
         auto dxc = compile_and_inspect_dxc_spirv(
             integer_program,
-            std::filesystem::path{argv[0]}.parent_path());
+            luisa::filesystem::path{argv[0]}.parent_path());
         expect(dxc.compiled) << dxc.error;
         expect(dxc.validated) << dxc.error;
         expect(dxc.integer_add_count > 0u);

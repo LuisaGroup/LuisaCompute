@@ -4,6 +4,7 @@
 
 #include <luisa/core/stl/functional.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/core/stl/string.h>
 #include "../common/default_binary_io.h"
 #include "../common/rtx/fallback_rtx.h"
 #include "cuda_error.h"
@@ -120,7 +121,7 @@ public:
         Handle(const Handle &) noexcept = delete;
         Handle &operator=(Handle &&) noexcept = delete;
         Handle &operator=(const Handle &) noexcept = delete;
-        [[nodiscard]] std::string_view name() const noexcept;
+        [[nodiscard]] luisa::string_view name() const noexcept;
         [[nodiscard]] auto index() const noexcept { return _device_index; }
         [[nodiscard]] auto handle_uuid() const noexcept { return _uuid; }
         [[nodiscard]] auto device() const noexcept { return _device; }

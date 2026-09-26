@@ -5,6 +5,7 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include "metal_device.h"
 #include "metal_buffer.h"
@@ -577,7 +578,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
 [[nodiscard]] DStorageExt::FileCreationInfo MetalDStorageExt::open_file_handle(luisa::string_view path) noexcept {
     return with_autorelease_pool([=, this] {
         std::error_code ec;
-        auto size = std::filesystem::file_size(path, ec);
+        auto size = luisa::filesystem::file_size(path, ec);
         if (ec) {
             LUISA_WARNING_WITH_LOCATION(
                 "Failed to open file handle (path: {}): {}",
