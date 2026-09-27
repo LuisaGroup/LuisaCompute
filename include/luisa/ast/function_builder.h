@@ -36,10 +36,17 @@ class CurveBasisSet;
 namespace luisa::compute::detail {
 
 class FunctionDuplicator;
+class FunctionDebugger;
+
+/// Defined in function_builder_debugger.cpp: applies the debug generator to a
+/// kernel when the LUISA_AST_DEBUG_KERNEL environment flag is set, and returns
+/// the function unchanged otherwise (see define_kernel).
+[[nodiscard]] LUISA_AST_API luisa::shared_ptr<const FunctionBuilder>
+debug_function_if_enabled(luisa::shared_ptr<const FunctionBuilder> f) noexcept;
 
 /**
  * @brief %Function builder.
- * 
+ *
  * Build kernel or callable function
  */
 class LUISA_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
@@ -48,6 +55,7 @@ class LUISA_AST_API FunctionBuilder : public luisa::enable_shared_from_this<Func
     friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
     friend class FunctionDuplicator;
+    friend class FunctionDebugger;
 
 public:
     /**
@@ -281,7 +289,11 @@ public:
     template<typename Def>
     static auto define_kernel(Def &&def) {
         auto k = _define(Function::Tag::KERNEL, std::forward<Def>(def));
-        return k->_duplicate_if_necessary();
+        auto f = k->_duplicate_if_necessary();
+        // Opt-in debug generator (see function_builder_debugger.h): rewrites
+        // the kernel so failing operations print a diagnostic and stop the
+        // thread. Enabled through LUISA_AST_DEBUG_KERNEL=1; a no-op otherwise.
+        return debug_function_if_enabled(std::move(f));
     }
 
     /// Define a callable function with given definition

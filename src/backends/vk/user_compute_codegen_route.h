@@ -19,6 +19,7 @@ enum class UserComputeHlslFallbackReason : uint32_t {
     FALLBACK_RTX = 1u << 2u,
     ASYNC_COPY = 1u << 3u,
     MOTION_BLUR = 1u << 4u,
+    ACCEL_SIZE = 1u << 5u,
 };
 
 using UserComputeHlslFallbackReasonMask = uint32_t;
@@ -28,6 +29,12 @@ struct UserComputeCodegenRequirements {
     bool printing{};
     bool async_copy{};
     bool motion_blur{};
+    // The kernel queries `accel.size()` (CallOp::ACCEL_SIZE): the native
+    // XIR-to-SPIR-V route has no such instruction, so the kernel takes the
+    // compatibility HLSL route, where the query reads a host-injected
+    // validation slot (one `uint32` per validation resource in the argument
+    // block trailer, see `Shader::validation_count()`).
+    bool accel_size{};
     // The device answers ray tracing with the software fallback
     // (`VulkanDeviceConfigExt::use_fallback_rtx()` or a physical device without
     // hardware ray tracing) *and* this kernel traces rays. The traversal of a
@@ -104,6 +111,8 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::ASYNC_COPY);
     add(requirements.motion_blur,
         UserComputeHlslFallbackReason::MOTION_BLUR);
+    add(requirements.accel_size,
+        UserComputeHlslFallbackReason::ACCEL_SIZE);
     return {.hlsl_fallback_reasons = reasons};
 }
 
@@ -122,6 +131,8 @@ user_compute_hlsl_fallback_reason_name(
             return "async copy"sv;
         case UserComputeHlslFallbackReason::MOTION_BLUR:
             return "motion blur"sv;
+        case UserComputeHlslFallbackReason::ACCEL_SIZE:
+            return "accel size"sv;
     }
     return "unknown"sv;
 }

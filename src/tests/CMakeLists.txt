@@ -1326,7 +1326,8 @@ luisa_compute_add_test(test_xir_pass_mutation_safety unit/xir/test_xir_pass_muta
 # =============================================================================
 
 # --- integration/runtime: standalone tests ---
-luisa_compute_add_test(test_device_debugger         integration/runtime/test_device_debugger.cpp)
+luisa_compute_add_test(test_device_debugger integration/runtime/test_device_debugger.cpp)
+luisa_compute_add_test(test_function_debugger integration/runtime/test_function_debugger.cpp)
 luisa_compute_add_test(test_dstorage_decompression  integration/runtime/test_dstorage_decompression.cpp)
 luisa_compute_add_test(test_procedural_callable      integration/runtime/test_procedural_callable.cpp)
 if (TARGET luisa-compute-backend-metal4)

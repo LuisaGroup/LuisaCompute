@@ -1664,6 +1664,7 @@ void CUDACodegenXIR::_emit_resource_query_inst(const xir::ResourceQueryInst *ins
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY: _scratch << (_fallback_rtx ? "lc_fallback_trace_any" : "lc_accel_trace_any"); break;
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
+        case xir::ResourceQueryOp::ACCEL_SIZE: _scratch << (_fallback_rtx ? "lc_fallback_accel_instance_count" : "lc_accel_instance_count"); break;
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_instance_motion_matrix"; break;
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT: _scratch << "lc_accel_instance_motion_srt"; break;
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: _scratch << "lc_accel_trace_closest_motion_blur"; break;

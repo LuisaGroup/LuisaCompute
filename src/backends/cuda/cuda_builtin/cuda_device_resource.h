@@ -1387,7 +1387,10 @@ struct alignas(16) LCAccelInstance {
 struct alignas(16u) LCAccel {
     unsigned long long handle;
     LCAccelInstance *instances;
+    lc_uint instance_count;
 };
+
+static_assert(sizeof(LCAccel) == 32u, "LCAccel size mismatch");
 
 template<typename T>
 [[nodiscard]] __device__ T *lc_instance_motion_data(LCAccel accel, lc_uint inst_index, lc_uint key_index) noexcept {
@@ -1467,6 +1470,10 @@ __device__ void lc_accel_set_instance_motion_srt(LCAccel accel, lc_uint inst_ind
     data.ty = srt.m4[1];
     data.tz = srt.m4[2];
     *lc_instance_motion_data<LCSRTData>(accel, inst_index, key_index) = data;
+}
+
+[[nodiscard]] __device__ lc_uint lc_accel_instance_count(LCAccel accel) noexcept {
+    return accel.instance_count;
 }
 
 [[nodiscard]] __device__ auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
@@ -2676,9 +2683,9 @@ __device__ void lc_byte_buffer_volatile_write(LCBuffer<lc_ubyte> buffer, lc_ulon
     __threadfence();
 }
 
-[[nodiscard]] __device__ auto lc_byte_buffer_size(LCBuffer<const lc_byte> buffer) noexcept {
-    return lc_buffer_size(buffer);
-}
+  [[nodiscard]] __device__ auto lc_byte_buffer_size(LCBuffer<const lc_ubyte> buffer) noexcept {
+      return buffer.size_bytes;
+  }
 
 // warp intrinsics
 [[nodiscard]] __device__ auto lc_warp_lane_id() noexcept {

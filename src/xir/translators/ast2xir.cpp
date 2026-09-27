@@ -767,6 +767,7 @@ private:
             case CallOp::BYTE_BUFFER_WRITE: return resource_call(ResourceWriteOp::BYTE_BUFFER_WRITE);
             case CallOp::BYTE_BUFFER_VOLATILE_WRITE: return resource_call(ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE);
             case CallOp::BYTE_BUFFER_SIZE: return resource_call(ResourceQueryOp::BYTE_BUFFER_SIZE);
+            case CallOp::ACCEL_SIZE: return resource_call(ResourceQueryOp::ACCEL_SIZE);
             case CallOp::TEXTURE_READ: return resource_call(texture_dim() == 2u ? ResourceReadOp::TEXTURE2D_READ : ResourceReadOp::TEXTURE3D_READ);
             case CallOp::TEXTURE_WRITE: return resource_call(texture_dim() == 2u ? ResourceWriteOp::TEXTURE2D_WRITE : ResourceWriteOp::TEXTURE3D_WRITE);
             case CallOp::TEXTURE_SIZE: return resource_call(texture_dim() == 2u ? ResourceQueryOp::TEXTURE2D_SIZE : ResourceQueryOp::TEXTURE3D_SIZE);

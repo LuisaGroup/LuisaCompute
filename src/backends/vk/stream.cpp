@@ -990,6 +990,21 @@ struct ResourceBarrierVisitor {
         auto &argument = arguments.next_accel();
         LUISA_ASSERT(bf.handle != 0u,
                      "Vulkan dispatch contains a null accel handle.");
+        if (validation_values != nullptr) {
+            // One HLSL validation word per accel argument, in kernel-argument
+            // order: the instance count the shader's `accel.size()` query reads
+            // from the host-injected validation slot. An acceleration structure
+            // that was never built has no instance count and reports zero.
+            uint32_t value = 0u;
+            if (device->owns_fallback_accel(bf.handle)) {
+                auto binding = device->fallback_rtx()->binding(bf.handle);
+                value = binding.valid() ? binding.instance_count : 0u;
+            } else {
+                value = reinterpret_cast<Tlas *>(bf.handle)
+                                ->last_instance_count();
+            }
+            validation_values->emplace_back(value);
+        }
         // ---- software (fallback) acceleration structure ----------------------
         // Its descriptors are storage buffers, so the argument contributes the
         // storage-buffer read/write contract and nothing else: there is no

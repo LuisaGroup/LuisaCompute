@@ -580,14 +580,22 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                          "MBARRIER_ARRIVE_EXPECT_TX: expected (uint64 bar, uint tx_bytes).");
             break;
         }
-        case CallOp::MBARRIER_TRY_WAIT_PARITY: {
-            LUISA_ASSERT(args.size() == 2 &&
-                             args[0]->type()->is_uint64() &&
-                             args[1]->type()->is_int32(),
-                         "MBARRIER_TRY_WAIT_PARITY: expected (uint64 bar, int phase).");
-            break;
-        }
-        default: break;
+          case CallOp::MBARRIER_TRY_WAIT_PARITY: {
+              LUISA_ASSERT(args.size() == 2 &&
+                               args[0]->type()->is_uint64() &&
+                               args[1]->type()->is_int32(),
+                           "MBARRIER_TRY_WAIT_PARITY: expected (uint64 bar, int phase).");
+              break;
+          }
+          case CallOp::ACCEL_SIZE: {
+              if (!(return_type == Type::of<uint32_t>() &&
+                    args.size() == 1u &&
+                    args[0]->type()->is_accel())) [[unlikely]] {
+                  LUISA_ERROR("ACCEL_SIZE expects (accel) and returns uint32.");
+              }
+              break;
+          }
+          default: break;
     }
 }
 

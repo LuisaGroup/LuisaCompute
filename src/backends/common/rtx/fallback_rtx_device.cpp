@@ -175,6 +175,7 @@ FallbackAccelBinding FallbackRtxDevice::binding(uint64_t accel) noexcept {
     binding.instance_buffer = impl.storage.instances().handle();
     binding.instance_offset_bytes =
         static_cast<size_t>(it->second.region.instance_offset) * 16u;
+    binding.instance_count = it->second.instance_count;
     return binding;
 }
 

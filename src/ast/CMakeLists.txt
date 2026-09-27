@@ -9,6 +9,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         external_function.cpp
         function.cpp
         function_builder.cpp
+        function_builder_debugger.cpp
         function_duplicator.cpp
         op.cpp
         statement.cpp

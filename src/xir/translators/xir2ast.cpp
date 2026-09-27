@@ -196,6 +196,7 @@ namespace detail {
         case ResourceQueryOp::TEXTURE3D_SIZE: return CallOp::TEXTURE_SIZE;
         case ResourceQueryOp::BINDLESS_BUFFER_SIZE: return CallOp::BINDLESS_BUFFER_SIZE;
         case ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE: return CallOp::BINDLESS_BUFFER_SIZE;
+        case ResourceQueryOp::ACCEL_SIZE: return CallOp::ACCEL_SIZE;
         case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE: return CallOp::BINDLESS_TEXTURE2D_SIZE;
         case ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE: return CallOp::BINDLESS_TEXTURE3D_SIZE;
         case ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: return CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL;

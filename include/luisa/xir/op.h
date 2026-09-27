@@ -291,11 +291,13 @@ enum class ResourceQueryOp {
     RAY_TRACING_INSTANCE_MOTION_MATRIX,// (Accel, index: uint, key: uint): float4x4
     RAY_TRACING_INSTANCE_MOTION_SRT,   // (Accel, index: uint, key: uint): SRT
 
-    RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, time: float, mask: uint): TriangleHit
-    RAY_TRACING_TRACE_ANY_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): bool
-    RAY_TRACING_QUERY_ALL_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): RayQuery
-    RAY_TRACING_QUERY_ANY_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): RayQuery
-};
+      RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, time: float, mask: uint): TriangleHit
+      RAY_TRACING_TRACE_ANY_MOTION_BLUR, // (Accel, ray, time: float, mask: uint): bool
+      RAY_TRACING_QUERY_ALL_MOTION_BLUR, // (Accel, ray, time: float, mask: uint): RayQuery
+      RAY_TRACING_QUERY_ANY_MOTION_BLUR, // (Accel, ray, time: float, mask: uint): RayQuery
+      // Appended to preserve every existing public op value.
+      ACCEL_SIZE,// (accel) -> instance_count: uint32
+  };
 
 enum class ResourceReadOp {
 

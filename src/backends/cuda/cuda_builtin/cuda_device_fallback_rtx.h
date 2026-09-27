@@ -468,6 +468,16 @@ __device__ inline void lc_fallback_walk_tlas(
     return inst_best != lc_fallback_invalid_offset;
 }
 
+// Instance count the TLAS was built with: the region header's first `uint4`
+// carries (base, node_base, node_count, prim_count), and for a TLAS the prim
+// count is the instance count.  Like the traces above, an accel that was never
+// built binds nulls, which read as zero.
+[[nodiscard]] __device__ inline lc_uint lc_fallback_accel_instance_count(
+    LCFallbackAccel accel) noexcept {
+    if (accel.heap_slots == 0ull || accel.instances == 0ull) { return 0u; }
+    return lc_fallback_region_read(accel, accel.region_slot, 0u).w;
+}
+
 // ---------------------------------------------------------------------------
 // Instance accessors (RAY_TRACING_INSTANCE_*) and their setters
 // (RAY_TRACING_SET_INSTANCE_*).  They read and write the instance buffer, i.e.

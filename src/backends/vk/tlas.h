@@ -80,6 +80,9 @@ public:
     [[nodiscard]] auto &accel() const { return _accel; }
     [[nodiscard]] auto instance_buffer() const { return _instance_buffer.get(); }
     [[nodiscard]] auto accel_buffer() const { return _accel_buffer.get(); }
+    // Instance count of the last (completed or in-flight) build: the host-side
+    // value the HLSL `accel.size()` validation slot reports.
+    [[nodiscard]] auto last_instance_count() const { return _last_instance_count; }
     [[nodiscard]] bool has_motion() const noexcept { return _has_motion; }
 };
 }// namespace lc::vk

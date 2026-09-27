@@ -79,6 +79,10 @@ struct FallbackAccelBinding {
     uint64_t instance_buffer{};
     // Byte offset of the tree's instance slice inside it.
     size_t instance_offset_bytes{};
+    // Number of instances of the last build: the host-injected bound the
+    // device-side `accel.size()` query (CallOp::ACCEL_SIZE) reports on the
+    // fallback paths that cannot read it from the hardware TLAS.
+    uint32_t instance_count{};
     // `false` before the first build: the backend then binds a null descriptor.
     [[nodiscard]] bool valid() const noexcept { return accel_heap != 0u; }
 };

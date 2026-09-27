@@ -32,6 +32,7 @@ bool IsValidateResource(Variable::Tag t) {
     switch (t) {
         case Variable::Tag::BUFFER:
         case Variable::Tag::BINDLESS_ARRAY:
+        case Variable::Tag::ACCEL:
             return true;
         default:
             return false;

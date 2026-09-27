@@ -109,6 +109,7 @@ public:
 
     static constexpr auto llvm_accel_type_handle_index = 0;
     static constexpr auto llvm_accel_type_instances_index = 1;
+    static constexpr auto llvm_accel_type_instance_count_index = 2;
 
     static constexpr auto llvm_accel_instance_type_affine_index = 0;
     static constexpr auto llvm_accel_instance_type_user_id_index = 1;

@@ -332,6 +332,7 @@ template<typename IndexAt>
     switch (op) {
         case ResourceQueryOp::BUFFER_SIZE:
         case ResourceQueryOp::BYTE_BUFFER_SIZE:
+        case ResourceQueryOp::ACCEL_SIZE:
         case ResourceQueryOp::TEXTURE2D_SIZE:
         case ResourceQueryOp::TEXTURE3D_SIZE:
         case ResourceQueryOp::BUFFER_DEVICE_ADDRESS: return count == 1u;
@@ -576,7 +577,7 @@ template<typename Enum>
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
                 ResourceQueryOp::BUFFER_SIZE,
-                ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
+                ResourceQueryOp::ACCEL_SIZE);
  case DerivedInstructionTag::RESOURCE_READ:
  return enum_value_between(
  static_cast<const ResourceReadInst *>(instruction)->op(),

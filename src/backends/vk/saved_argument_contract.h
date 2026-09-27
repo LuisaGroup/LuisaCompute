@@ -156,7 +156,7 @@ struct SavedArgumentContract {
         case SavedArgumentContractStatus::INVALID_RESOURCE_ROLES: return "invalid native resource-role mask";
         case SavedArgumentContractStatus::NON_DENSE_METADATA: return "buffer-metadata slots are not dense";
         case SavedArgumentContractStatus::INCOMPATIBLE_TRAILERS: return "native buffer metadata and HLSL validation words are both enabled";
-        case SavedArgumentContractStatus::VALIDATION_COUNT_MISMATCH: return "HLSL validation count does not match buffer and bindless arguments";
+        case SavedArgumentContractStatus::VALIDATION_COUNT_MISMATCH: return "HLSL validation count does not match buffer, bindless and accel arguments";
     }
     return "unknown";
 }
@@ -219,7 +219,8 @@ struct SavedArgumentContract {
             return contract;
         }
         if (argument.tag == Type::Tag::BUFFER ||
-            argument.tag == Type::Tag::BINDLESS_ARRAY) {
+            argument.tag == Type::Tag::BINDLESS_ARRAY ||
+            argument.tag == Type::Tag::ACCEL) {
             contract.validation_resource_count++;
         }
         if (argument.has_buffer_metadata()) {

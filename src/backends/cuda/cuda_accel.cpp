@@ -157,6 +157,8 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
     LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
+    // instance count reported by `Accel::size` (ResourceQueryOp::ACCEL_SIZE)
+    _instance_count = static_cast<uint32_t>(instance_count);
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);
@@ -334,7 +336,7 @@ CUdeviceptr CUDAAccel::instance_buffer() const noexcept {
 
 CUDAAccel::Binding CUDAAccel::binding() const noexcept {
     std::scoped_lock lock{_mutex};
-    return Binding{_handle, _instance_buffer};
+    return Binding{_handle, _instance_buffer, _instance_count};
 }
 
 }// namespace luisa::compute::cuda

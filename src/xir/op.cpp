@@ -423,6 +423,7 @@ luisa::string_view to_string(ResourceQueryOp op) noexcept {
         case ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR: return "ray_tracing_trace_any_motion_blur"sv;
         case ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: return "ray_tracing_query_all_motion_blur"sv;
         case ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: return "ray_tracing_query_any_motion_blur"sv;
+        case ResourceQueryOp::ACCEL_SIZE: return "accel_size"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown resource_query operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -436,6 +437,7 @@ ResourceQueryOp resource_query_op_from_string(luisa::string_view name) noexcept 
         {"texture3d_size"sv, ResourceQueryOp::TEXTURE3D_SIZE},
         {"bindless_buffer_size"sv, ResourceQueryOp::BINDLESS_BUFFER_SIZE},
         {"bindless_byte_buffer_size"sv, ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE},
+        {"accel_size"sv, ResourceQueryOp::ACCEL_SIZE},
         {"bindless_texture2d_size"sv, ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE},
         {"bindless_texture3d_size"sv, ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE},
         {"bindless_texture2d_size_level"sv, ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL},

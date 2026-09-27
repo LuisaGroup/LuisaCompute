@@ -589,6 +589,7 @@ end
 test_proj("test_metal4_switch_lookup", "integration/runtime/test_metal4_switch_lookup.cpp")
 test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
+test_proj("test_function_debugger", "integration/runtime/test_function_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
 test_proj("test_procedural_callable", "integration/runtime/test_procedural_callable.cpp")
 test_proj("test_rtx", "integration/runtime/test_rtx.cpp", false, function()

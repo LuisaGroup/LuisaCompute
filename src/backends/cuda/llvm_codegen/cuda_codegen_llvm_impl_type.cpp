@@ -304,9 +304,19 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_bindless_array_slot_type() noexcept {
 
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_accel_type() noexcept {
     if (_llvm_accel_type == nullptr) {
+        auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
         auto llvm_ptr_type = llvm::PointerType::get(_llvm_context, nvptx_address_space_global);
-        _llvm_accel_type = llvm::StructType::get(_llvm_context, {llvm_i64_type, llvm_ptr_type}, false);
+        auto llvm_padding_type = llvm::ArrayType::get(llvm_i32_type, 3);
+        _llvm_accel_type = llvm::StructType::get(
+            _llvm_context,
+            {
+                llvm_i64_type,    // handle
+                llvm_ptr_type,    // instances
+                llvm_i32_type,    // instance_count
+                llvm_padding_type // padding
+            },
+            false);
         detail::luisa_check_llvm_type_size_and_alignment(
             *_data_layout, _llvm_accel_type,
             sizeof(CUDAAccel::Binding),

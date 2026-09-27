@@ -1,14 +1,13 @@
 template<typename T>
-uint _bfsize(T b){
-uint c,s;
-b.GetDimensions(c,s);
-return c;
+uint _bfsize(T b, uint bound){
+return bound;
 }
 template<typename T>
-uint _bytebfsize(T b){
-uint c;
-b.GetDimensions(c);
-return c;
+uint _bytebfsize(T b, uint bound){
+return bound;
+}
+uint _AccelSize(uint bound){
+return bound;
 }
 uint2 _texsize(Texture2D<float4> t){
 uint2 s;

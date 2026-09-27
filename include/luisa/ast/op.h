@@ -601,10 +601,15 @@ enum struct CallOp : uint32_t {
     // definition has unspecified results. Appended to preserve every existing
     // public CallOp value.
     UNDEFINED,// (): T
+
+    // Appended to preserve every existing public CallOp value.
+    // [(accel) -> uint32 instance_count]. Enables device-side instance-index
+    // bounds guards (see FunctionDebugger) and the Accel::size() DSL query.
+    ACCEL_SIZE,// (accel): uint
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::UNDEFINED) + 1u;
+    to_underlying(CallOp::ACCEL_SIZE) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;

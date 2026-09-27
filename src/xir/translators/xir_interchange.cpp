@@ -1248,6 +1248,7 @@ constexpr std::array ray_query_object_write_wire_ops{
 constexpr std::array resource_query_wire_ops{
     wire_op(ResourceQueryOp::BUFFER_SIZE, "buffer_size"sv),
     wire_op(ResourceQueryOp::BYTE_BUFFER_SIZE, "byte_buffer_size"sv),
+    wire_op(ResourceQueryOp::ACCEL_SIZE, "accel_size"sv),
     wire_op(ResourceQueryOp::TEXTURE2D_SIZE, "texture2d_size"sv),
     wire_op(ResourceQueryOp::TEXTURE3D_SIZE, "texture3d_size"sv),
     wire_op(ResourceQueryOp::BINDLESS_BUFFER_SIZE, "bindless_buffer_size"sv),

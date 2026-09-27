@@ -206,6 +206,12 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
             return b.CreatePtrToInt(llvm_buffer_ptr, llvm_result_type);
         }
+        case xir::ResourceQueryOp::ACCEL_SIZE: {
+            auto llvm_accel = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto llvm_instance_count = b.CreateExtractValue(llvm_accel, llvm_accel_type_instance_count_index);
+            auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
+            return b.CreateZExtOrTrunc(llvm_instance_count, llvm_result_type);
+        }
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::float4x4>());
             auto llvm_accel = _get_llvm_value(b, func_ctx, inst->operand(0));

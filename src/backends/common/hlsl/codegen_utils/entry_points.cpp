@@ -11,7 +11,6 @@
 #ifndef LC_NO_HLSL_BUILTIN
 #include "../builtin/hlsl_builtin.hpp"
 #endif
-bool shown_buffer_warning = false;
 #ifdef LC_NO_HLSL_BUILTIN
 namespace lc_hlsl {
 struct HLSLCompressedHeader {
@@ -81,7 +80,11 @@ namespace detail {
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
-           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY);
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
+           ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX) ||
+           ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_SRT) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
+           ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT);
 }
 size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
@@ -126,7 +129,9 @@ groupshared uint _vk_wg_copy_buf[4096];
     if (ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_COUNT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("indirect");
     }
-    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
+    if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) ||
+        ops.test(CallOp::BYTE_BUFFER_SIZE) ||
+        ops.test(CallOp::ACCEL_SIZE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size");
     }
     if (linalg || ops.uses_cooperative()) {

@@ -11,15 +11,14 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
 
-// External declaration for shared variable from hlsl_codegen_util.cpp
-extern bool shown_buffer_warning;
 
 namespace lc::hlsl {
 
 namespace {
 
 [[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
-    return type->is_buffer() || type->is_bindless_array();
+    return type->is_buffer() || type->is_bindless_array() ||
+           type->is_accel();
 }
 
 [[nodiscard]] bool usage_reads(Usage usage) noexcept {
@@ -98,6 +97,14 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                         // callable takes it as a plain parameter and forwards it
                         // to whatever it calls (fallback_rtx_header.bytes).
                         data << "uint "sv << varName << "Base,"sv;
+                    }
+                    // The host-injected instance count for ACCEL_SIZE, exactly
+                    // like the buffer validation bounds above.
+                    if (opt->enable_debug_info &&
+                        is_validation_resource(i.type())) {
+                        data << ",uint "sv;
+                        print_validation_bound_name(data, i);
+                        data << ',';
                     }
                 } else {
                     GetTypeName(i.type(), usage);
@@ -773,12 +780,47 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BUFFER_SIZE: {
-            if (!shown_buffer_warning) {
-                LUISA_WARNING_WITH_LOCATION("CallOp::BUFFER_SIZE is broken on dx!"sv);
-                shown_buffer_warning = true;
+            // Element counts are host-injected through the validation slots
+            // (GetDimensions is unavailable on the raw-pointer bindings this
+            // codegen can emit); see resource_size.bytes.
+            str << "_bfsize("sv;
+            args[0]->accept(vis);
+            str << ',';
+            if (opt->enable_debug_info &&
+                is_validation_resource(args[0]->type())) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
             }
-            str << "_bfsize"sv;
-        } break;
+            str << ')';
+        } return;
+        case CallOp::BYTE_BUFFER_SIZE: {
+            str << "_bytebfsize("sv;
+            args[0]->accept(vis);
+            str << ',';
+            if (opt->enable_debug_info &&
+                is_validation_resource(args[0]->type())) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
+            }
+            str << ')';
+        } return;
+        case CallOp::ACCEL_SIZE: {
+            // Hardware TLASes do not expose their instance count to device
+            // code (and write-only acceleration arguments do not even declare
+            // a TLAS view), so the count is host-injected through the
+            // validation slots for both the hardware and the software
+            // fallback paths; the encoders fill it from the TLAS descriptor
+            // count / the fallback binding's instance count.
+            str << "_AccelSize("sv;
+            if (opt->enable_debug_info) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
+            }
+            str << ')';
+        } return;
         case CallOp::BYTE_BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
@@ -963,9 +1005,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ')';
                 return;
             }
-        } break;
-        case CallOp::BYTE_BUFFER_SIZE: {
-            str << "_bytebfsize"sv;
         } break;
         case CallOp::TEXTURE_SIZE: {
             str << "_texsize"sv;

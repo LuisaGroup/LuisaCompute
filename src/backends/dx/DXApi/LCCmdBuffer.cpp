@@ -305,6 +305,13 @@ public:
                                        binding.instance_offset_bytes},
                         read_usage);
                 }
+                // Emplace accel validation size (instance count) when debug
+                // info is enabled: CallOp::ACCEL_SIZE is answered by the
+                // host-injected validation slot on both the hardware and the
+                // software fallback paths (see resource_size.bytes).
+                if (bf.handle != 0 && validation_count > 0) {
+                    self->emplace_data(binding.instance_count, /*alignment=*/4);
+                }
                 ++arg;
                 return;
             }
@@ -325,6 +332,11 @@ public:
                 }
             } else {
                 LUISA_ERROR("Accel not initialized.");
+            }
+            // Emplace accel validation size (instance count) when debug info
+            // is enabled (CallOp::ACCEL_SIZE / Accel::size()).
+            if (bf.handle != 0 && validation_count > 0) {
+                self->emplace_data(accel->Length(), /*alignment=*/4);
             }
             ++arg;
         }

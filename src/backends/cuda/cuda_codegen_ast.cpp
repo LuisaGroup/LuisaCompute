@@ -1087,6 +1087,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << (_fallback_rtx ? "lc_fallback_trace_any" : "lc_accel_trace_any"); break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
+        case CallOp::ACCEL_SIZE: _scratch << (_fallback_rtx ? "lc_fallback_accel_instance_count" : "lc_accel_instance_count"); break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: _scratch << "lc_accel_trace_closest_motion_blur"; break;
         case CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR: _scratch << "lc_accel_trace_any_motion_blur"; break;
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: _scratch << "lc_accel_query_all_motion_blur"; break;

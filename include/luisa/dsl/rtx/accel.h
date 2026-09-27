@@ -20,9 +20,15 @@ private:
     const RefExpr *_expression{nullptr};
 
 public:
-    explicit Expr(const RefExpr *expr) noexcept;
-    explicit Expr(const Accel &accel) noexcept;
-    [[nodiscard]] auto expression() const noexcept { return _expression; }
+      explicit Expr(const RefExpr *expr) noexcept;
+      explicit Expr(const Accel &accel) noexcept;
+      [[nodiscard]] auto expression() const noexcept { return _expression; }
+      /// Instance count of the acceleration structure (CallOp::ACCEL_SIZE).
+      [[nodiscard]] Var<uint> size() const noexcept {
+          return def<uint>(
+              detail::FunctionBuilder::current()->call(
+                  Type::of<uint>(), CallOp::ACCEL_SIZE, {_expression}));
+      }
 
     [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
@@ -124,7 +130,11 @@ private:
 
 public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
-
+public:
+    /// Instance count of the acceleration structure (CallOp::ACCEL_SIZE).
+    [[nodiscard]] Var<uint> size() const noexcept {
+        return Expr<Accel>{_accel}.size();
+    }
 public:
     [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;

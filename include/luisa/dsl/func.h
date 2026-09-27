@@ -12,6 +12,7 @@
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
+#include <luisa/ast/function_builder_debugger.h>
 #include <luisa/core/stl/functional.h>
 
 namespace luisa::compute {
@@ -731,4 +732,19 @@ inline void CallableOutliner::operator%(F &&body) && noexcept {
     c();
 }
 }// namespace detail
+
+/// @brief Rewrites a kernel with the debug-function generator so that
+/// operations that can fail at runtime print a diagnostic (device_log) and
+/// stop the thread. See luisa::compute::detail::DebugKernelOptions and
+/// luisa::compute::detail::debug_function for the check switches.
+///
+/// Example:
+/// \code{.cpp}
+/// Kernel2D dbg = add_debug_checks(my_kernel);
+/// \endcode
+template<size_t N, typename... Args>
+[[nodiscard]] auto add_debug_checks(Kernel<N, Args...> kernel) noexcept {
+    return Kernel<N, Args...>{
+        detail::debug_function(*kernel.function())};
+}
 }// namespace luisa::compute

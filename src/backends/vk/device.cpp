@@ -129,7 +129,8 @@ namespace {
         detail::UserComputeHlslFallbackReason::PRINTING,
         detail::UserComputeHlslFallbackReason::FALLBACK_RTX,
         detail::UserComputeHlslFallbackReason::ASYNC_COPY,
-        detail::UserComputeHlslFallbackReason::MOTION_BLUR};
+        detail::UserComputeHlslFallbackReason::MOTION_BLUR,
+        detail::UserComputeHlslFallbackReason::ACCEL_SIZE};
     luisa::string description;
     for (auto reason : reasons) {
         if (!route.contains(reason)) { continue; }
@@ -3318,6 +3319,10 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     auto builtin_calls = kernel.propagated_builtin_callables();
     auto requires_motion_blur =
         builtin_calls.uses_raytracing_motion_blur();
+    // The native XIR-to-SPIR-V route cannot answer the `accel.size()` query
+    // (CallOp::ACCEL_SIZE); the compatibility HLSL route reads its result from
+    // the host-injected validation slot of the argument-block trailer.
+    auto requires_accel_size = builtin_calls.test(CallOp::ACCEL_SIZE);
     // The device traces in software *and* this kernel uses the ray-tracing call
     // ops: a software traversal is HLSL text
     // (src/backends/common/hlsl/builtin/fallback_rtx_header.bytes), so the
@@ -3346,6 +3351,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                       builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
                       builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
         .motion_blur = requires_motion_blur,
+        .accel_size = requires_accel_size,
         .fallback_rtx = requires_fallback_rtx_traversal};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);

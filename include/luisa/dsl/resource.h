@@ -91,17 +91,24 @@ public:
         return def<T>(expr);
     }
 
-    /// Volatile read buffer at index
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto volatile_read(I &&index) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto expr = f->call(
-            Type::of<T>(), CallOp::BUFFER_VOLATILE_READ,
-            {_expression,
-             detail::extract_expression(std::forward<I>(index))});
-        return def<T>(expr);
-    }
+      /// Volatile read buffer at index
+      template<typename I>
+          requires is_integral_expr_v<I>
+      [[nodiscard]] auto volatile_read(I &&index) const noexcept {
+          auto f = detail::FunctionBuilder::current();
+          auto expr = f->call(
+              Type::of<T>(), CallOp::BUFFER_VOLATILE_READ,
+              {_expression,
+               detail::extract_expression(std::forward<I>(index))});
+          return def<T>(expr);
+      }
+
+      /// Element count of the bound buffer view (CallOp::BUFFER_SIZE).
+      [[nodiscard]] auto size() const noexcept {
+          auto f = detail::FunctionBuilder::current();
+          return def<uint>(f->call(
+              Type::of<uint>(), CallOp::BUFFER_SIZE, {_expression}));
+      }
 
     /// Write buffer at index
     template<typename I>
@@ -660,14 +667,17 @@ private:
     T _buffer;
 
 public:
-    LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(BufferExprProxy)
-
+      LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(BufferExprProxy)
 public:
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&index) const noexcept {
-        return Expr<T>{_buffer}.read(std::forward<I>(index));
-    }
+      /// Element count of the bound buffer view (CallOp::BUFFER_SIZE).
+      [[nodiscard]] auto size() const noexcept {
+          return Expr<T>{_buffer}.size();
+      }
+      template<typename I>
+          requires is_integral_expr_v<I>
+      [[nodiscard]] auto read(I &&index) const noexcept {
+          return Expr<T>{_buffer}.read(std::forward<I>(index));
+      }
     template<typename I, typename V>
         requires is_integral_expr_v<I>
     void write(I &&index, V &&value) const noexcept {
