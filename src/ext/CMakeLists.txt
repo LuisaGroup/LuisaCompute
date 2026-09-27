@@ -595,10 +595,12 @@ install(TARGETS glslang EXPORT LuisaComputeTargets)
 # transitive edge: every real glslang consumer links it explicitly
 # (luisa-compute-backend-vk, luisa-compute-spirv, test_native_shader_reflection).
 if (TARGET glslang AND LUISA_VSTL)
-        target_link_libraries(glslang PRIVATE
-                luisa-compute-include luisa-compute-core)
+        # NOTE: plain signature (no PRIVATE/INTERFACE keyword) to match the
+        # upstream glslang CMakeLists (e.g. Threads::Threads below), which uses
+        # the plain form -- CMake rejects mixing the two on the same target.
+        target_link_libraries(glslang luisa-compute-include luisa-compute-core)
         if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
-                target_link_libraries(glslang PRIVATE EASTL-interface)
+                target_link_libraries(glslang EASTL-interface)
         endif ()
         set_property(TARGET glslang PROPERTY CXX_STANDARD 20)
 endif ()
