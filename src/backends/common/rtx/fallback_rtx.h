@@ -134,10 +134,12 @@ public:
         size_t triangle_buffer_size{};// bytes
     };
 
-    // Records the build of `blas` (primitive AABBs -> Morton codes -> LSD radix
-    // sort -> Karras radix tree) into a command list the caller splices into its
-    // own.  `blas` must have been created by `create_blas()` and not be built
-    // twice without an intervening destroy.
+  // Records the build of `blas` (primitive AABBs -> Morton codes -> LSD radix
+  // sort -> Karras radix tree) into a command list the caller splices into its
+  // own.  `blas` must have been created by `create_blas()`.  A `blas` may be
+  // built again (e.g. its vertex buffer changed): the new tree lands in a
+  // fresh region and the directory row plus the referencing TLAS heaps are
+  // updated in place, so the rebuild is visible to the next trace.
     [[nodiscard]] CommandList build_blas(uint64_t blas,
                                          const MeshGeometry &geometry) noexcept;
 

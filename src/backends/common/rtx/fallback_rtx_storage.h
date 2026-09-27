@@ -325,8 +325,15 @@ public:
     // has been planned, so it travels as two uniforms instead of an upload - an
     // upload would have to keep the host bytes alive until the command executed,
     // which a plan-time record cannot promise.
-    [[nodiscard]] uint append_blas_directory(CommandList &commands,
-                                             uint4 record_0, uint4 record_1) noexcept;
+  [[nodiscard]] uint append_blas_directory(CommandList &commands,
+                                           uint4 record_0, uint4 record_1) noexcept;
+  // Overwrite the two words of a directory entry a previous
+  // `append_blas_directory` returned.  A BLAS rebuild plans a fresh region
+  // but keeps the entry its instance records name (records are never told
+  // about a rebuild), so the row has to be rewritten in place for the table
+  // refresh of the next build to resolve the region that is current then.
+  void write_blas_directory(CommandList &commands, uint entry,
+                            uint4 record_0, uint4 record_1) noexcept;
 
     // Write the region header.  The header is host-known at plan time, and this
     // is a kernel (not an upload) for the same lifetime reason as above.

@@ -16,10 +16,58 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 
+#if defined(LUISA_TEST_RTX_HAS_CUDA)
+#include <luisa/backends/ext/cuda/cuda_config_ext.h>
+#endif
+#if defined(LUISA_TEST_RTX_HAS_DX)
+#include <luisa/backends/ext/dx_config_ext.h>
+#endif
+#if defined(LUISA_TEST_RTX_HAS_VK)
+#include <luisa/backends/ext/vk_config_ext.h>
+#endif
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
+
+namespace {
+
+// Returns a backend DeviceConfigExt with use_fallback_rtx() forced to true so
+// the device answers acceleration-structure requests with the luisa-
+// fallback-rtx software BVH, or nullptr when the backend (or this build) has
+// no such extension.
+[[nodiscard]] luisa::unique_ptr<DeviceConfigExt>
+make_fallback_rtx_config_ext(luisa::string_view backend) noexcept {
+#if defined(LUISA_TEST_RTX_HAS_CUDA)
+    if (backend == "cuda") {
+        struct Ext final : CUDADeviceConfigExt {
+            [[nodiscard]] bool use_fallback_rtx() const noexcept override { return true; }
+        };
+        return luisa::make_unique<Ext>();
+    }
+#endif
+#if defined(LUISA_TEST_RTX_HAS_DX)
+    if (backend == "dx") {
+        struct Ext final : DirectXDeviceConfigExt {
+            [[nodiscard]] bool use_fallback_rtx() const noexcept override { return true; }
+        };
+        return luisa::make_unique<Ext>();
+    }
+#endif
+#if defined(LUISA_TEST_RTX_HAS_VK)
+    if (backend == "vk") {
+        struct Ext final : VulkanDeviceConfigExt {
+            [[nodiscard]] bool use_fallback_rtx() const noexcept override { return true; }
+        };
+        return luisa::make_unique<Ext>();
+    }
+#endif
+    static_cast<void>(backend);
+    return nullptr;
+}
+
+}// namespace
 
 void test_rtx(Device &device) {
 
@@ -201,7 +249,31 @@ void test_rtx(Device &device) {
 }
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    // Scan for the fallback switch before Boost.UT consumes the arguments:
+    // `--fallback-rtx` forces the software (fallback) ray-tracing path through
+    // the backend's DeviceConfigExt, everything else behaves as before.
+    bool use_fallback_rtx = false;
+    for (int i = 1; i < argc; i++) {
+        if (luisa::string_view{argv[i]} == "--fallback-rtx") {
+            use_fallback_rtx = true;
+        }
+    }
+    DeviceConfig config{};
+    const DeviceConfig *config_ptr = nullptr;
+    if (use_fallback_rtx) {
+        auto backend = (argc > 1 && argv[1] != nullptr) ?
+                           luisa::string_view{argv[1]} : luisa::string_view{};
+        config.extension = make_fallback_rtx_config_ext(backend);
+        if (config.extension) {
+            config_ptr = &config;
+            LUISA_INFO("fallback RTX requested: enabled via DeviceConfigExt");
+        } else {
+            LUISA_WARNING(
+                "backend '{}' has no fallback-RTX DeviceConfigExt in this build; "
+                "running with the native ray-tracing path", backend);
+        }
+    }
+    auto dc = luisa::test::create_device_from_ut(argc, argv, config_ptr);
     if (!dc) {
         return 0;
     }

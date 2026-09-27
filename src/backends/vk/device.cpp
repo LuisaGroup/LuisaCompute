@@ -3324,9 +3324,21 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     // shader has to take the compatibility HLSL route - the native
     // XIR-to-SPIR-V route can only emit the hardware query/trace operations.
     // Nothing here changes for a device whose fallback is off.
-    auto uses_raytracing_ops = builtin_calls.uses_raytracing();
-    auto requires_fallback_rtx_traversal =
-        use_fallback_rtx_bit && uses_raytracing_ops;
+      auto uses_raytracing_ops = builtin_calls.uses_raytracing();
+      // Instance updates (set transform/visibility/opacity/user id) do not
+      // count as ray-tracing ops, but on a fallback device they touch the
+      // same fallback instance buffer: the shader has to be compiled
+      // against the fallback acceleration-structure ABI as well, otherwise
+      // its property list declares the native SPIR-V accel views and the
+      // dispatch finds no fallback descriptor for the argument.
+      auto uses_accel_instance_update =
+          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
+          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
+          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID);
+      auto requires_fallback_rtx_traversal =
+          use_fallback_rtx_bit &&
+          (uses_raytracing_ops || uses_accel_instance_update);
     detail::UserComputeCodegenRequirements codegen_requirements{
         .native_include = !option.native_include.empty(),
         .printing = kernel.requires_printing(),
@@ -3392,12 +3404,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 "fallback.",
                 kernel.name());
         }
-        LUISA_ASSERT(
-            builtin_calls.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
-                builtin_calls.test(CallOp::RAY_TRACING_TRACE_ANY),
-            "Vulkan shader '{}' was routed to the software ray-tracing "
-            "fallback without a trace operation.",
-            kernel.name());
+          LUISA_ASSERT(
+              builtin_calls.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+                  builtin_calls.test(CallOp::RAY_TRACING_TRACE_ANY) ||
+                  uses_accel_instance_update,
+              "Vulkan shader '{}' was routed to the software ray-tracing "
+              "fallback without a trace or instance-update operation.",
+              kernel.name());
     }
     if (requires_motion_blur && !motion_blur_enabled) {
         LUISA_ERROR("Vulkan device does not support VK_NV_ray_tracing_motion_blur; "

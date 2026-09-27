@@ -116,10 +116,19 @@ void FallbackBlasBuilder::build(CommandList &commands, FallbackBlas &blas,
                                     geometry.triangle_buffer_size / sizeof(uint),
                                     geometry.triangle_buffer_size / sizeof(uint)};
 
-    // ---- the region ---------------------------------------------------------
-    auto region = _storage->plan_blas(commands, triangle_count, vertex_count);
-    _storage->write_region_header(commands, region, 0u /* a BLAS has no table */);
-    _storage->reset_reduction(commands, region);
+      // ---- the region ---------------------------------------------------------
+      // A rebuild whose geometry has the same triangle/vertex counts - the
+      // animated-mesh case - reuses the region of the previous build and
+      // overwrites the tree in place, like a hardware BLAS rebuild does: the
+      // directory row and every referencing TLAS heap view stay valid, so no
+      // descriptor has to move.  Only a size change plans a fresh region (and
+      // the caller then re-registers the referencing heaps).
+      auto in_place = blas.built && blas.triangle_count == triangle_count &&
+                      blas.vertex_count == vertex_count;
+      auto region = in_place ? blas.region :
+                                _storage->plan_blas(commands, triangle_count, vertex_count);
+      _storage->write_region_header(commands, region, 0u /* a BLAS has no table */);
+      _storage->reset_reduction(commands, region);
     commands << _prim_kernel(vertices, indices, _storage->accel(), _storage->prims(),
                              _storage->reduce(), triangle_count, region.prim_offset,
                              region.index_base, region.vertex_base,
@@ -128,11 +137,26 @@ void FallbackBlasBuilder::build(CommandList &commands, FallbackBlas &blas,
                     .dispatch(triangle_count);
     _storage->build_tree(commands, region);
     // The directory record is what an instance's `blas_index` resolves to: it
-    // carries every offset a traversal needs to descend into this region.
-    blas.directory_entry = _storage->append_blas_directory(
-        commands,
-        make_uint4(region.base, region.node_base, region.index_base, region.vertex_base),
-        make_uint4(triangle_count, 0u, 0u, 0u));
+    // carries every offset a traversal needs to descend into this region.  An
+    // in-place rebuild leaves the previous record untouched (the offsets are
+    // unchanged); a size-changing rebuild plans a fresh region, and the entry
+    // an instance's record names must stay stable - a record is never told
+    // about a rebuild -, so the row is overwritten in place and only the
+    // first build appends a new one.  Otherwise every rebuild would orphan
+    // the records on the previous region, and a TLAS would trace the first
+    // build of the mesh forever.
+    if (!in_place) {
+        auto directory_0 = make_uint4(region.base, region.node_base,
+                                      region.index_base, region.vertex_base);
+        auto directory_1 = make_uint4(triangle_count, 0u, 0u, 0u);
+        if (blas.built) {
+            _storage->write_blas_directory(commands, blas.directory_entry,
+                                           directory_0, directory_1);
+        } else {
+            blas.directory_entry =
+                _storage->append_blas_directory(commands, directory_0, directory_1);
+        }
+    }
     blas.region = region;
     blas.triangle_count = triangle_count;
     blas.vertex_count = vertex_count;

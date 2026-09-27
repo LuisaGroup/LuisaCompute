@@ -591,7 +591,21 @@ test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
 test_proj("test_procedural_callable", "integration/runtime/test_procedural_callable.cpp")
-test_proj("test_rtx", "integration/runtime/test_rtx.cpp")
+test_proj("test_rtx", "integration/runtime/test_rtx.cpp", false, function()
+    -- `--fallback-rtx` forces the software BVH through the backend's
+    -- DeviceConfigExt; the defines gate the matching config-ext includes.
+    if has_config("lc_cuda_backend") then
+        add_defines("LUISA_TEST_RTX_HAS_CUDA=1")
+    end
+    if has_config("lc_dx_backend") then
+        add_defines("LUISA_TEST_RTX_HAS_DX=1")
+        add_syslinks("dxgi", "d3d12")
+    end
+    if has_config("lc_vk_backend") then
+        add_defines("LUISA_TEST_RTX_HAS_VK=1")
+        add_deps("lc-volk")
+    end
+end)
 if has_config("lc_enable_osl") then
     test_proj("test_oso_parser", "integration/runtime/test_oso_parser.cpp", false, function()
         add_deps("lc-osl")

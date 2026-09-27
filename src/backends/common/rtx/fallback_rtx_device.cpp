@@ -192,7 +192,36 @@ CommandList FallbackRtxDevice::build_blas(uint64_t blas, const MeshGeometry &geo
                     blas);
     }
     CommandList commands;
+    auto old_region_base = it->second.region.base;
     impl.blas_builder.build(commands, it->second, geometry);
+    // A size-changing rebuild planned a *new* region (the storage is
+    // append-only), but a TLAS resolves its instances' BLAS through the view
+    // its own heap registered when the instance was modified - a traversal
+    // never does the region arithmetic itself (fallback_rtx_layout.h).  An
+    // in-place rebuild (same triangle/vertex counts) keeps the region, so the
+    // views stay valid; only a moved region re-registers the view of every
+    // referencing instance's heap slot, and refreshes the host-persisted
+    // region a growth build re-registers from.
+    if (it->second.region.base != old_region_base) {
+        for (auto &&[_, tlas] : impl.tlases) {
+            auto reregistered = false;
+            for (auto i = 0u; i < tlas.instance_count; i++) {
+                if (tlas.directory_entry[i] == it->second.directory_entry &&
+                    tlas.blas_region[i].y != 0u) {
+                    tlas.accel_heap.emplace_on_update(
+                        heap_first_blas_slot + i,
+                        impl.storage.accel().view(it->second.region.base,
+                                                  it->second.region.region_u4()));
+                    tlas.blas_region[i] = make_uint2(
+                        it->second.region.base, it->second.region.region_u4());
+                    reregistered = true;
+                }
+            }
+            if (reregistered) {
+                commands << tlas.accel_heap.update();
+            }
+        }
+    }
     impl.blas_builds++;
     return commands;
 }

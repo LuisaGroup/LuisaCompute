@@ -268,27 +268,57 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
     // previous region is left in place, which is the deliberate cost of that
     // promise.
     auto fresh = !tlas.built || instance_count != tlas.instance_count;
-    if (fresh) {
-        tlas.region = _storage->plan_tlas(commands, instance_count);
-        _storage->write_region_header(commands, tlas.region, region_flag_tlas);
-        tlas.instance_count = instance_count;
-        // A record the caller does not mention is a defined zero record, not
-        // whatever the device memory held: the table and the Blas index of such
-        // an instance are then reported by the validator instead of being read as
-        // a random tree.
-        tlas.records.assign(static_cast<size_t>(instance_count) * instance_u4,
-                            make_uint4(0u, 0u, 0u, 0u));
-        // The sentinel marks "this instance was never given a mesh": the table
-        // refresh leaves its row clear for it (the entry is out of the directory),
-        // `validate_accel` reports it, and a traversal skips a null table row
-        // (fallback_rtx_layout.h) instead of descending into a tree that was never
-        // built.
-        tlas.directory_entry.assign(instance_count, invalid_offset);
-        // The heap this TLAS resolves its regions through.  It is created here,
-        // on the first build (the instance count is only known now), and it is a
-        // member of `tlas`, so destroying the TLAS releases it (RAII).
-        ensure_heap(tlas, instance_count);
-    }
+      if (fresh) {
+          tlas.region = _storage->plan_tlas(commands, instance_count);
+          _storage->write_region_header(commands, tlas.region, region_flag_tlas);
+          // A record the caller does not mention is a defined zero record, not
+          // whatever the device memory held: the table and the Blas index of such
+          // an instance are then reported by the validator instead of being read as
+          // a random tree.  That is the right semantics for the *first* build; a
+          // later build whose instance count grew must keep the records the earlier
+          // builds established, because the runtime forwards only the pending
+          // modifications of a build - wiping here would turn every instance the
+          // build does not mention into a zero record, which the native path never
+          // does (a count change there uploads just the modified records and the
+          // device buffer keeps everything else, kernel-written transforms
+          // included).  Only the new slots start out zero.
+          if (!tlas.built) {
+              tlas.records.assign(static_cast<size_t>(instance_count) * instance_u4,
+                                  make_uint4(0u, 0u, 0u, 0u));
+              // The sentinel marks "this instance was never given a mesh": the table
+              // refresh leaves its row clear for it (the entry is out of the directory),
+              // `validate_accel` reports it, and a traversal skips a null table row
+              // (fallback_rtx_layout.h) instead of descending into a tree that was never
+              // built.
+              tlas.directory_entry.assign(instance_count, invalid_offset);
+              tlas.blas_region.assign(instance_count, make_uint2(0u, 0u));
+          } else {
+              tlas.records.resize(static_cast<size_t>(instance_count) * instance_u4,
+                                  make_uint4(0u, 0u, 0u, 0u));
+              tlas.directory_entry.resize(instance_count, invalid_offset);
+              tlas.blas_region.resize(instance_count, make_uint2(0u, 0u));
+          }
+          tlas.instance_count = instance_count;
+          // The heap this TLAS resolves its regions through.  It is created here,
+          // on the first build (the instance count is only known now), and it is a
+          // member of `tlas`, so destroying the TLAS releases it (RAII).  A growth
+          // build retires the old heap for a bigger one (a bindless array has a
+          // fixed slot count), so every instance's Blas region - not only the
+          // modified ones - has to be (re-)registered in the heap that is current
+          // now; the slots were recorded in the records and the heap the build
+          // before may have created is not the heap a traversal reads anymore.
+          ensure_heap(tlas, instance_count);
+          if (tlas.built) {
+              for (auto i = 0u; i < instance_count; i++) {
+                  if (tlas.blas_region[i].y != 0u) {
+                      tlas.accel_heap.emplace_on_update(
+                          heap_first_blas_slot + i,
+                          _storage->accel().view(tlas.blas_region[i].x,
+                                                 tlas.blas_region[i].y));
+                  }
+              }
+          }
+      }
 
     // ---- apply the modifications to the host copy ---------------------------
     constexpr auto known_flags = AccelBuildCommand::Modification::flag_primitive |
@@ -329,8 +359,12 @@ void FallbackTlasBuilder::build(CommandList &commands, FallbackTlas &tlas,
         if ((m.flags & AccelBuildCommand::Modification::flag_primitive) != 0u) {
             // The fallback only has triangle geometry, and this mirrors what the
             // hardware update kernel records for a triangle instance.
-            flags |= instance_flag_disable_face_culling;
-            tlas.directory_entry[m.index] = resolved[i].directory_entry;
+              flags |= instance_flag_disable_face_culling;
+              tlas.directory_entry[m.index] = resolved[i].directory_entry;
+              // Persist the region for a growth build, which re-registers
+              // every instance's region in the heap that is current then.
+              tlas.blas_region[m.index] =
+                  make_uint2(resolved[i].region_base, resolved[i].region_u4);
             // Register the BLAS region in this TLAS' heap, at its slot
             // (fallback_rtx_layout.h).  The slot is host-known, and the table
             // refresh kernel copies it into the record's metadata lane, so it

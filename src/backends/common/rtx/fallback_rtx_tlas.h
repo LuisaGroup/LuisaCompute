@@ -52,10 +52,18 @@ struct FallbackTlas {
     // from: a shader may rewrite the transform and the property lanes, but never
     // the primitive an instance refers to.
     luisa::vector<uint4> records;
-    // The blas directory *entry* every instance refers to; it is what the
-    // record's reserved uint4 carries, and what the table refresh resolves
-    // against the device directory.
-    luisa::vector<uint32_t> directory_entry;
+      // The blas directory *entry* every instance refers to; it is what the
+      // record's reserved uint4 carries, and what the table refresh resolves
+      // against the device directory.
+      luisa::vector<uint32_t> directory_entry;
+      // The BLAS region every instance last resolved to: x is the region base
+      // (in uint4) inside the shared acceleration buffer, y its payload length
+      // (0 = the instance has no primitive).  Persisted host-side so a TLAS
+      // that grew can re-register every instance's region in the heap it may
+      // have been forced to create: the runtime forwards only the pending
+      // modifications of a build, so an existing instance is never mentioned
+      // again, and its heap slot would otherwise stay empty in the new heap.
+      luisa::vector<luisa::uint2> blas_region;
     // The bindless heap of this TLAS (fallback_rtx_layout.h): slot 0 is the null
     // slot, slot 1 the TLAS' own region and slot 2+i the BLAS region of instance
     // i.  It is a member, so it is created with the TLAS and released when the

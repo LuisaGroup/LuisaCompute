@@ -535,6 +535,13 @@ uint FallbackRtxStorage::append_blas_directory(CommandList &commands, uint4 reco
     return entry;
 }
 
+void FallbackRtxStorage::write_blas_directory(CommandList &commands, uint entry,
+                                              uint4 record_0, uint4 record_1) noexcept {
+    commands << _directory_kernel(_blas_directory.buffer(), record_0, record_1,
+                                  entry * blas_record_u4)
+                    .dispatch(kSingleThreadBlock);
+}
+
 void FallbackRtxStorage::write_region_header(CommandList &commands,
                                              const FallbackRtxRegion &region,
                                              uint flags) noexcept {
