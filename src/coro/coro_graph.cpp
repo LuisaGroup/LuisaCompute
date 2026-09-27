@@ -183,6 +183,14 @@ CoroSlotAccess::CoroSlotAccess(
     sort_unique(_reconstruct_slots);
 }
 
+// Emit and export the copy/move members in this DLL: consumers that copy
+// luisa::vector<CoroSlotAccess> (e.g. wavefront stage bindings) reference
+// them as dllimport symbols.
+CoroSlotAccess::CoroSlotAccess(const CoroSlotAccess &) noexcept = default;
+CoroSlotAccess::CoroSlotAccess(CoroSlotAccess &&) noexcept = default;
+CoroSlotAccess &CoroSlotAccess::operator=(const CoroSlotAccess &) = default;
+CoroSlotAccess &CoroSlotAccess::operator=(CoroSlotAccess &&) noexcept = default;
+
 const Expression *CoroSlotAccess::_read(CoroFrame &frame) const noexcept {
     LUISA_ASSERT(materialized(),
                  "Coroutine binding has no materialized frame access.");

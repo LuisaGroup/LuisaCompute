@@ -253,7 +253,7 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
         stream,
         [&](auto &context, auto &stage) -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
             if (stage.extension->schema() == "luisa.test.batch.add") {
-                return make_unique<AddPrefix>(context, stage, observations);
+                return luisa::make_unique<AddPrefix>(context, stage, observations);
             }
             string identity;
             switch (permission) {
@@ -269,7 +269,7 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
                     }
                     break;
             }
-            return make_unique<Rank>(context, stage, std::move(identity), observations);
+            return luisa::make_unique<Rank>(context, stage, std::move(identity), observations);
         });
     vector<uint> inputs(N + 1u), actual(N, ~0u), permutation(target_population, ~0u);
     for (auto i = 0u; i < N; ++i) {

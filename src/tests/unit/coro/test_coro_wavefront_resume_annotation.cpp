@@ -238,7 +238,7 @@ int main(int argc, char *argv[]) {
                 $suspend("ordered", coro_sort_by(N - 1u - id, N));
                 output.write(thread_x(), id);
             }};
-            return make_unique<WavefrontCoroScheduler<Buffer<uint>>>(
+            return luisa::make_unique<WavefrontCoroScheduler<Buffer<uint>>>(
                 device, source,
                 WavefrontCoroSchedulerConfig{
                     .thread_count = N, .gather_by_sorting = false, .execution_block_size = 32u});
@@ -247,7 +247,7 @@ int main(int argc, char *argv[]) {
         scheduler->register_extension_handler(
             stream,
             [&](auto &context, auto &stage) -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
-                return make_unique<Permute>(context, stage, witness.view());
+                return luisa::make_unique<Permute>(context, stage, witness.view());
             });
         stream << (*scheduler)(output).dispatch(N);
         vector<uint> host(N);
@@ -297,7 +297,7 @@ int main(int argc, char *argv[]) {
                  .fused_continuation_counts = true}};
             scheduler.register_extension_handler(
                 stream, [](auto &, auto &) -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
-                    return make_unique<Identity>();
+                    return luisa::make_unique<Identity>();
                 });
             uint zero = 0u;
             vector<uint> host(16u);
@@ -374,7 +374,7 @@ int main(int argc, char *argv[]) {
                                 stage.boundary->from_index != coro.graph().entry_index()) {
                                 return nullptr;
                             }
-                            return make_unique<Identity>();
+                            return luisa::make_unique<Identity>();
                         });
                     for (auto reverse : {false, true}) {
                         vector<uint> routes(N), order(N, ~0u);
@@ -448,7 +448,7 @@ int main(int argc, char *argv[]) {
                 scheduler.register_extension_handler(
                     stream,
                     [&](auto &context, auto &stage) -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
-                        return make_unique<SelfSnapshotWitness>(
+                        return luisa::make_unique<SelfSnapshotWitness>(
                             context, stage, stage.boundary->from_index == target->index,
                             epochs.view());
                     });
@@ -523,7 +523,7 @@ int main(int argc, char *argv[]) {
                     expect(left[0u].field_index != right[0u].field_index);
                     auto selected = stage.boundary->from_index == coro.graph().entry_index()
                                         ? string_view{"left"} : string_view{"right"};
-                    return make_unique<BoundaryReadWitness>(context, stage, selected, witness.view());
+                    return luisa::make_unique<BoundaryReadWitness>(context, stage, selected, witness.view());
                 });
             vector<uint> routes(N), actual(N, ~0u), observed(N, ~0u);
             for (auto i = 0u; i < N; ++i) { routes[i] = N - 1u - i; }
@@ -578,7 +578,7 @@ int main(int argc, char *argv[]) {
                         if (stage.extension->schema() != "luisa.coro.schedule.sort") {
                             return nullptr;
                         }
-                        return make_unique<Permute>(context, stage, witness.view());
+                        return luisa::make_unique<Permute>(context, stage, witness.view());
                     });
                 stream << scheduler(output).dispatch(N);
                 vector<uint> host(2u * N), sorted_keys(N);
@@ -649,7 +649,7 @@ int main(int argc, char *argv[]) {
                             if (stage.extension->schema() == "luisa.test.resume.ignored") {
                                 return nullptr;
                             }
-                            return make_unique<ChainHandler>(context, stage, expected.view(),
+                            return luisa::make_unique<ChainHandler>(context, stage, expected.view(),
                                                              diagnostics.view());
                         });
                     for (auto repeat = 0u; repeat < 2u; ++repeat) {

@@ -36,7 +36,10 @@ namespace bx = tile::bridge::xir;
 template<typename Target>
 concept PlannerTarget = requires(const tile::Function &function, const Target &target, const bx::PlannerOptions &options) {
     { bx::plan(function, target, options) } noexcept -> std::same_as<bx::PlanningResult>;
-    { bx::plan(function, target) } noexcept -> std::same_as<bx::PlanningResult>;
+    // The defaulted options argument is copy-constructed in the caller, which
+    // allocates with EASTL's (non-noexcept) vector, so this call is only
+    // checked for validity and return type, not for noexcept.
+    { bx::plan(function, target) } -> std::same_as<bx::PlanningResult>;
 };
 
 using PlannerEntry = bx::PlanningResult (*)(const tile::Function &, const bx::ExecutionTargetInfo &, const bx::PlannerOptions &) noexcept;

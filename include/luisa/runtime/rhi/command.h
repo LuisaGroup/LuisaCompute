@@ -8,6 +8,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/variant.h>
 #include <luisa/core/stl/functional.h>
+#include <luisa/vstl/meta_lib.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/stream_tag.h>
@@ -135,7 +136,14 @@ public:
     }
 };
 
-class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
+// ShaderDispatchCommand objects are created through luisa::make_unique (the
+// luisa/eastl default allocator) yet the SIMD backend destroys them through a
+// plain std::unique_ptr whose default deleter issues a global delete. The
+// IOperatorNewBase operators pair both sides with the same allocator, the same
+// way as spv::Instruction in the SPIR-V codegen.
+class ShaderDispatchCommand final : public Command,
+                                    public ShaderDispatchCommandBase,
+                                    public vstd::IOperatorNewBase {
 
 public:
     using DispatchSize = luisa::variant<

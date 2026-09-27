@@ -524,14 +524,17 @@ if (LUISA_COMPUTE_USE_SYSTEM_LMDB)
     endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_LMDB=1)
 else ()
-    add_library(luisa-compute-ext-lmdb OBJECT
+    # A STATIC (rather than OBJECT) archive so that consumers of the
+    # luisa-compute-vstl OBJECT library inherit the mdb/midl objects on their
+    # link lines: CMake never propagates object files through
+    # object-library -> object-library links, which left plain vstl consumers
+    # (e.g. fallback_rtx_selfcheck on Windows) with unresolved mdb_* symbols.
+    add_library(luisa-compute-ext-lmdb STATIC
             liblmdb/mdb.c liblmdb/lmdb.h
             liblmdb/midl.c liblmdb/midl.h)
     target_include_directories(luisa-compute-ext-lmdb PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/liblmdb>)
-    if (UNIX AND NOT APPLE)
-        set_target_properties(luisa-compute-ext-lmdb PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    endif ()
+    set_target_properties(luisa-compute-ext-lmdb PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if (WIN32)
         target_compile_options(luisa-compute-ext-lmdb PRIVATE "-UWIN32_LEAN_AND_MEAN")
     endif ()
@@ -578,9 +581,27 @@ set(ENABLE_HLSL ${LUISA_COMPUTE_ENABLE_VULKAN} CACHE BOOL "" FORCE)
 set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
+set(LUISA_VSTL ON CACHE BOOL "" FORCE)
 add_subdirectory(glslang)
-target_link_libraries(luisa-compute-ext INTERFACE glslang)
 install(TARGETS glslang EXPORT LuisaComputeTargets)
+# spvIR.h's spv::Instruction inherits vstd::IOperatorNewBase, so the glslang
+# target (which compiles the SPIRV sources) needs the luisa/EASTL headers, a
+# link dependency on the luisa core allocator its class-specific operators
+# call, and C++20 for the vstd headers.
+# The previous `luisa-compute-ext INTERFACE glslang` edge had to go for the
+# same reason: luisa-compute-core links luisa-compute-ext, so that edge made
+# core weakly depend on glslang, which now depends back on core -- a
+# shared-library cycle CMake refuses to generate. Nothing relied on the
+# transitive edge: every real glslang consumer links it explicitly
+# (luisa-compute-backend-vk, luisa-compute-spirv, test_native_shader_reflection).
+if (TARGET glslang AND LUISA_VSTL)
+        target_link_libraries(glslang PRIVATE
+                luisa-compute-include luisa-compute-core)
+        if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
+                target_link_libraries(glslang PRIVATE EASTL-interface)
+        endif ()
+        set_property(TARGET glslang PROPERTY CXX_STANDARD 20)
+endif ()
 
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)

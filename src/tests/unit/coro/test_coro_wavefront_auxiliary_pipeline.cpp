@@ -232,7 +232,7 @@ int main(int argc, char *argv[]) {
                 if (annotated) {
                     scheduler.register_extension_handler(stream, [](auto &, auto &)
                                                              -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
-                        return make_unique<ResumeAnnotation>();
+                        return luisa::make_unique<ResumeAnnotation>();
                     });
                 }
                 // Reuse also checks reset after a completely drained dispatch.

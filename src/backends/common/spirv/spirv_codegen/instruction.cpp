@@ -1984,7 +1984,7 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(
     expected_phi_inst->reserveOperands(4u);
     expected_phi_inst->addIdOperand(initial_uint);
     expected_phi_inst->addIdOperand(preheader->getId());
-    loop_header->addInstruction(std::move(expected_phi));
+    loop_header->addInstruction(to_std_unique_ptr(std::move(expected_phi)));
     _builder.createLoopMerge(merge, loop_continue, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, loop_body);
 
@@ -3223,7 +3223,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                 selection_merge->reserveOperands(2);
                 selection_merge->addIdOperand(merge_block->getId());
                 selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-                _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
+                _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
                 _builder.createConditionalBranch(is_triangle_hit, true_block, false_block);
                 _set_current_tail(true_block);
                 auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, uint_type,
@@ -4715,7 +4715,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             selection_merge->addImmediateOperand(
                 spv::SelectionControlMask::MaskNone);
             _builder.getBuildPoint()->addInstruction(
-                std::move(selection_merge));
+                to_std_unique_ptr(std::move(selection_merge)));
             _builder.createConditionalBranch(
                 valid_index, write_block, merge_block);
 
@@ -5719,7 +5719,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             selection_merge->addIdOperand(merge_block->getId());
             selection_merge->addImmediateOperand(
                 spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
+            _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
             _builder.createConditionalBranch(
                 has_committed, committed_block, merge_block);
 
@@ -5783,7 +5783,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             selection_merge->addImmediateOperand(
                 spv::SelectionControlMask::MaskNone);
             _builder.getBuildPoint()->addInstruction(
-                std::move(selection_merge));
+                to_std_unique_ptr(std::move(selection_merge)));
             _builder.createConditionalBranch(
                 has_committed, committed_block, merge_block);
 
@@ -5851,7 +5851,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             selection_merge->reserveOperands(2);
             selection_merge->addIdOperand(merge_block->getId());
             selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-            _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
+            _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
             auto switch_inst = luisa::make_unique<spv::Instruction>(spv::Op::OpSwitch);
             switch_inst->reserveOperands(6);
             switch_inst->addIdOperand(committed_type);
@@ -5860,7 +5860,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             switch_inst->addIdOperand(tri_block->getId());
             switch_inst->addImmediateOperand(2u);// procedural
             switch_inst->addIdOperand(proc_block->getId());
-            _builder.getBuildPoint()->addInstruction(std::move(switch_inst));
+            _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(switch_inst)));
             merge_block->addPredecessor(_builder.getBuildPoint());
             tri_block->addPredecessor(_builder.getBuildPoint());
             proc_block->addPredecessor(_builder.getBuildPoint());

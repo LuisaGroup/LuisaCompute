@@ -65,6 +65,15 @@ private:
 
 public:
     CoroSlotAccess() noexcept = default;
+    // Defined out-of-line in the coro library: implicit members of a
+    // dllimport/dllexport class are only emitted (and therefore exported)
+    // when some TU inside the DLL itself odr-uses them, which copy
+    // assignment never was. Consumers copying luisa::vector<CoroSlotAccess>
+    // (e.g. wavefront stage bindings) failed to link against it.
+    CoroSlotAccess(const CoroSlotAccess &) noexcept;
+    CoroSlotAccess(CoroSlotAccess &&) noexcept;
+    CoroSlotAccess &operator=(const CoroSlotAccess &);
+    CoroSlotAccess &operator=(CoroSlotAccess &&) noexcept;
 
     [[nodiscard]] const Type *type() const noexcept { return _type; }
     [[nodiscard]] CoroSuspendBindingAccess access() const noexcept {

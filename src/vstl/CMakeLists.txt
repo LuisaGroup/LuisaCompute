@@ -13,7 +13,10 @@ add_library(luisa-compute-vstl OBJECT ${LUISA_COMPUTE_VSTL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
 
 if (NOT LUISA_COMPUTE_USE_SYSTEM_LMDB)
-    target_link_libraries(luisa-compute-vstl PRIVATE luisa-compute-ext-lmdb)
+    # PUBLIC: consumers that link the vstl OBJECT library directly (e.g.
+    # fallback_rtx_selfcheck) must also receive the lmdb archive, otherwise
+    # vstl's lmdb.cpp.obj leaves mdb_* unresolved on Windows.
+    target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-ext-lmdb)
 endif ()
 
 target_compile_definitions(luisa-compute-vstl PRIVATE LUISA_VSTL_EXPORT_DLL=1)

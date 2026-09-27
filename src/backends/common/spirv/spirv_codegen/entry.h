@@ -27,6 +27,19 @@ namespace lc::spirv {
 using namespace luisa;
 using namespace luisa::compute;
 
+// Glslang's SPIR-V builder hands instruction ownership around through
+// std::unique_ptr, while luisa::make_unique yields eastl::unique_ptr when the
+// bundled STL is enabled (both default deleters plain-delete the instruction).
+// Transfer the handle into a std::unique_ptr so call sites compile with either
+// STL. The plain delete is safe only because spv::Instruction inherits
+// vstd::IOperatorNewBase (spvIR.h): its class-specific operator delete returns
+// the object to the same luisa allocator that luisa::make_unique allocated it
+// from, instead of the system free.
+template<typename T>
+[[nodiscard]] auto to_std_unique_ptr(luisa::unique_ptr<T> ptr) noexcept {
+    return std::unique_ptr<T>{ptr.release()};
+}
+
 struct SpirvKernelArgumentLayoutPlan;
 
 struct SpirvResult {

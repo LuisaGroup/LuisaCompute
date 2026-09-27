@@ -141,6 +141,7 @@ luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetc
 luisa_compute_add_example(example_software_lbvh
         compute/software_lbvh.cpp
         compute/lbvh/lbvh_storage.cpp
+        compute/lbvh/lbvh_sort.cpp
         compute/lbvh/blas.cpp
         compute/lbvh/tlas.cpp
         compute/lbvh/software_lbvh.cpp
@@ -155,6 +156,7 @@ luisa_compute_add_example(example_software_lbvh_bench
     compute/lbvh/bench/bench_harness.cpp
     compute/lbvh/bench/bench_stats.cpp
     compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
     compute/lbvh/blas.cpp
     compute/lbvh/tlas.cpp
     compute/lbvh/software_lbvh.cpp)
@@ -167,6 +169,7 @@ luisa_compute_add_example(example_software_lbvh_sort_bench
     compute/lbvh/bench/bench_harness.cpp
     compute/lbvh/bench/bench_stats.cpp
     compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
     compute/lbvh/blas.cpp
     compute/lbvh/tlas.cpp
     compute/lbvh/software_lbvh.cpp)
@@ -177,6 +180,7 @@ luisa_compute_add_example(example_software_lbvh_sort_bench
 luisa_compute_add_example(example_software_lbvh_test
     compute/lbvh/test/lbvh_test.cpp
     compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
     compute/lbvh/blas.cpp
     compute/lbvh/tlas.cpp
     compute/lbvh/software_lbvh.cpp

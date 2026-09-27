@@ -1,5 +1,14 @@
 #pragma once
 
+// X11 (pulled in through vulkan.h when the Xlib/XCB platforms are enabled)
+// pollutes the global namespace with `#define Bool int`, which breaks the
+// `TypeInfo::Kind::Bool` enumerator below. Save and restore the macro around
+// this header. Pop the macro back at the end of the file.
+#pragma push_macro("Bool")
+#ifdef Bool
+#undef Bool
+#endif
+
 // Shared native-shader reflection helpers (Phase 0.5 of the native-shader
 // injection plan).
 //
@@ -794,4 +803,6 @@ struct VariableInfo {
     return result;
 }
 
-}// namespace luisa::compute::native_shader_reflection
+  }// namespace luisa::compute::native_shader_reflection
+
+#pragma pop_macro("Bool")

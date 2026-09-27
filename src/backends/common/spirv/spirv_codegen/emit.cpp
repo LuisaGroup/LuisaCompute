@@ -542,7 +542,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     selection_merge->addIdOperand(merge_block->getId());
     selection_merge->addImmediateOperand(
         spv::SelectionControlMask::MaskNone);
-    header->addInstruction(std::move(selection_merge));
+    header->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
     _builder.createConditionalBranch(
         is_indirect, indirect_block, direct_block);
 
@@ -595,7 +595,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     phi->addIdOperand(direct_block->getId());
     phi->addIdOperand(indirect);
     phi->addIdOperand(indirect_block->getId());
-    merge_block->addInstruction(std::move(phi));
+    merge_block->addInstruction(to_std_unique_ptr(std::move(phi)));
     _set_dispatch_metadata(packed);
     return merge_block;
 }
@@ -870,7 +870,7 @@ void SpirvCodegenEntry::_predeclare_phis() noexcept {
                 _builder.getUniqueId(), phi_type, spv::Op::OpPhi);
             instruction->reserveOperands(layout.operand_word_count);
             node.instruction = instruction.get();
-            node.block->addInstruction(std::move(instruction));
+            node.block->addInstruction(to_std_unique_ptr(std::move(instruction)));
         }
         auto result_id = deferred.nodes.at(deferred.result_node_index)
                              .instruction->getResultId();
@@ -1275,8 +1275,8 @@ void SpirvCodegenEntry::_emit_kernel(
         selection_merge->reserveOperands(2);
         selection_merge->addIdOperand(body_block->getId());
         selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-        metadata_merge->addInstruction(
-            luisa::unique_ptr<spv::Instruction>(selection_merge));
+  metadata_merge->addInstruction(
+      std::unique_ptr<spv::Instruction>(selection_merge));
 
         // Branch conditional
         _builder.createConditionalBranch(cmp, return_block, body_block);

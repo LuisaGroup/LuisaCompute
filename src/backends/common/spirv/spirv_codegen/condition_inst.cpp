@@ -30,7 +30,7 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
         merge->addIdOperand(merge_target->getId());
         merge->addImmediateOperand(
             spv::SelectionControlMask::MaskNone);
-        _builder.getBuildPoint()->addInstruction(std::move(merge));
+        _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(merge)));
     }
     _builder.createConditionalBranch(condition, true_target, false_target);
 }
@@ -113,7 +113,7 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     selection_merge->reserveOperands(2u);
     selection_merge->addIdOperand(merge_target->getId());
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-    _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
+    _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
 
     auto switch_instruction = luisa::make_unique<spv::Instruction>(spv::Op::OpSwitch);
     switch_instruction->reserveOperands(layout.operand_word_count);
@@ -151,7 +151,7 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             predecessor_targets.emplace_back(case_target);
         }
     }
-    physical_switch_header->addInstruction(std::move(switch_instruction));
+    physical_switch_header->addInstruction(to_std_unique_ptr(std::move(switch_instruction)));
     for (auto *target : predecessor_targets) {
         target->addPredecessor(physical_switch_header);
     }

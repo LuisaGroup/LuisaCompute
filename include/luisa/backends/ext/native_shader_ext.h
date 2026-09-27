@@ -810,7 +810,10 @@ NativeShaderLauncher::_plan() const noexcept {
     for (auto i = 0u; i < _resources.size(); i++) {
         auto &&entry = _resources[i];
         if (entry.argument.tag == Argument::Tag::UNIFORM) { continue; }
-        auto argument_handle = [&entry]() noexcept {
+        // GCC on LP64: uint64_t is `unsigned long` while ~0ull is
+        // `unsigned long long`; pin the return type to avoid an
+        // inconsistent-deduced-return-type error.
+        auto argument_handle = [&entry]() noexcept -> uint64_t {
             switch (entry.argument.tag) {
                 case Argument::Tag::BUFFER: return entry.argument.buffer.handle;
                 case Argument::Tag::TEXTURE: return entry.argument.texture.handle;

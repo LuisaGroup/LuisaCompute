@@ -33,6 +33,9 @@
 #include <EASTL/span.h>
 #include <EASTL/bonus/compressed_pair.h>
 
+// Feature-test macro for std::bit_cast below.
+#include <bit>
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -160,12 +163,11 @@ using std::aligned_storage_t;
 
 #else
 
-using eastl::bit_cast;
 using eastl::span;
 
 using eastl::make_pair;
 
-// smart pointers
+// Smart pointers
 using eastl::compressed_pair;
 using eastl::const_pointer_cast;
 using eastl::dynamic_pointer_cast;
@@ -178,6 +180,19 @@ using eastl::shared_ptr;
 using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
+
+// bit_cast: EASTL's constexpr-support detection is broken on MSVC -- it gates
+// on the EA_COMPILER_MSVC_VERSION_14_26 macro that EABase never defines and on
+// __has_builtin(__builtin_bit_cast), which MSVC reports as absent -- so it
+// silently falls back to the non-constexpr memcpy implementation and constexpr
+// users (e.g. luisa/tile/types.h BFloat16) fail with C3615. Prefer the
+// standard library's guaranteed-constexpr std::bit_cast and only delegate to
+// EASTL when the STL does not provide one.
+#if defined(__cpp_lib_bit_cast) && __cpp_lib_bit_cast >= 201806L
+using std::bit_cast;
+#else
+using eastl::bit_cast;
+#endif
 
 using eastl::aligned_storage_t;
 

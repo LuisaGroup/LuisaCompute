@@ -44,6 +44,9 @@ add_executable(test_simd_cohort_scheduler
 target_compile_features(test_simd_cohort_scheduler PRIVATE cxx_std_20)
 target_include_directories(test_simd_cohort_scheduler PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+# The schedule headers include <luisa/core/stl/optional.h>, which needs the
+# core interface (the bundled EASTL include dirs) even in this LLVM-free test.
+target_link_libraries(test_simd_cohort_scheduler PRIVATE luisa-compute-core)
 add_test(NAME test_simd_cohort_scheduler
         COMMAND test_simd_cohort_scheduler)
 set_tests_properties(test_simd_cohort_scheduler PROPERTIES
@@ -54,6 +57,7 @@ add_executable(test_simd_scheduler_model
 target_compile_features(test_simd_scheduler_model PRIVATE cxx_std_20)
 target_include_directories(test_simd_scheduler_model PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_scheduler_model PRIVATE luisa-compute-core)
 add_test(NAME test_simd_scheduler_model
         COMMAND test_simd_scheduler_model)
 set_tests_properties(test_simd_scheduler_model PROPERTIES
@@ -65,6 +69,7 @@ target_compile_features(test_simd_reference_warp_collectives PRIVATE cxx_std_20)
 target_include_directories(test_simd_reference_warp_collectives PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_reference_warp_collectives PRIVATE luisa-compute-core)
 add_test(NAME test_simd_reference_warp_collectives
         COMMAND test_simd_reference_warp_collectives)
 set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
@@ -86,6 +91,7 @@ add_executable(test_simd_schedule_ir
 target_compile_features(test_simd_schedule_ir PRIVATE cxx_std_20)
 target_include_directories(test_simd_schedule_ir PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_schedule_ir PRIVATE luisa-compute-core)
 add_test(NAME test_simd_schedule_ir
         COMMAND test_simd_schedule_ir)
 set_tests_properties(test_simd_schedule_ir PROPERTIES
@@ -374,8 +380,10 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
                 ${_hip_callable_abi_llvm_libs})
     endif ()
 endif ()
-luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
-target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
+luisa_compute_add_test(test_glslang_spirv unit/ext/test_glslang_spirv.cpp LABELS "unit;unit_ext")
+# glslang is linked explicitly: the old luisa-compute-ext INTERFACE edge that
+# leaked it into every compute consumer is gone (see src/ext/CMakeLists.txt).
+target_link_libraries(test_glslang_spirv PRIVATE glslang glslang-default-resource-limits)
 luisa_compute_add_test(test_native_shader_reflection unit/ext/test_native_shader_reflection.cpp LABELS "unit;unit_ext")
 target_include_directories(test_native_shader_reflection PRIVATE ../backends/common)
 target_link_libraries(test_native_shader_reflection PRIVATE glslang glslang-default-resource-limits)
