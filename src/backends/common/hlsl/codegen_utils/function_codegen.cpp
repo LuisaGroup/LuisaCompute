@@ -169,12 +169,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         offset->accept(vis);
         str << ')';
     };
-    // Emits the HLSL expression that carries a resource's runtime bound
-    // (element / slot count). Inside a callable the bound is forwarded as an
-    // extra `_validation_bound_<uid>` parameter; in the kernel entry it is the
-    // cbuffer slot `_Global[0]._validate_<n>` filled by the command encoder.
-    auto PrintValidationBoundTo = [&](Expression const *resource,
-                                      vstd::StringBuilder &out) {
+    auto PrintValidationBound = [&](Expression const *resource) {
         LUISA_ASSERT(
             resource != nullptr && resource->tag() == Expression::Tag::REF,
             "HLSL debug validation requires a referenced resource expression.");
@@ -184,7 +179,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             "HLSL debug validation bound requested for non-buffer resource {}.",
             variable.type()->description());
         if (opt->funcType == CodegenStackData::FuncType::Callable) {
-            print_validation_bound_name(out, variable);
+            print_validation_bound_name(str, variable);
             return;
         }
         auto key = CodegenStackData::ValidateKey{
@@ -194,11 +189,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             iter != opt->validate_index_map.end(),
             "Missing HLSL debug-validation slot for resource {} in function {}.",
             variable.uid(), vis.f.hash());
-        out << "_Global[0]._validate_"sv;
-        vstd::to_string(iter->second, out);
-    };
-    auto PrintValidationBound = [&](Expression const *resource) {
-        PrintValidationBoundTo(resource, str);
+        str << "_Global[0]._validate_"sv;
+        vstd::to_string(iter->second, str);
     };
     // Software ray tracing: the fallback entry points of
     // fallback_rtx_header.bytes take the acceleration view, the ray, the mask,
@@ -607,34 +599,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 mark_coherent(args[0]);
             }
             auto &chain = opt->GetAtomicFunc(vis.f, expr->op(), rootVar->variable(), expr->type(), args);
-            // Debug out-of-range detection: guard the first index node of the atomic
-            // access chain (the one indexing the buffer / shared array / local
-            // array root). Later nodes index vectors/matrices/structs, which are
-            // sized by the type system and cannot go out of range at runtime.
-            vstd::fixed_vector<AccessChain::NodeBound, 8> node_bounds;
-            vstd::StringBuilder bound_text;
-            if (opt->oob_check) {
-                auto const &root_variable = rootVar->variable();
-                auto root_type = root_variable.type();
-                uint kind = 0u;
-                if (root_type->is_buffer()) {
-                    // Reuse the debug-validation bound (cbuffer slot in the kernel
-                    // entry, forwarded parameter inside a callable). oob_check
-                    // implies enable_debug_info, so the bound always exists.
-                    PrintValidationBoundTo(args[0], bound_text);
-                    kind = 1u;
-                } else if (root_variable.is_shared()) {
-                    vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
-                    kind = 4u;
-                } else if (root_type->is_array()) {
-                    vstd::to_string(static_cast<int64_t>(root_type->dimension()), bound_text);
-                    kind = 3u;
-                }
-                if (kind != 0u) {
-                    node_bounds.emplace_back(AccessChain::NodeBound{bound_text.view(), kind});
-                }
-            }
-            chain.call_this_func(args, str, vis, node_bounds);
+            chain.call_this_func(args, str, vis);
             return;
         }
         case CallOp::TEXTURE_READ:

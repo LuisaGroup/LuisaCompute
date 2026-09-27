@@ -25,13 +25,8 @@
 #define _LC_FB_INVALID_OFFSET 0xFFFFFFFFu
 #define _LC_FB_STACK_SIZE 64u
 
-#ifdef _LC_OOB_CHECK
-#define _LC_FB_HEAP_READ(heap, slot, index) \
-    _READ_BUFFER(heap, slot, (index), 16u, uint4, bdls, 0xFFFFFFFFu)
-#else
 #define _LC_FB_HEAP_READ(heap, slot, index) \
     _READ_BUFFER(heap, slot, (index), 16u, uint4, bdls)
-#endif
 
 float _LCFbAsFloat(uint u) { return asfloat(u); }
 uint _LCFbAsUint(float f) { return asuint(f); }
