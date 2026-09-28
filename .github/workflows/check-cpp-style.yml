@@ -12,3 +12,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check project C++ exception policy
         run: python3 scripts/check_cpp_no_throw.py
+
+  # The build scripts must spell the vendored directories exactly as they get
+  # checked out: Linux/macOS runners are case sensitive while Windows is not, so
+  # a wrong case only breaks the former -- for example the Vulkan and core
+  # sources failing to find their vendored headers. The submodule names come
+  # from .gitmodules, so a mismatch never shows up in a Windows-only build.
+  path-case:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check directory case used by the build scripts
+        run: python3 scripts/check_path_case.py

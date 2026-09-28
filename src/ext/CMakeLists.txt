@@ -321,21 +321,22 @@ if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
     endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_XXHASH=1)
 else ()
-      add_library(xxhash INTERFACE)
-      # NOTE: the bundled directory is src/ext/xxhash (lowercase); keep the
-      # casing in sync or case-sensitive platforms (Linux) cannot build.
-      target_include_directories(xxhash INTERFACE
-              $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxhash>
-              $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxhash>)
+    add_library(xxhash INTERFACE)
+    # NOTE: the bundled submodule directory is src/ext/xxHash (mixed case, as
+    # upstream names it); keep the casing in sync here and in src/core/xmake.lua
+    # or case-sensitive platforms (Linux, macOS) cannot find <xxhash.h>.
+    target_include_directories(xxhash INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxHash>)
     target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
     set_target_properties(xxhash PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME luisa-ext-xxhash)
     target_link_libraries(luisa-compute-ext INTERFACE xxhash)
-      luisa_compute_install_extension(xxhash HEADER_FILES
-              xxhash/xxh3.h
-              xxhash/xxhash.h
-              HEADER_DESTINATION xxhash)
+    luisa_compute_install_extension(xxhash HEADER_FILES
+            xxHash/xxh3.h
+            xxHash/xxhash.h
+            HEADER_DESTINATION xxHash)
 endif ()
 
 # magic enum
@@ -585,7 +586,39 @@ set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
 set(LUISA_VSTL ON CACHE BOOL "" FORCE)
 add_subdirectory(glslang)
-install(TARGETS glslang EXPORT LuisaComputeTargets)
+# glslang's runtime payload.
+# `glslang` must be part of the export set because the static luisa-compute-spirv
+# library links it with a PUBLIC (interface) dependency. When BUILD_SHARED_LIBS is
+# ON -- every non-iOS configuration -- glslang is split over several shared
+# libraries and the Vulkan backend module additionally links
+# `glslang-default-resource-limits` (runtime GLSL/HLSL compilation of native
+# shaders). install(TARGETS) does not follow dependency edges, so every sibling
+# that ends up as a DT_NEEDED entry of an installed binary has to be installed as
+# well; otherwise the shipped SDK carries a backend module that cannot be loaded
+# ("libglslang-default-resource-limits.so.16: cannot open shared object file").
+install(TARGETS glslang EXPORT LuisaComputeTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+foreach (_luisa_glslang_sibling IN ITEMS glslang-default-resource-limits SPIRV)
+    if (NOT TARGET ${_luisa_glslang_sibling})
+        continue ()
+    endif ()
+    get_target_property(_luisa_glslang_sibling_type
+            ${_luisa_glslang_sibling} TYPE)
+    if (NOT _luisa_glslang_sibling_type STREQUAL "SHARED_LIBRARY")
+        # Statically linked: the code is already part of its consumers.
+        continue ()
+    endif ()
+    # Private runtime payload, hence no EXPORT: consumers never link against it
+    # directly (the backend module does so with a PRIVATE dependency).
+    install(TARGETS ${_luisa_glslang_sibling}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endforeach ()
+unset(_luisa_glslang_sibling)
+unset(_luisa_glslang_sibling_type)
 # spvIR.h's spv::Instruction inherits vstd::IOperatorNewBase, so the glslang
 # target (which compiles the SPIRV sources) needs the luisa/EASTL headers, a
 # link dependency on the luisa core allocator its class-specific operators

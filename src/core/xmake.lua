@@ -8,7 +8,10 @@ on_load(function(target)
     local function rela(p)
         return path.normalize(path.join(os.scriptdir(), p))
     end
-    target:add("includedirs", rela("../../include"), rela("../ext/xxhash/"), rela("../ext/magic_enum/include"),
+    -- NOTE: the bundled submodule directory is src/ext/xxHash (mixed case, as
+    -- upstream names it); keep the casing in sync or case-sensitive platforms
+    -- (Linux/macOS) cannot find <xxhash.h>.
+    target:add("includedirs", rela("../../include"), rela("../ext/xxHash"), rela("../ext/magic_enum/include"),
         rela("../ext/half/include"), {
             public = true
         })
@@ -97,7 +100,7 @@ on_load(function(target)
         })
     end
 end)
-add_headerfiles("../../include/luisa/core/**.h", "../ext/xxhash/**.h", "../ext/magic_enum/include/**.hpp",
+add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp",
     "../ext/half/include/half.hpp") -- , "../ext/parallel-hashmap/**.h"
 add_files("**.cpp")
 target_end()

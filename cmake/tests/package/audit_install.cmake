@@ -82,6 +82,69 @@ file(GLOB_RECURSE _LuisaCompute_RUNTIME_FILES LIST_DIRECTORIES FALSE
         "${LUISA_COMPUTE_PACKAGE_ROOT}/bin/*"
         "${LUISA_COMPUTE_PACKAGE_ROOT}/lib/*")
 
+# ---------------------------------------------------------------------------
+# Runtime closure.
+# A shared library that an installed binary links against but that never made it
+# into the package only fails at load time on the customer's machine
+# ("libglslang-default-resource-limits.so.16: cannot open shared object file"),
+# which is far away from the missing install() rule that caused it. Every
+# library produced by this build must therefore appear in the package too.
+# Libraries that come from outside the build (libc, libvulkan, the CUDA driver,
+# system Qt/GLFW, ...) are not produced by it and stay exempt.
+# ---------------------------------------------------------------------------
+set(_LuisaCompute_PACKAGED_FILE_NAMES "")
+foreach (_LuisaCompute_RUNTIME_FILE IN LISTS _LuisaCompute_RUNTIME_FILES)
+    get_filename_component(_LuisaCompute_PACKAGED_FILE_NAME
+            "${_LuisaCompute_RUNTIME_FILE}" NAME)
+    list(APPEND _LuisaCompute_PACKAGED_FILE_NAMES
+            "${_LuisaCompute_PACKAGED_FILE_NAME}")
+endforeach ()
+list(REMOVE_DUPLICATES _LuisaCompute_PACKAGED_FILE_NAMES)
+
+set(_LuisaCompute_BUILT_SHARED_FILE_NAMES "")
+if (DEFINED LUISA_COMPUTE_E2E_BINARY_DIR AND
+        IS_DIRECTORY "${LUISA_COMPUTE_E2E_BINARY_DIR}")
+    foreach (_LuisaCompute_OUTPUT_DIR IN ITEMS bin lib)
+        set(_LuisaCompute_OUTPUT_DIR
+                "${LUISA_COMPUTE_E2E_BINARY_DIR}/${_LuisaCompute_OUTPUT_DIR}")
+        if (NOT IS_DIRECTORY "${_LuisaCompute_OUTPUT_DIR}")
+            continue ()
+        endif ()
+        file(GLOB_RECURSE _LuisaCompute_BUILT_FILES
+                LIST_DIRECTORIES FALSE
+                "${_LuisaCompute_OUTPUT_DIR}/*")
+        foreach (_LuisaCompute_BUILT_FILE IN LISTS _LuisaCompute_BUILT_FILES)
+            get_filename_component(_LuisaCompute_BUILT_FILE_NAME
+                    "${_LuisaCompute_BUILT_FILE}" NAME)
+            list(APPEND _LuisaCompute_BUILT_SHARED_FILE_NAMES
+                    "${_LuisaCompute_BUILT_FILE_NAME}")
+        endforeach ()
+    endforeach ()
+    list(REMOVE_DUPLICATES _LuisaCompute_BUILT_SHARED_FILE_NAMES)
+endif ()
+
+# Reject a dependency that this build produced but the package does not ship.
+function(_luisa_compute_require_packaged_dependency binary kind load_name)
+    if (_LuisaCompute_BUILT_SHARED_FILE_NAMES STREQUAL "")
+        return() # no build tree to compare against; nothing is known
+    endif ()
+    if (IS_ABSOLUTE "${load_name}")
+        # Already rejected for producer paths; nothing else to say about it.
+        return()
+    endif ()
+    get_filename_component(_load_name "${load_name}" NAME)
+    if (NOT _load_name IN_LIST _LuisaCompute_BUILT_SHARED_FILE_NAMES)
+        return() # external (system or vendor) library
+    endif ()
+    if (_load_name IN_LIST _LuisaCompute_PACKAGED_FILE_NAMES)
+        return()
+    endif ()
+    message(FATAL_ERROR
+            "Installed binary ${binary} requires ${kind} ${_load_name}, which "
+            "this build produces but the package does not install. Add the "
+            "missing install() rule (see cmake/tests/package/audit_install.cmake).")
+endfunction()
+
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     find_program(_LuisaCompute_READELF NAMES readelf llvm-readelf REQUIRED)
     foreach (_LuisaCompute_RUNTIME_FILE IN LISTS _LuisaCompute_RUNTIME_FILES)
@@ -99,12 +162,17 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
                 _LuisaCompute_NEEDED_LINES
                 "${_LuisaCompute_DYNAMIC_SECTION}")
         foreach (_LuisaCompute_NEEDED_LINE IN LISTS _LuisaCompute_NEEDED_LINES)
-            if (_LuisaCompute_NEEDED_LINE MATCHES "\\[([^]]*)\\]" AND
-                IS_ABSOLUTE "${CMAKE_MATCH_1}")
+            if (NOT _LuisaCompute_NEEDED_LINE MATCHES "\\[([^]]*)\\]")
+                continue ()
+            endif ()
+            if (IS_ABSOLUTE "${CMAKE_MATCH_1}")
                 _luisa_compute_reject_forbidden_runtime_path(
                         "${_LuisaCompute_RUNTIME_FILE}" "DT_NEEDED"
                         "${CMAKE_MATCH_1}")
             endif ()
+            _luisa_compute_require_packaged_dependency(
+                    "${_LuisaCompute_RUNTIME_FILE}" "DT_NEEDED"
+                    "${CMAKE_MATCH_1}")
         endforeach ()
         string(REGEX MATCHALL
                 "\\((RPATH|RUNPATH)\\)[^\n]*"
@@ -175,6 +243,11 @@ elseif (APPLE)
                 _luisa_compute_reject_forbidden_runtime_path(
                         "${_LuisaCompute_RUNTIME_FILE}" "Mach-O load-name"
                         "${_LuisaCompute_LOAD_NAME}")
+                if (_LuisaCompute_LOAD_NAME MATCHES "^@rpath/")
+                    _luisa_compute_require_packaged_dependency(
+                            "${_LuisaCompute_RUNTIME_FILE}" "Mach-O load-name"
+                            "${_LuisaCompute_LOAD_NAME}")
+                endif ()
             endforeach ()
         endif ()
     endforeach ()
