@@ -2516,16 +2516,21 @@ spirv_xir_dialect_support(xir::ResourceQueryOp op) noexcept {
                 "motion-key representation in this code generator");
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR:
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
-        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
-        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
-            return unsupported(
-                "OpRayQueryInitializeKHR cannot represent the XIR motion-time operand");
-    }
-    return unknown();
-}
+          case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+          case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+              return unsupported(
+                  "OpRayQueryInitializeKHR cannot represent the XIR motion-time operand");
+          case xir::ResourceQueryOp::ACCEL_SIZE:
+              return unsupported(
+                  "the native SPIR-V route has no acceleration-structure "
+                  "instance-count query; kernels using ACCEL_SIZE are routed "
+                  "to the HLSL compatibility route instead");
+      }
+      return unknown();
+  }
 
-SpirvXIRDialectOpSupport
-spirv_xir_dialect_support(xir::ResourceReadOp op) noexcept {
+  SpirvXIRDialectOpSupport
+  spirv_xir_dialect_support(xir::ResourceReadOp op) noexcept {
     switch (op) {
         case xir::ResourceReadOp::BUFFER_READ:
         case xir::ResourceReadOp::BUFFER_VOLATILE_READ:

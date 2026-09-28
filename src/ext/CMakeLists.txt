@@ -321,19 +321,21 @@ if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
     endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_XXHASH=1)
 else ()
-    add_library(xxhash INTERFACE)
-    target_include_directories(xxhash INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>
-            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxHash>)
+      add_library(xxhash INTERFACE)
+      # NOTE: the bundled directory is src/ext/xxhash (lowercase); keep the
+      # casing in sync or case-sensitive platforms (Linux) cannot build.
+      target_include_directories(xxhash INTERFACE
+              $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxhash>
+              $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxhash>)
     target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
     set_target_properties(xxhash PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME luisa-ext-xxhash)
     target_link_libraries(luisa-compute-ext INTERFACE xxhash)
-    luisa_compute_install_extension(xxhash HEADER_FILES
-            xxHash/xxh3.h
-            xxHash/xxhash.h
-            HEADER_DESTINATION xxHash)
+      luisa_compute_install_extension(xxhash HEADER_FILES
+              xxhash/xxh3.h
+              xxhash/xxhash.h
+              HEADER_DESTINATION xxhash)
 endif ()
 
 # magic enum

@@ -623,10 +623,13 @@ private:
     void _debug_scope(const ScopeStmt *original, ScopeStmt *copy) noexcept {
         auto fb = _fb();
         auto &&ctx = _ctx();
-        // Entering a scope invalidates hoisted temporaries emitted for the
-        // enclosing scope's statements.
-        luisa::unordered_map<const Expression *, const Expression *> saved;
-        saved.swap(ctx.expr_map);
+      // Entering a scope invalidates hoisted temporaries emitted for the
+      // enclosing scope's statements.
+      // NOTE: move-based save/restore — table::swap() in unordered_dense.h
+      // resolves `swap(other, *this)` ambiguously when both std::swap and
+      // eastl::swap are ADL-visible (bundled-EASTL builds, where the map's
+      // value container is eastl::vector).
+      luisa::unordered_map<const Expression *, const Expression *> saved{std::move(ctx.expr_map)};
         fb->with(copy, [&] {
             for (auto s : original->statements()) {
                 _debug_stmt(s);
@@ -637,9 +640,9 @@ private:
                     break;
                 }
             }
-        });
-        saved.swap(ctx.expr_map);
-    }
+          });
+          ctx.expr_map = std::move(saved);
+      }
 
     void _debug_stmt(const Statement *stmt) noexcept {
         auto fb = _fb();
