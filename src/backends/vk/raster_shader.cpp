@@ -196,12 +196,13 @@ auto RasterShader::create_pipeline(
         .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
         .alphaBlendOp = VK_BLEND_OP_ADD,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+    luisa::vector<VkPipelineColorBlendAttachmentState> blend_attachments(rtv_textures.size(), blend_attachment);
     VkPipelineColorBlendStateCreateInfo blend_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         .logicOpEnable = VK_FALSE,
         .logicOp = VK_LOGIC_OP_CLEAR,
-        .attachmentCount = 1,
-        .pAttachments = &blend_attachment,
+        .attachmentCount = static_cast<uint32_t>(blend_attachments.size()),
+        .pAttachments = blend_attachments.data(),
         .blendConstants = {1.f, 1.f, 1.f, 1.f}};
     VkViewport view;
     VkRect2D scissors;
