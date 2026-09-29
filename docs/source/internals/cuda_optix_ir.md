@@ -255,3 +255,13 @@ cross-route difference was unchanged: RGB mean absolute error **0.0137313/255**,
 maximum channel error **5/255**, and **96.6382%** identical pixels.
 All samples and images are in
 `build-msvc-llvm/test-results/cutout-ast-llvm-abba-20260930-013936-516204/`.
+
+A final cold-cache compilation check after v14 repeated three processes per
+route. Median LLVM generation was **79.7033 ms for PTX** versus **67.6546 ms
+for OptiX IR**; module creation was **399.992 ms** versus **468.629 ms**, and
+total shader compilation was **500.3611 ms** versus **555.4053 ms**. Thus direct
+IR emission saved about 15% in its host generation stage, while total compilation
+remained about 11% slower in this run. This does not demonstrate an end-to-end
+compile-time win; the OptiX IR route remains experimental and opt-in. All six
+renders completed and reproduced their respective earlier 64-spp PNG hashes.
+The record is `.deps/optixir-compile-ab-20260930-014548/results.json`.
