@@ -113,6 +113,7 @@ private:
 
     // queue
     VkQueue _queue{nullptr};
+    uint32_t _queue_family_index{VK_QUEUE_FAMILY_IGNORED};
 
     // swapchain
     VkSwapchainKHR _swapchain{nullptr};
@@ -429,12 +430,13 @@ private:
         volkLoadDevice(_device);
 
         // get the queue
-        vkGetDeviceQueue(_device, *queue_family, 0u, &_queue);
+        _queue_family_index = *queue_family;
+        vkGetDeviceQueue(_device, _queue_family_index, 0u, &_queue);
 
         // create the command pool
         VkCommandPoolCreateInfo pool_create_info{};
         pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        pool_create_info.queueFamilyIndex = *queue_family;
+        pool_create_info.queueFamilyIndex = _queue_family_index;
         pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         LUISA_CHECK_VULKAN(vkCreateCommandPool(_device, &pool_create_info, nullptr, &_command_pool));
     }
@@ -1138,6 +1140,7 @@ public:
     [[nodiscard]] auto command_pool() const noexcept { return _command_pool; }
     [[nodiscard]] auto physical_device() const noexcept { return _physical_device; }
     [[nodiscard]] auto queue() const noexcept { return _queue; }
+    [[nodiscard]] auto queue_family_index() const noexcept { return _queue_family_index; }
     [[nodiscard]] auto is_hdr() const noexcept { return _is_hdr_colorspace(_swapchain_format.colorSpace); }
 };
 
@@ -1163,6 +1166,7 @@ VkSurfaceFormatKHR VulkanSwapchain::format() const noexcept { return _impl->swap
 size_t VulkanSwapchain::back_buffer_count() const noexcept { return _impl->back_buffer_count(); }
 VkCommandPool VulkanSwapchain::command_pool() const noexcept { return _impl->command_pool(); }
 VkQueue VulkanSwapchain::queue() const noexcept { return _impl->queue(); }
+uint32_t VulkanSwapchain::queue_family_index() const noexcept { return _impl->queue_family_index(); }
 bool VulkanSwapchain::is_hdr() const noexcept { return _impl->is_hdr(); }
 void VulkanSwapchain::wait_for_fence() noexcept { _impl->wait_for_fence(); }
 void VulkanSwapchain::present(VkSemaphore wait, VkSemaphore signal,

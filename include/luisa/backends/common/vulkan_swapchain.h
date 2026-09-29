@@ -29,6 +29,7 @@ public:
     [[nodiscard]] VkDevice device() const noexcept;
     [[nodiscard]] VkPhysicalDevice physical_device() const noexcept;
     [[nodiscard]] VkQueue queue() const noexcept;
+    [[nodiscard]] uint32_t queue_family_index() const noexcept;
     [[nodiscard]] VkExtent2D extent() const noexcept;
     [[nodiscard]] VkSurfaceFormatKHR format() const noexcept;
     [[nodiscard]] VkCommandPool command_pool() const noexcept;
