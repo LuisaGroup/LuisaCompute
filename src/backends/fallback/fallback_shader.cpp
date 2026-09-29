@@ -3,6 +3,7 @@
 //
 
 #include <charconv>
+#include <cmath>
 #include <fstream>
 
 #include <llvm/ADT/SmallVector.h>
@@ -392,6 +393,13 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         };
 
 #include "fallback_device_api_map_symbols.generated.inl.h"
+
+        // LLVM can lower scalar exp10 intrinsics to these nonstandard libm
+        // names, which are absent from the Windows CRT.
+        map_symbol("exp10f", +[](float x) noexcept {
+            return static_cast<float>(std::pow(10.0, static_cast<double>(x)));
+        });
+        map_symbol("exp10", +[](double x) noexcept { return std::pow(10.0, x); });
 
         map_symbol("luisa.asin.f16", &luisa_fallback_asin_f16);
         map_symbol("luisa.asin.f32", &luisa_fallback_asin_f32);

@@ -7,6 +7,7 @@
 #include "ut/ut.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
@@ -38,10 +39,20 @@ using namespace boost::ut::literals;
 
 namespace {
 
-void debug_break_wrapper_a(void *, DebugBreakStmt::Evaluator *) {}
-void debug_break_wrapper_b(void *, DebugBreakStmt::Evaluator *) {}
-void cpu_custom_callback_a(void *, void *) {}
-void cpu_custom_callback_b(void *, void *) {}
+// Distinct behavior keeps callback identities distinct under linker ICF.
+// Two empty functions may share one address in an optimized MSVC build.
+void debug_break_wrapper_a(void *context, DebugBreakStmt::Evaluator *) {
+    *static_cast<uint32_t *>(context) = 1u;
+}
+void debug_break_wrapper_b(void *context, DebugBreakStmt::Evaluator *) {
+    *static_cast<uint32_t *>(context) = 2u;
+}
+void cpu_custom_callback_a(void *, void *argument) {
+    *static_cast<float *>(argument) += 1.0f;
+}
+void cpu_custom_callback_b(void *, void *argument) {
+    *static_cast<float *>(argument) += 2.0f;
+}
 void cpu_custom_destructor(void *) {}
 
 template<typename Pred>
@@ -587,6 +598,11 @@ void reg_ast2xir() {
     "ast_value_hash_covers_codegen_semantics"_test = [] {
         DebugBreakStmt debug_a{debug_break_wrapper_a, {}};
         DebugBreakStmt debug_b{debug_break_wrapper_b, {}};
+        uint32_t debug_result_a = 0u;
+        uint32_t debug_result_b = 0u;
+        debug_a.wrapper()(&debug_result_a, nullptr);
+        debug_b.wrapper()(&debug_result_b, nullptr);
+        expect(debug_result_a == 1u && debug_result_b == 2u);
         expect(debug_a.hash() != debug_b.hash())
             << "debug-break wrappers change the emitted XIR instruction";
 
@@ -613,6 +629,12 @@ void reg_ast2xir() {
                                   cpu_custom_destructor, nullptr, argument};
             CpuCustomOpExpr cpu_b{Type::of<float>(), cpu_custom_callback_b,
                                   cpu_custom_destructor, nullptr, argument};
+            auto cpu_result_a = 0.0f;
+            auto cpu_result_b = 0.0f;
+            cpu_a.func()(cpu_a.user_data(), &cpu_result_a);
+            cpu_b.func()(cpu_b.user_data(), &cpu_result_b);
+            expect(std::abs(cpu_result_a - 1.0f) < 1e-6f &&
+                   std::abs(cpu_result_b - 2.0f) < 1e-6f);
             GpuCustomOpExpr gpu_a{Type::of<float>(), "source_a", argument};
             GpuCustomOpExpr gpu_b{Type::of<float>(), "source_b", argument};
             cpu_hash_a = cpu_a.hash();

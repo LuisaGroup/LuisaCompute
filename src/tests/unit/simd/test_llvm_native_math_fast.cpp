@@ -269,11 +269,16 @@ void add_entry(
         case Operation::atan2: return std::atan2(input, secondary);
         case Operation::exp: return std::exp(input);
         case Operation::exp2: return std::exp2(input);
-        case Operation::exp10: return std::pow(10.0f, input);
+        // Evaluate in double before rounding: MSVC powf can flush valid
+        // float subnormal results (for example, 10^-44.86371994018555) to zero.
+        case Operation::exp10: return static_cast<float>(std::pow(10.0, static_cast<double>(input)));
         case Operation::log: return std::log(input);
         case Operation::log2: return std::log2(input);
         case Operation::log10: return std::log10(input);
-        case Operation::pow: return std::pow(input, secondary);
+        // The same powf issue affects variable bases: input bits 0x0f8442d7
+        // raised to exponent bits 0x3fc7024a is approximately 0.8807156 times
+        // the smallest float subnormal, so it rounds to 0x00000001, not zero.
+        case Operation::pow: return static_cast<float>(std::pow(static_cast<double>(input), static_cast<double>(secondary)));
         case Operation::sinh: return std::sinh(input);
         case Operation::cosh: return std::cosh(input);
         case Operation::tanh: return std::tanh(input);
@@ -990,6 +995,11 @@ struct ErrorBound {
                                 << " secondary=" << secondary[lane]
                                 << " actual=" << output[lane]
                                 << " expected=" << expected
+                                << " actual_bits=0x" << std::hex
+                                << luisa::bit_cast<uint32_t>(output[lane])
+                                << " expected_bits=0x"
+                                << luisa::bit_cast<uint32_t>(expected)
+                                << std::dec
                                 << " ulp=" << ulp_distance(output[lane], expected)
                                 << '\n';
                             return false;

@@ -7292,6 +7292,9 @@ void texture_packet_sample_probe(
                    ir, "llvm.masked.gather") >= 2u) ==
               (width == 8u));
         if (width == 8u) {
+            CHECK(count_occurrences(
+                      ir, "call <8 x i64> @llvm.masked.gather") ==
+                  2u);
             auto sanitized = ir.find("texture.native.safe.x");
             auto bounds = ir.find("texture.read.gather.in.bounds");
             auto address =
@@ -7309,12 +7312,43 @@ void texture_packet_sample_probe(
         auto assembly = jit.emit_assembly_copy(*llvm_module);
         CHECK(!assembly.empty());
         if (jit.target_triple().starts_with("x86_64")) {
-            if (jit.supports_native_paired_leaf_gather(width)) {
+            auto native_gather =
+                jit.supports_native_paired_leaf_gather(width);
+            if (native_gather) {
                 CHECK(count_occurrences(
                           assembly, "vpgatherqq") == 2u);
                 CHECK(assembly.find("vpgatherdd") ==
                       std::string::npos);
                 CHECK(assembly.find("vpgatherqd") ==
+                      std::string::npos);
+            } else if (width == 8u) {
+                // The module above deliberately forces portable gather IR for
+                // semantic coverage. AVX2 may legally split it into narrower
+                // gathers even though the measured W8/ZMM policy rejects it.
+                // Check the no-gather contract on the production policy input.
+                ::llvm::LLVMContext policy_context;
+                ::llvm::Module policy_module{
+                    "simd-native-texture-packet-host-policy", policy_context};
+                auto policy_codegen = lower_schedule_to_llvm(
+                    policy_module, *lowered.function, width,
+                    "simd_native_texture_packet_host_policy",
+                    false, {}, true, true, false, 1u, true,
+                    false, false, false, {}, 0u, false, false,
+                    native_gather);
+                CHECK(policy_codegen.succeeded());
+                CHECK(policy_codegen.guarded_native_texture_read_count == 1u);
+                CHECK(policy_codegen.guarded_native_texture_write_count == 1u);
+                CHECK(policy_codegen.guarded_gathered_native_texture_read_count == 0u);
+                CHECK(!::llvm::verifyModule(policy_module, &::llvm::errs()));
+                std::string policy_ir;
+                ::llvm::raw_string_ostream policy_stream{policy_ir};
+                policy_module.print(policy_stream, nullptr);
+                policy_stream.flush();
+                CHECK(policy_ir.find("llvm.masked.gather") ==
+                      std::string::npos);
+                auto policy_assembly = jit.emit_assembly_copy(policy_module);
+                CHECK(!policy_assembly.empty());
+                CHECK(policy_assembly.find("vpgather") ==
                       std::string::npos);
             } else {
                 CHECK(assembly.find("vpgather") ==
