@@ -408,9 +408,16 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_ray_query_type() noexcept {
         auto i32 = llvm::Type::getInt32Ty(_llvm_context);
         auto f32 = llvm::Type::getFloatTy(_llvm_context);
         auto i1 = llvm::Type::getInt1Ty(_llvm_context);
+        // The private query needs the traversal handle and the original
+        // instance-table pointer. Count and padding belong to the public binding.
+        auto accel_type = _get_llvm_accel_type();
+        auto query_accel_type = llvm::StructType::get(
+            _llvm_context,
+            {accel_type->getStructElementType(llvm_accel_type_handle_index),
+             accel_type->getStructElementType(llvm_accel_type_instances_index)}, false);
         _llvm_ray_query_type = llvm::StructType::create(
             _llvm_context,
-            {_get_llvm_accel_type(), _get_llvm_ray_type(), f32, i32, i32,
+            {query_accel_type, _get_llvm_ray_type(), f32, i32,
              _get_llvm_committed_hit_type(), i1, i1, llvm::Type::getInt8Ty(_llvm_context)},
             "luisa.ray.query");
     }

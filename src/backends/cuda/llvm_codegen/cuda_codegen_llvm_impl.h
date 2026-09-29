@@ -143,11 +143,10 @@ public:
     static constexpr auto llvm_ray_query_type_ray_index = 1;
     static constexpr auto llvm_ray_query_type_time_index = 2;
     static constexpr auto llvm_ray_query_type_mask_index = 3;
-    static constexpr auto llvm_ray_query_type_flags_index = 4;
-    static constexpr auto llvm_ray_query_type_hit_index = 5;
-    static constexpr auto llvm_ray_query_type_committed_index = 6;
-    static constexpr auto llvm_ray_query_type_terminated_index = 7;
-    static constexpr auto llvm_ray_query_type_state_index = 8;
+    static constexpr auto llvm_ray_query_type_hit_index = 4;
+    static constexpr auto llvm_ray_query_type_committed_index = 5;
+    static constexpr auto llvm_ray_query_type_terminated_index = 6;
+    static constexpr auto llvm_ray_query_type_state_index = 7;
 
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;

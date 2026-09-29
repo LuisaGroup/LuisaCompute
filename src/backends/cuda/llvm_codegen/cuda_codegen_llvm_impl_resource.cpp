@@ -322,18 +322,19 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
                                                 llvm::ConstantFP::getZero(b.getFloatTy());
             auto llvm_mask = uses_motion_blur ? _get_llvm_value(b, func_ctx, inst->operand(3)) :
                                                 _get_llvm_value(b, func_ctx, inst->operand(2));
-            auto llvm_flags = is_any ? b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT) :
-                                       b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
             auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
             hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_inst_id_index);
             hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_prim_id_index);
             hit = b.CreateInsertValue(hit, b.CreateExtractValue(llvm_ray, llvm_ray_type_t_max_index), llvm_committed_hit_type_t_index);
-            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_ray_query_type()));
-            query = b.CreateInsertValue(query, llvm_accel, llvm_ray_query_type_accel_index);
+            auto query_type = _get_llvm_ray_query_type();
+            auto query_accel = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type->getStructElementType(llvm_ray_query_type_accel_index)));
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_handle_index), llvm_accel_type_handle_index);
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_instances_index), llvm_accel_type_instances_index);
+            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type));
+            query = b.CreateInsertValue(query, query_accel, llvm_ray_query_type_accel_index);
             query = b.CreateInsertValue(query, llvm_ray, llvm_ray_query_type_ray_index);
             query = b.CreateInsertValue(query, llvm_time, llvm_ray_query_type_time_index);
             query = b.CreateInsertValue(query, b.CreateZExtOrTrunc(llvm_mask, b.getInt32Ty()), llvm_ray_query_type_mask_index);
-            query = b.CreateInsertValue(query, llvm_flags, llvm_ray_query_type_flags_index);
             query = b.CreateInsertValue(query, hit, llvm_ray_query_type_hit_index);
             return b.CreateInsertValue(query, b.getInt8(llvm_ray_query_state_initialized), llvm_ray_query_type_state_index);
         }
