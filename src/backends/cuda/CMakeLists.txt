@@ -119,7 +119,8 @@ if (CUDAToolkit_FOUND)
                     "LINKER:/FORCE:MULTIPLE"
                     "LINKER:/OPT:REF")
         endif ()
-        target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
+        # Recent static NVRTC libraries import RtlGetLastNtStatus from ntdll.
+        target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32 ntdll)
     endif ()
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
     install(TARGETS luisa-cuda-nvrtc-standalone-compiler RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
