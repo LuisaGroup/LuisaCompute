@@ -28,6 +28,7 @@ namespace {
 struct Options {
     bool benchmark{};
     bool diagnose_dispatches{};
+    bool large_capture_stress{};
     uint32_t rays{257u};
     uint32_t warmup{3u};
     uint32_t dispatches{8u};
@@ -46,6 +47,10 @@ struct Options {
             options.diagnose_dispatches = true;
             continue;
         }
+        if (argument == "--large-capture-stress") {
+            options.large_capture_stress = true;
+            continue;
+        }
         uint32_t *value = nullptr;
         if (argument == "--rays") {
             value = &options.rays;
@@ -59,9 +64,198 @@ struct Options {
         auto parsed = std::from_chars(text.data(), text.data() + text.size(), *value);
         if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || *value == 0u) { return false; }
     }
-    if (options.benchmark && !explicit_rays) { options.rays = 65536u; }
-    return options.rays <= 1048576u && options.samples <= 101u &&
+    if ((options.benchmark || options.large_capture_stress) && !explicit_rays) { options.rays = 65536u; }
+    if (options.large_capture_stress) {
+        auto total_records = uint64_t{2u} * options.rays *
+                             (uint64_t{options.warmup} + uint64_t{options.dispatches} * options.samples);
+        if (total_records > 16777216u) { return false; }
+    }
+    return !(options.large_capture_stress && (options.benchmark || options.diagnose_dispatches)) &&
+           options.rays <= 1048576u && options.samples <= 101u &&
            options.warmup <= 1000u && options.dispatches <= 1000u;
+}
+
+[[nodiscard]] bool run_large_capture(Device &device, const Options &options) {
+    constexpr auto element_count = 512u;
+    constexpr auto element_mask = element_count - 1u;
+    const std::array boxes{
+        AABB{.packed_min = {-1.0f, -1.0f, -0.5f}, .packed_max = {1.0f, 1.0f, 0.5f}},
+        AABB{.packed_min = {-1.0f, -1.0f, -0.5f}, .packed_max = {1.0f, 1.0f, 0.5f}},
+        AABB{.packed_min = {-1.0f, -1.0f, -0.5f}, .packed_max = {1.0f, 1.0f, 0.5f}},
+        AABB{.packed_min = {-1.0f, -1.0f, -0.5f}, .packed_max = {1.0f, 1.0f, 0.5f}}};
+    auto stream = device.create_stream();
+    auto boxes_buffer = device.create_buffer<AABB>(boxes.size());
+    auto primitive = device.create_procedural_primitive(boxes_buffer);
+    auto single_primitive = device.create_procedural_primitive(boxes_buffer.view(0u, 1u));
+    auto scene = device.create_accel();
+    auto single_scene = device.create_accel();
+    scene.emplace_back(primitive);
+    single_scene.emplace_back(single_primitive);
+
+    Kernel1D kernel = [element_count, element_mask](AccelVar accel, AccelVar single_accel, UInt epoch,
+                         BufferUInt4 results, BufferUInt4 checksums) noexcept {
+        set_block_size(64u);
+        auto lane = dispatch_x();
+        auto base = (lane * 17u + epoch * 13u) & element_mask;
+        auto seed = lane * 0x9e3779b9u ^ epoch * 0x85ebca6bu;
+        // Runtime indexing in both the caller and outlined handlers keeps the
+        // entire 2 KiB object addressable across all three traversal calls.
+        ArrayUInt<element_count> values;
+        $for (j, element_count) {
+            values[j] = (seed ^ j * 0xc2b2ae35u) & 0x3fffffffu;
+        };
+        UInt invalid = 0u;
+        UInt seen = 0u;
+        UInt rejected_count = 0u;
+        UInt accepted_count = 0u;
+        UInt final_count = 0u;
+        UInt selected = ~0u;
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+        auto rejected = accel.traverse(ray, {})
+                            .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                auto hit = candidate.hit();
+                                rejected_count += 1u;
+                                $if ((hit->inst == 0u) & (hit->prim < 4u)) {
+                                    seen |= 1u << hit->prim;
+                                    auto slot = (base + hit->prim * 37u) & element_mask;
+                                    values[slot] |= 0x80000000u;
+                                }
+                                $else { invalid |= 1u; };
+                                // Reject every candidate: all four primitives
+                                // must be observed, in any order. OR is also
+                                // correct if the BVH repeats a candidate.
+                            })
+                            .trace();
+        auto accepted = accel.traverse(ray, {})
+                            .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                auto hit = candidate.hit();
+                                accepted_count += 1u;
+                                selected = hit->prim;
+                                $if ((hit->inst == 0u) & (hit->prim < 4u)) {
+                                    auto slot = (base + 160u + hit->prim * 37u) & element_mask;
+                                    values[slot] |= 0x40000000u;
+                                }
+                                $else { invalid |= 2u; };
+                                candidate.commit(1.25f);
+                                candidate.terminate();
+                            })
+                            .trace();
+        auto final_hit = single_accel.traverse(ray, {})
+                             .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                 auto hit = candidate.hit();
+                                 final_count += 1u;
+                                 $if ((hit->inst == 0u) & (hit->prim == 0u) & (selected < 4u)) {
+                                     auto slot = (base + 320u + selected * 7u) & element_mask;
+                                     values[slot] ^= 0x13579bdu;
+                                 }
+                                 $else { invalid |= 4u; };
+                                 candidate.commit(1.0f);
+                                 candidate.terminate();
+                             })
+                             .trace();
+        $if ((rejected->hit_type != static_cast<uint>(HitType::Miss)) |
+             (accepted->hit_type != static_cast<uint>(HitType::Procedural)) |
+             (accepted->inst != 0u) | (accepted->prim != selected) |
+             (accepted->distance() != 1.25f) |
+             (final_hit->hit_type != static_cast<uint>(HitType::Procedural)) |
+             (final_hit->inst != 0u) | (final_hit->prim != 0u) |
+             (final_hit->distance() != 1.0f) |
+             (accepted_count != 1u) | (final_count != 1u)) {
+            invalid |= 8u;
+        };
+        UInt mismatches = 0u;
+        UInt sum = 0u;
+        UInt weighted_sum = 0u;
+        UInt xor_sum = 0u;
+        $for (j, element_count) {
+            UInt expected = (seed ^ j * 0xc2b2ae35u) & 0x3fffffffu;
+            auto offset = (j - base) & element_mask;
+            $if ((offset == 0u) | (offset == 37u) | (offset == 74u) | (offset == 111u)) {
+                expected |= 0x80000000u;
+            };
+            $if (offset == 160u + selected * 37u) { expected |= 0x40000000u; };
+            $if (offset == 320u + selected * 7u) { expected ^= 0x13579bdu; };
+            UInt actual = values[j];
+            mismatches += cast<uint>(actual != expected);
+            sum += actual;
+            weighted_sum += actual * (j + 1u);
+            xor_sum ^= actual;
+        };
+        results.write(lane, make_uint4(invalid | (mismatches << 8u), seen, rejected_count, selected));
+        checksums.write(lane, make_uint4(sum, weighted_sum, xor_sum, epoch));
+    };
+    auto compile_begin = std::chrono::steady_clock::now();
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+    auto compile_ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - compile_begin)
+                          .count();
+    auto results = device.create_buffer<uint4>(options.rays);
+    auto checksums = device.create_buffer<uint4>(options.rays);
+    // Copy every dispatch before the next overwrites the device output, while
+    // retaining asynchronous batches. Cap staging memory independently of the
+    // requested stress count and validate every saved result after each batch.
+    auto batch_capacity = std::min(std::max(options.warmup, options.dispatches),
+                                   std::max(1u, 1048576u / options.rays));
+    luisa::vector<uint4> host_results(static_cast<size_t>(options.rays) * batch_capacity);
+    luisa::vector<uint4> host_checksums(host_results.size());
+    stream << boxes_buffer.copy_from(luisa::span{boxes})
+           << primitive.build() << single_primitive.build()
+           << scene.build() << single_scene.build() << synchronize();
+    auto epoch = 0u;
+    auto run_dispatches = [&](uint32_t count) {
+        for (auto completed = 0u; completed < count;) {
+            auto batch = std::min(batch_capacity, count - completed);
+            auto first_epoch = epoch;
+            for (auto i = 0u; i < batch; i++) {
+                auto offset = static_cast<size_t>(i) * options.rays;
+                stream << shader(scene, single_scene, epoch++, results, checksums).dispatch(options.rays)
+                       << results.copy_to(luisa::span{host_results}.subspan(offset, options.rays))
+                       << checksums.copy_to(luisa::span{host_checksums}.subspan(offset, options.rays));
+            }
+            stream << synchronize();
+            bool correct = true;
+            for (auto i = 0u; i < batch && correct; i++) {
+                auto expected_epoch = first_epoch + i;
+                for (auto lane = 0u; lane < options.rays; lane++) {
+                    auto index = static_cast<size_t>(i) * options.rays + lane;
+                    auto result = host_results[index];
+                    auto observed = host_checksums[index];
+                    auto base = (lane * 17u + expected_epoch * 13u) & element_mask;
+                    auto seed = lane * 0x9e3779b9u ^ expected_epoch * 0x85ebca6bu;
+                    auto expected = make_uint4(0u, 0u, 0u, expected_epoch);
+                    for (auto j = 0u; j < element_count; j++) {
+                        auto value = (seed ^ j * 0xc2b2ae35u) & 0x3fffffffu;
+                        auto offset = (j - base) & element_mask;
+                        if (offset == 0u || offset == 37u || offset == 74u || offset == 111u) { value |= 0x80000000u; }
+                        if (offset == 160u + result.w * 37u) { value |= 0x40000000u; }
+                        if (offset == 320u + result.w * 7u) { value ^= 0x13579bdu; }
+                        expected.x += value;
+                        expected.y += value * (j + 1u);
+                        expected.z ^= value;
+                    }
+                    if (result.x != 0u || result.y != 15u || result.z < 4u || result.w >= 4u || !all(observed == expected)) {
+                        LUISA_WARNING("Large ray-query capture mismatch: epoch={} lane={} result={} checksums={} expected={}.",
+                                      expected_epoch, lane, result, observed, expected);
+                        correct = false;
+                        break;
+                    }
+                }
+            }
+            expect(correct) << "2 KiB captured array: every element, candidate identity, termination and every dispatch";
+            if (!correct) { return false; }
+            completed += batch;
+        }
+        return true;
+    };
+    if (!run_dispatches(options.warmup)) { return false; }
+    for (auto sample = 0u; sample < options.samples; sample++) {
+        if (!run_dispatches(options.dispatches)) { return false; }
+    }
+    std::cout << "{\"regression\":\"cuda_ray_query_large_capture\",\"capture_bytes\":2048"
+              << ",\"rays_per_dispatch\":" << options.rays << ",\"validated_dispatches\":" << epoch
+              << ",\"compile_ms\":" << compile_ms << "}\n";
+    return true;
 }
 
 [[nodiscard]] bool run(Device &device, const Options &options) {
@@ -341,9 +535,18 @@ struct Options {
 int main(int argc, char *argv[]) {
     Options options;
     if (!parse_options(argc, argv, options)) {
-        LUISA_INFO("Usage: {} <backend> [--benchmark] [--diagnose-dispatches] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--benchmark] [--diagnose-dispatches] [--large-capture-stress] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
         return 2;
     }
     auto dc = luisa::test::create_device(argc, argv);
-    return run(dc.device, options) ? 0 : 1;
+    if (options.large_capture_stress) { return run_large_capture(dc.device, options) ? 0 : 1; }
+    if (!run(dc.device, options)) { return 1; }
+    if (!options.benchmark) {
+        Options regression_options;
+        regression_options.warmup = 1u;
+        regression_options.dispatches = 2u;
+        regression_options.samples = 2u;
+        if (!run_large_capture(dc.device, regression_options)) { return 1; }
+    }
+    return 0;
 }

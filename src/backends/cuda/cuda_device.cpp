@@ -201,15 +201,21 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     xir::PassPipeline cfg;
-    cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(m, &r);
+    auto normalize_ray_queries = [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            m, &r, {.coalesce_query_storage = true});
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "CUDA XIR ray-query lowering rejected {} loop(s).",
                 i.error_count);
         }
-        return i.lowered_loop_count > 0u;
-    });
+        if (i.lowered_loop_count > 0u) { return true; }
+        for (auto &&entry : r.entries()) {
+            if (entry.key == "coalesced_query_alloca" && entry.value != 0u) { return true; }
+        }
+        return false;
+    };
+    cfg.add("lower-ray-query-to-pipeline", normalize_ray_queries);
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
@@ -224,6 +230,9 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
             return i.changed();
         });
+        // CFG simplification can expose sequential query lifetimes in one
+        // block. Reuse the shared normalization pass's idempotent storage proof.
+        cfg.add("compact-ray-query-state", normalize_ray_queries);
     }
     auto cfg_stats = cfg.run(xir_module.get());
     verify_xir_or_error(xir_module.get(), "codegen handoff");
@@ -304,7 +313,7 @@ namespace luisa::compute::cuda {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-static constexpr uint64_t cuda_llvm_cache_revision = 6u;
+static constexpr uint64_t cuda_llvm_cache_revision = 7u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -854,7 +863,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v6.ptx", expected_metadata.checksum) :
+                   luisa::format("kernel_{:016x}.llvm-v7.ptx", expected_metadata.checksum) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") &&

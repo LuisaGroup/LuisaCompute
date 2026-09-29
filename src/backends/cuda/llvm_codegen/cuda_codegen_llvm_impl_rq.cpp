@@ -10,9 +10,11 @@ namespace luisa::compute::cuda {
 namespace {
 constexpr auto context_id_index = 0u;
 constexpr auto context_query_index = 1u;
-constexpr auto context_dispatch_size_index = 2u;
-constexpr auto context_kernel_id_index = 3u;
-constexpr auto context_capture_offset = 4u;
+constexpr auto context_capture_offset = 2u;
+// Private protocol between the generated custom IS and AH entry points.
+// OptiX reserves hit kinds above 127 for built-in surface intersections.
+constexpr auto ray_query_procedural_hit_kind = 1u;
+constexpr auto ray_query_procedural_terminated_hit_kind = 2u;
 
 void validate_ray_query_handler(const xir::Function *function,
                                 llvm::DenseSet<const xir::Function *> &visited) noexcept {
@@ -173,8 +175,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     };
     auto query = generic_pointer(_get_llvm_value(b, func_ctx, inst->query_object()));
     auto id = static_cast<uint32_t>(_ray_query_pipelines.size());
-    llvm::SmallVector<llvm::Value *> fields{
-        b.getInt32(id), query, _read_dispatch_size(b, func_ctx), _read_kernel_id(b, func_ctx)};
+    llvm::SmallVector<llvm::Value *> fields{b.getInt32(id), query};
     for (auto capture : inst->captured_argument_uses()) {
         // Keep references as references, including aliases and subobject captures.
         fields.emplace_back(generic_pointer(_get_llvm_value(b, func_ctx, capture->value())));
@@ -183,7 +184,18 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     for (auto field : fields) { field_types.emplace_back(field->getType()); }
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
     _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type});
-    auto context = _create_temp_in_alloca_block(func_ctx, context_type, 16u);
+    // Traversal invokes its handlers synchronously, and nested traversal in a
+    // handler is rejected above. Reuse only the private context storage;
+    // query objects and captured references keep their original identities.
+    auto context_size = _data_layout->getTypeAllocSize(context_type).getFixedValue();
+    auto &context = func_ctx.llvm_ray_query_context_scratch;
+    if (context == nullptr) {
+        IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
+        context = alloca_b.CreateAlloca(alloca_b.getInt8Ty(), alloca_b.getInt64(context_size), "ray.query.context.scratch");
+        context->setAlignment(llvm::Align{16u});
+    } else if (context_size > llvm::cast<llvm::ConstantInt>(context->getArraySize())->getZExtValue()) {
+        context->setOperand(0, b.getInt64(context_size));
+    }
     for (auto i = 0u; i < fields.size(); i++) {
         b.CreateStore(fields[i], b.CreateStructGEP(context_type, context, i));
     }
@@ -223,13 +235,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             continue;
         }
         b.CreateCall(_get_inline_asm("call (), _optix_set_payload_types, ($0);", "r", true), {b.getInt32(optix::PAYLOAD_TYPE_ID_1)});
-        auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
-        auto lo = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(0)}), b.getInt64Ty());
-        auto hi = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(1)}), b.getInt64Ty());
-        auto context = b.CreateIntToPtr(b.CreateOr(lo, b.CreateShl(hi, 32u)), b.getPtrTy());
-        auto header_type = llvm::StructType::get(_llvm_context, {b.getInt32Ty(), b.getPtrTy()});
-        auto id = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(header_type, context, context_id_index));
-        auto query = b.CreateLoad(b.getPtrTy(), b.CreateStructGEP(header_type, context, context_query_index));
         auto exit = llvm::BasicBlock::Create(_llvm_context, "exit", function);
         auto terminate = llvm::BasicBlock::Create(_llvm_context, "terminate", function);
         auto dispatch = llvm::BasicBlock::Create(_llvm_context, "dispatch", function);
@@ -237,10 +242,22 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
         if (!procedural) {
             auto surface = llvm::BasicBlock::Create(_llvm_context, "surface", function);
             auto reported = llvm::BasicBlock::Create(_llvm_context, "reported", function);
-            b.CreateCondBr(b.CreateICmpUGT(_call_optix_get_hit_kind(b), b.getInt32(127u)), surface, reported);
+            auto hit_kind = _call_optix_get_hit_kind(b);
+            b.CreateCondBr(b.CreateICmpUGT(hit_kind, b.getInt32(127u)), surface, reported);
             b.SetInsertPoint(reported);
-            b.CreateCondBr(_load_ray_query_field(b, query, llvm_ray_query_type_terminated_index), terminate, exit);
+            // Custom IS reports carry termination in the hit kind. The explicit
+            // query hit remains authoritative, including synthetic termination.
+            b.CreateCondBr(b.CreateICmpEQ(hit_kind, b.getInt32(ray_query_procedural_terminated_hit_kind)), terminate, exit);
             b.SetInsertPoint(surface);
+        }
+        auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
+        auto lo = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(0)}), b.getInt64Ty());
+        auto hi = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(1)}), b.getInt64Ty());
+        auto context = b.CreateIntToPtr(b.CreateOr(lo, b.CreateShl(hi, 32u)), b.getPtrTy());
+        auto header_type = llvm::StructType::get(_llvm_context, {b.getInt32Ty(), b.getPtrTy()});
+        auto id = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(header_type, context, context_id_index));
+        auto query = b.CreateLoad(b.getPtrTy(), b.CreateStructGEP(header_type, context, context_query_index));
+        if (!procedural) {
             _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
             _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_surface_candidate));
             auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
@@ -277,8 +294,13 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 for (auto j = 0u; j < pipeline.inst->captured_argument_count(); j++) {
                     args.emplace_back(load_field(context_capture_offset + j));
                 }
-                args.emplace_back(load_field(context_dispatch_size_index));
-                args.emplace_back(load_field(context_kernel_id_index));
+                // These hidden arguments are immutable for the whole launch,
+                // including callbacks and every transitive callable. Reload
+                // them here instead of spilling a copy in every query context.
+                LUISA_ASSERT(_llvm_ray_tracing_kernel_id_pointer != nullptr,
+                             "Missing OptiX launch parameter ABI.");
+                args.emplace_back(_read_optix_launch_size(b));
+                args.emplace_back(b.CreateLoad(b.getInt32Ty(), _llvm_ray_tracing_kernel_id_pointer));
                 auto call = b.CreateCall(callee, args);
                 call->setCallingConv(callee->getCallingConv());
             }
@@ -299,7 +321,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             // Its synthetic hit never replaces the explicit committed result.
             auto t = b.CreateSelect(committed, b.CreateExtractValue(hit, llvm_committed_hit_type_t_index),
                                     b.CreateExtractValue(ray, llvm_ray_type_t_min_index));
-            _call_optix_report_intersection(b, b.getInt32(0), t);
+            auto hit_kind = b.CreateSelect(terminated, b.getInt32(ray_query_procedural_terminated_hit_kind),
+                                           b.getInt32(ray_query_procedural_hit_kind));
+            _call_optix_report_intersection(b, hit_kind, t);
             b.CreateBr(exit);
             b.SetInsertPoint(terminate);
             b.CreateUnreachable();
@@ -311,10 +335,10 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.CreateCondBr(committed, exit, ignore);
             b.SetInsertPoint(ignore);
             _call_optix_ignore_intersection(b);
-            b.CreateUnreachable();
+            b.CreateRetVoid();
             b.SetInsertPoint(terminate);
             _call_optix_terminate_ray(b);
-            b.CreateUnreachable();
+            b.CreateRetVoid();
         }
         b.SetInsertPoint(exit);
         b.CreateRetVoid();

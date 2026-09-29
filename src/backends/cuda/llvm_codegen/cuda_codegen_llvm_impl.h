@@ -65,6 +65,7 @@ public:
         llvm::BasicBlock *llvm_entry_block;
         llvm::Value *llvm_dispatch_size{nullptr};
         llvm::Value *llvm_kernel_id{nullptr};
+        llvm::AllocaInst *llvm_ray_query_context_scratch{nullptr};
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
         llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *> block_exits;
         std::vector<const xir::PhiInst *> pending_phi_nodes;
@@ -173,6 +174,7 @@ private:
     llvm::Type *_llvm_procedural_hit_type{nullptr};     // { i32 inst_id, i32 prim_id }
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
     llvm::StructType *_llvm_ray_query_type{nullptr};
+    llvm::Constant *_llvm_ray_tracing_kernel_id_pointer{nullptr};
     struct RayQueryPipeline {
         const xir::RayQueryPipelineInst *inst;
         llvm::StructType *context_type;
@@ -274,6 +276,7 @@ private:
     [[nodiscard]] llvm::Value *_read_block_size(IB &b, const FunctionContext &func_ctx) noexcept;
     [[nodiscard]] llvm::Value *_read_thread_id(IB &b, const FunctionContext &func_ctx) noexcept;
     [[nodiscard]] llvm::Value *_read_dispatch_size(IB &b, const FunctionContext &func_ctx) noexcept;
+    [[nodiscard]] llvm::Value *_read_optix_launch_size(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_read_dispatch_id(IB &b, const FunctionContext &func_ctx) noexcept;
     [[nodiscard]] llvm::Value *_read_warp_size(IB &b, const FunctionContext &func_ctx) const noexcept;
     [[nodiscard]] llvm::Value *_read_warp_lane_id(IB &b, const FunctionContext &func_ctx) const noexcept;

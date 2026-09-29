@@ -100,6 +100,12 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
                 nvptx_address_space_constant, true};
             llvm::Align llvm_align{KernelArgumentStruct::argument_alignment};
             llvm_global_arg->setAlignment(llvm_align);
+            LUISA_ASSERT(_llvm_ray_tracing_kernel_id_pointer == nullptr,
+                         "CUDA LLVM supports one ray-tracing kernel per module.");
+            std::array<llvm::Constant *, 3u> kernel_id_indices{
+                b.getInt32(0), b.getInt32(static_cast<uint32_t>(arg_struct_info->dispatch_size_and_kernel_id_index)), b.getInt32(3)};
+            _llvm_ray_tracing_kernel_id_pointer = llvm::ConstantExpr::getInBoundsGetElementPtr(
+                arg_struct_info->llvm_type, llvm_global_arg, kernel_id_indices);
             return b.CreateAlignedLoad(arg_struct_info->llvm_type, llvm_global_arg, llvm_align, "params.load");
         }
         // normal kernels use direct arguments
@@ -128,10 +134,7 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
     // load dispatch_size_and_kernel_id
     auto llvm_dispatch_size_and_kernel_id = b.CreateExtractValue(llvm_arg_struct, arg_struct_info->dispatch_size_and_kernel_id_index);
     if (_rt_analysis.uses_ray_tracing) {// for OptiX kernels, we can use the built-in dispatch size
-        auto llvm_dispatch_size_x = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_x, ();", "=r", false), {});
-        auto llvm_dispatch_size_y = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_y, ();", "=r", false), {});
-        auto llvm_dispatch_size_z = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_z, ();", "=r", false), {});
-        func_ctx.llvm_dispatch_size = _create_llvm_vector(b, {llvm_dispatch_size_x, llvm_dispatch_size_y, llvm_dispatch_size_z});
+        func_ctx.llvm_dispatch_size = _read_optix_launch_size(b);
     } else {// for normal kernels, we read the dispatch size from arguments
         auto llvm_dispatch_size_x = b.CreateExtractValue(llvm_dispatch_size_and_kernel_id, 0);
         b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_x, b.getInt32(0)));
