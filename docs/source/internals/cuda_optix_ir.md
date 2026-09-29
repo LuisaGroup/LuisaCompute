@@ -244,3 +244,14 @@ unchanged. This laptop showed clock and timing variation across runs, so the
 sample does not promise a fixed speedup for other workloads or operating states.
 Commands, images, clocks and all samples are recorded in
 `build-msvc-llvm/test-results/cutout-runtime-abba-20260930-013300-900350/experiment.json`.
+
+A subsequent AST/NVRTC versus LLVM/PTX comparison used the same final runtime
+and workload, again with two ABBA groups and four processes per route. Median
+throughput was **623.3573 spp/s for AST** and **654.8742 spp/s for LLVM**.
+Clock variation and overlapping samples make this evidence of comparable
+performance on this workload, not a reliable claim that LLVM is faster.
+Each route reproduced its own pre-optimization PNG exactly. The existing
+cross-route difference was unchanged: RGB mean absolute error **0.0137313/255**,
+maximum channel error **5/255**, and **96.6382%** identical pixels.
+All samples and images are in
+`build-msvc-llvm/test-results/cutout-ast-llvm-abba-20260930-013936-516204/`.
