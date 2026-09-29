@@ -258,6 +258,110 @@ struct Options {
     return true;
 }
 
+[[nodiscard]] bool run_payload_capture_boundary(Device &device, Stream &stream,
+                                                const Accel &surfaces, const Accel &procedurals) {
+    constexpr auto ray_count = 257u;
+    for (auto snapshot_count : {27u, 30u}) {
+        Kernel1D kernel = [snapshot_count](AccelVar surface_accel, AccelVar procedural_accel,
+                                           BufferUInt inputs, BufferUInt outputs, BufferUInt4 hits) noexcept {
+            set_block_size(64u);
+            auto lane = dispatch_x();
+            // These are separate DSL locals, not one captured array pointer.
+            // Materialize every resource read before constructing either query;
+            // the callback must receive the values of these memory snapshots.
+            luisa::vector<UInt> snapshots;
+            snapshots.reserve(snapshot_count);
+            for (auto i = 0u; i < snapshot_count; i++) {
+                snapshots.emplace_back(def(inputs.read(lane * snapshot_count + i)));
+            }
+            ArrayUInt<30u> surface_values;
+            ArrayUInt<30u> procedural_values;
+            auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                                make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+            auto surface_hit = surface_accel.traverse(ray, {})
+                                   .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                                       for (auto i = 0u; i < snapshot_count; i++) {
+                                           surface_values[i] = snapshots[i] ^ (0x13579bdfu + i * 17u);
+                                       }
+                                       candidate.commit();
+                                       candidate.terminate();
+                                   })
+                                   .trace();
+            auto procedural_hit = procedural_accel.traverse(ray, {})
+                                      .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                          for (auto i = 0u; i < snapshot_count; i++) {
+                                              procedural_values[i] = snapshots[i] ^ (0x2468ace0u + i * 31u);
+                                          }
+                                          candidate.commit(1.25f);
+                                          candidate.terminate();
+                                      })
+                                      .trace();
+            hits.write(lane * 2u, make_uint4(surface_hit->hit_type, surface_hit->inst,
+                                             surface_hit->prim, surface_hit->distance().as<uint>()));
+            hits.write(lane * 2u + 1u, make_uint4(procedural_hit->hit_type, procedural_hit->inst,
+                                                  procedural_hit->prim, procedural_hit->distance().as<uint>()));
+            for (auto i = 0u; i < snapshot_count; i++) {
+                outputs.write(lane * (2u * snapshot_count) + i, surface_values[i]);
+                outputs.write(lane * (2u * snapshot_count) + snapshot_count + i, procedural_values[i]);
+            }
+        };
+        // The intended ABI is N scalar words plus one 64-bit output-array
+        // reference: 29 words fit directly, while 32 require context scratch.
+        // Correlate this hash with .opt.rq.xir and LUISA_DUMP_LLVM_IR to verify
+        // the actual capture types and direct/fallback codegen selection.
+        LUISA_INFO("Ray-query payload boundary fixture: snapshots={}, expected capture words={}, AST hash={:016x}.",
+                   snapshot_count, snapshot_count + 2u, kernel.function()->function().hash());
+        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+        auto inputs = device.create_buffer<uint>(ray_count * snapshot_count);
+        auto outputs = device.create_buffer<uint>(ray_count * snapshot_count * 2u);
+        auto hits = device.create_buffer<uint4>(ray_count * 2u);
+        luisa::vector<uint> host_inputs(inputs.size());
+        luisa::vector<uint> host_outputs(outputs.size());
+        luisa::vector<uint4> host_hits(hits.size());
+        for (auto epoch = 0u; epoch < 2u; epoch++) {
+            for (auto lane = 0u; lane < ray_count; lane++) {
+                for (auto i = 0u; i < snapshot_count; i++) {
+                    host_inputs[lane * snapshot_count + i] =
+                        lane * 0x9e3779b9u ^ i * 0x85ebca6bu ^ (epoch + 1u) * 0xc2b2ae35u;
+                }
+            }
+            stream << inputs.copy_from(luisa::span{host_inputs})
+                   << shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count)
+                   << outputs.copy_to(luisa::span{host_outputs})
+                   << hits.copy_to(luisa::span{host_hits}) << synchronize();
+            bool correct = true;
+            for (auto lane = 0u; lane < ray_count && correct; lane++) {
+                auto expected_surface = make_uint4(static_cast<uint>(HitType::Surface), 0u, 0u, 0x3f800000u);
+                auto expected_procedural = make_uint4(static_cast<uint>(HitType::Procedural), 0u, 0u, 0x3fa00000u);
+                if (!all(host_hits[lane * 2u] == expected_surface) ||
+                    !all(host_hits[lane * 2u + 1u] == expected_procedural)) {
+                    LUISA_WARNING("Payload capture hit mismatch: snapshots={} epoch={} lane={} surface={} procedural={}.",
+                                  snapshot_count, epoch, lane, host_hits[lane * 2u], host_hits[lane * 2u + 1u]);
+                    correct = false;
+                    break;
+                }
+                for (auto i = 0u; i < snapshot_count; i++) {
+                    auto value = host_inputs[lane * snapshot_count + i];
+                    auto expected_surface_value = value ^ (0x13579bdfu + i * 17u);
+                    auto expected_procedural_value = value ^ (0x2468ace0u + i * 31u);
+                    auto actual_surface = host_outputs[lane * (2u * snapshot_count) + i];
+                    auto actual_procedural = host_outputs[lane * (2u * snapshot_count) + snapshot_count + i];
+                    if (actual_surface != expected_surface_value || actual_procedural != expected_procedural_value) {
+                        LUISA_WARNING("Payload capture value mismatch: snapshots={} epoch={} lane={} word={} surface={}/{} procedural={}/{}.",
+                                      snapshot_count, epoch, lane, i, actual_surface, expected_surface_value,
+                                      actual_procedural, expected_procedural_value);
+                        correct = false;
+                        break;
+                    }
+                }
+            }
+            expect(correct) << "every independent captured snapshot reaches both surface and procedural handlers";
+            if (!correct) { return false; }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run(Device &device, const Options &options) {
     constexpr auto query_count = 5u;
     auto stream = device.create_stream();
@@ -473,7 +577,9 @@ struct Options {
         std::move(scene_setup) << dispatch() << synchronize();
         if (!validate()) { return false; }
     }
-    if (!options.benchmark) { return true; }
+    if (!options.benchmark) {
+        return run_payload_capture_boundary(device, stream, surface_scene, procedural_scene);
+    }
 
     if (options.diagnose_dispatches) {
         for (auto i = 0u; i < options.warmup; i++) {

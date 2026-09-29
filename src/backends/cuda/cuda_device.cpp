@@ -313,7 +313,8 @@ namespace luisa::compute::cuda {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-static constexpr uint64_t cuda_llvm_cache_revision = 7u;
+// Revision 9 includes the 32-word ray-query payload ABI and serialized payload count.
+static constexpr uint64_t cuda_llvm_cache_revision = 9u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -830,6 +831,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
+        expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
         expected_metadata.requires_printing = metadata->requires_printing;
         expected_metadata.requires_motion_blur = metadata->requires_motion_blur;
         if (expected_metadata.max_register_count == 0u) { expected_metadata.max_register_count = metadata->max_register_count; }
@@ -863,7 +865,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v7.ptx", expected_metadata.checksum) :
+                   luisa::format("kernel_{:016x}.llvm-v9.ptx", expected_metadata.checksum) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") &&
@@ -1152,6 +1154,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
                               kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+        .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 32u : 2u,
         .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),

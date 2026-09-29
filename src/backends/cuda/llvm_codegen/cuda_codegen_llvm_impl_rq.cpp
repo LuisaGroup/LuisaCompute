@@ -8,13 +8,146 @@
 namespace luisa::compute::cuda {
 
 namespace {
-constexpr auto context_id_index = 0u;
-constexpr auto context_query_index = 1u;
 constexpr auto context_capture_offset = 2u;
+constexpr auto kRayQueryPayloadWordCount = 32u;
+constexpr auto kRayQueryPayloadCaptureOffset = 3u;
+constexpr auto kRayQueryPayloadCaptureWordCount = kRayQueryPayloadWordCount - kRayQueryPayloadCaptureOffset;
 // Private protocol between the generated custom IS and AH entry points.
 // OptiX reserves hit kinds above 127 for built-in surface intersections.
 constexpr auto ray_query_procedural_hit_kind = 1u;
 constexpr auto ray_query_procedural_terminated_hit_kind = 2u;
+
+[[nodiscard]] uint32_t ray_query_payload_scalar_bits(llvm::Type *type) noexcept {
+    if (type->isPointerTy()) { return 64u; }
+    if (type->isIntegerTy()) {
+        auto bits = type->getIntegerBitWidth();
+        return bits <= 64u ? bits : 0u;
+    }
+    if (type->isHalfTy() || type->isBFloatTy()) { return 16u; }
+    if (type->isFloatTy()) { return 32u; }
+    if (type->isDoubleTy()) { return 64u; }
+    return 0u;
+}
+
+// Counts are saturated above the direct payload budget. Unsupported types and
+// large aggregates use the generic context path without partially packing them.
+[[nodiscard]] uint32_t ray_query_payload_word_count(llvm::Type *type, const llvm::DataLayout &layout) noexcept {
+    constexpr auto overflow = kRayQueryPayloadCaptureWordCount + 1u;
+    if (auto structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        if (structure->isOpaque()) { return overflow; }
+        auto count = 0u;
+        for (auto field : structure->elements()) {
+            auto words = ray_query_payload_word_count(field, layout);
+            if (words > kRayQueryPayloadCaptureWordCount - count) { return overflow; }
+            count += words;
+        }
+        return count;
+    }
+    auto repeated_count = [&layout](llvm::Type *element, uint64_t count) noexcept {
+        if (count == 0u) { return 0u; }
+        auto words = ray_query_payload_word_count(element, layout);
+        if (words == 0u) { return 0u; }
+        return count > kRayQueryPayloadCaptureWordCount / words ? overflow : static_cast<uint32_t>(count) * words;
+    };
+    if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        return repeated_count(array->getElementType(), array->getNumElements());
+    }
+    if (auto vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        return repeated_count(vector->getElementType(), vector->getNumElements());
+    }
+    if (type->isPointerTy() && layout.getPointerSizeInBits(type->getPointerAddressSpace()) != 64u) { return overflow; }
+    auto bits = ray_query_payload_scalar_bits(type);
+    return bits == 0u ? overflow : (bits + 31u) / 32u;
+}
+
+[[nodiscard]] bool ray_query_uses_direct_payload(llvm::StructType *context_type, const llvm::DataLayout &layout) noexcept {
+    auto count = 0u;
+    for (auto i = context_capture_offset; i < context_type->getNumElements(); i++) {
+        auto words = ray_query_payload_word_count(context_type->getElementType(i), layout);
+        if (words > kRayQueryPayloadCaptureWordCount - count) { return false; }
+        count += words;
+    }
+    return true;
+}
+
+void pack_ray_query_payload(llvm::IRBuilder<> &b, llvm::Value *value,
+                            llvm::SmallVectorImpl<llvm::Value *> &words) noexcept {
+    auto type = value->getType();
+    if (type->isEmptyTy()) { return; }
+    if (auto structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        for (auto i = 0u; i < structure->getNumElements(); i++) {
+            pack_ray_query_payload(b, b.CreateExtractValue(value, i), words);
+        }
+        return;
+    }
+    if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        for (auto i = 0u; i < array->getNumElements(); i++) {
+            pack_ray_query_payload(b, b.CreateExtractValue(value, i), words);
+        }
+        return;
+    }
+    if (auto vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        for (auto i = 0u; i < vector->getNumElements(); i++) {
+            pack_ray_query_payload(b, b.CreateExtractElement(value, i), words);
+        }
+        return;
+    }
+    auto bits = ray_query_payload_scalar_bits(type);
+    LUISA_ASSERT(bits != 0u, "Unsupported direct ray-query payload type.");
+    if (type->isPointerTy()) {
+        value = b.CreatePtrToInt(value, b.getInt64Ty());
+    } else if (type->isFloatingPointTy()) {
+        value = b.CreateBitCast(value, b.getIntNTy(bits));
+    }
+    words.emplace_back(b.CreateZExtOrTrunc(value, b.getInt32Ty()));
+    if (bits > 32u) { words.emplace_back(b.CreateZExtOrTrunc(b.CreateLShr(value, 32u), b.getInt32Ty())); }
+}
+
+[[nodiscard]] llvm::Value *unpack_ray_query_payload(llvm::IRBuilder<> &b, llvm::Type *type,
+                                                    llvm::InlineAsm *get_payload, uint32_t &word_index) noexcept {
+    if (type->isEmptyTy()) { return llvm::Constant::getNullValue(type); }
+    if (auto structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < structure->getNumElements(); i++) {
+            auto field = unpack_ray_query_payload(b, structure->getElementType(i), get_payload, word_index);
+            value = b.CreateInsertValue(value, field, i);
+        }
+        return value;
+    }
+    if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < array->getNumElements(); i++) {
+            auto element = unpack_ray_query_payload(b, array->getElementType(), get_payload, word_index);
+            value = b.CreateInsertValue(value, element, i);
+        }
+        return value;
+    }
+    if (auto vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+        auto value = static_cast<llvm::Value *>(llvm::Constant::getNullValue(type));
+        for (auto i = 0u; i < vector->getNumElements(); i++) {
+            auto element = unpack_ray_query_payload(b, vector->getElementType(), get_payload, word_index);
+            value = b.CreateInsertElement(value, element, i);
+        }
+        return value;
+    }
+    auto bits = ray_query_payload_scalar_bits(type);
+    LUISA_ASSERT(bits != 0u, "Unsupported direct ray-query payload type.");
+    auto read_word = [&]() noexcept -> llvm::Value * {
+        LUISA_ASSERT(word_index < kRayQueryPayloadWordCount, "Ray-query payload read exceeds the register budget.");
+        return b.CreateCall(get_payload, {b.getInt32(word_index++)});
+    };
+    auto value = read_word();
+    if (bits > 32u) {
+        auto lo = b.CreateZExt(value, b.getInt64Ty());
+        auto hi = b.CreateZExt(read_word(), b.getInt64Ty());
+        value = b.CreateOr(lo, b.CreateShl(hi, 32u));
+    }
+    // References retain their original addresses, including pointers nested in
+    // resource structs. Only actual captured values are reconstructed here.
+    if (type->isPointerTy()) { return b.CreateIntToPtr(value, type); }
+    value = b.CreateZExtOrTrunc(value, b.getIntNTy(bits));
+    return type->isFloatingPointTy() ? b.CreateBitCast(value, type) : value;
+}
 
 void validate_ray_query_handler(const xir::Function *function,
                                 llvm::DenseSet<const xir::Function *> &visited) noexcept {
@@ -184,24 +317,37 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     for (auto field : fields) { field_types.emplace_back(field->getType()); }
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
     _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type});
-    // Traversal invokes its handlers synchronously, and nested traversal in a
-    // handler is rejected above. Reuse only the private context storage;
-    // query objects and captured references keep their original identities.
-    auto context_size = _data_layout->getTypeAllocSize(context_type).getFixedValue();
-    auto &context = func_ctx.llvm_ray_query_context_scratch;
-    if (context == nullptr) {
-        IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
-        context = alloca_b.CreateAlloca(alloca_b.getInt8Ty(), alloca_b.getInt64(context_size), "ray.query.context.scratch");
-        context->setAlignment(llvm::Align{16u});
-    } else if (context_size > llvm::cast<llvm::ConstantInt>(context->getArraySize())->getZExtValue()) {
-        context->setOperand(0, b.getInt64(context_size));
+    // Every pipeline shares the query pointer and id prefix. Captures either
+    // occupy the remaining registers or live behind a generic context pointer.
+    llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload;
+    pack_ray_query_payload(b, query, payload);
+    payload.emplace_back(b.getInt32(id));
+    if (ray_query_uses_direct_payload(context_type, *_data_layout)) {
+        for (auto i = context_capture_offset; i < fields.size(); i++) {
+            pack_ray_query_payload(b, fields[i], payload);
+        }
+    } else {
+        // Traversal invokes its handlers synchronously, and nested traversal in
+        // a handler is rejected above. Only the fallback needs private scratch;
+        // query objects and captured references retain their original identities.
+        auto context_size = _data_layout->getTypeAllocSize(context_type).getFixedValue();
+        auto &context = func_ctx.llvm_ray_query_context_scratch;
+        if (context == nullptr) {
+            IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
+            context = alloca_b.CreateAlloca(alloca_b.getInt8Ty(), alloca_b.getInt64(context_size), "ray.query.context.scratch");
+            context->setAlignment(llvm::Align{16u});
+        } else if (context_size > llvm::cast<llvm::ConstantInt>(context->getArraySize())->getZExtValue()) {
+            context->setOperand(0, b.getInt64(context_size));
+        }
+        // A smaller later context may still require a wider vector alignment.
+        context->setAlignment(std::max(context->getAlign(), _data_layout->getABITypeAlign(context_type)));
+        for (auto i = context_capture_offset; i < fields.size(); i++) {
+            b.CreateStore(fields[i], b.CreateStructGEP(context_type, context, i));
+        }
+        pack_ray_query_payload(b, generic_pointer(context), payload);
     }
-    for (auto i = 0u; i < fields.size(); i++) {
-        b.CreateStore(fields[i], b.CreateStructGEP(context_type, context, i));
-    }
-    auto address = b.CreatePtrToInt(generic_pointer(context), b.getInt64Ty());
-    auto lo = b.CreateTrunc(address, b.getInt32Ty());
-    auto hi = b.CreateTrunc(b.CreateLShr(address, 32u), b.getInt32Ty());
+    LUISA_ASSERT(payload.size() <= kRayQueryPayloadWordCount, "Ray-query payload exceeds the register budget.");
+    payload.resize(kRayQueryPayloadWordCount, b.getInt32(0u));
     auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
     auto ray = _load_ray_query_field(b, query, llvm_ray_query_type_ray_index);
     auto time = _load_ray_query_field(b, query, llvm_ray_query_type_time_index);
@@ -213,7 +359,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     if (inst->query_object()->type() == Type::of<RayQueryAny>()) {
         flags |= optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT;
     }
-    _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, {lo, hi});
+    _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
     // Explicit commits are authoritative. OptiX's terminating intersection may
     // be synthetic when terminate() is used without accepting the candidate.
     _call_optix_hit_object_reset(b);
@@ -251,12 +397,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.SetInsertPoint(surface);
         }
         auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
-        auto lo = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(0)}), b.getInt64Ty());
-        auto hi = b.CreateZExt(b.CreateCall(get_payload, {b.getInt32(1)}), b.getInt64Ty());
-        auto context = b.CreateIntToPtr(b.CreateOr(lo, b.CreateShl(hi, 32u)), b.getPtrTy());
-        auto header_type = llvm::StructType::get(_llvm_context, {b.getInt32Ty(), b.getPtrTy()});
-        auto id = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(header_type, context, context_id_index));
-        auto query = b.CreateLoad(b.getPtrTy(), b.CreateStructGEP(header_type, context, context_query_index));
+        auto prefix_word_index = 0u;
+        auto query = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, prefix_word_index);
+        auto id = unpack_ray_query_payload(b, b.getInt32Ty(), get_payload, prefix_word_index);
         if (!procedural) {
             _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
             _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_surface_candidate));
@@ -288,11 +431,15 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 LUISA_ASSERT(callee->arg_size() == pipeline.inst->captured_argument_count() + 3u,
                              "Invalid ray-query callback capture ABI.");
                 llvm::SmallVector<llvm::Value *> args{query};
-                auto load_field = [&](unsigned index) noexcept {
-                    return b.CreateLoad(pipeline.context_type->getElementType(index), b.CreateStructGEP(pipeline.context_type, context, index));
-                };
+                auto word_index = kRayQueryPayloadCaptureOffset;
+                auto direct_payload = ray_query_uses_direct_payload(pipeline.context_type, *_data_layout);
+                auto context = direct_payload ? nullptr : unpack_ray_query_payload(b, b.getPtrTy(), get_payload, word_index);
                 for (auto j = 0u; j < pipeline.inst->captured_argument_count(); j++) {
-                    args.emplace_back(load_field(context_capture_offset + j));
+                    auto field_index = context_capture_offset + j;
+                    auto field_type = pipeline.context_type->getElementType(field_index);
+                    args.emplace_back(direct_payload ?
+                                          unpack_ray_query_payload(b, field_type, get_payload, word_index) :
+                                          b.CreateLoad(field_type, b.CreateStructGEP(pipeline.context_type, context, field_index)));
                 }
                 // These hidden arguments are immutable for the whole launch,
                 // including callbacks and every transitive callable. Reload

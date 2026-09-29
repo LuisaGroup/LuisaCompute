@@ -322,6 +322,13 @@ luisa_compute_add_test(test_sparse_buffer_tile_plan unit/core/test_sparse_buffer
 target_include_directories(test_sparse_buffer_tile_plan PRIVATE ../runtime)
 luisa_compute_add_test(test_sparse_texture_tile_plan unit/core/test_sparse_texture_tile_plan.cpp LABELS "unit;unit_core")
 target_include_directories(test_sparse_texture_tile_plan PRIVATE ../runtime)
+if (TARGET luisa-compute-backend-cuda)
+    # Sidecar parsing is host-only; compile the helper without loading the CUDA backend.
+    luisa_compute_add_test(test_cuda_shader_metadata
+            unit/core/test_cuda_shader_metadata.cpp LABELS "unit;unit_core;unit_cuda")
+    target_sources(test_cuda_shader_metadata PRIVATE ../backends/cuda/cuda_shader_metadata.cpp)
+    target_include_directories(test_cuda_shader_metadata PRIVATE ../backends/cuda)
+endif ()
 luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
 target_sources(test_hip_curve_bounds PRIVATE ../backends/hip/hip_curve_bounds.cpp)
 target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)

@@ -892,7 +892,7 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::
 void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
                                             llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
                                             llvm::ArrayRef<llvm::Value *> registers) noexcept {
-    LUISA_DEBUG_ASSERT(registers.size() <= 2);
+    LUISA_DEBUG_ASSERT(registers.size() <= 32u);
     auto handle = b.CreateExtractValue(accel, llvm_accel_type_handle_index);
     auto ox = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 0});
     auto oy = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 1});

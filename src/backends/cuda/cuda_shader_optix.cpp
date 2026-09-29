@@ -94,15 +94,22 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     static constexpr std::array ray_trace_payload_semantics{
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_CH_READ,
     };
-    static constexpr std::array ray_query_payload_semantics{
-        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
-        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
-    };
+    LUISA_ASSERT(metadata.ray_query_payload_count == 2u || metadata.ray_query_payload_count == 32u,
+                 "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
+    auto query_semantics = optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
+                           optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ;
+    if (metadata.ray_query_payload_count == 32u) {
+        // The LLVM ABI also permits mutable values to be returned through payload words.
+        query_semantics |= optix::PAYLOAD_SEMANTICS_TRACE_CALLER_READ |
+                           optix::PAYLOAD_SEMANTICS_IS_WRITE | optix::PAYLOAD_SEMANTICS_AH_WRITE;
+    }
+    std::array<uint32_t, 32u> ray_query_payload_semantics;
+    ray_query_payload_semantics.fill(query_semantics);
 
     std::array<optix::PayloadType, 2u> payload_types{};
     payload_types[0].numPayloadValues = ray_trace_payload_semantics.size();
     payload_types[0].payloadSemantics = ray_trace_payload_semantics.data();
-    payload_types[1].numPayloadValues = ray_query_payload_semantics.size();
+    payload_types[1].numPayloadValues = metadata.ray_query_payload_count;
     payload_types[1].payloadSemantics = ray_query_payload_semantics.data();
 
     optix::ModuleCompileOptions module_compile_options{};

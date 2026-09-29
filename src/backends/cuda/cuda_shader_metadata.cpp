@@ -21,6 +21,7 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
+    result.append(luisa::format("RAY_QUERY_PAYLOAD_COUNT {} ", metadata.ray_query_payload_count));
     result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
     result.append(metadata.requires_motion_blur ? "MOTION_BLUR TRUE " : "MOTION_BLUR FALSE ");
     result.append(luisa::format("MAX_REGISTER_COUNT {} ", metadata.max_register_count));
@@ -96,6 +97,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_trace_closest;
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
+    luisa::optional<uint32_t> ray_query_payload_count;
     luisa::optional<bool> requires_printing;
     luisa::optional<bool> requires_motion_blur;
     luisa::optional<uint> max_register_count;
@@ -240,6 +242,17 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_ray_query flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
+        } else if (token == "RAY_QUERY_PAYLOAD_COUNT") {
+            if (ray_query_payload_count.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate ray-query payload count in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value() || (x.value() != 2u && x.value() != 32u)) {
+                LUISA_WARNING_WITH_LOCATION("Invalid ray-query payload count in shader metadata; expected 2 or 32 words.");
+                return luisa::nullopt;
+            }
+            ray_query_payload_count.emplace(static_cast<uint32_t>(x.value()));
         } else if (token == "PRINTING") {
             if (requires_printing.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -527,6 +540,8 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),
         .requires_ray_query = requires_ray_query.value(),
+        // Sidecars written before the payload ABI field used the two-word context pointer.
+        .ray_query_payload_count = ray_query_payload_count.value_or(2u),
         .requires_printing = requires_printing.value(),
         .requires_motion_blur = requires_motion_blur.value(),
         .max_register_count = max_register_count.value(),
