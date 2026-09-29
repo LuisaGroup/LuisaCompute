@@ -167,21 +167,22 @@ with other LLVM versions or change either default-off switch.
 | Images Compute Sanitizer | Passed: exit 0, all 18 image/volume assertions, `ERROR SUMMARY: 0 errors`; `.deps/optixir-images-memcheck-fixed/{stdout,sanitizer}.log` |
 | Cutout Compute Sanitizer | Passed: OptiX IR, 64 spp, exit 0 with a saved PNG and `ERROR SUMMARY: 0 errors`; `build-msvc-llvm/test-results/cutout-llvm-offline-cutout-query-memcheck-20260930-010618-347` |
 | Interactive rendering on the final adapter | Passed: cutout and procedural, 4,096 spp each, exit 0 with saved PNGs; both logs confirm `moduleCreate: format=OPTIX_IR` |
-| Additional Compute Sanitizer workloads on the final adapter | Pending final results |
+| Additional Compute Sanitizer workloads | The ray-query integration fixture passed on both PTX and OptiX IR after payload sizing; see the v14 results below |
 | Large captured-state Compute Sanitizer | Passed: 65,536 rays, exit 0, `ERROR SUMMARY: 0 errors`; `build-msvc-llvm/test-results/ray-memcheck-v7-large-20260930-010841/` |
 | GPU execution-time comparison | Not measured by the compile-time experiment below |
 
 The cold PTX comparison uses
 `.deps/optixir-compile-ab-20260930-005337/0-ptx/.cache/kernel_ed984c0d76c0a790.llvm-v12.ptx`.
 It proves unchanged output for this cutout kernel, not byte identity for every
-possible shader. The AOT checks load artifacts emitted by named compilation;
-they do not separately exercise a `compile_only` producer process.
+possible shader. The original AOT checks loaded artifacts emitted by named
+compilation. The subsequent v15 tests also exercise a `compile_only` producer
+before creating any consumer for that kernel.
 
 Interactive results are recorded under `build-msvc-llvm/test-results/` in
 `cutout-llvm-gui-cutout-query-normal-20260930-010110-105` and
 `clean-procedural-llvm-20260930-010152`. Each directory contains the process
 result, rendering log, and PNG. These completion checks are separate from the
-pending GPU throughput comparison.
+subsequent GPU throughput comparisons below.
 
 The cold-cache cutout run records three processes per route in
 `.deps/optixir-compile-ab-20260930-005337/results.json`. Its medians are:
@@ -265,3 +266,104 @@ remained about 11% slower in this run. This does not demonstrate an end-to-end
 compile-time win; the OptiX IR route remains experimental and opt-in. All six
 renders completed and reproduced their respective earlier 64-spp PNG hashes.
 The record is `.deps/optixir-compile-ab-20260930-014548/results.json`.
+
+## General-query state follow-up
+
+Cache v15 replaces load/select/store of the previous committed hit with a
+conditional update. Valid distances write the new hit directly; invalid ones
+preserve every field, including an earlier accepted hit. Ordered bounds checks
+remain in place. The full MSVC build and all 22 focused tests passed, including
+compile-only artifact production and invalid replacement preservation.
+
+An eight-process ABBA comparison used the five-query mixed surface/procedural
+benchmark with mutable captures: 65,536 rays, 512 warmup dispatches, 512 dispatches
+per sample and nine samples. Median throughput was **2,173.43 Mqueries/s for v14**
+and **2,196.79 Mqueries/s for v15** (+1.07%). The process ranges overlap; this
+does not establish a repeatable speedup. PTX input shrank from **33,546 to 30,736
+bytes**. Results are in
+`build-msvc-llvm/test-results/ray-query-guarded-commit-v15-20260930-020109/`.
+
+The corresponding eight-process cutout comparison produced identical PNGs and
+all five generated PTX files were byte-identical. Registers remained raygen 70,
+any-hit/intersection 65, with raygen continuation stack 96 bytes and spills
+236 bytes. Median throughput was 638.9738 versus 641.7760 spp/s; the two ABBA
+groups had inconsistent directions. This establishes unchanged cutout code,
+resources and images for this workload, without a throughput improvement claim.
+Results are in
+`build-msvc-llvm/test-results/cutout-runtime-abba-20260930-020205-349878/`.
+
+Cache v16 further reduces the private query state from **112 to 88 bytes**:
+it retains the acceleration handle and original instance-table pointer, removes
+the unused binding count/padding and query flags, and preserves public resource
+bindings and captured-reference identity. Full build and all 22 regressions
+passed. In another eight-process ABBA comparison, median mixed-query throughput
+increased from **2,205.40 to 2,289.92 Mqueries/s (+3.83%)**; both groups improved
+(+2.73% and +5.14%). PTX input decreased from **30,736 to 29,913 bytes**. Every
+numerical check passed. GPU clock states still differed, including 7,001/8,001
+MHz memory states, so these are workload-specific observations rather than a
+guaranteed speedup. The record is
+`build-msvc-llvm/test-results/ray-query-compact-query-v16-20260930-021321/`.
+
+The v16 cold cutout renders retained the earlier route-specific image hashes.
+All five default PTX artifacts remained byte-identical, including the 35,366-byte
+ray-query shader (`b7c9478e16a16506addbc6ec2b5c81ec7b2456d6ce4d7484b54fcd34d8472d9c`).
+The record is `.deps/optixir-compile-ab-20260930-021409/`.
+
+A final four-process AST/LLVM ABBA comparison of the mixed-query benchmark
+measured **2,520.10 Mqueries/s for AST** and **2,240.775 Mqueries/s for LLVM/PTX**
+(median of each route's process medians). LLVM remains about **11.1% behind**
+AST on this workload. The cutout and mixed-query results should not be generalized
+to each other. All four numerical checks passed; the record is
+`build-msvc-llvm/test-results/ray-query-v16-final-ast-llvm-20260930-021937/`.
+
+## Direct traversal operands (OptiX IR revision 9)
+
+Direct IR now passes its nine native LLVM float operands directly to the
+OptiX traversal intrinsic, matching the SDK form. The existing typed-register
+workaround remains in the PTX path. The fixed intrinsic signature, active payload
+count and memory clobber are unchanged; only the OptiX IR cache revision changes.
+
+Eight cold-cache ABBA processes preserved the image hash in every run and reduced
+the cutout module from **21,516 to 20,664 bytes**. Median host generation was
+75.454 to 69.605 ms, driver module creation 315.879 to 259.686 ms, and total
+compilation 417.772 to 349.289 ms. The groups moved in opposite directions, so
+these aggregate medians do **not** establish a stable compile-time speedup.
+Registers, stack and spills were unchanged. The record is
+`.deps/optixir-runtime-abba-20260930-022011-1932967/`.
+
+All 11 OptiX IR/metadata regressions passed. Both LLVM/PTX and OptiX IR also
+passed Compute Sanitizer with **38 assertions and zero memory errors**, covering
+the ray-query integration fixture, including large captures, compile-only
+production, cache reuse and AOT loading. Logs are in
+`.deps/final-query-memcheck-v16-optixir9-{0,1}/`.
+
+## Final build-gate validation
+
+The selected MSVC/Ninja tree was reconfigured with the OptiX IR CMake option
+**OFF**, fully rebuilt using `cmake --build`, and passed **12/12 PTX/metadata
+tests**. Inspection of the actual CUDA compile/link rules confirmed that the
+IR encoder, legalizer, LLVM 7 writer and enable macro were absent. CUDA, Fallback,
+SIMD, Remote, GUI and LLVM remained enabled. The option was then restored **ON**,
+the full tree rebuilt again, and **22/22 combined tests passed**. The final local
+build includes OptiX IR, while runtime selection remains explicitly opt-in.
+
+Records are `.deps/optixir-cmake-gate-{off,on}.json`,
+`.deps/optixir-gate-{off,on}-build.log`, `.deps/optixir-gate-off-tests.log` and
+`.deps/optixir-final-all-tests.log`. All five cutout PTX shaders and the PTX PNG
+were byte-identical between the OFF build and the final ON build; final OptiX IR
+artifacts and images also matched the earlier revision-9 comparison exactly.
+
+The final six-process cold-cache check (three per route) measured these medians:
+
+| Compilation stage | LLVM/PTX | LLVM/OptiX IR |
+|---|---:|---:|
+| Host LLVM generation | 80.9134 ms | 70.3120 ms |
+| OptiX `moduleCreate` | 166.917 ms | 181.499 ms |
+| Total shader compilation | 302.3605 ms | 272.3857 ms |
+
+Individual-stage medians need not sum to the median total. Host generation was
+13.1% faster in this sample; total compilation also favored IR here, but earlier
+comparisons reversed that result. These measurements do not establish a stable
+end-to-end compile-time improvement. All six renders succeeded and reproduced
+their route-specific hashes. The record is
+`.deps/optixir-compile-ab-20260930-022827/results.json`.
