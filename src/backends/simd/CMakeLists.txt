@@ -167,7 +167,8 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_accel_ray_query.cpp
         runtime/simd_accel_ray_query_triangle.cpp
         runtime/simd_accel_ray_query_status.cpp
-        runtime/simd_accel_ray_query_filter_pipeline.cpp)
+        runtime/simd_accel_ray_query_filter_pipeline.cpp
+        runtime/simd_swapchain.cpp)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Keep the optional W8/W16 ray-query filter from contributing a small
     # .text.unlikely partition ahead of the established narrow hot text. On
@@ -184,6 +185,10 @@ target_link_libraries(luisa-compute-backend-simd PRIVATE
         luisa-compute-simd-compiler
         luisa::tile-xir
         embree)
+if (LUISA_COMPUTE_ENABLE_GUI AND NOT APPLE)
+    target_link_libraries(luisa-compute-backend-simd PRIVATE
+            luisa-compute-vulkan-swapchain)
+endif ()
 if (EMBREE_TASKING_SYSTEM STREQUAL "TBB" AND TARGET TBB::tbb)
     target_link_libraries(luisa-compute-backend-simd PRIVATE TBB::tbb)
     target_compile_definitions(luisa-compute-backend-simd PRIVATE

@@ -1184,6 +1184,7 @@ private:
     VkDeviceMemory _image_memory{nullptr};
     VkImageView _image_view{nullptr};
     luisa::vector<VkCommandBuffer> _command_buffers;
+    luisa::vector<VkFence> _copy_fences;
     uint _current_frame{0u};
     VkExtent2D _image_extent;
 
@@ -1322,14 +1323,15 @@ private:
         _stage_buffer_size = _image_extent.width * _image_extent.height * pixel_size;
 
         // create stage buffers
-        _stage_buffers.resize(_base.back_buffer_count());
-        _stage_buffer_memories.resize(_base.back_buffer_count());
+        auto slot_count = _base.back_buffer_count();
+        _stage_buffers.resize(slot_count);
+        _stage_buffer_memories.resize(slot_count);
         VkBufferCreateInfo buffer_info{};
         buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         buffer_info.size = _stage_buffer_size;
         buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        for (auto i = 0u; i < _base.back_buffer_count(); i++) {
+        for (auto i = 0u; i < slot_count; i++) {
             LUISA_CHECK_VULKAN(vkCreateBuffer(_base.device(), &buffer_info, nullptr, &_stage_buffers[i]));
             VkMemoryRequirements mem_requirements;
             vkGetBufferMemoryRequirements(_base.device(), _stage_buffers[i], &mem_requirements);
@@ -1343,13 +1345,20 @@ private:
     }
 
     void _create_command_buffers() noexcept {
-        _command_buffers.resize(_base.back_buffer_count());
+        _command_buffers.resize(_stage_buffers.size());
         VkCommandBufferAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         alloc_info.commandPool = _base.command_pool();
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc_info.commandBufferCount = static_cast<uint>(_command_buffers.size());
         LUISA_CHECK_VULKAN(vkAllocateCommandBuffers(_base.device(), &alloc_info, _command_buffers.data()));
+        _copy_fences.resize(_stage_buffers.size());
+        VkFenceCreateInfo fence_info{};
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        for (auto &fence : _copy_fences) {
+            LUISA_CHECK_VULKAN(vkCreateFence(_base.device(), &fence_info, nullptr, &fence));
+        }
     }
 
     void _initialize() noexcept {
@@ -1361,9 +1370,10 @@ private:
     }
 
     void _clean_up() noexcept {
-        vkDeviceWaitIdle(_base.device());
+        LUISA_CHECK_VULKAN(vkDeviceWaitIdle(_base.device()));
         auto device = _base.device();
-        for (auto i = 0u; i < _base.back_buffer_count(); i++) {
+        for (auto i = 0u; i < _stage_buffers.size(); i++) {
+            vkDestroyFence(device, _copy_fences[i], nullptr);
             vkDestroyBuffer(device, _stage_buffers[i], nullptr);
             vkFreeMemory(device, _stage_buffer_memories[i], nullptr);
         }
@@ -1392,6 +1402,7 @@ public:
           _image_memory{},
           _image_view{},
           _command_buffers{},
+          _copy_fences{},
           _current_frame{},
           _image_extent{width, height} {
         _initialize();
@@ -1413,7 +1424,10 @@ public:
     using BlitCallback = void (*)(void *ctx, void *mapped_pixels);
 
     void present(void *ctx, BlitCallback blit) noexcept {
-        _base.wait_for_fence();
+        // A skipped draw during swapchain recreation must not change which
+        // fence protects this staging buffer and copy command buffer.
+        auto copy_fence = _copy_fences[_current_frame];
+        LUISA_CHECK_VULKAN(vkWaitForFences(_base.device(), 1u, &copy_fence, VK_TRUE, UINT64_MAX));
 
         // update stage buffer
         void *mapped = nullptr;
@@ -1429,6 +1443,24 @@ public:
         VkCommandBufferBeginInfo begin_info{};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
+        // The shared image may still be sampled by the previous frame. Include
+        // transfer writes as well: an out-of-date swapchain can skip that draw.
+        VkImageMemoryBarrier image_barrier{};
+        image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        image_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        image_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        image_barrier.image = _image;
+        image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_barrier.subresourceRange.levelCount = 1u;
+        image_barrier.subresourceRange.layerCount = 1u;
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0u, 0u, nullptr, 0u, nullptr, 1u, &image_barrier);
         VkBufferImageCopy region{};
         region.bufferOffset = 0u;
         region.bufferRowLength = 0u;
@@ -1440,20 +1472,28 @@ public:
         region.imageOffset = {0, 0, 0};
         region.imageExtent = {_image_extent.width, _image_extent.height, 1u};
         vkCmdCopyBufferToImage(command_buffer, _stage_buffers[_current_frame], _image, VK_IMAGE_LAYOUT_GENERAL, 1u, &region);
-        vkEndCommandBuffer(command_buffer);
+        // Make the uploaded pixels visible to the draw submitted by the base.
+        image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        image_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0u, 0u, nullptr, 0u, nullptr, 1u, &image_barrier);
+        LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
 
         // submit command buffer
         VkSubmitInfo submit_info{};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.commandBufferCount = 1u;
         submit_info.pCommandBuffers = &command_buffer;
-        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1u, &submit_info, nullptr));
+        LUISA_CHECK_VULKAN(vkResetFences(_base.device(), 1u, &copy_fence));
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1u, &submit_info, copy_fence));
 
         // present
         _base.present(nullptr, nullptr, _image_view, VK_IMAGE_LAYOUT_GENERAL);
 
-        // update frame index
-        _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
+        // Staging slots advance independently of the base's acquired images.
+        _current_frame = (_current_frame + 1u) % static_cast<uint>(_stage_buffers.size());
     }
 
     void present(luisa::span<const std::byte> pixels) noexcept {
