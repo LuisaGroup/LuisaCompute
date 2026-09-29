@@ -96,13 +96,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     };
     LUISA_ASSERT(metadata.ray_query_payload_count == 2u || metadata.ray_query_payload_count == 32u,
                  "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
-    auto query_semantics = optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
-                           optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ;
-    if (metadata.ray_query_payload_count == 32u) {
-        // The LLVM ABI also permits mutable values to be returned through payload words.
-        query_semantics |= optix::PAYLOAD_SEMANTICS_TRACE_CALLER_READ |
-                           optix::PAYLOAD_SEMANTICS_IS_WRITE | optix::PAYLOAD_SEMANTICS_AH_WRITE;
-    }
+    // Both ABIs pass captures from the caller to the candidate handlers. Mutable
+    // references and query results are written through pointers, not payloads.
+    constexpr auto query_semantics = optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
+                                     optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ;
     std::array<uint32_t, 32u> ray_query_payload_semantics;
     ray_query_payload_semantics.fill(query_semantics);
 
@@ -133,6 +130,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
         metadata.requires_motion_blur ?
             optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY :
             optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+    // Typed payloads above declare their own word counts. OptiX requires this
+    // untyped count to be zero when module_compile_options.numPayloadTypes > 0.
     pipeline_compile_options.numPayloadValues = 0u;
     auto primitive_flags = metadata.requires_ray_query ?
                                (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM | optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :

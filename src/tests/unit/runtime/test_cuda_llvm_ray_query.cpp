@@ -16,6 +16,7 @@
 #include <iostream>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
 
@@ -311,7 +312,35 @@ struct Options {
         // the actual capture types and direct/fallback codegen selection.
         LUISA_INFO("Ray-query payload boundary fixture: snapshots={}, expected capture words={}, AST hash={:016x}.",
                    snapshot_count, snapshot_count + 2u, kernel.function()->function().hash());
-        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+        auto package_leaf = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}.ptx", snapshot_count,
+                                          std::chrono::steady_clock::now().time_since_epoch().count());
+        auto package_path = luisa::filesystem::absolute(package_leaf.c_str());
+        auto package_name = luisa::to_string(package_path);
+        auto metadata_path = luisa::filesystem::path{luisa::format("{}.metadata", package_name).c_str()};
+        // Explicit shader names use the bytecode store even with cache disabled.
+        // Never reuse or remove an artifact that predates this test invocation.
+        auto owned_paths_available = !luisa::filesystem::exists(package_path) &&
+                                     !luisa::filesystem::exists(metadata_path);
+        expect(owned_paths_available) << "unique payload AOT artifact paths";
+        if (!owned_paths_available) { return false; }
+        struct ArtifactCleanup {
+            const luisa::filesystem::path &package;
+            const luisa::filesystem::path &metadata;
+            ~ArtifactCleanup() noexcept {
+                for (auto path : {&package, &metadata}) {
+                    std::error_code error;
+                    luisa::filesystem::remove(*path, error);
+                    if (error) {
+                        LUISA_WARNING("Failed to remove payload AOT artifact '{}': {}.",
+                                      luisa::to_string(*path), error.message());
+                    }
+                }
+            }
+        } cleanup{package_path, metadata_path};
+        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
+        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
+        if (!loaded_shader) { return false; }
         auto inputs = device.create_buffer<uint>(ray_count * snapshot_count);
         auto outputs = device.create_buffer<uint>(ray_count * snapshot_count * 2u);
         auto hits = device.create_buffer<uint4>(ray_count * 2u);
@@ -325,8 +354,9 @@ struct Options {
                         lane * 0x9e3779b9u ^ i * 0x85ebca6bu ^ (epoch + 1u) * 0xc2b2ae35u;
                 }
             }
+            const auto &active_shader = epoch == 0u ? shader : loaded_shader;
             stream << inputs.copy_from(luisa::span{host_inputs})
-                   << shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count)
+                   << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count)
                    << outputs.copy_to(luisa::span{host_outputs})
                    << hits.copy_to(luisa::span{host_hits}) << synchronize();
             bool correct = true;
