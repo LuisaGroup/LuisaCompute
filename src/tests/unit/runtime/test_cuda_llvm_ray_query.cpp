@@ -370,7 +370,23 @@ struct Options {
                 }
             }
         } cleanup{package_path, metadata_path};
-        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        // Produce the owned package before any consumer for this kernel exists.
+        // compile_only must serialize both files without returning a live shader.
+        LUISA_INFO("Ray-query compile-only producer begins: snapshots={}.", snapshot_count);
+        {
+            auto producer = device.compile(kernel, ShaderOption{
+                                                       .enable_cache = false,
+                                                       .compile_only = true,
+                                                       .name = package_name});
+            auto produced = !producer && producer.compile_ok() &&
+                            luisa::filesystem::is_regular_file(package_path) &&
+                            luisa::filesystem::is_regular_file(metadata_path) &&
+                            luisa::filesystem::file_size(package_path) != 0u &&
+                            luisa::filesystem::file_size(metadata_path) != 0u;
+            expect(produced) << "compile-only producer writes a package and sidecar without a live shader";
+            if (!produced) { return false; }
+        }
+        LUISA_INFO("Ray-query compile-only producer ends: snapshots={}.", snapshot_count);
         auto expected_payload_count = !llvm_codegen ? 2u : snapshot_count == 0u ? 3u : snapshot_count == 27u ? 32u : 5u;
         // Observe the serialized public artifact rather than inferring the
         // pipeline ABI from the number of DSL variables alone.
@@ -399,6 +415,7 @@ struct Options {
         luisa::filesystem::last_write_time(metadata_path, old_timestamp);
         auto package_timestamp = luisa::filesystem::last_write_time(package_path);
         auto metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
         auto warm_shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
         auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp &&
                                luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
@@ -677,7 +694,8 @@ struct Options {
         captures.write(index, make_uint4(first_capture, second_capture, saved_first, saved_second));
 
         // Both AABBs overlap the accepted interval. Whichever primitive is
-        // visited first commits; the second terminates without a replacement.
+        // visited first commits; the second attempts a farther hit, then
+        // terminates without replacing the first primitive's committed record.
         UInt preserve_count = 0u;
         UInt first_primitive = ~0u;
         auto preserved = preserve_accel.traverse(ray, {})
@@ -689,6 +707,10 @@ struct Options {
                                      if (benchmark) { candidate.terminate(); }
                                  }
                                  $else {
+                                     // Within the original ray, but beyond the
+                                     // committed 1.25 bound: retain every field
+                                     // of the first candidate, including prim.
+                                     if (!benchmark) { candidate.commit(2.0f); }
                                      candidate.terminate();
                                  };
                              })

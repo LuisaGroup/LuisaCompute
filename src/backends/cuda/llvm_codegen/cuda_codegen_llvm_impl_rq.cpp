@@ -345,10 +345,19 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_ray_query_object_read_inst(IB &b, F
 }
 
 void CUDACodegenLLVMImpl::_commit_ray_query_hit(IB &b, llvm::Value *query, llvm::Value *t, bool procedural) noexcept {
-    auto ray = _load_ray_query_field(b, query, llvm_ray_query_type_ray_index);
-    auto t_min = b.CreateExtractValue(ray, llvm_ray_type_t_min_index);
-    auto t_max = b.CreateExtractValue(ray, llvm_ray_type_t_max_index);
+    auto ray = b.CreateStructGEP(_get_llvm_ray_query_type(), query, llvm_ray_query_type_ray_index);
+    auto t_min_ptr = b.CreateStructGEP(_get_llvm_ray_type(), ray, llvm_ray_type_t_min_index);
+    auto t_max_ptr = b.CreateStructGEP(_get_llvm_ray_type(), ray, llvm_ray_type_t_max_index);
+    auto t_min = b.CreateLoad(b.getFloatTy(), t_min_ptr);
+    auto t_max = b.CreateLoad(b.getFloatTy(), t_max_ptr);
     auto valid = b.CreateAnd(b.CreateFCmpOGE(t, t_min), b.CreateFCmpOLE(t, t_max));
+    auto function = b.GetInsertBlock()->getParent();
+    auto accept = llvm::BasicBlock::Create(_llvm_context, "query.commit", function);
+    auto merge = llvm::BasicBlock::Create(_llvm_context, "query.commit.end", function);
+    // Rejected distances leave the previous hit, bound and acceptance flag
+    // untouched, including a hit committed earlier in this callback.
+    b.CreateCondBr(valid, accept, merge);
+    b.SetInsertPoint(accept);
     auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
     hit = b.CreateInsertValue(hit, _call_optix_read_instance_index(b), llvm_committed_hit_type_inst_id_index);
     hit = b.CreateInsertValue(hit, _call_optix_read_primitive_index(b), llvm_committed_hit_type_prim_id_index);
@@ -358,16 +367,11 @@ void CUDACodegenLLVMImpl::_commit_ray_query_hit(IB &b, llvm::Value *query, llvm:
     }
     hit = b.CreateInsertValue(hit, b.getInt32(static_cast<uint32_t>(procedural ? HitType::Procedural : HitType::Surface)), llvm_committed_hit_type_hit_kind_index);
     hit = b.CreateInsertValue(hit, t, llvm_committed_hit_type_t_index);
-    auto previous = _load_ray_query_field(b, query, llvm_ray_query_type_hit_index);
-    auto selected = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
-    for (auto field = 0u; field < 5u; field++) {
-        selected = b.CreateInsertValue(selected, b.CreateSelect(valid, b.CreateExtractValue(hit, field), b.CreateExtractValue(previous, field)), field);
-    }
-    _store_ray_query_field(b, query, llvm_ray_query_type_hit_index, selected);
-    _store_ray_query_field(b, query, llvm_ray_query_type_ray_index,
-                           b.CreateInsertValue(ray, b.CreateSelect(valid, t, t_max), llvm_ray_type_t_max_index));
-    auto committed = _load_ray_query_field(b, query, llvm_ray_query_type_committed_index);
-    _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.CreateOr(committed, valid));
+    _store_ray_query_field(b, query, llvm_ray_query_type_hit_index, hit);
+    b.CreateStore(t, t_max_ptr);
+    _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getTrue());
+    b.CreateBr(merge);
+    b.SetInsertPoint(merge);
 }
 
 void CUDACodegenLLVMImpl::_translate_ray_query_object_write_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectWriteInst *inst) noexcept {
