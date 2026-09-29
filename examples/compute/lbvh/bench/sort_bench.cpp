@@ -782,14 +782,15 @@ void run_measurements(Device &device, Stream &stream, LbvhRadixSort &sort,
 // The capacity one sorter has to serve: the largest count of either phase.
 [[nodiscard]] size_t bench_capacity(const SortOptions &options) noexcept {
     auto capacity = size_t{1u};
+    auto base = static_cast<size_t>(options.base);
     for (auto count : kCheckCounts) {
-        capacity = std::max(capacity, count + options.base + kPad);
+        capacity = std::max(capacity, count + base + kPad);
     }
     for (auto count : options.counts) {
-        capacity = std::max(capacity, count + options.base + kPad);
+        capacity = std::max(capacity, count + base + kPad);
     }
     if (options.counts.empty()) {
-        capacity = std::max(capacity, (1u << 23u) + options.base + kPad);
+        capacity = std::max(capacity, (1u << 23u) + base + kPad);
     }
     return capacity;
 }
