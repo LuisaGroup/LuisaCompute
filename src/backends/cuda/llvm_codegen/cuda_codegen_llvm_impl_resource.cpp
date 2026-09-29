@@ -324,9 +324,18 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
                                                 _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_flags = is_any ? b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT) :
                                        b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
-            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_initialize, b.getVoidTy(),
-                                      {llvm_accel, llvm_ray, llvm_time, llvm_mask, llvm_flags});
-            return llvm::Constant::getNullValue(_get_llvm_ray_query_type());
+            auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
+            hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_inst_id_index);
+            hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_prim_id_index);
+            hit = b.CreateInsertValue(hit, b.CreateExtractValue(llvm_ray, llvm_ray_type_t_max_index), llvm_committed_hit_type_t_index);
+            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_ray_query_type()));
+            query = b.CreateInsertValue(query, llvm_accel, llvm_ray_query_type_accel_index);
+            query = b.CreateInsertValue(query, llvm_ray, llvm_ray_query_type_ray_index);
+            query = b.CreateInsertValue(query, llvm_time, llvm_ray_query_type_time_index);
+            query = b.CreateInsertValue(query, b.CreateZExtOrTrunc(llvm_mask, b.getInt32Ty()), llvm_ray_query_type_mask_index);
+            query = b.CreateInsertValue(query, llvm_flags, llvm_ray_query_type_flags_index);
+            query = b.CreateInsertValue(query, hit, llvm_ray_query_type_hit_index);
+            return b.CreateInsertValue(query, b.getInt8(llvm_ray_query_state_initialized), llvm_ray_query_type_state_index);
         }
     }
     LUISA_NOT_IMPLEMENTED();
@@ -953,6 +962,10 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
             args.emplace_back(undef);
         }
     }
+    // The payload can contain pointers to mutable traversal state and captures.
+    // OptiX invokes hit programs that access that memory before returning.
+    llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
+                                     (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
     b.CreateCall(llvm_asm, args);
 }
 

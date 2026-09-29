@@ -637,7 +637,7 @@ DSL Function (an ast::Function) / xir::Module / tile::Function
 
 `create_shader` only receives a DSL `Function`; every other IR above is a
 backend-internal route. XIR consumers are not Metal-only: CUDA
-(`src/backends/cuda/llvm_codegen/`, `cuda_codegen_xir.cpp`), HIP
+(`src/backends/cuda/llvm_codegen/`), HIP
 (`src/backends/hip/llvm_codegen/`), Metal4 (`src/backends/metal4/llvm_codegen/`)
 and the shared `src/backends/common/spirv/` codegen all take XIR. The Vulkan
 route is a mutually exclusive build switch (`src/backends/CMakeLists.txt:3-8`

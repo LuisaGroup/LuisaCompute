@@ -66,6 +66,7 @@ public:
         llvm::Value *llvm_dispatch_size{nullptr};
         llvm::Value *llvm_kernel_id{nullptr};
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
+        llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *> block_exits;
         std::vector<const xir::PhiInst *> pending_phi_nodes;
 
         explicit FunctionContext(llvm::Function *f) noexcept;
@@ -142,27 +143,15 @@ public:
     static constexpr auto llvm_ray_query_type_time_index = 2;
     static constexpr auto llvm_ray_query_type_mask_index = 3;
     static constexpr auto llvm_ray_query_type_flags_index = 4;
+    static constexpr auto llvm_ray_query_type_hit_index = 5;
+    static constexpr auto llvm_ray_query_type_committed_index = 6;
+    static constexpr auto llvm_ray_query_type_terminated_index = 7;
+    static constexpr auto llvm_ray_query_type_state_index = 8;
 
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
-
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa.ray.query.world.space.ray";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_object_space_ray = "luisa.ray.query.object.space.ray";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa.ray.query.procedural.candidate.hit";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa.ray.query.surface.candidate.hit";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa.ray.query.committed.hit";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_surface_candidate = "luisa.ray.query.is.surface.candidate";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_procedural_candidate = "luisa.ray.query.is.procedural.candidate";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_is_terminated = "luisa.ray.query.is.terminated";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_surface_hit = "luisa.ray.query.commit.surface.hit";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_commit_procedural_hit = "luisa.ray.query.commit.procedural.hit";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_state = "luisa.ray.query.state";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_initialize = "luisa.ray.query.initialize";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_spawn = "luisa.ray.query.spawn";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_proceed = "luisa.ray.query.proceed";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa.ray.query.dispatch";
-    static constexpr luisa::string_view llvm_ray_query_intrinsic_name_terminate = "luisa.ray.query.terminate";
+    static constexpr auto llvm_ray_query_state_initialized = 3;
 
 private:
     CUDACodegenLLVMConfig _config;
@@ -183,6 +172,12 @@ private:
     llvm::Type *_llvm_surface_hit_type{nullptr};        // { i32 inst_id, i32 prim_id, <2 x float> bary, float t }
     llvm::Type *_llvm_procedural_hit_type{nullptr};     // { i32 inst_id, i32 prim_id }
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
+    llvm::StructType *_llvm_ray_query_type{nullptr};
+    struct RayQueryPipeline {
+        const xir::RayQueryPipelineInst *inst;
+        llvm::StructType *context_type;
+    };
+    std::vector<RayQueryPipeline> _ray_query_pipelines;
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -304,6 +299,7 @@ private:
     // control flow instructions: if, switch, loop, simple_loop, branch, conditional_branch, unreachable, break, continue, return, raster_discard, defined in cuda_codegen_llvm_impl_cflow.cpp
     void _translate_if_inst(IB &b, const FunctionContext &func_ctx, const xir::IfInst *inst) noexcept;
     void _translate_switch_inst(IB &b, const FunctionContext &func_ctx, const xir::SwitchInst *inst) noexcept;
+    void _translate_indexed_branch_inst(IB &b, const FunctionContext &func_ctx, const xir::IndexedBranchTerminatorInstruction *inst) noexcept;
     static void _translate_loop_inst(IB &b, const FunctionContext &func_ctx, const xir::LoopInst *inst) noexcept;
     static void _translate_simple_loop_inst(IB &b, const FunctionContext &func_ctx, const xir::SimpleLoopInst *inst) noexcept;
     static void _translate_branch_inst(IB &b, const FunctionContext &func_ctx, const xir::BranchInst *inst) noexcept;
@@ -391,8 +387,11 @@ private:
     [[nodiscard]] llvm::Value *_translate_ray_query_object_read_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectReadInst *inst) noexcept;
     void _translate_ray_query_object_write_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectWriteInst *inst) noexcept;
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
-    llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
-    void _materialize_ray_query_loops() noexcept;
+    [[nodiscard]] llvm::Value *_load_ray_query_field(IB &b, llvm::Value *query, unsigned field) noexcept;
+    void _store_ray_query_field(IB &b, llvm::Value *query, unsigned field, llvm::Value *value) noexcept;
+    [[nodiscard]] llvm::Value *_ray_query_surface_candidate(IB &b) noexcept;
+    void _commit_ray_query_hit(IB &b, llvm::Value *query, llvm::Value *t, bool procedural) noexcept;
+    void _materialize_ray_query_pipelines() noexcept;
 
     // autodiff instructions: autodiff_scope, autodiff_intrinsic, defined in cuda_codegen_llvm_impl_autodiff.cpp
     void _translate_autodiff_scope_inst(IB &b, FunctionContext &func_ctx, const xir::AutodiffScopeInst *inst) noexcept;

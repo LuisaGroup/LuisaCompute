@@ -14,12 +14,18 @@ void CUDACodegenLLVMImpl::_translate_if_inst(IB &b, const FunctionContext &func_
 }
 
 void CUDACodegenLLVMImpl::_translate_switch_inst(IB &b, const FunctionContext &func_ctx, const xir::SwitchInst *inst) noexcept {
+    _translate_indexed_branch_inst(b, func_ctx, inst);
+}
+
+void CUDACodegenLLVMImpl::_translate_indexed_branch_inst(IB &b, const FunctionContext &func_ctx, const xir::IndexedBranchTerminatorInstruction *inst) noexcept {
     auto llvm_value = _get_llvm_value(b, func_ctx, inst->value());
+    LUISA_ASSERT(llvm_value->getType()->isIntegerTy(), "Indexed branch selector must be a scalar integer.");
     auto llvm_default_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->default_block());
     auto llvm_switch = b.CreateSwitch(llvm_value, llvm_default_block, inst->case_count());
     for (auto i = 0u; i < inst->case_count(); i++) {
         auto llvm_case_value = b.getIntN(
-            llvm_value->getType()->getIntegerBitWidth(), inst->case_value(i));
+            llvm_value->getType()->getIntegerBitWidth(),
+            xir::IndexedBranchTerminatorInstruction::canonicalize_case_value(inst->value()->type(), inst->case_value(i)));
         auto llvm_case_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->case_block(i));
         llvm_switch->addCase(llvm_case_value, llvm_case_block);
     }

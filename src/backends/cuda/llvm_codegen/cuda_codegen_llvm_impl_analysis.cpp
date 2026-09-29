@@ -8,6 +8,10 @@
 namespace luisa::compute::cuda {
 
 void CUDACodegenLLVMImpl::_analyze_ray_tracing_usage(const xir::Module &module) noexcept {
+    // Shader metadata reflects the original kernel, including dead traces.
+    // Preserve its OptiX entry ABI after XIR optimization removes those traces.
+    _rt_analysis.uses_ray_tracing = _config.requires_ray_tracing || _config.requires_ray_query;
+    _rt_analysis.uses_ray_query = _config.requires_ray_query;
     llvm::DenseSet<const xir::Function *> visited;
     for (auto f : module.function_list()) {
         // we only start from kernel functions so that unused functions are not analyzed
@@ -27,6 +31,18 @@ void CUDACodegenLLVMImpl::_analyze_ray_tracing_in_function(const xir::Function *
                 }
                 // look for ray tracing related instructions
                 switch (inst->derived_instruction_tag()) {
+                    case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                        auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(inst);
+                        _rt_analysis.uses_ray_tracing = true;
+                        _rt_analysis.uses_ray_query = true;
+                        if (auto surface = pipeline->on_surface_function()) {
+                            _analyze_ray_tracing_in_function(surface, visited);
+                        }
+                        if (auto procedural = pipeline->on_procedural_function()) {
+                            _analyze_ray_tracing_in_function(procedural, visited);
+                        }
+                        break;
+                    }
                     case xir::DerivedInstructionTag::RESOURCE_QUERY: {
                         switch (static_cast<const xir::ResourceQueryInst *>(inst)->op()) {
                             case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST: [[fallthrough]];

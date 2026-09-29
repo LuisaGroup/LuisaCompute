@@ -162,8 +162,8 @@ void test_ray_query_commits_closest_surface(Device &device) {
                                  [&](SurfaceCandidate &candidate) noexcept {
                                      const auto hit = candidate.hit();
                                      callback_count += 1u;
-                                     $if(!((hit->inst == source_instance) &
-                                           (hit->prim == source_primitive))) {
+                                     $if (!((hit->inst == source_instance) &
+                                            (hit->prim == source_primitive))) {
                                          candidate.commit();
                                      };
                                  })
@@ -262,11 +262,12 @@ void test_inline_ray_query_dsl(Device &device) {
 
     for (auto i = 0u; i < host_results.size(); i++) {
         auto target = i & 1u;
-        expect(static_cast<bool>(
-            all(host_results[i] ==
-                make_uint4(
-                    static_cast<uint32_t>(HitType::Surface),
-                    target, 0u, target + 1u))))
+        const auto result = host_results[i];
+        // Traversal may visit the far candidate before the near one. A near
+        // commit can cull the far candidate; a far commit still visits both.
+        auto valid_count = target == 0u ? result.w >= 1u && result.w <= 2u : result.w == 2u;
+        expect(result.x == static_cast<uint32_t>(HitType::Surface) &&
+               result.y == target && result.z == 0u && valid_count)
             << luisa::format(
                    "inline ray-query mismatch at lane {}: got ({}, {}, {}, {})",
                    i, host_results[i].x, host_results[i].y,

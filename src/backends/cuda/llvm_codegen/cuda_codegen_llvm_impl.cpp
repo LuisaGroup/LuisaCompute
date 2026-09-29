@@ -14,9 +14,6 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Passes/PassBuilder.h>
-#include <llvm/IR/Dominators.h>
-#include <llvm/Analysis/AssumptionCache.h>
-#include <llvm/Transforms/Utils/CodeExtractor.h>
 
 #include <luisa/core/clock.h>
 #include <luisa/core/stl/filesystem.h>
@@ -295,104 +292,6 @@ public:
     }
 };
 
-// module pass that extracts ray query loops into separate functions and normalize the pipelines
-class RayQueryLoopExtraction : public llvm::PassInfoMixin<RayQueryLoopExtraction> {
-
-private:
-    llvm::DenseSet<llvm::Function *> RayQueryFunctions;
-
-    [[nodiscard]] bool extractRayQueryLoops(llvm::Module &M, llvm::ModuleAnalysisManager &MAM) noexcept {
-        auto Init = M.getFunction(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_initialize);
-        auto RemoveUnusedInitCalls = [&]() noexcept {
-            if (Init == nullptr) { return false; }
-            if (!Init->user_empty()) {
-                LUISA_WARNING_WITH_LOCATION("Unused ray query 'initialize' intrinsic remaining.");
-                while (!Init->user_empty()) {
-                    if (auto Call = llvm::dyn_cast<llvm::CallInst>(*Init->user_begin())) {
-                        Call->eraseFromParent();
-                    } else {
-                        LUISA_ERROR_WITH_LOCATION("Invalid user of ray query 'initialize' intrinsic.");
-                    }
-                }
-            }
-            Init->eraseFromParent();
-            return true;
-        };
-        auto ReplaceIntrinsic = [&](llvm::CallInst *Inst, llvm::StringRef NewIntrinsic) noexcept {
-            auto Func = M.getFunction(NewIntrinsic);
-            if (Func == nullptr) {
-                Func = llvm::Function::Create(Inst->getFunctionType(), llvm::Function::ExternalLinkage,
-                                              NewIntrinsic, &M);
-            }
-            Inst->setCalledFunction(Func);
-        };
-        auto Proceed = M.getFunction(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_proceed);
-        if (Proceed == nullptr) { return RemoveUnusedInitCalls(); }
-        while (!Proceed->user_empty()) {
-            auto Call = llvm::dyn_cast<llvm::CallInst>(*Proceed->user_begin());
-            LUISA_ASSERT(Call != nullptr, "Invalid user of ray query 'proceed' intrinsic.");
-            auto &FAM = MAM.getResult<llvm::FunctionAnalysisManagerModuleProxy>(M).getManager();
-            auto F = Call->getFunction();
-            auto &DT = FAM.getResult<llvm::DominatorTreeAnalysis>(*F);
-            auto &LI = FAM.getResult<llvm::LoopAnalysis>(*F);
-            auto L = LI.getLoopFor(Call->getParent());
-            LUISA_ASSERT(L != nullptr && Init != nullptr, "Ray query 'proceed' call not inside a loop or missing 'initialize' intrinsic.");
-            // find the `initialize` call that dominates this `proceed` call
-            auto InitCall = [&]() noexcept -> llvm::CallInst * {
-                auto IDom = [&DT](auto B) noexcept {
-                    auto IDomNode = DT.getNode(B)->getIDom();
-                    return IDomNode ? IDomNode->getBlock() : nullptr;
-                };
-                for (auto BB = IDom(Call->getParent()); BB != nullptr; BB = IDom(BB)) {
-                    for (auto &I : llvm::reverse(*BB)) {
-                        if (auto C = llvm::dyn_cast<llvm::CallInst>(&I);
-                            C != nullptr && C->getCalledFunction() == Init) {
-                            return C;
-                        }
-                    }
-                }
-                return nullptr;
-            }();
-            LUISA_ASSERT(InitCall != nullptr, "No dominating ray query 'initialize' call found for 'proceed' call.");
-            // find the outermost loop that is dominated by this `initialize` call
-            auto DominatesLoop = [&DT, InitCall](llvm::Loop *loop) noexcept {
-                return DT.dominates(InitCall->getParent(), loop->getHeader());
-            };
-            while (auto ParentL = L->getParentLoop()) {
-                if (DominatesLoop(ParentL)) {
-                    L = ParentL;
-                } else {
-                    break;
-                }
-            }
-            LUISA_ASSERT(L != nullptr && DominatesLoop(L), "Failed to find the outermost ray query loop for 'proceed' call.");
-            auto AC = FAM.getCachedResult<llvm::AssumptionAnalysis>(*F);
-            llvm::CodeExtractor Extractor{L->getBlocks(), &DT, false, nullptr, nullptr, AC};
-            llvm::CodeExtractorAnalysisCache CEAC{*F};
-            auto NewF = Extractor.extractCodeRegion(CEAC);
-            LUISA_ASSERT(NewF != nullptr, "Failed to extract ray query loop into a separate function.");
-            NewF->addFnAttr(llvm::Attribute::NoInline);
-            NewF->setName("ray.query.loop.extracted");
-            RayQueryFunctions.insert(NewF);
-            ReplaceIntrinsic(InitCall, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_spawn);
-            ReplaceIntrinsic(Call, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_dispatch);
-            FAM.invalidate(*F, llvm::PreservedAnalyses::none());
-        }
-        // remove these functions
-        Proceed->eraseFromParent();
-        RemoveUnusedInitCalls();
-        return true;
-    }
-
-public:
-    llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM) noexcept {
-        if (extractRayQueryLoops(M, MAM)) {
-            return llvm::PreservedAnalyses::none();
-        }
-        return llvm::PreservedAnalyses::all();
-    }
-};
-
 }// namespace detail
 
 luisa::string CUDACodegenLLVMImpl::_generate_ptx() const noexcept {
@@ -426,22 +325,19 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
             LUISA_ERROR_WITH_LOCATION("LLVM module verification failed. IR dumped to debug.ll");
         }
     };
-    verify();
     if (_rt_analysis.uses_ray_query) {
-        // we need to inline all device functions so that ray query extraction can work
+        _materialize_ray_query_pipelines();
+        // Inline callbacks and helpers into their OptiX entry programs.
         for (auto &&f : *_llvm_module) {
             if (!f.isDeclaration() && f.getCallingConv() == llvm::CallingConv::PTX_Device) {
                 f.removeFnAttr(llvm::Attribute::NoInline);
                 f.addFnAttr(llvm::Attribute::AlwaysInline);
             }
         }
-        _run_optimization_passes([](auto &MPM) noexcept {
-            MPM.addPass(detail::RayQueryLoopExtraction{});
-        });
-        _materialize_ray_query_loops();
-        verify();
     }
+    verify();
     _run_optimization_passes();
+    verify();
     static auto dump_llvm_ir = [] {
         using namespace std::string_view_literals;
         auto env = getenv("LUISA_DUMP_LLVM_IR");

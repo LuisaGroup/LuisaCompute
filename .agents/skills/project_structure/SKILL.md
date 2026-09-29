@@ -99,7 +99,7 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 
 | Backend | Technology |
 |---|---|
-| **CUDA** (`cuda/`) | NVRTC + OptiX + CUDA driver (`cuda_codegen_ast.h`, `cuda_codegen_xir.h`) |
+| **CUDA** (`cuda/`) | AST → NVRTC, or XIR → LLVM → PTX (`cuda_codegen_ast.h`, `llvm_codegen/`), plus OptiX and CUDA driver |
 | **DirectX** (`dx/`) | DX12 + DXR + HLSL DXC |
 | **Metal** (`metal/`) | Metal 3 + MSL (`metal_codegen_ast.h`) |
 | **Metal4** (`metal4/`) | Metal 4 AIR via LLVM codegen (`llvm_codegen/`, `metal_xir_pipeline.cpp`) |
@@ -181,8 +181,9 @@ XIR Module / CFG (src/xir/) + PassPipeline (src/xir/passes/)
           ├── Metal: AST → MSL (src/backends/metal/metal_codegen_ast.cpp)
           ├── Vulkan: XIR → SPIR-V (src/backends/common/spirv/spirv_codegen/);
                  experimental AST → LLVM → SPIR-V (src/backends/common/spirv_llvm/)
-          ├── CUDA / HIP: AST + XIR → device C++ → PTX via NVRTC
-                 (cuda_codegen_ast.cpp, cuda_codegen_xir.cpp)
+          ├── CUDA: AST → device C++ → PTX via NVRTC (cuda_codegen_ast.cpp),
+                 or AST → XIR → LLVM → PTX (cuda/llvm_codegen/); autodiff requires LLVM
+          ├── HIP: AST → device C++ or XIR → LLVM (hip/llvm_codegen/)
           ├── Metal4: XIR → AIR via LLVM (src/backends/metal4/llvm_codegen/)
           ├── Fallback / SIMD: XIR → LLVM (JIT / CPU packet schedule)
           └── xir2ast (src/xir/translators/xir2ast.cpp): XIR → AST, used by the DX/VK tile paths

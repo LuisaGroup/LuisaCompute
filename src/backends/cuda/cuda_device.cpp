@@ -8,6 +8,7 @@
 #include <luisa/core/binary_io.h>
 #include <luisa/core/string_scratch.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
@@ -26,13 +27,11 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/mem2reg.h>
-#include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
-#include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
@@ -42,26 +41,24 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/string.h>
 
-#include "cuda_codegen_xir.h"
 #include "native_shader_ext.h"
 
 namespace luisa::compute::cuda {
 namespace {
 [[nodiscard]] bool _xir_pass_enabled(const char *name, bool default_value) noexcept {
-      if (auto env = getenv(name)) { return luisa::string_view{env} == "1"; }
-      return default_value;
-  }
-  // The structured CUDA XIR codegen requires normalized, restructured CFG:
-  // the XIR path is always taken for autodiff kernels, so these default on
-  // (set the env var to "0" to opt out explicitly).
-  const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG", true);
-  const bool LUISA_XIR_RESTRUCTURE_CFG = _xir_pass_enabled("LUISA_XIR_RESTRUCTURE_CFG", true);
-  const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN", false);
+    if (auto env = getenv(name)) { return luisa::string_view{env} == "1"; }
+    return default_value;
+}
+// LLVM consumes plain CFG and PHIs directly after shared ray-query lowering.
+const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG", true);
+const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN", false);
 }// namespace
 }// namespace luisa::compute::cuda
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
+#include <llvm/Config/llvm-config.h>
 #include "llvm_codegen/cuda_codegen_llvm.h"
+#include "llvm_codegen/cuda_codegen_llvm_device_bitcode.h"
 namespace luisa::compute::cuda {
 namespace {
 const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
@@ -80,13 +77,6 @@ namespace {
 
 const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
-        return luisa::string_view{env} == "1";
-    }
-    return false;
-}();
-
-const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
-    if (auto env = getenv("LUISA_EXPERIMENTAL_XIR_CODEGEN")) {
         return luisa::string_view{env} == "1";
     }
     return false;
@@ -130,7 +120,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     }
 }
 
-[[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option, bool lower_rq = true) noexcept {
+[[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option) noexcept {
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
@@ -211,23 +201,15 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     xir::PassPipeline cfg;
-    if (lower_rq) {
-        cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
-            auto i =
-                xir::lower_ray_query_to_pipeline_pass_run_on_module(
-                    m, &r);
-            if (!i.succeeded()) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "CUDA XIR ray-query lowering rejected {} loop(s).",
-                    i.error_count);
-            }
-            return i.lowered_loop_count > 0u;
-        });
-        cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::reg2mem_pass_run_on_module(m, &r);
-            return i.changed();
-        });
-    }
+    cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(m, &r);
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "CUDA XIR ray-query lowering rejected {} loop(s).",
+                i.error_count);
+        }
+        return i.lowered_loop_count > 0u;
+    });
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
@@ -242,22 +224,9 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
             return i.changed();
         });
-        if (LUISA_XIR_RESTRUCTURE_CFG) {
-            cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
-                if (!i.succeeded()) {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "CUDA XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
-                        i.irreducible_region_count, i.unstructured_branch_count,
-                        i.invalid_construct_count, i.iteration_limit_count);
-                }
-                return i.changed();
-            });
-        }
     }
     auto cfg_stats = cfg.run(xir_module.get());
-    verify_xir_or_error(xir_module.get(), "codegen handoff",
-                        {.require_no_phi = lower_rq});
+    verify_xir_or_error(xir_module.get(), "codegen handoff");
     cfg_stats.log("CUDA backend CFG normalization");
 
     // dump for debugging
@@ -332,6 +301,43 @@ static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = [] {
 }();
 
 namespace luisa::compute::cuda {
+
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+// Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
+static constexpr uint64_t cuda_llvm_cache_revision = 4u;
+
+[[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
+                                                   uint32_t cuda_arch) noexcept {
+    static const auto libdevice_hash = luisa::hash64(
+        luisa_compute_cuda_libdevice_10,
+        static_cast<size_t>(luisa_compute_cuda_libdevice_10_size),
+        luisa::hash64_default_seed);
+    auto texture_storage_hash = luisa::hash64_default_seed;
+    for (auto i = 0u; i < kernel.bound_arguments().size(); i++) {
+        if (auto binding = luisa::get_if<Function::TextureBinding>(&kernel.bound_arguments()[i])) {
+            // LLVM specializes captured texture loads/stores for their storage
+            // format. Runtime handles are not part of the compiled identity.
+            auto storage = reinterpret_cast<const CUDATexture *>(binding->handle)->storage();
+            texture_storage_hash = luisa::hash_combine(
+                {i, static_cast<uint64_t>(storage)}, texture_storage_hash);
+        }
+    }
+    return luisa::hash_combine({
+        cuda_llvm_cache_revision,
+        kernel.hash(),
+        luisa::hash_value(luisa::string_view{LLVM_VERSION_STRING}),
+        libdevice_hash,
+        cuda_arch,
+        optix::VERSION,
+        option.enable_fast_math,
+        option.enable_debug_info,
+        std::clamp(option.max_registers, 0u, 255u),
+        luisa::hash_value(option.name),
+        LUISA_XIR_NORMALIZE_CFG,
+        LUISA_XIR_ELIMINATE_EARLY_RETURN,
+        texture_storage_hash});
+}
+#endif
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
     switch (format) {
@@ -848,7 +854,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v3.ptx", expected_metadata.checksum) :
+                   luisa::format("kernel_{:016x}.llvm-v4.ptx", expected_metadata.checksum) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") &&
@@ -893,13 +899,14 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     // translating AST to XIR and running the LLVM optimization pipeline.
     if (ptx.empty() && generate_ptx) {
         luisa::string generated = generate_ptx();
-        if (!generated.empty()) {
-            ptx.assign(
-                reinterpret_cast<const std::byte *>(generated.data()),
-                reinterpret_cast<const std::byte *>(generated.data()) +
-                    generated.size() + 1u);
-            write_cache(luisa::span{ptx.data(), ptx.size()});
+        if (generated.empty()) {
+            LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation returned empty PTX for '{}'.", name);
         }
+        ptx.assign(
+            reinterpret_cast<const std::byte *>(generated.data()),
+            reinterpret_cast<const std::byte *>(generated.data()) +
+                generated.size() + 1u);
+        write_cache(luisa::span{ptx.data(), ptx.size()});
     }
 
     // compile if not found in cache
@@ -956,75 +963,54 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     StringScratch scratch;
     luisa::function<luisa::string()> generate_ptx;
     bool uses_cuda_printf = false;
-    // In fallback mode a ray-tracing kernel is an ordinary compute kernel whose
-    // traversal lives in `cuda_device_fallback_rtx.h`, so the source is compiled
-    // with `kernel_main` and the fallback traversal instead of with OptiX.  The
-    // fallback text is appended only here, which is what keeps the source (and
-    // the hash, and the cached PTX) of every hardware-path shader unchanged.
-    // In fallback mode the traversal text is appended to the built-in device
-    // library; the hardware path keeps using the library string as-is, without
-    // copying it.
-    luisa::string fallback_device_lib;
-    auto device_lib = [this, &fallback_device_lib]() noexcept -> luisa::string_view {
-        if (!_use_fallback_rtx) { return _compiler->device_library(); }
-        fallback_device_lib.append(_compiler->device_library());
-        fallback_device_lib.append(_compiler->fallback_rtx_device_library());
-        return fallback_device_lib;
-    }();
-    auto print_formats = [&] {
-#ifdef LUISA_ENABLE_XIR
-#ifdef LUISA_COMPUTE_ENABLE_LLVM
-        if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN &&
-            !LUISA_USE_EXPERIMENTAL_XIR_CODEGEN &&
-            !kernel.requires_autodiff()) {
-            // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. Do not
-            // expose the legacy LCPrintBuffer binding to this code path.
-            uses_cuda_printf = true;
-            if (_use_fallback_rtx && kernel.requires_raytracing()) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "The experimental LLVM code generator has no software "
-                    "ray-tracing fallback.  Disable LUISA_EXPERIMENTAL_LLVM_CODEGEN "
-                    "or the CUDA fallback (DeviceConfigExt::use_fallback_rtx()).");
-            }
-            generate_ptx = [this, &kernel, &option] {
-                auto xir_module =
-                    luisa_cuda_backend_translate_ast_to_xir(
-                        kernel, option, false);
-                CUDACodegenLLVMConfig config{
-                    .source_file = option.name,
-                    .bindings = kernel.bound_arguments(),
-                    .block_size = {
-                        kernel.block_size().x,
-                        kernel.block_size().y,
-                        kernel.block_size().z},
-                    .cuda_arch = _handle.compute_capability(),
-                    .enable_fast_math = option.enable_fast_math,
-                    .enable_debug_info = option.enable_debug_info,
-                };
-                return luisa_compute_cuda_codegen_llvm(
-                    *xir_module, config);
-            };
-            // Keep emitting the canonical NVRTC source below to retain its
-            // stable source hash. LLVM artifacts use a distinct cache suffix.
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+    if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN || kernel.requires_autodiff()) {
+        // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. It neither
+        // emits CUDA source nor adds the legacy LCPrintBuffer argument.
+        uses_cuda_printf = true;
+        if (_use_fallback_rtx && kernel.requires_raytracing()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "CUDA LLVM code generation does not support software ray tracing. "
+                "Disable the CUDA fallback (DeviceConfigExt::use_fallback_rtx()).");
         }
-#endif
-        if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN || kernel.requires_autodiff()) {
+        if (!option.native_include.empty()) {
+            LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation does not support native_include CUDA source.");
+        }
+        generate_ptx = [this, &kernel, &option] {
             auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
-            Clock clk;
-            CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
-            StringScratch s;
-            codegen.emit(xir_module.get(), kernel.bound_arguments(),
-                         device_lib, option.native_include);
-            LUISA_INFO("CUDA Codegen XIR generated source in {} ms.", clk.toc());
-            // dump for debugging
-            {
-                auto filename = luisa::format("kernel.{:016x}.cu", kernel.hash());
-                std::ofstream f{filename.c_str()};
-                f << scratch.string();
-            }
-            return std::move(codegen).move_print_formats();
-        }
+            CUDACodegenLLVMConfig config{
+                .source_file = option.name,
+                .bindings = kernel.bound_arguments(),
+                .block_size = {
+                    kernel.block_size().x,
+                    kernel.block_size().y,
+                    kernel.block_size().z},
+                .cuda_arch = _handle.compute_capability(),
+                .enable_fast_math = option.enable_fast_math,
+                .enable_debug_info = option.enable_debug_info,
+                .requires_ray_tracing = kernel.requires_raytracing(),
+                .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+            };
+            return luisa_compute_cuda_codegen_llvm(*xir_module, config);
+        };
+    }
 #endif
+    if (kernel.requires_autodiff() && !generate_ptx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA autodiff requires LLVM code generation. Build with "
+            "LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON (CMake) "
+            "or a non-empty lc_llvm_path (xmake).");
+    }
+    auto print_formats = [&]() -> luisa::vector<std::pair<luisa::string, const Type *>> {
+        if (generate_ptx) { return {}; }
+        // Software traversal is part of the AST/NVRTC device library only.
+        luisa::string fallback_device_lib;
+        auto device_lib = _compiler->device_library();
+        if (_use_fallback_rtx) {
+            fallback_device_lib.append(device_lib);
+            fallback_device_lib.append(_compiler->fallback_rtx_device_library());
+            device_lib = fallback_device_lib;
+        }
         Clock clk;
         CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
         codegen.emit(kernel, device_lib, option.native_include);
@@ -1130,8 +1116,16 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     //      nvrtc_options.emplace_back("--optix-ir");
     //  }
 
-    // compute hash
-    auto src_hash = CUDACompiler::compute_hash(scratch.string(), nvrtc_options);
+    // LLVM identity is independent of CUDA source and can be checked before
+    // AST-to-XIR translation. Only the NVRTC route hashes emitted CUDA source.
+    auto src_hash = [&] {
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+        if (generate_ptx) {
+            return cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
+        }
+#endif
+        return CUDACompiler::compute_hash(scratch.string(), nvrtc_options);
+    }();
 
     // create metadata
     CUDAShaderMetadata metadata{

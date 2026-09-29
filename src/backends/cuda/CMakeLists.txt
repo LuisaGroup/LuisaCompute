@@ -25,7 +25,6 @@ if (CUDAToolkit_FOUND)
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_texture.cpp cuda_texture.h
             cuda_codegen_ast.cpp cuda_codegen_ast.h
-            cuda_codegen_xir.cpp cuda_codegen_xir.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
             cuda_primitive.cpp cuda_primitive.h

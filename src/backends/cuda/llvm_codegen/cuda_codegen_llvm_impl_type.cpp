@@ -192,7 +192,9 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
             case Type::Tag::CUSTOM: {
                 if (type == Type::of<RayQueryAll>() || type == Type::of<RayQueryAny>()) {
                     auto llvm_type = _get_llvm_ray_query_type();
-                    return make_llvm_type_info(llvm_type, llvm_type, sizeof(uint8_t), alignof(uint8_t));
+                    return make_llvm_type_info(llvm_type, llvm_type,
+                                               _data_layout->getTypeAllocSize(llvm_type).getFixedValue(),
+                                               _get_type_alignment(type));
                 }
                 LUISA_NOT_IMPLEMENTED("Custom type: {}.", type->description());
             }
@@ -311,10 +313,10 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_accel_type() noexcept {
         _llvm_accel_type = llvm::StructType::get(
             _llvm_context,
             {
-                llvm_i64_type,    // handle
-                llvm_ptr_type,    // instances
-                llvm_i32_type,    // instance_count
-                llvm_padding_type // padding
+                llvm_i64_type,   // handle
+                llvm_ptr_type,   // instances
+                llvm_i32_type,   // instance_count
+                llvm_padding_type// padding
             },
             false);
         detail::luisa_check_llvm_type_size_and_alignment(
@@ -402,7 +404,17 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_committed_hit_type() noexcept {
 }
 
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_ray_query_type() noexcept {
-    return llvm::Type::getInt8Ty(_llvm_context);
+    if (_llvm_ray_query_type == nullptr) {
+        auto i32 = llvm::Type::getInt32Ty(_llvm_context);
+        auto f32 = llvm::Type::getFloatTy(_llvm_context);
+        auto i1 = llvm::Type::getInt1Ty(_llvm_context);
+        _llvm_ray_query_type = llvm::StructType::create(
+            _llvm_context,
+            {_get_llvm_accel_type(), _get_llvm_ray_type(), f32, i32, i32,
+             _get_llvm_committed_hit_type(), i1, i1, llvm::Type::getInt8Ty(_llvm_context)},
+            "luisa.ray.query");
+    }
+    return _llvm_ray_query_type;
 }
 
 std::pair<llvm::Value *, const Type *>

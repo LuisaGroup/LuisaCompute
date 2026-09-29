@@ -670,6 +670,8 @@ end
 
   -- integration/runtime: CUDA-only tests
   if has_config("lc_cuda_backend") then
+      test_proj("test_cuda_llvm_ray_query", "unit/runtime/test_cuda_llvm_ray_query.cpp")
+      test_proj("test_cuda_llvm_shader_cache", "unit/runtime/test_cuda_llvm_shader_cache.cpp")
       -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
       test_proj("test_cuda_ptx_version", "unit/runtime/test_cuda_ptx_version.cpp", false, function()
           add_includedirs("../backends/cuda")

@@ -116,7 +116,9 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
         if (arg_index < _config.bindings.size() && arg->is_resource() && arg->type()->is_texture()) {
             if (auto binding = luisa::get_if<Function::TextureBinding>(&_config.bindings[arg_index])) {
                 auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
-                auto llvm_storage = b.CreateExtractValue(llvm_member_reg, llvm_texture_type_storage_index);
+                auto llvm_storage_packed = b.CreateExtractValue(llvm_member_reg, llvm_texture_type_storage_index);
+                // CUDASurface packs dimensions below the pixel storage byte.
+                auto llvm_storage = b.CreateAnd(b.CreateLShr(llvm_storage_packed, b.getInt64(48)), b.getInt64(0xff));
                 auto llvm_same_storage = b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage)));
                 b.CreateAssumption(llvm_same_storage);
             }
@@ -224,6 +226,9 @@ llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionCo
         for (auto inst : bb->instructions()) {
             _translate_instruction(b, func_ctx, inst);
         }
+        // One XIR instruction can expand into several LLVM blocks. Branch
+        // targets still use the entry, while outgoing PHI edges use the exit.
+        func_ctx.block_exits.try_emplace(bb, b.GetInsertBlock());
     });
     // finalize phi nodes
     _finalize_pending_phi_nodes(func_ctx, translated_blocks);

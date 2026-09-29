@@ -7,7 +7,7 @@
 // (cuda_builtin/cuda_device_fallback_rtx.h -> cuda_builtin_embedded.cpp) and
 // compiled by NVRTC, which sees neither the host headers nor the DSL.
 //
-// The code generators (cuda_codegen_ast.cpp / cuda_codegen_xir.cpp) only append
+// The AST code generator (cuda_codegen_ast.cpp) only appends
 // this text to a shader that is compiled in *fallback mode* (see
 // CUDADevice::use_fallback_rtx()).  When the fallback is off this file is not
 // part of any generated source, so the hardware path stays byte-for-byte what it

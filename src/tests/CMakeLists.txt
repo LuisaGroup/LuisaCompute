@@ -1119,6 +1119,29 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     endif ()
 endif ()
 luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_world_ray.cpp)
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_llvm_ray_query unit/runtime/test_cuda_llvm_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_shader_cache unit/runtime/test_cuda_llvm_shader_cache.cpp)
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
+        foreach (test_target IN ITEMS test_cuda_llvm_ray_query test_cuda_llvm_shader_cache
+                test_ray_query_world_ray test_accel_visibility test_accel_build_modes)
+            add_dependencies(${test_target} luisa-compute-backend-cuda)
+            set(require_compile OFF)
+            if (test_target MATCHES "^test_cuda_llvm_")
+                set(require_compile ON)
+            endif ()
+            add_test(NAME cuda_llvm_${test_target}
+                    COMMAND ${CMAKE_COMMAND}
+                    "-DTEST_EXECUTABLE=$<TARGET_FILE:${test_target}>"
+                    "-DREQUIRE_COMPILE=${require_compile}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/common/run_cuda_llvm_test.cmake")
+            set_tests_properties(cuda_llvm_${test_target} PROPERTIES
+                    LABELS "integration;integration_cuda;integration_cuda_llvm"
+                    ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1"
+                    TIMEOUT 300)
+        endforeach ()
+    endif ()
+endif ()
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer              unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_out_of_range        unit/runtime/test_out_of_range.cpp)

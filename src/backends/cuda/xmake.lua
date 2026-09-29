@@ -84,6 +84,7 @@ on_load(function(target)
     -- otherwise the LLVM codegen sources are compiled without any LLVM headers.
     local lc_llvm_path = get_config("lc_llvm_path")
     if type(lc_llvm_path) == "string" and lc_llvm_path ~= "" then
+        -- XIR kernels, including autodiff, lower directly to LLVM/PTX.
         target:add("defines", 'LUISA_ENABLE_XIR', 'LUISA_COMPUTE_ENABLE_LLVM')
         target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp'))
     end

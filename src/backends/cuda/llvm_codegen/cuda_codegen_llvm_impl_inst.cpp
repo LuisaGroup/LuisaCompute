@@ -36,6 +36,7 @@ void CUDACodegenLLVMImpl::_translate_instruction(IB &b, FunctionContext &func_ct
     switch (inst->derived_instruction_tag()) {
         LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(IfInst, if)
         LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(SwitchInst, switch)
+        LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(IndexedBranchInst, indexed_branch)
         LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(LoopInst, loop)
         LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(SimpleLoopInst, simple_loop)
         LUISA_CUDA_LLVM_TRANSLATE_INST_CASE(BranchInst, branch)
