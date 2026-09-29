@@ -17,6 +17,7 @@
 
 #include <luisa/ast/ast2json.h>
 #include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/mathematics.h>
