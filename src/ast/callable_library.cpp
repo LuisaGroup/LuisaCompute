@@ -386,15 +386,16 @@ Expression const *CallableLibrary::deser_value(std::byte const *&ptr, DeserPacka
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Expression::Tag>(ptr, pack);
     auto create_expr = [&]<typename T>() {
-        auto expr = reinterpret_cast<T *>(luisa::detail::allocator_allocate(sizeof(T), alignof(T)));
-        new (expr) T{};
+        // Match the default deleter used by the builder's owning pointers.
+        auto expression = luisa::unique_ptr<T>{new T{}};
+        auto expr = expression.get();
         deser_ptr<T *>(expr, ptr, pack);
         expr->_type = type;
         expr->_hash = hash;
         expr->_builder = detail::callable_library_function_builder_deserialize_stack_top();
         expr->_hash_computed = true;
         expr->_tag = tag;
-        pack.builder->_all_expressions.emplace_back(luisa::unique_ptr<Expression>(expr));
+        pack.builder->_all_expressions.emplace_back(std::move(expression));
         return expr;
     };
     switch (tag) {
@@ -802,13 +803,12 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Statement::Tag>(ptr, pack);
     auto create_stmt = [&]<typename T, bool construct = true>() {
-        auto stmt = reinterpret_cast<T *>(luisa::detail::allocator_allocate(sizeof(T), alignof(T)));
-        new (stmt) T{};
+        auto statement = luisa::unique_ptr<T>{new T{}};
+        auto stmt = statement.get();
         stmt->_hash = hash;
         stmt->_hash_computed = true;
         stmt->_tag = tag;
-        auto smt_ptr = luisa::unique_ptr<T>{stmt};
-        pack.builder->_all_statements.emplace_back(std::move(smt_ptr));
+        pack.builder->_all_statements.emplace_back(std::move(statement));
         if constexpr (construct) {
             deser_ptr<T *>(stmt, ptr, pack);
         }
