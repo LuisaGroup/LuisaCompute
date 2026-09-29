@@ -6,6 +6,7 @@
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/rtx/accel.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -66,6 +67,52 @@ namespace {
     return value->type()->size();
 }
 
+[[nodiscard]] size_t count_query_allocas(FunctionDefinition *function) noexcept {
+    size_t count = 0u;
+    function->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<AllocaInst>() &&
+                (inst->type() == Type::of<RayQueryAll>() ||
+                 inst->type() == Type::of<RayQueryAny>())) { count++; }
+        }
+    });
+    return count;
+}
+
+StoreInst *initialize_query(
+    Module &m, XIRBuilder &b, Value *query, Value *accel, Value *ray,
+    bool motion = false) noexcept {
+    auto any = query->type() == Type::of<RayQueryAny>();
+    auto op = motion ? (any ? ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR :
+                             ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) :
+                       (any ? ResourceQueryOp::RAY_TRACING_QUERY_ANY :
+                              ResourceQueryOp::RAY_TRACING_QUERY_ALL);
+    auto *mask = m.create_constant_one(Type::of<uint32_t>());
+    auto *initializer = motion ? b.call(query->type(), op, {accel, ray, m.create_constant_zero(Type::of<float>()), mask}) :
+                                 b.call(query->type(), op, {accel, ray, mask});
+    return b.store(query, initializer);
+}
+
+CallableFunction *make_query_storage_callback(
+    Module &m, const Type *type, bool captures_query = false,
+    bool escapes_query = false) noexcept {
+    auto *callback = m.create_callable(nullptr);
+    auto *query = callback->create_reference_argument(type);
+    if (captures_query) { callback->create_reference_argument(type); }
+    XIRBuilder b;
+    b.set_insertion_point(callback->create_body_block());
+    if (escapes_query) {
+        auto *unknown = m.create_external_function(nullptr);
+        unknown->set_name("escape_query");
+        unknown->create_reference_argument(type);
+        b.call(nullptr, unknown, {query});
+    } else {
+        b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE, {query});
+    }
+    b.return_void();
+    return callback;
+}
+
 struct RayQueryFixture {
     KernelFunction *kernel;
     BasicBlock *body;
@@ -102,6 +149,133 @@ struct RayQueryFixture {
 }// namespace
 
 void register_tests() {
+    "sequential_outlined_queries_share_storage_after_their_last_read"_test = [] {
+        for (auto *query_type : {Type::of<RayQueryAll>(), Type::of<RayQueryAny>()}) {
+            Module m;
+            auto *kernel = m.create_kernel();
+            auto *body = kernel->create_body_block();
+            auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+            auto *ray = kernel->create_value_argument(Type::of<Ray>());
+            auto *output = kernel->create_reference_argument(Type::of<CommittedHit>());
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            luisa::vector<StoreInst *> initializations;
+            luisa::vector<RayQueryObjectReadInst *> reads;
+            for (auto i = 0u; i < 5u; i++) {
+                auto *query = b.alloca_local(query_type);
+                initializations.emplace_back(initialize_query(m, b, query, accel, ray, i % 2u != 0u));
+                auto *loop = b.ray_query_loop();
+                auto *dispatch = loop->create_dispatch_block();
+                auto *merge = loop->create_merge_block();
+                b.set_insertion_point(dispatch);
+                auto *dispatch_inst = b.ray_query_dispatch(query);
+                dispatch_inst->set_exit_block(merge);
+                auto *surface = dispatch_inst->create_on_surface_candidate_block();
+                auto *procedural = dispatch_inst->create_on_procedural_candidate_block();
+                for (auto *handler : {surface, procedural}) {
+                    b.set_insertion_point(handler);
+                    b.call(RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE, {query});
+                    b.br(dispatch);
+                }
+                b.set_insertion_point(merge);
+                auto *read = b.call(Type::of<CommittedHit>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, {query});
+                reads.emplace_back(read);
+                b.store(output, read);
+            }
+            b.return_void();
+            expect(xir_verify_module(&m).succeeded());
+            PassReport report;
+            auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+                &m, &report, {.coalesce_query_storage = true});
+            expect(info.succeeded());
+            expect(info.lowered_loop_count == 5u);
+            expect(report_value(report, "coalesced_query_alloca") == 4u);
+            expect(count_query_allocas(kernel) == 1u);
+            auto *retained = initializations.front()->variable();
+            size_t pipeline_count = 0u;
+            for (auto *inst : body->instructions()) {
+                if (inst->isa<RayQueryPipelineInst>()) {
+                    pipeline_count++;
+                    expect(static_cast<RayQueryPipelineInst *>(inst)->query_object() == retained);
+                }
+            }
+            expect(pipeline_count == 5u);
+            for (auto *store : initializations) { expect(store->variable() == retained); }
+            for (auto *read : reads) { expect(read->operand(0u) == retained); }
+            expect(xir_verify_module(&m).succeeded());
+            auto instruction_count = body->instructions().count_size();
+            PassReport repeated_report;
+            auto repeated = lower_ray_query_to_pipeline_pass_run_on_module(
+                &m, &repeated_report, {.coalesce_query_storage = true});
+            expect(repeated.succeeded());
+            expect(repeated.lowered_loop_count == 0u);
+            expect(report_value(repeated_report, "coalesced_query_alloca") == 0u);
+            expect(body->instructions().count_size() == instruction_count);
+            expect(count_query_allocas(kernel) == 1u);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "query_storage_coalescing_preserves_overlap_and_escape_boundaries"_test = [] {
+        enum class Shape { SEQUENTIAL, LATE_READ, INTERLEAVED, CALL, CALLBACK_CALL, CAPTURE, DIFFERENT_TYPE, UNINITIALIZED, CROSS_BLOCK };
+        for (auto shape : {Shape::SEQUENTIAL, Shape::LATE_READ, Shape::INTERLEAVED,
+                           Shape::CALL, Shape::CALLBACK_CALL, Shape::CAPTURE,
+                           Shape::DIFFERENT_TYPE, Shape::UNINITIALIZED, Shape::CROSS_BLOCK}) {
+            Module m;
+            auto *kernel = m.create_kernel();
+            auto *body = kernel->create_body_block();
+            auto *accel = kernel->create_resource_argument(Type::of<Accel>());
+            auto *ray = kernel->create_value_argument(Type::of<Ray>());
+            auto *output = kernel->create_reference_argument(Type::of<CommittedHit>());
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *first = b.alloca_local(Type::of<RayQueryAll>());
+            auto *second = b.alloca_local(shape == Shape::DIFFERENT_TYPE ? Type::of<RayQueryAny>() : Type::of<RayQueryAll>());
+            auto *first_callback = make_query_storage_callback(m, first->type(), shape == Shape::CAPTURE, shape == Shape::CALLBACK_CALL);
+            auto *second_callback = make_query_storage_callback(m, second->type());
+            if (shape != Shape::UNINITIALIZED) { initialize_query(m, b, first, accel, ray); }
+            if (shape == Shape::INTERLEAVED) { initialize_query(m, b, second, accel, ray); }
+            luisa::vector<Value *> captures;
+            if (shape == Shape::CAPTURE) { captures.emplace_back(first); }
+            auto *first_pipeline = b.ray_query_pipeline(first, first_callback, first_callback, captures);
+            if (shape == Shape::CALL) {
+                auto *unknown = m.create_external_function(nullptr);
+                unknown->set_name("escape_query");
+                unknown->create_reference_argument(first->type());
+                b.call(nullptr, unknown, {first});
+            }
+            auto read_query = [&](Value *query) noexcept {
+                b.store(output, b.call(Type::of<CommittedHit>(), RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, {query}));
+            };
+            read_query(first);
+            if (shape != Shape::INTERLEAVED) { initialize_query(m, b, second, accel, ray); }
+            auto *second_pipeline = b.ray_query_pipeline(second, second_callback, second_callback);
+            read_query(second);
+            if (shape == Shape::CROSS_BLOCK) {
+                auto *next = kernel->create_basic_block();
+                b.br(next);
+                b.set_insertion_point(next);
+            }
+            if (shape == Shape::LATE_READ || shape == Shape::CROSS_BLOCK) { read_query(first); }
+            b.return_void();
+            expect(xir_verify_module(&m).succeeded());
+            // Default consumers retain one allocation identity per initializer.
+            auto default_info = lower_ray_query_to_pipeline_pass_run_on_function(kernel);
+            expect(default_info.succeeded());
+            expect(count_query_allocas(kernel) == 2u);
+            PassReport report;
+            auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+                &m, &report, {.coalesce_query_storage = true});
+            expect(info.succeeded());
+            expect(info.lowered_loop_count == 0u);
+            auto coalesces = shape == Shape::SEQUENTIAL;
+            expect(report_value(report, "coalesced_query_alloca") == (coalesces ? 1u : 0u));
+            expect(count_query_allocas(kernel) == (coalesces ? 1u : 2u));
+            expect((first_pipeline->query_object() == second_pipeline->query_object()) == coalesces);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
     "single_exit_handlers_are_outlined"_test = [] {
         Module m;
         auto f = make_fixture(m);

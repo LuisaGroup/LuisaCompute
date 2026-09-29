@@ -12,6 +12,7 @@
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/unreachable.h>
@@ -44,6 +45,7 @@ struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
     size_t localized_alloca_count{0u};
     size_t rematerialized_input_capture_count{0u};
     size_t rematerialized_input_capture_bytes{0u};
+    size_t coalesced_query_alloca_count{0u};
     size_t selection_localization_analysis_count{0u};
     size_t handler_localization_instruction_evaluation_count{0u};
     size_t handler_localization_analysis_count{0u};
@@ -1926,8 +1928,143 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     }
 }
 
+// No aliases are followed here: accepting only the native object's operand
+// rules out address observation, storage of its address, and unknown callees.
+static bool is_direct_query_object_access(const Use *use) noexcept {
+    auto *user = use->user();
+    return user != nullptr &&
+           (user->isa<RayQueryObjectReadInst>() ||
+            user->isa<RayQueryObjectWriteInst>()) &&
+           user->operand_count() != 0u && user->operand_use(0u) == use;
+}
+
+static bool ray_query_callback_keeps_query_local(
+    const Function *function, const Type *query_type) noexcept {
+    if (function == nullptr || function->definition() == nullptr ||
+        function->arguments().empty()) { return false; }
+    auto *query = function->arguments().front();
+    if (!query->is_reference() || query->type() != query_type) { return false; }
+    for (auto *use : query->use_list()) {
+        if (!is_direct_query_object_access(use)) { return false; }
+    }
+    return true;
+}
+
+static bool is_complete_query_initialization(
+    const StoreInst *store, const AllocaInst *query) noexcept {
+    if (store->variable() != query || store->value() == nullptr ||
+        store->value()->type() != query->type() ||
+        !store->value()->isa<ResourceQueryInst>()) { return false; }
+    // These constructors replace the complete opaque traversal state. A copy,
+    // an undefined value, or a partial write is not an initialization proof.
+    switch (static_cast<const ResourceQueryInst *>(store->value())->op()) {
+        case ResourceQueryOp::RAY_TRACING_QUERY_ALL:
+        case ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+            return query->type() == Type::custom("LC_RayQueryAll");
+        case ResourceQueryOp::RAY_TRACING_QUERY_ANY:
+        case ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+            return query->type() == Type::custom("LC_RayQueryAny");
+        default: return false;
+    }
+}
+
+static void coalesce_ray_query_storage(
+    FunctionDefinition *function, LowerRayQueryToPipelineRunInfo &info) noexcept {
+    struct QueryLiveRange {
+        AllocaInst *alloca;
+        size_t first;
+        size_t last;
+    };
+    function->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        // Snapshot ordinals before rewriting. Same-block allocation and uses
+        // prove dominance without changing CFG or extending another lifetime.
+        luisa::unordered_map<const Instruction *, size_t> ordinals;
+        luisa::vector<AllocaInst *> allocations;
+        for (auto *inst : block->instructions()) {
+            ordinals.emplace(inst, ordinals.size());
+            if (inst->isa<AllocaInst>() && is_ray_query_object(inst)) {
+                auto *alloca = static_cast<AllocaInst *>(inst);
+                if (alloca->is_local()) { allocations.emplace_back(alloca); }
+            }
+        }
+        luisa::vector<QueryLiveRange> ranges;
+        for (auto *alloca : allocations) {
+            auto allocation_ordinal = ordinals.at(alloca);
+            auto first = std::numeric_limits<size_t>::max();
+            auto last = size_t{0u};
+            auto first_is_initialization = false;
+            auto has_pipeline = false;
+            auto safe = true;
+            for (auto *use : alloca->use_list()) {
+                auto *user = use->user();
+                if (user == nullptr || !user->isa<Instruction>()) {
+                    safe = false;
+                    break;
+                }
+                auto *inst = static_cast<Instruction *>(user);
+                auto ordinal = ordinals.find(inst);
+                if (ordinal == ordinals.end() ||
+                    ordinal->second <= allocation_ordinal) {
+                    safe = false;
+                    break;
+                }
+                auto initialization = inst->isa<StoreInst>() &&
+                                      is_complete_query_initialization(
+                                          static_cast<StoreInst *>(inst), alloca);
+                if (inst->isa<RayQueryPipelineInst>()) {
+                    auto *pipeline = static_cast<RayQueryPipelineInst *>(inst);
+                    // Passing the same query again as a capture creates an
+                    // alias, even if it is also the pipeline's query operand.
+                    safe = use == pipeline->operand_use(
+                                      RayQueryPipelineInst::operand_index_query_object) &&
+                           ray_query_callback_keeps_query_local(
+                               pipeline->on_surface_function(), alloca->type()) &&
+                           ray_query_callback_keeps_query_local(
+                               pipeline->on_procedural_function(), alloca->type());
+                    has_pipeline = true;
+                } else {
+                    safe = initialization || is_direct_query_object_access(use);
+                }
+                if (!safe) { break; }
+                if (ordinal->second < first) {
+                    first = ordinal->second;
+                    first_is_initialization = initialization;
+                }
+                last = std::max(last, ordinal->second);
+            }
+            if (safe && first_is_initialization && has_pipeline) {
+                ranges.emplace_back(QueryLiveRange{alloca, first, last});
+            }
+        }
+        std::sort(ranges.begin(), ranges.end(), [](auto &lhs, auto &rhs) noexcept {
+            return lhs.first < rhs.first;
+        });
+        // Separate min-heaps for All/Any keep the allocation search bounded
+        // by O(n log n), including many overlapping query lifetimes.
+        luisa::vector<QueryLiveRange> slots[2];
+        auto latest_first = [](auto &lhs, auto &rhs) noexcept {
+            return lhs.last > rhs.last;
+        };
+        for (auto range : ranges) {
+            auto &available = slots[range.alloca->type() == Type::custom("LC_RayQueryAny")];
+            if (!available.empty() && available.front().last < range.first) {
+                std::pop_heap(available.begin(), available.end(), latest_first);
+                auto *retained = available.back().alloca;
+                available.pop_back();
+                range.alloca->replace_all_uses_with(retained);
+                range.alloca->remove_self();
+                range.alloca = retained;
+                info.coalesced_query_alloca_count++;
+            }
+            available.emplace_back(range);
+            std::push_heap(available.begin(), available.end(), latest_first);
+        }
+    });
+}
+
 static void lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
     Function *function, luisa::span<RayQueryLoopInst *const> loops,
+    LowerRayQueryToPipelineOptions options,
     LowerRayQueryToPipelineRunInfo &info) noexcept {
     auto *def = function == nullptr ? nullptr : function->definition();
     if (def == nullptr) { return; }
@@ -1945,6 +2082,7 @@ static void lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
             "lowering ray query loop(s).",
             dce_info.removed_inst_count, dce_info.removed_block_count);
     }
+    if (options.coalesce_query_storage) { coalesce_ray_query_storage(def, info); }
 }
 
 static void run_lower_ray_query_to_pipeline_pass_on_function(
@@ -1957,7 +2095,7 @@ static void run_lower_ray_query_to_pipeline_pass_on_function(
     loops = select_ray_query_loops(
         luisa::span{loops}, options, info);
     lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
-        function, luisa::span{loops}, info);
+        function, luisa::span{loops}, options, info);
 }
 
 }// namespace detail
@@ -2031,7 +2169,7 @@ lower_ray_query_to_pipeline_pass_run_on_module(
             }
             for (auto &item : work) {
                 detail::lower_ray_query_to_pipeline_lower_preflighted_ray_query_loops(
-                    item.function, luisa::span{item.loops}, info);
+                    item.function, luisa::span{item.loops}, options, info);
             }
         }
     }
@@ -2041,6 +2179,7 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set("error", info.error_count);
         report->set("rematerialized_input_capture", info.rematerialized_input_capture_count);
         report->set("rematerialized_input_capture_bytes", info.rematerialized_input_capture_bytes);
+        report->set("coalesced_query_alloca", info.coalesced_query_alloca_count);
         report->set("selection_localization_analysis",
                     info.selection_localization_analysis_count);
         report->set(

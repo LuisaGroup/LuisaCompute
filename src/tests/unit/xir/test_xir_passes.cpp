@@ -283,10 +283,10 @@ void reg_pass_entry_totality() {
             (void)loop_vectorization_pass_run_on_module(
                 nullptr, report);
         });
-        // The nine existing lowering/analysis counters plus two capture
-        // rematerialization counters. The null-module path must publish the
+        // Nine lowering/analysis counters, two capture rematerialization
+        // counters, and query storage coalescing. The null-module path publishes the
         // same schema with zero values as a populated module.
-        check_zero_report(11u, [](PassReport *report) noexcept {
+        check_zero_report(12u, [](PassReport *report) noexcept {
             (void)lower_ray_query_to_pipeline_pass_run_on_module(
                 nullptr, report);
         });

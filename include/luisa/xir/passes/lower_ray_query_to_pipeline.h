@@ -56,6 +56,14 @@ class RayQueryPipelineInst;
 // invocation. Stateful query operations, loads, PHIs, and escaping/cross-candidate
 // storage are not rematerialized. Capture filters and budgets stay conservative
 // and are evaluated before this expression rematerialization.
+// When requested, local query allocations of the same query type may share
+// storage when their complete constructor initialization through last use lies
+// in one basic block and those intervals do not overlap. Native query accesses
+// and pipeline callbacks must not expose the address: aliases, captures, GEPs,
+// PHIs, unknown calls, and uses in another block retain separate allocations.
+// This also normalizes already outlined pipelines and is idempotent. The module
+// report records removed allocations as "coalesced_query_alloca"; this counter
+// can change independently of lowered_loop_count.
 
 struct LowerRayQueryToPipelineInfo {
     size_t lowered_loop_count{0u};
@@ -108,6 +116,10 @@ struct LowerRayQueryToPipelineOptions {
     // sparse instruction schedule is compared with a linear block scan before
     // the definite-initialization dataflow is solved.
     bool verify_handler_scratch_graph{false};
+    // Consumers that support repeatedly initializing the same query storage
+    // can opt into same-block lifetime coalescing. Affine consumers requiring
+    // one initializer per object retain the established allocation identities.
+    bool coalesce_query_storage{false};
 };
 
 // Every loop in a function is preflighted before outlining. Unsupported handler
