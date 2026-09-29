@@ -163,6 +163,11 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, new_instance_buffer_size, cuda_stream));
+        // Instance updates read-modify-write flags and leave padding untouched.
+        // Initialize only the new capacity; the old prefix is copied below.
+        LUISA_CHECK_CUDA(cuMemsetD8Async(
+            _instance_buffer + _instance_buffer_size, 0u,
+            new_instance_buffer_size - _instance_buffer_size, cuda_stream));
         if (old_instance_buffer) {
             LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(
                 _instance_buffer, old_instance_buffer, _instance_buffer_size, cuda_stream));
