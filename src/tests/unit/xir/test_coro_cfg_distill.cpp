@@ -2302,7 +2302,13 @@ void reg_coro_cfg_distill() {
 
         auto lowered = coro_reg2mem_pass_run_on_module(&m);
         expect(lowered.lowered_phi_count == 1u);
-        expect(!phi->is_linked());
+        // Lowering destroys the original Phi; inspect live IR instead of
+        // dereferencing the raw pointer after its owning list released it.
+        auto remaining_phi_count = 0u;
+        callable->traverse_instructions([&](Instruction *inst) noexcept {
+            remaining_phi_count += inst->isa<PhiInst>() ? 1u : 0u;
+        });
+        expect(remaining_phi_count == 0u);
         expect(xir_verify_module(&m).succeeded());
         auto accepted =
             coro_cfg_distill_pass_run_on_function(callable);
