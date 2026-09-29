@@ -208,6 +208,10 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
     // add fast-math flags to FPMathOperators
     if (_config.enable_fast_math) {
         for (auto &f : *_llvm_module) {
+            // Match NVRTC --use_fast_math's single-precision FTZ behavior.
+            if (!f.isDeclaration()) {
+                f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+            }
             for (auto &bb : f) {
                 for (auto &inst : bb) {
                     if (llvm::isa<llvm::FPMathOperator>(inst)) {
