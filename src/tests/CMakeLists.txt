@@ -1122,8 +1122,14 @@ luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_worl
 if (LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_test(test_cuda_llvm_ray_query unit/runtime/test_cuda_llvm_ray_query.cpp)
     luisa_compute_add_test(test_cuda_llvm_shader_cache unit/runtime/test_cuda_llvm_shader_cache.cpp)
+    # Shared fixtures retain their original HIP targets below. These explicit
+    # CUDA targets exercise the same numerical oracles through CUDA LLVM.
+    luisa_compute_add_test(test_cuda_llvm_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_motion_ray_query unit/runtime/test_hip_motion_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_ray_query_bounds unit/runtime/test_cuda_llvm_ray_query_bounds.cpp)
     if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
         foreach (test_target IN ITEMS test_cuda_llvm_ray_query test_cuda_llvm_shader_cache
+                test_cuda_llvm_curve_ray_query test_cuda_llvm_motion_ray_query test_cuda_llvm_ray_query_bounds
                 test_ray_query_world_ray test_accel_visibility test_accel_build_modes)
             add_dependencies(${test_target} luisa-compute-backend-cuda)
             set(require_compile OFF)

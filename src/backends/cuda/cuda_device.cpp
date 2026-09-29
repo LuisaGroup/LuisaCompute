@@ -304,7 +304,7 @@ namespace luisa::compute::cuda {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-static constexpr uint64_t cuda_llvm_cache_revision = 4u;
+static constexpr uint64_t cuda_llvm_cache_revision = 6u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -854,7 +854,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v4.ptx", expected_metadata.checksum) :
+                   luisa::format("kernel_{:016x}.llvm-v6.ptx", expected_metadata.checksum) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") &&
@@ -917,7 +917,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
             auto src_name = luisa::format("{}.cu", name);
             if (uses_user_path) {
                 src_dump_path = _io->write_shader_bytecode(src_name, src_data);
-            } else if (option.enable_cache) {
+            } else {
                 src_dump_path = _io->write_shader_source(src_name, src_data);
             }
         }

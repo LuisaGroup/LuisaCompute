@@ -27,6 +27,7 @@ namespace {
 
 struct Options {
     bool benchmark{};
+    bool diagnose_dispatches{};
     uint32_t rays{257u};
     uint32_t warmup{3u};
     uint32_t dispatches{8u};
@@ -39,6 +40,10 @@ struct Options {
         auto argument = luisa::string_view{argv[i]};
         if (argument == "--benchmark") {
             options.benchmark = true;
+            continue;
+        }
+        if (argument == "--diagnose-dispatches") {
+            options.diagnose_dispatches = true;
             continue;
         }
         uint32_t *value = nullptr;
@@ -236,14 +241,60 @@ struct Options {
         return correct;
     };
 
-    stream << vertices_buffer.copy_from(luisa::span{vertices})
-           << triangles_buffer.copy_from(luisa::span{triangles})
-           << boxes_buffer.copy_from(luisa::span{boxes})
-           << mesh.build() << procedural.build() << single_procedural.build()
-           << surface_scene.build() << procedural_scene.build() << preserve_scene.build()
-           << dispatch() << synchronize();
-    if (!validate()) { return false; }
+    // This mode changes only host submission and validation. In particular,
+    // the kernel, query order, captures and compiler options remain identical.
+    auto diagnostic_marker = [](luisa::string_view phase, uint32_t sample,
+                                uint32_t dispatch_index, luisa::string_view state) {
+        std::cerr << "{\"diagnostic\":\"cuda_ray_query_dispatch\",\"phase\":\"" << phase
+                  << "\",\"sample\":" << sample << ",\"dispatch\":" << dispatch_index
+                  << ",\"state\":\"" << state << "\"}\n"
+                  << std::flush;
+    };
+    auto diagnosed_dispatch = [&](luisa::string_view phase, uint32_t sample,
+                                  uint32_t dispatch_index) {
+        diagnostic_marker(phase, sample, dispatch_index, "begin");
+        stream << dispatch() << synchronize();
+        diagnostic_marker(phase, sample, dispatch_index, "device_complete");
+        if (!validate()) {
+            diagnostic_marker(phase, sample, dispatch_index, "validation_failed");
+            return false;
+        }
+        diagnostic_marker(phase, sample, dispatch_index, "validated");
+        return true;
+    };
+
+    if (options.diagnose_dispatches) {
+        diagnostic_marker("scene_build", 0u, 0u, "begin");
+    }
+    auto scene_setup = stream << vertices_buffer.copy_from(luisa::span{vertices})
+                              << triangles_buffer.copy_from(luisa::span{triangles})
+                              << boxes_buffer.copy_from(luisa::span{boxes})
+                              << mesh.build() << procedural.build() << single_procedural.build()
+                              << surface_scene.build() << procedural_scene.build() << preserve_scene.build();
+    if (options.diagnose_dispatches) {
+        std::move(scene_setup) << synchronize();
+        diagnostic_marker("scene_build", 0u, 0u, "device_complete");
+        if (!diagnosed_dispatch("initial", 0u, 0u)) { return false; }
+    } else {
+        std::move(scene_setup) << dispatch() << synchronize();
+        if (!validate()) { return false; }
+    }
     if (!options.benchmark) { return true; }
+
+    if (options.diagnose_dispatches) {
+        for (auto i = 0u; i < options.warmup; i++) {
+            if (!diagnosed_dispatch("warmup", 0u, i)) { return false; }
+        }
+        for (auto sample = 0u; sample < options.samples; sample++) {
+            for (auto i = 0u; i < options.dispatches; i++) {
+                if (!diagnosed_dispatch("sample", sample, i)) { return false; }
+            }
+        }
+        // Per-dispatch synchronization and downloads invalidate throughput
+        // measurement. Diagnostic runs deliberately emit no benchmark record.
+        diagnostic_marker("complete", 0u, 0u, "validated_no_performance_measurement");
+        return true;
+    }
 
     for (auto i = 0u; i < options.warmup; i++) { stream << dispatch(); }
     stream << synchronize();
@@ -290,7 +341,7 @@ struct Options {
 int main(int argc, char *argv[]) {
     Options options;
     if (!parse_options(argc, argv, options)) {
-        LUISA_INFO("Usage: {} <backend> [--benchmark] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--benchmark] [--diagnose-dispatches] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
         return 2;
     }
     auto dc = luisa::test::create_device(argc, argv);

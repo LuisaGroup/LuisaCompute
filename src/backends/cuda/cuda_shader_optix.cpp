@@ -170,7 +170,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     }
 
     // create program groups
-    luisa::fixed_vector<optix::ProgramGroup, 10u> program_groups;
+    luisa::fixed_vector<optix::ProgramGroup, 18u> program_groups;
 
     // raygen
     optix::ProgramGroupOptions program_group_options_rg{};
@@ -207,29 +207,25 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
         program_groups.emplace_back(_program_group_ray_query);
     }
 
-    std::array curve_program_groups{
-        std::make_tuple(&_program_group_curve_piecewise_linear,
-                        &_program_group_ray_query_curve_piecewise_linear,
-                        optix::PRIMITIVE_TYPE_ROUND_LINEAR),
-        std::make_tuple(&_program_group_curve_cubic_bspline,
-                        &_program_group_ray_query_curve_cubic_bspline,
-                        optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE),
-        std::make_tuple(&_program_group_curve_catmull_rom,
-                        &_program_group_ray_query_curve_catmull_rom,
-                        optix::PRIMITIVE_TYPE_ROUND_CATMULLROM),
-        std::make_tuple(&_program_group_curve_bezier,
-                        &_program_group_ray_query_curve_bezier,
-                        optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER),
+    constexpr std::array curve_types{
+        optix::PRIMITIVE_TYPE_ROUND_LINEAR,
+        optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE,
+        optix::PRIMITIVE_TYPE_ROUND_CATMULLROM,
+        optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER,
     };
 
-    for (auto i = 0u; i < curve_program_groups.size(); i++) {
-        if (auto basis = static_cast<CurveBasis>(i);
+    for (auto i = 0u; i < _program_groups_curve.size(); i++) {
+        auto vertex_motion = i >= curve_types.size();
+        if (vertex_motion && !metadata.requires_motion_blur) { continue; }
+        if (auto basis = static_cast<CurveBasis>(i % curve_types.size());
             metadata.curve_bases.test(basis)) {
-            auto [pg, rq_pg, type] = curve_program_groups[i];
+            auto pg = &_program_groups_curve[i];
+            auto rq_pg = &_program_groups_ray_query_curve[i];
             optix::Module is_module{nullptr};
             optix::BuiltinISOptions options{
-                .builtinISModuleType = type,
-                .usesMotionBlur = metadata.requires_motion_blur,
+                .builtinISModuleType = curve_types[i % curve_types.size()],
+                // This flag describes GAS vertex motion, not instance transforms.
+                .usesMotionBlur = vertex_motion,
                 .buildFlags = optix::BUILD_FLAG_NONE,
                 .curveEndcapFlags = optix::CURVE_ENDCAP_DEFAULT,
             };
@@ -293,17 +289,20 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
         _pipeline, 0u, 0u, continuation_stack_size, max_traversal_depth));
 
     // create shader binding table
-    std::array<OptiXSBTRecord, 10u> sbt_records{};
+    // Keep records 0..9 for static vertices. Vertex-motion curves use the
+    // corresponding records 10..19, selected by the instance's SBT offset.
+    std::array<OptiXSBTRecord, 20u> sbt_records{};
     if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0])); }
-    if (_program_group_curve_piecewise_linear) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_curve_piecewise_linear, &sbt_records[1])); }
-    if (_program_group_curve_cubic_bspline) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_curve_cubic_bspline, &sbt_records[2])); }
-    if (_program_group_curve_catmull_rom) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_curve_catmull_rom, &sbt_records[3])); }
-    if (_program_group_curve_bezier) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_curve_bezier, &sbt_records[4])); }
     if (_program_group_ray_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ray_query, &sbt_records[5])); }
-    if (_program_group_ray_query_curve_piecewise_linear) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ray_query_curve_piecewise_linear, &sbt_records[6])); }
-    if (_program_group_ray_query_curve_cubic_bspline) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ray_query_curve_cubic_bspline, &sbt_records[7])); }
-    if (_program_group_ray_query_curve_catmull_rom) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ray_query_curve_catmull_rom, &sbt_records[8])); }
-    if (_program_group_ray_query_curve_bezier) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ray_query_curve_bezier, &sbt_records[9])); }
+    for (auto i = 0u; i < _program_groups_curve.size(); i++) {
+        auto offset = i / curve_types.size() * 10u + i % curve_types.size() + 1u;
+        if (auto pg = _program_groups_curve[i]) {
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(pg, &sbt_records[offset]));
+        }
+        if (auto pg = _program_groups_ray_query_curve[i]) {
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(pg, &sbt_records[offset + 5u]));
+        }
+    }
     LUISA_CHECK_CUDA(cuMemAlloc(&_sbt_buffer, sbt_records.size() * sizeof(OptiXSBTRecord)));
     LUISA_CHECK_CUDA(cuMemcpyHtoD(_sbt_buffer, sbt_records.data(), sbt_records.size() * sizeof(OptiXSBTRecord)));
 }
@@ -313,14 +312,12 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_OPTIX(optix::api().pipelineDestroy(_pipeline));
     if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_rg)); }
     if (_program_group_ray_query) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ray_query)); }
-    if (_program_group_curve_piecewise_linear) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_curve_piecewise_linear)); }
-    if (_program_group_curve_cubic_bspline) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_curve_cubic_bspline)); }
-    if (_program_group_curve_catmull_rom) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_curve_catmull_rom)); }
-    if (_program_group_curve_bezier) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_curve_bezier)); }
-    if (_program_group_ray_query_curve_piecewise_linear) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ray_query_curve_piecewise_linear)); }
-    if (_program_group_ray_query_curve_cubic_bspline) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ray_query_curve_cubic_bspline)); }
-    if (_program_group_ray_query_curve_catmull_rom) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ray_query_curve_catmull_rom)); }
-    if (_program_group_ray_query_curve_bezier) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ray_query_curve_bezier)); }
+    for (auto pg : _program_groups_curve) {
+        if (pg) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(pg)); }
+    }
+    for (auto pg : _program_groups_ray_query_curve) {
+        if (pg) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(pg)); }
+    }
     LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
 }
 
@@ -417,17 +414,34 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                         &ds_and_kid, sizeof(ds_and_kid));
         };
         auto cuda_stream = encoder.stream()->handle();
-        // launch params are read from the argument buffer at execution time,
-        // so for batched dispatches the shared slot must be updated in stream
-        // order rather than overwritten from the host between async launches
-        auto launch_multi = [&](uint3 dispatch_size, uint32_t kernel_id, CUdeviceptr device_argument_buffer) noexcept {
-            write_ls_kid(dispatch_size, kernel_id);
-            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-                device_argument_buffer + ls_kid_offset,
-                argument_buffer->address() + ls_kid_offset,
-                sizeof(uint4), cuda_stream));
-            _do_launch(cuda_stream, device_argument_buffer, dispatch_size);
-        };
+        if (command->is_multiple_dispatch()) {
+            // OptiX reads launch parameters asynchronously. Each launch needs
+            // an immutable snapshot, including when the pool is host-mapped:
+            // an async copy from one repeatedly overwritten host slot is not
+            // sufficient to order the CPU writes against device reads.
+            auto kernel_id = 0u;
+            for (auto dispatch_size : command->dispatch_sizes()) {
+                if (all(dispatch_size != make_uint3(0u))) {
+                    encoder.with_upload_buffer(_argument_buffer_size, [&](CUDAHostBufferPool::View *snapshot) noexcept {
+                        std::memcpy(snapshot->address(), argument_buffer->address(), ls_kid_offset);
+                        auto ds_and_kid = make_uint4(dispatch_size, kernel_id);
+                        std::memcpy(snapshot->address() + ls_kid_offset, &ds_and_kid, sizeof(ds_and_kid));
+                        auto device_snapshot = 0ull;
+                        if (snapshot->is_pooled()) {
+                            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&device_snapshot, snapshot->address(), 0u));
+                            _do_launch(cuda_stream, device_snapshot, dispatch_size);
+                        } else {
+                            LUISA_CHECK_CUDA(cuMemAllocAsync(&device_snapshot, _argument_buffer_size, cuda_stream));
+                            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(device_snapshot, snapshot->address(), _argument_buffer_size, cuda_stream));
+                            _do_launch(cuda_stream, device_snapshot, dispatch_size);
+                            LUISA_CHECK_CUDA(cuMemFreeAsync(device_snapshot, cuda_stream));
+                        }
+                    });
+                }
+                ++kernel_id;
+            }
+            return;
+        }
         if (argument_buffer->is_pooled()) [[likely]] {
             // for (direct) dispatches, if the argument buffer
             // is pooled, we can use the device pointer directly
@@ -440,16 +454,6 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect.offset, indirect.max_dispatch_size,
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
-            } else if (command->is_multiple_dispatch()) {
-                auto kernel_id = 0u;
-                for (auto s : command->dispatch_sizes()) {
-                    if (any(s == make_uint3(0u))) {
-                        ++kernel_id;
-                        continue;
-                    }
-                    launch_multi(s, kernel_id, device_argument_buffer);
-                    ++kernel_id;
-                }
             } else {
                 write_ls_kid(command->dispatch_size(), 0u);
                 auto s = command->dispatch_size();
@@ -459,7 +463,7 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemAllocAsync(
                 &device_argument_buffer, _argument_buffer_size, cuda_stream));
-            if (!command->is_indirect() && !command->is_multiple_dispatch()) {
+            if (!command->is_indirect()) {
                 write_ls_kid(command->dispatch_size(), 0u);
             }
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
@@ -471,16 +475,6 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     indirect.offset, indirect.max_dispatch_size,
                                     indirect_dispatches_device,
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
-            } else if (command->is_multiple_dispatch()) {
-                auto kernel_id = 0u;
-                for (auto s : command->dispatch_sizes()) {
-                    if (any(s == make_uint3(0u))) {
-                        ++kernel_id;
-                        continue;
-                    }
-                    launch_multi(s, kernel_id, device_argument_buffer);
-                    ++kernel_id;
-                }
             } else {
                 auto s = command->dispatch_size();
                 _do_launch(cuda_stream, device_argument_buffer, s);
@@ -494,7 +488,7 @@ inline optix::ShaderBindingTable CUDAShaderOptiX::_make_sbt() const noexcept {
     optix::ShaderBindingTable sbt{};
     sbt.raygenRecord = _sbt_buffer;
     sbt.hitgroupRecordBase = _sbt_buffer;
-    sbt.hitgroupRecordCount = 10u;
+    sbt.hitgroupRecordCount = 20u;
     sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
     sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 10u;
     sbt.missRecordCount = 1u;// FIXME: we are not using miss shaders but it's mandatory to set this to 1

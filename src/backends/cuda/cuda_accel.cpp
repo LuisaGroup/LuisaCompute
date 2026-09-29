@@ -190,6 +190,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     static constexpr auto mod_flag_curve_cubic_bspline = 1u << 10u;
                     static constexpr auto mod_flag_curve_catmull_rom = 1u << 11u;
                     static constexpr auto mod_flag_curve_bezier = 1u << 12u;
+                    static constexpr auto mod_flag_curve_vertex_motion = 1u << 13u;
                     auto prim = reinterpret_cast<const CUDAPrimitiveBase *>(m.primitive);
                     _primitives[m.index] = prim;
                     auto handle = prim->handle();
@@ -200,6 +201,9 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                             m.flags |= mod_flag_procedural;
                         } else if (p->tag() == CUDAPrimitive::Tag::CURVE) {
                             auto curve = static_cast<const CUDACurve *>(p);
+                            if (curve->motion_keyframe_count() > 1u) {
+                                m.flags |= mod_flag_curve_vertex_motion;
+                            }
                             switch (auto basis = curve->basis()) {
                                 case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
                                     m.flags |= mod_flag_curve_cubic_bspline;

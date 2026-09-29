@@ -672,6 +672,9 @@ end
   if has_config("lc_cuda_backend") then
       test_proj("test_cuda_llvm_ray_query", "unit/runtime/test_cuda_llvm_ray_query.cpp")
       test_proj("test_cuda_llvm_shader_cache", "unit/runtime/test_cuda_llvm_shader_cache.cpp")
+      test_proj("test_cuda_llvm_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
+      test_proj("test_cuda_llvm_motion_ray_query", "unit/runtime/test_hip_motion_ray_query.cpp")
+      test_proj("test_cuda_llvm_ray_query_bounds", "unit/runtime/test_cuda_llvm_ray_query_bounds.cpp")
       -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
       test_proj("test_cuda_ptx_version", "unit/runtime/test_cuda_ptx_version.cpp", false, function()
           add_includedirs("../backends/cuda")

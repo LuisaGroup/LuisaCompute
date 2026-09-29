@@ -818,19 +818,11 @@ void CUDACodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel,
         IB fb{entry};
         auto flags_ptr = fb.CreateStructGEP(_get_llvm_accel_instance_type(), f->getArg(0), llvm_accel_instance_type_flags_index);
         auto flags = fb.CreateLoad(fb.getInt32Ty(), flags_ptr);
-        auto is_triangle = fb.CreateAnd(flags, optix::INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING);
-        is_triangle = fb.CreateICmpNE(is_triangle, fb.getInt32(0));
-        auto body = llvm::BasicBlock::Create(_llvm_context, "body", f);
-        auto exit = llvm::BasicBlock::Create(_llvm_context, "exit", f);
-        fb.CreateCondBr(is_triangle, body, exit);
-        fb.SetInsertPoint(body);
         auto cleared_flags = fb.CreateAnd(flags, ~(optix::INSTANCE_FLAG_DISABLE_ANYHIT | optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
         auto new_flag_bit = fb.CreateSelect(f->getArg(1),
                                             fb.getInt32(optix::INSTANCE_FLAG_DISABLE_ANYHIT),
-                                            b.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
+                                            fb.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
-        fb.CreateBr(exit);
-        fb.SetInsertPoint(exit);
         fb.CreateRetVoid();
     }
     b.CreateCall(f, {instance_ptr, is_opaque});
@@ -965,7 +957,7 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
     // The payload can contain pointers to mutable traversal state and captures.
     // OptiX invokes hit programs that access that memory before returning.
     llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
-                                     (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
+                                    (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
     b.CreateCall(llvm_asm, args);
 }
 

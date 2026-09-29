@@ -1522,15 +1522,11 @@ __device__ void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, l
 __device__ void lc_accel_set_instance_opacity(LCAccel accel, lc_uint index, bool opaque) noexcept {
     lc_assume(__isGlobal(accel.instances));
     auto flags = accel.instances[index].flags;
-    // procedural primitives ignores the opaque flag, so only
-    // apply the change when the instance is a triangle mesh
-    if (flags & LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING) {
-        flags &= ~(LC_INSTANCE_FLAG_DISABLE_ANYHIT |
-                   LC_INSTANCE_FLAG_ENFORCE_ANYHIT);
-        flags |= opaque ? LC_INSTANCE_FLAG_DISABLE_ANYHIT :
-                          LC_INSTANCE_FLAG_ENFORCE_ANYHIT;
-        accel.instances[index].flags = flags;
-    }
+    flags &= ~(LC_INSTANCE_FLAG_DISABLE_ANYHIT |
+               LC_INSTANCE_FLAG_ENFORCE_ANYHIT);
+    flags |= opaque ? LC_INSTANCE_FLAG_DISABLE_ANYHIT :
+                      LC_INSTANCE_FLAG_ENFORCE_ANYHIT;
+    accel.instances[index].flags = flags;
 }
 
 __device__ void lc_accel_set_instance_user_id(LCAccel accel, lc_uint index, lc_uint user_id) noexcept {

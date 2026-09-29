@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -22,15 +23,10 @@ private:
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
-    optix::ProgramGroup _program_group_curve_piecewise_linear{};
-    optix::ProgramGroup _program_group_curve_cubic_bspline{};
-    optix::ProgramGroup _program_group_curve_catmull_rom{};
-    optix::ProgramGroup _program_group_curve_bezier{};
+    // Four bases for static vertices, followed by four for vertex motion.
+    std::array<optix::ProgramGroup, 8u> _program_groups_curve{};
     optix::ProgramGroup _program_group_ray_query{};
-    optix::ProgramGroup _program_group_ray_query_curve_piecewise_linear{};
-    optix::ProgramGroup _program_group_ray_query_curve_cubic_bspline{};
-    optix::ProgramGroup _program_group_ray_query_curve_catmull_rom{};
-    optix::ProgramGroup _program_group_ray_query_curve_bezier{};
+    std::array<optix::ProgramGroup, 8u> _program_groups_ray_query_curve{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     CUdeviceptr _sbt_buffer{};

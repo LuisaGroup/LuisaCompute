@@ -1,11 +1,13 @@
-// Test for HIP XIR motion ray-query code generation.
+// Shared CUDA LLVM and HIP XIR motion ray-query code generation test.
 // This test covers:
 // - ALL and ANY motion queries through nested MATRIX motion scenes
 // - triangle, curve, and procedural candidate callbacks
 // - dynamic ray time, outer instance/user IDs, and committed hit semantics
 // - callback reference captures and world-ray t-max mutation
 // - a static ray query in the same reachable callable as motion queries
-// - AOT persistence of the dynamic/global traversal-stack kernel ABI
+// - CUDA mixes static and vertex-motion curves, including partial TLAS updates
+// - HIP AOT persistence of the dynamic/global traversal-stack kernel ABI
+// CUDA uses an uncached JIT compile of the same kernel and numerical oracle.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -37,10 +39,12 @@ namespace {
 constexpr auto triangle_instance = 1u;
 constexpr auto curve_instance = 2u;
 constexpr auto procedural_instance = 3u;
+constexpr auto vertex_motion_curve_instance = 4u;
 constexpr auto static_instance = 0u;
 constexpr auto triangle_user_id = 101u;
 constexpr auto curve_user_id = 102u;
 constexpr auto procedural_user_id = 103u;
+constexpr auto vertex_motion_curve_user_id = 104u;
 constexpr auto static_user_id = 77u;
 constexpr auto tolerance = 2.0e-4f;
 
@@ -122,8 +126,8 @@ void check_results(luisa::string_view query,
 }
 
 void test_hip_motion_ray_query(Device &device) {
-    if (device.backend_name() != "hip") {
-        LUISA_INFO("Skipping HIP-specific motion ray-query test on backend '{}'.",
+    if (device.backend_name() != "hip" && device.backend_name() != "cuda") {
+        LUISA_INFO("Skipping CUDA/HIP motion ray-query test on backend '{}'.",
                    device.backend_name());
         return;
     }
@@ -133,7 +137,7 @@ void test_hip_motion_ray_query(Device &device) {
     // Every moving geometry starts at x=-2 and ends at x=+2. The probes use
     // three different, non-endpoint times, so dropping the time operand makes
     // every motion query miss. An outer translation then places the probes at
-    // y=0/2/4 and makes the reported TLAS instance observable.
+    // y=0/2/4/6 and makes the reported TLAS instance observable.
     const std::array vertices{
         make_float3(-0.5f, -0.5f, 0.0f),
         make_float3(0.5f, -0.5f, 0.0f),
@@ -142,6 +146,13 @@ void test_hip_motion_ray_query(Device &device) {
     const std::array control_points{
         make_float4(-0.5f, 0.0f, 0.0f, 0.1f),
         make_float4(0.5f, 0.0f, 0.0f, 0.1f)};
+    const std::array vertex_motion_control_points{
+        // Each keyframe contains all control points. Both x and z move, so
+        // choosing the static intersector or dropping time changes the result.
+        make_float4(-2.5f, 0.0f, 0.0f, 0.1f),
+        make_float4(-1.5f, 0.0f, 0.0f, 0.1f),
+        make_float4(1.5f, 0.0f, -0.4f, 0.1f),
+        make_float4(2.5f, 0.0f, -0.4f, 0.1f)};
     const std::array segments{0u};
     const std::array aabbs{
         AABB{.packed_min = {-0.5f, -0.5f, -0.1f},
@@ -157,6 +168,23 @@ void test_hip_motion_ray_query(Device &device) {
     auto curve = device.create_curve(
         CurveBasis::PIECEWISE_LINEAR, control_point_buffer, segment_buffer);
     auto procedural = device.create_procedural_primitive(aabb_buffer);
+    // HIP currently rejects vertex-motion curve creation. Keep its existing
+    // three motion-instance cases, while CUDA also exercises both curve GAS
+    // intersectors in this same shader and acceleration structure.
+    auto test_vertex_motion_curve = device.backend_name() == "cuda";
+    Buffer<float4> vertex_motion_control_point_buffer;
+    Curve vertex_motion_curve;
+    if (test_vertex_motion_curve) {
+        vertex_motion_control_point_buffer =
+            device.create_buffer<float4>(vertex_motion_control_points.size());
+        AccelOption vertex_motion_option{};
+        vertex_motion_option.motion.keyframe_count = 2u;
+        vertex_motion_option.motion.time_start = 0.0f;
+        vertex_motion_option.motion.time_end = 1.0f;
+        vertex_motion_curve = device.create_curve(
+            CurveBasis::PIECEWISE_LINEAR, vertex_motion_control_point_buffer,
+            segment_buffer, vertex_motion_option);
+    }
 
     AccelMotionOption motion_option{};
     motion_option.keyframe_count = 2u;
@@ -185,6 +213,10 @@ void test_hip_motion_ray_query(Device &device) {
                               0xffu, false, curve_user_id);
     motion_accel.emplace_back(moving_procedural, translation(5.0f, 4.0f, 0.0f),
                               0xffu, false, procedural_user_id);
+    if (test_vertex_motion_curve) {
+        motion_accel.emplace_back(vertex_motion_curve, translation(5.0f, 6.0f, 0.0f),
+                                  0xffu, false, vertex_motion_curve_user_id);
+    }
 
     // This separate static scene is deliberately queried by traverse(), not a
     // direct trace. On gfx12 the containing module must route this static query
@@ -203,8 +235,12 @@ void test_hip_motion_ray_query(Device &device) {
            << procedural.build()
            << moving_triangle.build()
            << moving_curve.build()
-           << moving_procedural.build()
-           << motion_accel.build()
+           << moving_procedural.build();
+    if (test_vertex_motion_curve) {
+        stream << vertex_motion_control_point_buffer.copy_from(luisa::span{vertex_motion_control_points})
+               << vertex_motion_curve.build();
+    }
+    stream << motion_accel.build()
            << static_accel.build()
            << synchronize();
 
@@ -391,7 +427,7 @@ void test_hip_motion_ray_query(Device &device) {
         static_output.write(index, static_result);
     };
     trace_queries.function_builder()->set_name(
-        "hip_mixed_static_and_motion_ray_query_callable");
+        "cuda_hip_mixed_static_and_motion_ray_query_callable");
 
     Kernel1D trace = [&trace_queries](
                          AccelVar motion_accel,
@@ -404,7 +440,7 @@ void test_hip_motion_ray_query(Device &device) {
                       all_output, any_output, static_output);
     };
 
-    constexpr auto case_count = 3u;
+    auto case_count = test_vertex_motion_curve ? 4u : 3u;
     auto all_output = device.create_buffer<MotionQueryResult>(case_count);
     auto any_output = device.create_buffer<MotionQueryResult>(case_count);
     auto static_output = device.create_buffer<MotionQueryResult>(case_count);
@@ -412,29 +448,35 @@ void test_hip_motion_ray_query(Device &device) {
         "test_hip_motion_ray_query_aot.bytes");
     auto package_name = luisa::string{package_path.string()};
     std::error_code package_ec;
-    luisa::filesystem::remove(package_path, package_ec);
-    {
+    auto shader = [&] {
+        if (device.backend_name() == "cuda") {
+            return device.compile(trace, ShaderOption{.enable_cache = false});
+        }
+        luisa::filesystem::remove(package_path, package_ec);
         ShaderOption option{
             .compile_only = true,
             .name = package_name};
         [[maybe_unused]] auto compiled = device.compile(trace, option);
-    }
-    expect(luisa::filesystem::is_regular_file(package_path))
-        << "HIP motion ray-query AOT package was not written";
-    auto shader = device.load_shader<
-        1, Accel, Accel,
-        Buffer<MotionQueryResult>, Buffer<MotionQueryResult>,
-        Buffer<MotionQueryResult>>(package_name);
-    std::array<MotionQueryResult, case_count> host_all{};
-    std::array<MotionQueryResult, case_count> host_any{};
-    std::array<MotionQueryResult, case_count> host_static{};
-    stream << shader(motion_accel, static_accel,
-                     all_output, any_output, static_output)
-                  .dispatch(case_count)
-           << all_output.copy_to(luisa::span{host_all})
-           << any_output.copy_to(luisa::span{host_any})
-           << static_output.copy_to(luisa::span{host_static})
-           << synchronize();
+        expect(luisa::filesystem::is_regular_file(package_path))
+            << "HIP motion ray-query AOT package was not written";
+        return device.load_shader<
+            1, Accel, Accel,
+            Buffer<MotionQueryResult>, Buffer<MotionQueryResult>,
+            Buffer<MotionQueryResult>>(package_name);
+    }();
+    luisa::vector<MotionQueryResult> host_all(case_count);
+    luisa::vector<MotionQueryResult> host_any(case_count);
+    luisa::vector<MotionQueryResult> host_static(case_count);
+    auto dispatch_and_read = [&] {
+        stream << shader(motion_accel, static_accel,
+                         all_output, any_output, static_output)
+                      .dispatch(case_count)
+               << all_output.copy_to(luisa::span{host_all})
+               << any_output.copy_to(luisa::span{host_any})
+               << static_output.copy_to(luisa::span{host_static})
+               << synchronize();
+    };
+    dispatch_and_read();
 
     constexpr auto surface = static_cast<uint>(HitType::Surface);
     constexpr auto procedural_hit = static_cast<uint>(HitType::Procedural);
@@ -450,9 +492,13 @@ void test_hip_motion_ray_query(Device &device) {
         ExpectedResult{procedural_hit, procedural_instance, 0u, procedural_user_id,
                        4u, 1u, procedural_instance, procedural_user_id,
                        1.0f, 0.0f, 0.0f, 3.0f,
-                       132.0f, 1.0f, 1.0f}};
+                       132.0f, 1.0f, 1.0f},
+        ExpectedResult{surface, vertex_motion_curve_instance, 0u, vertex_motion_curve_user_id,
+                       2u, 1u, vertex_motion_curve_instance, vertex_motion_curve_user_id,
+                       1.2f, 0.5f, -1.0f, 2.0f,
+                       123.0f, 1.2f, 1.2f}};
     check_results("motion ALL", luisa::span{host_all},
-                  luisa::span{expected_all});
+                  luisa::span{expected_all.data(), case_count});
 
     const std::array expected_any{
         ExpectedResult{surface, triangle_instance, 0u, triangle_user_id,
@@ -466,9 +512,13 @@ void test_hip_motion_ray_query(Device &device) {
         ExpectedResult{procedural_hit, procedural_instance, 0u, procedural_user_id,
                        4u, 1u, procedural_instance, procedural_user_id,
                        1.0f, 0.0f, 0.0f, 3.0f,
-                       232.0f, 1.0f, 1.0f}};
+                       232.0f, 1.0f, 1.0f},
+        ExpectedResult{surface, vertex_motion_curve_instance, 0u, vertex_motion_curve_user_id,
+                       2u, 1u, vertex_motion_curve_instance, vertex_motion_curve_user_id,
+                       1.2f, 0.5f, -1.0f, 2.0f,
+                       223.0f, 1.2f, 1.2f}};
     check_results("motion ANY", luisa::span{host_any},
-                  luisa::span{expected_any});
+                  luisa::span{expected_any.data(), case_count});
 
     const std::array expected_static{
         ExpectedResult{surface, static_instance, 0u, static_user_id,
@@ -482,13 +532,47 @@ void test_hip_motion_ray_query(Device &device) {
         ExpectedResult{surface, static_instance, 0u, static_user_id,
                        1u, 1u, static_instance, static_user_id,
                        1.0f, 0.25f, 0.5f, 1.0f,
-                       49.0f, 1.0f, 1.0f}};
+                       49.0f, 1.0f, 1.0f},
+        ExpectedResult{surface, static_instance, 0u, static_user_id,
+                       1u, 1u, static_instance, static_user_id,
+                       1.0f, 0.25f, 0.5f, 1.0f,
+                       50.0f, 1.0f, 1.0f}};
     check_results("mixed static", luisa::span{host_static},
-                  luisa::span{expected_static});
+                  luisa::span{expected_static.data(), case_count});
 
-    luisa::filesystem::remove(package_path, package_ec);
-    expect(!luisa::filesystem::exists(package_path))
-        << "HIP motion ray-query AOT package cleanup failed";
+    // Partial instance updates must preserve the static/vertex-motion curve
+    // intersector selection. The new masks still overlap the query's 0xff mask.
+    constexpr auto updated_curve_user_id = 202u;
+    constexpr auto updated_vertex_motion_curve_user_id = 204u;
+    motion_accel.set_visibility_on_update(curve_instance, 0x7fu);
+    motion_accel.set_instance_user_id_on_update(curve_instance, updated_curve_user_id);
+    if (test_vertex_motion_curve) {
+        motion_accel.set_visibility_on_update(vertex_motion_curve_instance, 0x3fu);
+        motion_accel.set_instance_user_id_on_update(
+            vertex_motion_curve_instance, updated_vertex_motion_curve_user_id);
+    }
+    stream << motion_accel.build();
+    dispatch_and_read();
+    auto updated_all = expected_all;
+    auto updated_any = expected_any;
+    for (auto *expected : {&updated_all, &updated_any}) {
+        (*expected)[1u].user_id = updated_curve_user_id;
+        (*expected)[1u].callback_user_id = updated_curve_user_id;
+        (*expected)[3u].user_id = updated_vertex_motion_curve_user_id;
+        (*expected)[3u].callback_user_id = updated_vertex_motion_curve_user_id;
+    }
+    check_results("partial-update motion ALL", luisa::span{host_all},
+                  luisa::span{updated_all.data(), case_count});
+    check_results("partial-update motion ANY", luisa::span{host_any},
+                  luisa::span{updated_any.data(), case_count});
+    check_results("partial-update mixed static", luisa::span{host_static},
+                  luisa::span{expected_static.data(), case_count});
+
+    if (device.backend_name() == "hip") {
+        luisa::filesystem::remove(package_path, package_ec);
+        expect(!luisa::filesystem::exists(package_path))
+            << "HIP motion ray-query AOT package cleanup failed";
+    }
 }
 
 }// namespace
@@ -498,7 +582,7 @@ int main(int argc, char *argv[]) {
     if (!dc) { return 0; }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
-    "HIP XIR motion ray queries preserve nested candidate semantics"_test = [&] {
+    "CUDA and HIP motion ray queries preserve nested candidate semantics"_test = [&] {
         test_hip_motion_ray_query(dc->device);
     };
 }
