@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <utility>
 
 #include <llvm/Analysis/CGSCCPassManager.h>
@@ -93,6 +94,31 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
         return;
     }
     _jit = std::move(*jit);
+    // Uniform inverse hyperbolic operations call scalar libm functions.
+    // Static CRTs do not export these symbols for ORC's process lookup.
+    ::llvm::orc::SymbolMap math_symbols;
+    auto bind_math_symbol = [this, &math_symbols](
+                                const char *name, auto *function) noexcept {
+        math_symbols.try_emplace(
+            _jit->mangleAndIntern(name),
+            ::llvm::orc::ExecutorSymbolDef{
+                ::llvm::orc::ExecutorAddr::fromPtr(function),
+                ::llvm::JITSymbolFlags::Callable});
+    };
+    using FloatMath = float (*)(float);
+    using DoubleMath = double (*)(double);
+    bind_math_symbol("asinhf", static_cast<FloatMath>(&std::asinh));
+    bind_math_symbol("acoshf", static_cast<FloatMath>(&std::acosh));
+    bind_math_symbol("atanhf", static_cast<FloatMath>(&std::atanh));
+    bind_math_symbol("asinh", static_cast<DoubleMath>(&std::asinh));
+    bind_math_symbol("acosh", static_cast<DoubleMath>(&std::acosh));
+    bind_math_symbol("atanh", static_cast<DoubleMath>(&std::atanh));
+    if (auto error = _jit->getMainJITDylib().define(
+            ::llvm::orc::absoluteSymbols(std::move(math_symbols)))) {
+        _fail("failed to define LLVM JIT scalar math symbols: " +
+              ::llvm::toString(std::move(error)));
+        return;
+    }
     if (capture_object) {
         _object = std::make_shared<std::string>();
         _jit->getObjTransformLayer().setTransform(

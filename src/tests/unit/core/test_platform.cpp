@@ -132,8 +132,13 @@ void reg_backtrace() {
 
     "backtrace"_test = [] {
         auto trace = luisa::backtrace();
+#if defined(_WIN32) && defined(NDEBUG)
+        // Windows release builds deliberately omit stack-trace collection.
+        expect(trace.empty()) << "Windows release backtrace should be empty";
+#else
         // Should have at least one frame (this function)
         expect(!trace.empty()) << "backtrace should return at least one frame";
+#endif
         // Each frame should have a non-zero address
         for (const auto &item : trace) {
             expect(item.address != 0u);

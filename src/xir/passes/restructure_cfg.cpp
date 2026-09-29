@@ -42,35 +42,48 @@
 #include <limits>
 #include <set>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace luisa::compute::xir {
 
 namespace {
 
+[[nodiscard]] bool restructure_environment_flag_enabled(const char *name) noexcept {
+#ifdef _WIN32
+    // /MT gives each module a separate CRT environment snapshot. Read the
+    // process environment so changes made by the caller remain visible here.
+    char value[2]{};
+    return GetEnvironmentVariableA(name, value, sizeof(value)) == 1u && value[0] == '1';
+#else
+    if (auto value = std::getenv(name)) {
+        return luisa::string_view{value} == "1";
+    }
+    return false;
+#endif
+}
+
 [[nodiscard]] bool restructure_trace_enabled() noexcept {
     static const auto enabled = []() noexcept {
-        if (auto value = std::getenv("LUISA_XIR_TRACE_PASSES")) {
-            return luisa::string_view{value} == "1";
-        }
-        return false;
+        return restructure_environment_flag_enabled("LUISA_XIR_TRACE_PASSES");
     }();
     return enabled;
 }
 
 [[nodiscard]] bool restructure_verify_intermediate_enabled() noexcept {
-    if (auto value =
-            std::getenv("LUISA_XIR_VERIFY_INTERMEDIATE")) {
-        return luisa::string_view{value} == "1";
-    }
-    return false;
+    return restructure_environment_flag_enabled("LUISA_XIR_VERIFY_INTERMEDIATE");
 }
 
 [[nodiscard]] bool
 restructure_verify_selection_exit_relation_updates_enabled() noexcept {
-    if (auto value = std::getenv(
-            "LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES")) {
-        return luisa::string_view{value} == "1";
-    }
-    return false;
+    return restructure_environment_flag_enabled("LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES");
 }
 
 struct ScopedTimer {
