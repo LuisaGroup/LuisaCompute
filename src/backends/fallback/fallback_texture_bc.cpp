@@ -3,10 +3,10 @@
 //
 
 #include "fallback_texture_bc.h"
+#include <luisa/core/stl/algorithm.h>
 #if defined(_WIN32) && defined(_DEBUG)
 #define NOMINMAX
 #include <Windows.h>
-#include <luisa/core/stl/algorithm.h>
 #undef Yield
 #undef AddPointer
 #endif
