@@ -219,7 +219,7 @@ private:
             request_kind, reply.status, reply.message, reply.body);
         auto response_kind = reply.status == Status::OK ?
                                  MessageKind::RESPONSE :
-                                 MessageKind::ERROR;
+                                 MessageKind::ERROR_RESPONSE;
         return _send_frame(response_kind, request_id, payload);
     }
 

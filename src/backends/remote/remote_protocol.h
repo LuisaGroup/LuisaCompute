@@ -22,7 +22,7 @@ constexpr uint64_t default_max_array_size = 1ull << 24u;
 enum class MessageKind : uint16_t {
     HELLO = 1u,
     RESPONSE = 2u,
-    ERROR = 3u,
+    ERROR_RESPONSE = 3u,
     CREATE_BUFFER = 10u,
     DESTROY_BUFFER = 11u,
     CREATE_TEXTURE = 12u,

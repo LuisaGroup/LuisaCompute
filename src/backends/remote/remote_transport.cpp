@@ -162,7 +162,7 @@ private:
                 return;
             }
             if (header.kind == MessageKind::RESPONSE ||
-                header.kind == MessageKind::ERROR) {
+                header.kind == MessageKind::ERROR_RESPONSE) {
                 std::shared_ptr<Pending> pending;
                 {
                     std::scoped_lock lock{_state_mutex};
