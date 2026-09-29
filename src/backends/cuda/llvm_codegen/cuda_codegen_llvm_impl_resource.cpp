@@ -958,7 +958,11 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
     // OptiX invokes hit programs that access that memory before returning.
     llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
                                     (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
-    b.CreateCall(llvm_asm, args);
+    auto call = b.CreateCall(llvm_asm, args);
+    if (payload_type == optix::PAYLOAD_TYPE_ID_1) {
+        _ray_query_trace_calls.emplace_back(call);
+        _ray_query_payload_count = std::max(_ray_query_payload_count, static_cast<uint32_t>(registers.size()));
+    }
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_undef(IB &b) noexcept {

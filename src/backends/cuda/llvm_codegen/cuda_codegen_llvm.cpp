@@ -8,7 +8,7 @@
 
 namespace luisa::compute::cuda {
 
-luisa::string luisa_compute_cuda_codegen_llvm(const xir::Module &xir_module, const CUDACodegenLLVMConfig &config) noexcept {
+CUDACodegenLLVMResult luisa_compute_cuda_codegen_llvm(const xir::Module &xir_module, const CUDACodegenLLVMConfig &config) noexcept {
     Clock clk;
     CUDACodegenLLVMImpl impl{config};
     auto code = impl.generate(xir_module);
@@ -22,7 +22,7 @@ luisa::string luisa_compute_cuda_codegen_llvm(const xir::Module &xir_module, con
     if (dump_ptx && !optix_ir) {
         LUISA_INFO("Generated PTX:\n{}", code);
     }
-    return code;
+    return {std::move(code), impl.ray_query_payload_count()};
 }
 
 }// namespace luisa::compute::cuda

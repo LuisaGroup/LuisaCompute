@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 
 #include <luisa/core/logging.h>
@@ -268,7 +269,7 @@ struct Options {
 [[nodiscard]] bool run_payload_capture_boundary(Device &device, Stream &stream,
                                                 const Accel &surfaces, const Accel &procedurals) {
     constexpr auto ray_count = 257u;
-    for (auto snapshot_count : {27u, 30u}) {
+    for (auto snapshot_count : {0u, 27u, 30u}) {
         Kernel1D kernel = [snapshot_count](AccelVar surface_accel, AccelVar procedural_accel,
                                            BufferUInt inputs, BufferUInt outputs, BufferUInt4 hits) noexcept {
             set_block_size(64u);
@@ -327,16 +328,17 @@ struct Options {
                 outputs.write(lane * (3u * snapshot_count) + 2u * snapshot_count + i, filter_values[i]);
             }
         };
-        // The intended ABI is N scalar words plus one 64-bit output-array
-        // reference: 29 words fit directly, while 32 require context scratch.
+        // No snapshots means no output-array reference is captured: only the
+        // three protocol words remain. Otherwise N scalars plus one 64-bit
+        // reference use direct payloads up to 29 capture words, then fallback.
         // Correlate this hash with .opt.rq.xir and LUISA_DUMP_LLVM_IR to verify
         // the actual capture types and direct/fallback codegen selection.
         LUISA_INFO("Ray-query payload boundary fixture: snapshots={}, expected capture words={}, AST hash={:016x}.",
-                   snapshot_count, snapshot_count + 2u, kernel.function()->function().hash());
+                   snapshot_count, snapshot_count == 0u ? 0u : snapshot_count + 2u, kernel.function()->function().hash());
         auto llvm_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
         auto ir_env = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
-        auto optix_ir = llvm_env != nullptr && luisa::string_view{llvm_env} == "1" &&
-                        ir_env != nullptr && luisa::string_view{ir_env} == "1";
+        auto llvm_codegen = llvm_env != nullptr && luisa::string_view{llvm_env} == "1";
+        auto optix_ir = llvm_codegen && ir_env != nullptr && luisa::string_view{ir_env} == "1";
         auto package_stem = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}", snapshot_count,
                                           std::chrono::steady_clock::now().time_since_epoch().count());
         auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
@@ -369,30 +371,65 @@ struct Options {
             }
         } cleanup{package_path, metadata_path};
         auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        auto expected_payload_count = !llvm_codegen ? 2u : snapshot_count == 0u ? 3u : snapshot_count == 27u ? 32u : 5u;
+        // Observe the serialized public artifact rather than inferring the
+        // pipeline ABI from the number of DSL variables alone.
+        auto read_payload_count = [&]() noexcept {
+            std::ifstream metadata{metadata_path};
+            luisa::string token;
+            auto value = 0u;
+            while (metadata >> token) {
+                if (token == "RAY_QUERY_PAYLOAD_COUNT") {
+                    metadata >> value;
+                    return metadata ? value : 0u;
+                }
+            }
+            return 0u;
+        };
+        auto serialized_payload_count = read_payload_count();
+        LUISA_INFO("Ray-query payload artifact: snapshots={}, payload words={}, expected={}.",
+                   snapshot_count, serialized_payload_count, expected_payload_count);
+        auto correct_payload_count = serialized_payload_count == expected_payload_count;
+        expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
+        if (!correct_payload_count) { return false; }
+        // Give only our owned files a distinct older timestamp. A named warm
+        // compile must read them without rewriting; no timing heuristic is used.
+        auto old_timestamp = luisa::filesystem::file_time_type::clock::now() - std::chrono::hours{24};
+        luisa::filesystem::last_write_time(package_path, old_timestamp);
+        luisa::filesystem::last_write_time(metadata_path, old_timestamp);
+        auto package_timestamp = luisa::filesystem::last_write_time(package_path);
+        auto metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        auto warm_shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp &&
+                               luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
+                               read_payload_count() == expected_payload_count;
+        expect(reused_artifact) << "warm compile must adopt the cached payload count without regenerating artifacts";
+        if (!reused_artifact) { return false; }
         auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
         expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
         if (!loaded_shader) { return false; }
         auto extensionless_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name);
         expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
         if (!extensionless_shader) { return false; }
-        auto inputs = device.create_buffer<uint>(ray_count * snapshot_count);
-        auto outputs = device.create_buffer<uint>(ray_count * snapshot_count * 3u);
+        auto inputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count));
+        auto outputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count * 3u));
         auto hits = device.create_buffer<uint4>(ray_count * 3u);
         luisa::vector<uint> host_inputs(inputs.size());
         luisa::vector<uint> host_outputs(outputs.size());
         luisa::vector<uint4> host_hits(hits.size());
-        for (auto epoch = 0u; epoch < 3u; epoch++) {
+        for (auto epoch = 0u; epoch < 4u; epoch++) {
             for (auto lane = 0u; lane < ray_count; lane++) {
                 for (auto i = 0u; i < snapshot_count; i++) {
                     host_inputs[lane * snapshot_count + i] =
                         lane * 0x9e3779b9u ^ i * 0x85ebca6bu ^ (epoch + 1u) * 0xc2b2ae35u;
                 }
             }
-            const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? loaded_shader : extensionless_shader;
+            const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? warm_shader :
+                                            epoch == 2u ? loaded_shader : extensionless_shader;
             stream << inputs.copy_from(luisa::span{host_inputs})
-                   << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count)
-                   << outputs.copy_to(luisa::span{host_outputs})
-                   << hits.copy_to(luisa::span{host_hits}) << synchronize();
+                   << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count);
+            if (snapshot_count != 0u) { stream << outputs.copy_to(luisa::span{host_outputs}); }
+            stream << hits.copy_to(luisa::span{host_hits}) << synchronize();
             bool correct = true;
             for (auto lane = 0u; lane < ray_count && correct; lane++) {
                 auto expected_surface = make_uint4(static_cast<uint>(HitType::Surface), 0u, 0u, 0x3f800000u);
@@ -423,7 +460,7 @@ struct Options {
                     }
                 }
             }
-            expect(correct) << "every captured snapshot reaches mixed full/filter handlers through JIT and AOT";
+            expect(correct) << "every captured snapshot reaches mixed full/filter handlers through cold/warm JIT and AOT";
             if (!correct) { return false; }
         }
     }

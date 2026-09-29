@@ -34,6 +34,8 @@ bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
 }
 
 luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata) noexcept {
+    LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
+                 "Cannot serialize an unresolved or invalid ray-query payload count.");
     luisa::string result;
     result.append(luisa::format("CHECKSUM {:016x} ", metadata.checksum));
     result.append(luisa::format("KIND {} ", metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN ?
@@ -294,8 +296,8 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 return luisa::nullopt;
             }
             auto x = parse_number(read_token());
-            if (!x.has_value() || (x.value() != 2u && x.value() != 32u)) {
-                LUISA_WARNING_WITH_LOCATION("Invalid ray-query payload count in shader metadata; expected 2 or 32 words.");
+            if (!x.has_value() || x.value() < 2u || x.value() > 32u) {
+                LUISA_WARNING_WITH_LOCATION("Invalid ray-query payload count in shader metadata; expected 2 through 32 words.");
                 return luisa::nullopt;
             }
             ray_query_payload_count.emplace(static_cast<uint32_t>(x.value()));

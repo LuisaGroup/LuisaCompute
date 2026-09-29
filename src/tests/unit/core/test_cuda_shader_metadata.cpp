@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <utility>
+#include <string>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -60,11 +61,11 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
 
     "cuda_shader_metadata_payload_roundtrip"_test = [] {
-        for (auto payload_count : {2u, 32u}) {
+        for (auto payload_count : {2u, 3u, 5u, 31u, 32u}) {
             auto original = make_metadata(payload_count);
             auto serialized = serialize_cuda_shader_metadata(original);
-            auto field = payload_count == 2u ? "RAY_QUERY_PAYLOAD_COUNT 2 " : "RAY_QUERY_PAYLOAD_COUNT 32 ";
-            expect(serialized.find(field) != string::npos);
+            auto field = "RAY_QUERY_PAYLOAD_COUNT " + std::to_string(payload_count) + " ";
+            expect(serialized.find(string_view{field}) != string::npos);
             auto parsed = deserialize_cuda_shader_metadata(serialized);
             expect(parsed.has_value()) << "payload count:" << payload_count;
             if (parsed) {
@@ -84,8 +85,8 @@ int main(int argc, char *argv[]) {
     };
 
     "cuda_shader_metadata_rejects_invalid_payload_counts"_test = [] {
-        constexpr std::array<string_view, 16u> invalid_values{
-            "0", "1", "3", "31", "33", "-1", "+2", "2junk",
+        constexpr std::array<string_view, 14u> invalid_values{
+            "0", "1", "33", "-1", "+2", "2junk",
             "2.0", "0x2", "NaN", "4294967298", "4294967328",
             "18446744073709551615", "18446744073709551616", ""};
         for (auto value : invalid_values) {
@@ -97,9 +98,10 @@ int main(int argc, char *argv[]) {
     };
 
     "cuda_shader_metadata_rejects_duplicate_payload_fields"_test = [] {
-        for (auto payload_count : {2u, 32u}) {
+        for (auto payload_count : {2u, 3u, 5u, 31u, 32u}) {
             auto serialized = serialize_cuda_shader_metadata(make_metadata(payload_count));
-            for (auto suffix : {"RAY_QUERY_PAYLOAD_COUNT 2 ", "RAY_QUERY_PAYLOAD_COUNT 32 "}) {
+            for (auto suffix : {"RAY_QUERY_PAYLOAD_COUNT 2 ", "RAY_QUERY_PAYLOAD_COUNT 3 ",
+                                "RAY_QUERY_PAYLOAD_COUNT 5 ", "RAY_QUERY_PAYLOAD_COUNT 32 "}) {
                 auto duplicate = serialized;
                 duplicate.append(suffix);
                 expect(!deserialize_cuda_shader_metadata(duplicate).has_value())
@@ -109,13 +111,12 @@ int main(int argc, char *argv[]) {
     };
 
     "cuda_shader_metadata_equality_includes_payload_count"_test = [] {
-        auto ast = make_metadata(2u);
-        auto llvm = ast;
-        expect(ast == llvm);
-        llvm.ray_query_payload_count = 32u;
-        expect(ast != llvm);
-        expect(llvm != ast);
-        expect(llvm == make_metadata(32u));
+        for (auto lhs : {2u, 3u, 5u, 31u, 32u}) {
+            for (auto rhs : {2u, 3u, 5u, 31u, 32u}) {
+                expect((make_metadata(lhs) == make_metadata(rhs)) == (lhs == rhs))
+                    << "payload counts:" << lhs << rhs;
+            }
+        }
     };
 
     "cuda_shader_metadata_code_format_defaults_to_ptx"_test = [] {
@@ -125,7 +126,7 @@ int main(int argc, char *argv[]) {
 
     "cuda_shader_metadata_code_format_roundtrip"_test = [] {
         for (auto format : {CUDAShaderMetadata::CodeFormat::PTX, CUDAShaderMetadata::CodeFormat::OPTIX_IR}) {
-            for (auto payload_count : {2u, 32u}) {
+            for (auto payload_count : {2u, 3u, 5u, 31u, 32u}) {
                 auto original = make_metadata(payload_count);
                 original.code_format = format;
                 auto serialized = serialize_cuda_shader_metadata(original);

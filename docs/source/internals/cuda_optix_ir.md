@@ -139,7 +139,12 @@ rejects `freeze`, scalable vectors, bfloat16, AMX, and target-extension types;
 other unsupported instructions or intrinsics remain an explicit compatibility
 boundary. These adaptations and limits apply to OptiX IR, not to LLVM/PTX.
 
-## Validation record
+## Initial adapter validation (5b28304a3, LLVM cache v12)
+
+This record describes the initial OptiX IR adapter at commit `5b28304a3`, using
+LLVM cache revision **v12**. Its PTX byte-identity and compilation measurements
+predate the later shared fast-math FTZ and ray-query payload changes; they are
+not byte-identity or performance claims for those subsequent revisions.
 
 The following results were collected on Windows with MSVC/Ninja, LLVM **22.1.8**,
 CUDA **13.4.92**, OptiX **9.0**, NVIDIA driver **617.14**, and an **RTX 4060 Laptop
@@ -199,3 +204,43 @@ explicit opt-in rather than changing the default compiler path.
 the CPU module-creation call. Neither log is a GPU execution-time measurement;
 record device, driver, shader/cache state, workload, and separate dispatch timing
 when comparing performance.
+
+## Subsequent shared ray-query payload sizing (LLVM cache v14)
+
+LLVM/PTX and LLVM/OptiX IR now declare the actual maximum ray-query payload
+capacity needed by the shader, within **2–32 words**. The existing layout is
+unchanged: two words carry the query pointer, the third carries the pipeline ID,
+and direct captures occupy up to 29 further words. A capture-free cutout shader
+therefore uses **3 words**. A shader using only the generic context fallback
+needs **5 words**, including its context pointer; the direct-capture boundary
+still uses **32 words**. Mixed pipelines use one common maximum. Legacy AST
+artifacts remain at 2 words, as do LLVM modules with no surviving query pipeline.
+
+Every query call's active count and the host OptiX payload declaration agree
+with the saved `RAY_QUERY_PAYLOAD_COUNT`. The private traversal intrinsic keeps
+its fixed 32-word signature; arguments beyond the active count are undefined
+padding. Query and captured-reference addresses retain their original identity.
+Lazy compilation resolves the count before serialization, while validated cache
+hits and AOT loads recover it from their sidecars. An internal unknown-count
+sentinel is never saved or passed to OptiX. Cache revision **v14** separates this
+ABI from earlier fixed-capacity artifacts.
+
+The full MSVC/Ninja build and **22/22 focused tests passed** with this change;
+the test record is `.deps/dynamic-ray-payload-tests.log`. Coverage includes
+payload counts 3, 5 and 32 with mixed handlers, cache reuse and AOT loading, plus
+both LLVM/PTX and OptiX IR correctness regressions. Both routes also passed the
+query Compute Sanitizer run with `ERROR SUMMARY: 0 errors`, including those
+cache/AOT paths and the 2,048-byte captured-state workload (257 rays, five
+dispatches); see `.deps/dynamic-payload-memcheck-{0,1}/sanitizer.log`.
+
+A controlled LLVM/PTX cutout comparison used 4,096 spp, three iterations per
+fresh process, at most 64 spp per dispatch, and two ABBA groups (eight processes).
+The median of process medians was **558.2515 spp/s** for the preceding FTZ-enabled
+fixed-32 baseline and **699.1330 spp/s** with dynamic payload sizing, an observed
+**25.24% improvement**. All output PNG hashes matched. OptiX reported raygen
+registers falling from **102 to 70** and any-hit registers from **94 to 65**;
+continuation stack **96 bytes** and continuation spills **236 bytes** were
+unchanged. This laptop showed clock and timing variation across runs, so the
+sample does not promise a fixed speedup for other workloads or operating states.
+Commands, images, clocks and all samples are recorded in
+`build-msvc-llvm/test-results/cutout-runtime-abba-20260930-013300-900350/experiment.json`.

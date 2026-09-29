@@ -33,7 +33,7 @@ struct CUDAShaderMetadata {
     bool requires_trace_closest;
     bool requires_trace_any;
     bool requires_ray_query;
-    uint32_t ray_query_payload_count{2u};// legacy AST context pointer; LLVM uses 32 words
+    uint32_t ray_query_payload_count{2u};// AST uses 2 words; LLVM declares its actual module maximum
     bool requires_printing;
     bool requires_motion_blur;
     uint max_register_count;

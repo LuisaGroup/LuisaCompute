@@ -181,6 +181,8 @@ private:
         bool surface_filter;
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
+    std::vector<llvm::CallInst *> _ray_query_trace_calls;
+    uint32_t _ray_query_payload_count{2u};
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -421,6 +423,7 @@ private:
 public:
     explicit CUDACodegenLLVMImpl(CUDACodegenLLVMConfig config) noexcept;
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
+    [[nodiscard]] uint32_t ray_query_payload_count() const noexcept { return _ray_query_payload_count; }
 };
 
 }// namespace luisa::compute::cuda

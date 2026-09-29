@@ -319,8 +319,8 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 13 matches the CUDA fast-math single-precision FTZ mode.
-static constexpr uint64_t cuda_llvm_cache_revision = 13u;
+// Revision 14 declares the actual LLVM ray-query payload capacity.
+static constexpr uint64_t cuda_llvm_cache_revision = 14u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -784,9 +784,7 @@ template<bool allow_update_expected_metadata>
     BinaryStream *ptx_stream,
     luisa::string_view name,
     bool warn_not_found,
-    std::conditional_t<allow_update_expected_metadata,
-                       CUDAShaderMetadata,
-                       const CUDAShaderMetadata> &expected_metadata) noexcept {
+    CUDAShaderMetadata &expected_metadata) noexcept {
 
     // check if the stream is valid
     if (ptx_stream == nullptr || ptx_stream->length() == 0u ||
@@ -851,16 +849,24 @@ template<bool allow_update_expected_metadata>
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
         if (expected_metadata.format_types.empty()) { expected_metadata.format_types = metadata->format_types; }
     }
+    // Lazy LLVM codegen cannot know the optimized payload capacity yet.
+    // Adopt it only after all other cached fields have matched; a rejected
+    // cache entry must leave the unknown sentinel intact for generation.
+    auto candidate_metadata = expected_metadata;
+    if (candidate_metadata.ray_query_payload_count == 0u) {
+        candidate_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
+    }
     // examine the metadata
-    if (*metadata != expected_metadata) {
+    if (*metadata != candidate_metadata) {
         LUISA_WARNING_WITH_LOCATION(
             "Shader '{}' is found in cache, but its metadata '{}' do not match the expected '{}'. "
             "This may be caused by a mismatch between the shader source and the cached binary. "
             "The shader will be recompiled.",
             name, serialize_cuda_shader_metadata(*metadata),
-            serialize_cuda_shader_metadata(expected_metadata));
+            serialize_cuda_shader_metadata(candidate_metadata));
         return {};
     }
+    expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
     // return the ptx string
     return ptx_data;
 }
@@ -868,9 +874,9 @@ template<bool allow_update_expected_metadata>
 ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
                                                        const string &source, const ShaderOption &option,
                                                        luisa::span<const char *const> nvrtc_options,
-                                                       const CUDAShaderMetadata &expected_metadata,
+                                                       CUDAShaderMetadata expected_metadata,
                                                        luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-                                                       luisa::function<luisa::string()> generate_ptx) noexcept {
+                                                       luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx) noexcept {
 
     // Binary OptiX IR has a separate cache namespace and sidecar format.
     auto optix_ir = expected_metadata.code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR;
@@ -878,7 +884,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v13{}", expected_metadata.checksum, extension) :
+                   luisa::format("kernel_{:016x}.llvm-v14{}", expected_metadata.checksum, extension) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&
@@ -922,7 +928,10 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     // LLVM codegen is deliberately lazy: cached code must be checked before
     // translating AST to XIR and running the LLVM optimization pipeline.
     if (ptx.empty() && generate_ptx) {
-        luisa::string generated = generate_ptx();
+        luisa::string generated = generate_ptx(expected_metadata);
+        LUISA_ASSERT(expected_metadata.ray_query_payload_count >= 2u &&
+                         expected_metadata.ray_query_payload_count <= 32u,
+                     "CUDA LLVM code generation did not resolve its ray-query payload count.");
         if (generated.empty()) {
             LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation returned empty code for '{}'.", name);
         }
@@ -987,7 +996,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
     // codegen
     StringScratch scratch;
-    luisa::function<luisa::string()> generate_ptx;
+    luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx;
     bool uses_cuda_printf = false;
     auto code_format = CUDAShaderMetadata::CodeFormat::PTX;
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
@@ -1010,7 +1019,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             LUISA_ERROR_WITH_LOCATION("LUISA_CUDA_LLVM_OPTIX_IR=1 requires configuring LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR=ON.");
 #endif
         }
-        generate_ptx = [this, &kernel, &option, code_format] {
+        generate_ptx = [this, &kernel, &option, code_format](CUDAShaderMetadata &generated_metadata) {
             auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             CUDACodegenLLVMConfig config{
                 .source_file = option.name,
@@ -1028,7 +1037,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                                      CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR :
                                      CUDACodegenLLVMConfig::OutputFormat::PTX,
             };
-            return luisa_compute_cuda_codegen_llvm(*xir_module, config);
+            auto result = luisa_compute_cuda_codegen_llvm(*xir_module, config);
+            generated_metadata.ray_query_payload_count = result.ray_query_payload_count;
+            return std::move(result.code);
         };
     }
 #endif
@@ -1178,7 +1189,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
                               kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
-        .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 32u : 2u,
+        .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 0u : 2u,
         .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),

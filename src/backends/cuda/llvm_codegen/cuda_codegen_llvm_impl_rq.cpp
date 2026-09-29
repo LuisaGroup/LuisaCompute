@@ -442,7 +442,6 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
         pack_ray_query_payload(b, generic_pointer(context), payload);
     }
     LUISA_ASSERT(payload.size() <= kRayQueryPayloadWordCount, "Ray-query payload exceeds the register budget.");
-    payload.resize(kRayQueryPayloadWordCount, b.getInt32(0u));
     auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
     auto ray = _load_ray_query_field(b, query, llvm_ray_query_type_ray_index);
     auto time = _load_ray_query_field(b, query, llvm_ray_query_type_time_index);
@@ -509,6 +508,21 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
 }
 
 void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
+    // A payload type has one capacity for the whole module. Keep the stable
+    // query-pointer/id/capture layout, but do not reserve unused tail words.
+    // The private OptiX intrinsic still has its fixed 32-word signature.
+    auto i32 = llvm::Type::getInt32Ty(_llvm_context);
+    for (auto call : _ray_query_trace_calls) {
+        constexpr auto payload_count_arg = 16u;
+        constexpr auto payload_first_arg = 17u;
+        auto count = static_cast<uint32_t>(llvm::cast<llvm::ConstantInt>(call->getArgOperand(payload_count_arg))->getZExtValue());
+        LUISA_ASSERT(count <= _ray_query_payload_count && _ray_query_payload_count <= kRayQueryPayloadWordCount,
+                     "Invalid ray-query payload capacity.");
+        call->setArgOperand(payload_count_arg, llvm::ConstantInt::get(i32, _ray_query_payload_count));
+        for (auto i = count; i < _ray_query_payload_count; i++) {
+            call->setArgOperand(payload_first_arg + i, llvm::ConstantInt::get(i32, 0u));
+        }
+    }
     for (auto procedural : {false, true}) {
         auto name = procedural ? "__intersection__ray_query" : "__anyhit__ray_query";
         auto function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(_llvm_context), false),

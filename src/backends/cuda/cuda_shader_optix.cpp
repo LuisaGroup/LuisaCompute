@@ -103,7 +103,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     static constexpr std::array ray_trace_payload_semantics{
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_CH_READ,
     };
-    LUISA_ASSERT(metadata.ray_query_payload_count == 2u || metadata.ray_query_payload_count == 32u,
+    LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
                  "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
     // Both ABIs pass captures from the caller to the candidate handlers. Mutable
     // references and query results are written through pointers, not payloads.
