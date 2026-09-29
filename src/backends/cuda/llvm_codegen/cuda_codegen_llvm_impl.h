@@ -178,6 +178,7 @@ private:
     struct RayQueryPipeline {
         const xir::RayQueryPipelineInst *inst;
         llvm::StructType *context_type;
+        bool surface_filter;
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;

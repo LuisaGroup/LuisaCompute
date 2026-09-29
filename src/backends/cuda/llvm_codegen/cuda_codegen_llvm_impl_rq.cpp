@@ -184,6 +184,98 @@ void validate_ray_query_handler(const xir::Function *function,
         }
     }
 }
+
+[[nodiscard]] bool ray_query_handler_is_empty(const xir::Function *function) noexcept {
+    if (function == nullptr) { return true; }
+    auto definition = function->definition();
+    if (definition == nullptr) { return false; }
+    auto return_count = 0u;
+    for (auto block : definition->basic_blocks()) {
+        for (auto inst : block->instructions()) {
+            if (inst->derived_instruction_tag() != xir::DerivedInstructionTag::RETURN ||
+                static_cast<const xir::ReturnInst *>(inst)->return_value() != nullptr) { return false; }
+            return_count++;
+        }
+    }
+    return return_count == 1u;
+}
+
+[[nodiscard]] bool ray_query_handler_is_surface_filter(const xir::Function *function, const xir::Value *query,
+                                                       llvm::DenseSet<const xir::Function *> &visited) noexcept {
+    if (function == nullptr) { return true; }
+    if (!visited.insert(function).second) { return false; }
+    auto definition = function->definition();
+    if (definition == nullptr) { return false; }
+    if (query != nullptr) {
+        // A cast, address calculation, store, or callable argument can expose
+        // query state through an alias. Keep such handlers on the general path.
+        for (auto use : query->use_list()) {
+            auto user = use->user();
+            if (user->derived_value_tag() != xir::DerivedValueTag::INSTRUCTION) { return false; }
+            auto inst = static_cast<const xir::Instruction *>(user);
+            if (inst->operand_count() != 1u || inst->operand(0) != query ||
+                (inst->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ &&
+                 inst->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE)) { return false; }
+        }
+    }
+    for (auto block : definition->basic_blocks()) {
+        for (auto inst : block->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                    if (query == nullptr || inst->operand(0) != query ||
+                        static_cast<const xir::RayQueryObjectReadInst *>(inst)->op() != xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT) { return false; }
+                    break;
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
+                    if (query == nullptr || inst->operand(0) != query ||
+                        static_cast<const xir::RayQueryObjectWriteInst *>(inst)->op() != xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE) { return false; }
+                    break;
+                case xir::DerivedInstructionTag::CALL:
+                    if (!ray_query_handler_is_surface_filter(static_cast<const xir::CallInst *>(inst)->callee(), nullptr, visited)) { return false; }
+                    break;
+                default: break;
+            }
+        }
+    }
+    visited.erase(function);
+    return true;
+}
+
+[[nodiscard]] bool ray_query_pipeline_is_surface_filter(const xir::RayQueryPipelineInst *pipeline) noexcept {
+    if (!ray_query_handler_is_empty(pipeline->on_procedural_function())) { return false; }
+    auto query = pipeline->query_object();
+    if (!query->isa<xir::AllocaInst>()) { return false; }
+    // Prove the caller's query cannot also reach a callback through a capture.
+    // Whole-query loads, derived addresses, and reference calls are conservative
+    // fallbacks; ordinary post-traversal query observations remain supported.
+    for (auto use : query->use_list()) {
+        auto user = use->user();
+        if (user->derived_value_tag() != xir::DerivedValueTag::INSTRUCTION) { return false; }
+        auto inst = static_cast<const xir::Instruction *>(user);
+        switch (inst->derived_instruction_tag()) {
+            case xir::DerivedInstructionTag::STORE:
+                if (static_cast<const xir::StoreInst *>(inst)->variable() != query ||
+                    static_cast<const xir::StoreInst *>(inst)->value() == query) { return false; }
+                break;
+            case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                if (inst->operand_count() != 1u || inst->operand(0) != query) { return false; }
+                break;
+            case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+                auto other = static_cast<const xir::RayQueryPipelineInst *>(inst);
+                if (other->query_object() != query) { return false; }
+                for (auto capture : other->captured_argument_uses()) {
+                    if (capture->value() == query) { return false; }
+                }
+                break;
+            }
+            default: return false;
+        }
+    }
+    auto surface = pipeline->on_surface_function();
+    if (surface == nullptr) { return true; }
+    if (surface->arguments().empty()) { return false; }
+    llvm::DenseSet<const xir::Function *> visited;
+    return ray_query_handler_is_surface_filter(surface, surface->arguments().front(), visited);
+}
 }// namespace
 
 void CUDACodegenLLVMImpl::_translate_ray_query_loop_inst(IB &, FunctionContext &, const xir::RayQueryLoopInst *) noexcept {
@@ -316,11 +408,14 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     llvm::SmallVector<llvm::Type *> field_types;
     for (auto field : fields) { field_types.emplace_back(field->getType()); }
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
-    _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type});
+    auto surface_filter = ray_query_pipeline_is_surface_filter(inst);
+    _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type, surface_filter});
     // Every pipeline shares the query pointer and id prefix. Captures either
     // occupy the remaining registers or live behind a generic context pointer.
     llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload;
-    pack_ray_query_payload(b, query, payload);
+    // A surface filter only needs AH-local acceptance state. Do not expose
+    // the caller's query storage to traversal in this case.
+    pack_ray_query_payload(b, surface_filter ? llvm::ConstantPointerNull::get(b.getPtrTy()) : query, payload);
     payload.emplace_back(b.getInt32(id));
     if (ray_query_uses_direct_payload(context_type, *_data_layout)) {
         for (auto i = context_capture_offset; i < fields.size(); i++) {
@@ -352,14 +447,61 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     auto ray = _load_ray_query_field(b, query, llvm_ray_query_type_ray_index);
     auto time = _load_ray_query_field(b, query, llvm_ray_query_type_time_index);
     auto mask = _load_ray_query_field(b, query, llvm_ray_query_type_mask_index);
-    // Observe opaque hits too, so the committed bound remains exact inside
-    // later callbacks. The AH entry preserves opacity by accepting those hits
-    // without invoking the user's surface callback.
-    auto flags = optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_ENFORCE_ANYHIT;
+    // General handlers observe the committed bound while traversing, so they
+    // must also track opaque hits. A pure surface filter cannot observe that
+    // state and can recover the final hardware result after traversal instead.
+    auto flags = static_cast<uint32_t>(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
+    if (!surface_filter) { flags |= optix::RAY_FLAG_ENFORCE_ANYHIT; }
     if (inst->query_object()->type() == Type::of<RayQueryAny>()) {
         flags |= optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT;
     }
     _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
+    if (surface_filter) {
+        auto function = b.GetInsertBlock()->getParent();
+        auto hit_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.hit", function);
+        auto merge_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.result", function);
+        auto is_hit = _call_optix_hit_object_is_hit(b);
+        // Hit-object attributes are only defined for an actual hit of the
+        // corresponding primitive kind. A select cannot guard those getters.
+        b.CreateCondBr(is_hit, hit_block, merge_block);
+        b.SetInsertPoint(hit_block);
+        llvm::Value *bary;
+        if (_rt_analysis.curve_basis_set.any()) {
+            auto kind = _call_optix_hit_object_hit_kind(b);
+            auto triangle = b.CreateOr(b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_FRONT_FACE)),
+                                       b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_BACK_FACE)));
+            auto triangle_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.triangle", function);
+            auto curve_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.curve", function);
+            auto bary_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.bary", function);
+            b.CreateCondBr(triangle, triangle_block, curve_block);
+            b.SetInsertPoint(triangle_block);
+            auto triangle_bary = _call_optix_hit_object_triangle_barycentrics(b);
+            b.CreateBr(bary_block);
+            b.SetInsertPoint(curve_block);
+            auto curve_bary = _create_llvm_vector(b, {_call_optix_hit_object_curve_parameter(b),
+                                                      llvm::ConstantFP::get(b.getFloatTy(), -1.)});
+            b.CreateBr(bary_block);
+            b.SetInsertPoint(bary_block);
+            auto bary_phi = b.CreatePHI(triangle_bary->getType(), 2u);
+            bary_phi->addIncoming(triangle_bary, triangle_block);
+            bary_phi->addIncoming(curve_bary, curve_block);
+            bary = bary_phi;
+        } else {
+            bary = _call_optix_hit_object_triangle_barycentrics(b);
+        }
+        auto t = _call_optix_hit_object_ray_t_max(b);
+        auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
+        hit = b.CreateInsertValue(hit, _call_optix_hit_object_instance_index(b), llvm_committed_hit_type_inst_id_index);
+        hit = b.CreateInsertValue(hit, _call_optix_hit_object_primitive_index(b), llvm_committed_hit_type_prim_id_index);
+        hit = b.CreateInsertValue(hit, bary, llvm_committed_hit_type_bary_index);
+        hit = b.CreateInsertValue(hit, b.getInt32(static_cast<uint32_t>(HitType::Surface)), llvm_committed_hit_type_hit_kind_index);
+        hit = b.CreateInsertValue(hit, t, llvm_committed_hit_type_t_index);
+        _store_ray_query_field(b, query, llvm_ray_query_type_hit_index, hit);
+        _store_ray_query_field(b, query, llvm_ray_query_type_ray_index,
+                               b.CreateInsertValue(ray, t, llvm_ray_type_t_max_index));
+        b.CreateBr(merge_block);
+        b.SetInsertPoint(merge_block);
+    }
     // Explicit commits are authoritative. OptiX's terminating intersection may
     // be synthetic when terminate() is used without accepting the candidate.
     _call_optix_hit_object_reset(b);
@@ -397,35 +539,8 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.SetInsertPoint(surface);
         }
         auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
-        auto prefix_word_index = 0u;
-        auto query = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, prefix_word_index);
-        auto id = unpack_ray_query_payload(b, b.getInt32Ty(), get_payload, prefix_word_index);
-        if (!procedural) {
-            _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
-            _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_surface_candidate));
-            auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
-            auto instance = _get_accel_instance_pointer(b, accel, _call_optix_read_instance_index(b));
-            auto flags = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(_get_llvm_accel_instance_type(), instance, llvm_accel_instance_type_flags_index));
-            auto opaque = b.CreateICmpEQ(b.CreateAnd(flags, b.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT)), b.getInt32(0));
-            auto accept_opaque = llvm::BasicBlock::Create(_llvm_context, "opaque", function);
-            b.CreateCondBr(opaque, accept_opaque, dispatch);
-            b.SetInsertPoint(accept_opaque);
-            _commit_ray_query_hit(b, query, _call_optix_get_hit_distance(b), false);
-            b.CreateBr(finish);
-        } else {
-            _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
-            _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_procedural_candidate));
-            b.CreateBr(dispatch);
-        }
-        b.SetInsertPoint(dispatch);
-        auto invalid = llvm::BasicBlock::Create(_llvm_context, "invalid.context", function);
-        auto select = b.CreateSwitch(id, invalid, static_cast<unsigned>(_ray_query_pipelines.size()));
-        for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
-            auto &&pipeline = _ray_query_pipelines[i];
-            auto block = llvm::BasicBlock::Create(_llvm_context, "pipeline." + std::to_string(i), function);
-            select->addCase(b.getInt32(i), block);
-            b.SetInsertPoint(block);
-            auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
+        auto id = b.CreateCall(get_payload, {b.getInt32(2u)});
+        auto emit_callback = [&](const RayQueryPipeline &pipeline, const xir::Function *callback, llvm::Value *query) noexcept {
             if (callback != nullptr) {
                 auto callee = _get_or_declare_llvm_function(callback);
                 LUISA_ASSERT(callee->arg_size() == pipeline.inst->captured_argument_count() + 3u,
@@ -451,6 +566,89 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 auto call = b.CreateCall(callee, args);
                 call->setCallingConv(callee->getCallingConv());
             }
+        };
+        auto surface_filter_count = 0u;
+        for (auto &&pipeline : _ray_query_pipelines) {
+            surface_filter_count += pipeline.surface_filter ? 1u : 0u;
+        }
+        if (surface_filter_count != 0u) {
+            auto general = llvm::BasicBlock::Create(_llvm_context, "general.query", function);
+            auto select_filter = b.CreateSwitch(id, general, surface_filter_count);
+            for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+                auto &&pipeline = _ray_query_pipelines[i];
+                if (!pipeline.surface_filter) { continue; }
+                auto filter = llvm::BasicBlock::Create(_llvm_context, "surface.filter." + std::to_string(i), function);
+                select_filter->addCase(b.getInt32(i), filter);
+                b.SetInsertPoint(filter);
+                if (procedural) {
+                    // Qualification proves this outlined callback is empty.
+                    b.CreateBr(exit);
+                    continue;
+                }
+                // The ordinary callback can also serve general queries. Give
+                // this invocation private state and let inlining/SROA retain
+                // only its acceptance flag. Captured references are unchanged.
+                IB alloca_b{entry, entry->begin()};
+                auto local_query = alloca_b.CreateAlloca(_get_llvm_ray_query_type(), nullptr, "surface.filter.query");
+                b.CreateStore(llvm::Constant::getNullValue(_get_llvm_ray_query_type()), local_query);
+                _store_ray_query_field(b, local_query, llvm_ray_query_type_ray_index, _call_optix_get_world_space_ray(b));
+                auto query_arg = local_query->getAddressSpace() == 0u ? static_cast<llvm::Value *>(local_query) :
+                                                                        b.CreateAddrSpaceCast(local_query, b.getPtrTy());
+                emit_callback(pipeline, pipeline.inst->on_surface_function(), query_arg);
+                auto accepted = _load_ray_query_field(b, local_query, llvm_ray_query_type_committed_index);
+                auto ignore_filter = llvm::BasicBlock::Create(_llvm_context, "surface.filter.ignore", function);
+                b.CreateCondBr(accepted, exit, ignore_filter);
+                b.SetInsertPoint(ignore_filter);
+                _call_optix_ignore_intersection(b);
+                b.CreateRetVoid();
+            }
+            b.SetInsertPoint(general);
+            if (surface_filter_count == _ray_query_pipelines.size()) {
+                b.CreateUnreachable();
+                dispatch->eraseFromParent();
+                finish->eraseFromParent();
+                b.SetInsertPoint(terminate);
+                if (procedural) {
+                    b.CreateUnreachable();
+                } else {
+                    _call_optix_terminate_ray(b);
+                    b.CreateRetVoid();
+                }
+                b.SetInsertPoint(exit);
+                b.CreateRetVoid();
+                continue;
+            }
+        }
+        auto prefix_word_index = 0u;
+        auto query = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, prefix_word_index);
+        if (!procedural) {
+            _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
+            _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_surface_candidate));
+            auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
+            auto instance = _get_accel_instance_pointer(b, accel, _call_optix_read_instance_index(b));
+            auto flags = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(_get_llvm_accel_instance_type(), instance, llvm_accel_instance_type_flags_index));
+            auto opaque = b.CreateICmpEQ(b.CreateAnd(flags, b.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT)), b.getInt32(0));
+            auto accept_opaque = llvm::BasicBlock::Create(_llvm_context, "opaque", function);
+            b.CreateCondBr(opaque, accept_opaque, dispatch);
+            b.SetInsertPoint(accept_opaque);
+            _commit_ray_query_hit(b, query, _call_optix_get_hit_distance(b), false);
+            b.CreateBr(finish);
+        } else {
+            _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
+            _store_ray_query_field(b, query, llvm_ray_query_type_state_index, b.getInt8(llvm_ray_query_state_procedural_candidate));
+            b.CreateBr(dispatch);
+        }
+        b.SetInsertPoint(dispatch);
+        auto invalid = llvm::BasicBlock::Create(_llvm_context, "invalid.context", function);
+        auto select = b.CreateSwitch(id, invalid, static_cast<unsigned>(_ray_query_pipelines.size()));
+        for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+            auto &&pipeline = _ray_query_pipelines[i];
+            if (pipeline.surface_filter) { continue; }
+            auto block = llvm::BasicBlock::Create(_llvm_context, "pipeline." + std::to_string(i), function);
+            select->addCase(b.getInt32(i), block);
+            b.SetInsertPoint(block);
+            auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
+            emit_callback(pipeline, callback, query);
             b.CreateBr(finish);
         }
         b.SetInsertPoint(invalid);

@@ -392,6 +392,114 @@ struct Options {
     return true;
 }
 
+[[nodiscard]] bool run_surface_filter_queries(Device &device, Stream &stream, const Mesh &mesh) {
+    constexpr auto ray_count = 68u;
+    Kernel1D kernel = [](AccelVar scene, UInt opaque_mask, BufferUInt4 hits,
+                        BufferUInt4 captures, BufferFloat4 distances) noexcept {
+        auto lane = dispatch_id().x;
+        UInt accept_mask = lane & 3u;
+        Float x = (lane % 17u).cast<float>() * (1.0f / 32.0f) - 0.25f;
+        auto ray = make_ray(make_float3(x, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+        for (auto any : {false, true}) {
+            // Initialize captures before constructing the query: traversal is
+            // recorded when its DSL expression is created. OR tolerates a
+            // backend visiting a split primitive more than once.
+            UInt seen = 0u;
+            UInt accepted = 0u;
+            UInt invalid = 0u;
+            UInt stamp = lane & 255u;
+            auto filter = [&](auto &candidate) noexcept {
+                auto h = candidate.hit();
+                $if (h.inst > 1u | h.prim != 0u) {
+                    invalid |= 1u;
+                }
+                $else {
+                    UInt bit = 1u << h.inst;
+                    seen |= bit;
+                    stamp |= bit << 8u;
+                    $if ((opaque_mask & bit) != 0u |
+                         abs(h.bary.x - (0.25f + x * 0.25f)) > 1e-5f |
+                         abs(h.bary.y - 0.5f) > 1e-5f) {
+                        invalid |= 2u;
+                    };
+                    $if ((accept_mask & bit) != 0u) {
+                        accepted |= bit;
+                        candidate.commit();
+                    };
+                };
+            };
+            auto hit = any ? scene.traverse_any(ray, {}).on_surface_candidate(filter).trace() :
+                             scene.traverse(ray, {}).on_surface_candidate(filter).trace();
+            auto index = lane * 2u + static_cast<uint>(any);
+            hits.write(index, make_uint4(hit->hit_type, hit->inst, hit->prim, accept_mask));
+            captures.write(index, make_uint4(seen, accepted, invalid, stamp));
+            distances.write(index, make_float4(hit->bary, hit->committed_ray_t, x));
+        }
+    };
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+    auto hits = device.create_buffer<uint4>(ray_count * 2u);
+    auto captures = device.create_buffer<uint4>(ray_count * 2u);
+    auto distances = device.create_buffer<float4>(ray_count * 2u);
+    luisa::vector<uint4> host_hits(hits.size());
+    luisa::vector<uint4> host_captures(captures.size());
+    luisa::vector<float4> host_distances(distances.size());
+    for (auto opaque_mask = 0u; opaque_mask < 4u; opaque_mask++) {
+        auto scene = device.create_accel();
+        scene.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, 0.25f)), 0xffu, (opaque_mask & 1u) != 0u);
+        scene.emplace_back(mesh, make_float4x4(1.0f), 0xffu, (opaque_mask & 2u) != 0u);
+        stream << scene.build()
+               << shader(scene, opaque_mask, hits, captures, distances).dispatch(ray_count)
+               << hits.copy_to(host_hits.data())
+               << captures.copy_to(host_captures.data())
+               << distances.copy_to(host_distances.data())
+               << synchronize();
+        auto correct = true;
+        for (auto lane = 0u; lane < ray_count; lane++) {
+            auto accept_mask = lane & 3u;
+            auto eligible_mask = accept_mask | opaque_mask;
+            for (auto any = 0u; any < 2u; any++) {
+                auto index = lane * 2u + any;
+                auto h = host_hits[index];
+                auto c = host_captures[index];
+                auto d = host_distances[index];
+                auto expected_x = static_cast<float>(lane % 17u) / 32.0f - 0.25f;
+                auto valid = c.z == 0u && (c.x & ~3u) == 0u && (c.x & opaque_mask) == 0u &&
+                             c.y == (c.x & accept_mask) && c.w == ((lane & 255u) | (c.x << 8u)) &&
+                             h.w == accept_mask && d.w == expected_x;
+                if (eligible_mask == 0u) {
+                    valid = valid && h.x == static_cast<uint>(HitType::Miss) && c.x == 3u;
+                } else {
+                    auto expected_closest = (eligible_mask & 1u) != 0u ? 0u : 1u;
+                    auto valid_instance = h.y < 2u && (eligible_mask & (1u << h.y)) != 0u;
+                    valid = valid && h.x == static_cast<uint>(HitType::Surface) && valid_instance && h.z == 0u;
+                    if (valid_instance) {
+                        auto bit = 1u << h.y;
+                        valid = valid && (any != 0u || h.y == expected_closest) &&
+                                ((opaque_mask & bit) != 0u || (c.y & bit) != 0u) &&
+                                std::abs(d.x - (0.25f + expected_x * 0.25f)) <= 1e-5f &&
+                                std::abs(d.y - 0.5f) <= 1e-5f &&
+                                std::abs(d.z - (h.y == 0u ? 0.75f : 1.0f)) <= 1e-5f;
+                    }
+                    // Rejecting the nearer surface cannot hide it from a
+                    // closest query that eventually commits the farther one.
+                    if (any == 0u && opaque_mask == 0u && accept_mask == 2u) {
+                        valid = valid && c.x == 3u;
+                    }
+                }
+                if (!valid) {
+                    LUISA_WARNING("Surface filter mismatch: opaque={}, lane={}, any={}, hit=({}, {}, {}), captures=({}, {}, {}, {}), bary/t=({}, {}, {}).",
+                                  opaque_mask, lane, any, h.x, h.y, h.z, c.x, c.y, c.z, c.w, d.x, d.y, d.z);
+                    correct = false;
+                }
+            }
+        }
+        expect(correct) << "surface filtering preserves closest/any hits, opaque traversal and captured writes";
+        if (!correct) { return false; }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run(Device &device, const Options &options) {
     constexpr auto query_count = 5u;
     auto stream = device.create_stream();
@@ -608,6 +716,7 @@ struct Options {
         if (!validate()) { return false; }
     }
     if (!options.benchmark) {
+        if (!run_surface_filter_queries(device, stream, mesh)) { return false; }
         return run_payload_capture_boundary(device, stream, surface_scene, procedural_scene);
     }
 
