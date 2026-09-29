@@ -955,6 +955,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // codegen
     StringScratch scratch;
     luisa::function<luisa::string()> generate_ptx;
+    bool uses_cuda_printf = false;
     // In fallback mode a ray-tracing kernel is an ordinary compute kernel whose
     // traversal lives in `cuda_device_fallback_rtx.h`, so the source is compiled
     // with `kernel_main` and the fallback traversal instead of with OptiX.  The
@@ -973,7 +974,12 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto print_formats = [&] {
 #ifdef LUISA_ENABLE_XIR
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
-        if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN) {
+        if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN &&
+            !LUISA_USE_EXPERIMENTAL_XIR_CODEGEN &&
+            !kernel.requires_autodiff()) {
+            // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. Do not
+            // expose the legacy LCPrintBuffer binding to this code path.
+            uses_cuda_printf = true;
             if (_use_fallback_rtx && kernel.requires_raytracing()) {
                 LUISA_ERROR_WITH_LOCATION(
                     "The experimental LLVM code generator has no software "
@@ -1143,7 +1149,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
                               kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
-        .requires_printing = kernel.requires_printing(),
+        .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),
@@ -1159,8 +1165,9 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
-        .format_types = [&fmt = print_formats] {
+        .format_types = [&fmt = print_formats, uses_cuda_printf] {
             luisa::vector<std::pair<luisa::string, luisa::string>> t;
+            if (uses_cuda_printf) { return t; }
             t.reserve(fmt.size());
             for (auto &&[name, type] : fmt) {
                 t.emplace_back(name, type->description());
