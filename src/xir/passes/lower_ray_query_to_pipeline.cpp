@@ -4,8 +4,10 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
@@ -40,6 +42,8 @@ namespace detail {
 
 struct LowerRayQueryToPipelineRunInfo : LowerRayQueryToPipelineInfo {
     size_t localized_alloca_count{0u};
+    size_t rematerialized_input_capture_count{0u};
+    size_t rematerialized_input_capture_bytes{0u};
     size_t selection_localization_analysis_count{0u};
     size_t handler_localization_instruction_evaluation_count{0u};
     size_t handler_localization_analysis_count{0u};
@@ -451,7 +455,80 @@ struct RayQueryLoopCaptureList {
     // values that are defined inside the loop but used outside, which we
     // must create variables for passing them out of the loop
     luisa::vector<Instruction *> out_values;
+    // Cheap, total value computations recreated from the remaining captures
+    // in each callback that needs them. This never introduces a new capture.
+    luisa::unordered_set<Instruction *> rematerialized_in_values;
 };
+
+[[nodiscard]] static bool is_cheap_rematerializable_capture(Instruction *inst) noexcept {
+    if (inst->is_lvalue() || !get_memory_info(inst).is_pure()) { return false; }
+    if (inst->isa<CastInst>()) {
+        return static_cast<CastInst *>(inst)->op() == CastOp::BITWISE_CAST;
+    }
+    if (!inst->isa<ArithmeticInst>()) { return false; }
+    auto op = static_cast<ArithmeticInst *>(inst)->op();
+    if (!is_arithmetic_op_safe_to_speculate(op)) { return false; }
+    // This is a profitability filter, not a separate purity model. Repeating
+    // transcendental or matrix operations for every candidate can cost much
+    // more than retaining their result across traversal.
+    switch (op) {
+        case ArithmeticOp::UNARY_MINUS:
+        case ArithmeticOp::UNARY_BIT_NOT:
+        case ArithmeticOp::BINARY_ADD:
+        case ArithmeticOp::BINARY_SUB:
+        case ArithmeticOp::BINARY_MUL:
+        case ArithmeticOp::BINARY_BIT_AND:
+        case ArithmeticOp::BINARY_BIT_OR:
+        case ArithmeticOp::BINARY_BIT_XOR:
+        case ArithmeticOp::BINARY_LESS:
+        case ArithmeticOp::BINARY_GREATER:
+        case ArithmeticOp::BINARY_LESS_EQUAL:
+        case ArithmeticOp::BINARY_GREATER_EQUAL:
+        case ArithmeticOp::BINARY_EQUAL:
+        case ArithmeticOp::BINARY_NOT_EQUAL:
+        case ArithmeticOp::SELECT:
+        case ArithmeticOp::AGGREGATE: return true;
+        default: return false;
+    }
+}
+
+static void rematerialize_ray_query_input_captures(
+    RayQueryLoopCaptureList &captures,
+    LowerRayQueryToPipelineRunInfo &info) noexcept {
+    luisa::unordered_set<Value *> available;
+    available.insert(captures.in_values.begin(), captures.in_values.end());
+    for (auto *value : captures.in_values) {
+        if (!value->isa<Instruction>()) { continue; }
+        auto *inst = static_cast<Instruction *>(value);
+        if (!is_cheap_rematerializable_capture(inst)) { continue; }
+        auto inputs_available = true;
+        for (auto &&use : inst->operand_uses()) {
+            auto *operand = use->value();
+            // Keep memory snapshots as captured SSA values. Never reread a
+            // load, query state, clock, or a reference during rematerialization.
+            // Undef and special registers are not stable captured snapshots.
+            if (operand == nullptr || operand->is_lvalue() ||
+                (!operand->isa<Constant>() && !available.contains(operand))) {
+                inputs_available = false;
+                break;
+            }
+        }
+        if (inputs_available) { captures.rematerialized_in_values.emplace(inst); }
+    }
+    if (!captures.rematerialized_in_values.empty()) {
+        info.rematerialized_input_capture_count += captures.rematerialized_in_values.size();
+        for (auto *inst : captures.rematerialized_in_values) {
+            info.rematerialized_input_capture_bytes += inst->type()->size();
+        }
+        captures.in_values.erase(
+            std::remove_if(captures.in_values.begin(), captures.in_values.end(),
+                           [&](Value *value) noexcept {
+                               return value->isa<Instruction>() &&
+                                      captures.rematerialized_in_values.contains(static_cast<Instruction *>(value));
+                           }),
+            captures.in_values.end());
+    }
+}
 
 struct RayQueryHandlerLocalAllocas {
     luisa::vector<AllocaInst *> surface;
@@ -1565,6 +1642,28 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
         LUISA_ASSERT(resolver.emplace(original, local),
                      "Duplicate localized ray-query handler alloca.");
     }
+    // Recreate only the DAG needed by this candidate kind, in dependency order.
+    // Every input is an immutable SSA snapshot already in the shared capture
+    // ABI, a constant, or another selected computation. Moving these total,
+    // side-effect-free instructions to entry cannot observe candidate state,
+    // introduce an invalid speculative operation, or change aliasing.
+    auto materialize_capture = [&](auto &&self, Value *value) noexcept -> void {
+        if (value == nullptr || !value->isa<Instruction>() ||
+            resolver.resolve_or_null(value) != nullptr) { return; }
+        auto *inst = static_cast<Instruction *>(value);
+        if (!capture_list.rematerialized_in_values.contains(inst)) { return; }
+        for (auto &&use : inst->operand_uses()) { self(self, use->value()); }
+        auto *local = inst->clone_with_metadata(local_builder, resolver);
+        LUISA_ASSERT(resolver.emplace(inst, local),
+                     "Duplicate rematerialized ray-query input capture.");
+    };
+    for (auto *block : subgraph.reverse_post_order) {
+        for (auto *inst : block->instructions()) {
+            for (auto &&use : inst->operand_uses()) {
+                materialize_capture(materialize_capture, use->value());
+            }
+        }
+    }
     // duplicate the blocks
     luisa::vector<BasicBlock *> return_blocks;
     luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
@@ -1637,6 +1736,7 @@ static void lower_ray_query_to_pipeline(
             capture_list.in_values.end());
         info.localized_alloca_count += local_allocas.all.size();
     }
+    rematerialize_ray_query_input_captures(capture_list, info);
     auto merge_block = loop->control_flow_merge()->merge_block();
     LUISA_DEBUG_ASSERT(dispatch->exit_block() == merge_block, "Invalid ray query loop exit block.");
     LUISA_DEBUG_ASSERT(function->parent_module() != nullptr, "Invalid function module.");
@@ -1939,6 +2039,8 @@ lower_ray_query_to_pipeline_pass_run_on_module(
         report->set(
             "lowered_ray_query_to_pipeline", info.lowered_loop_count);
         report->set("error", info.error_count);
+        report->set("rematerialized_input_capture", info.rematerialized_input_capture_count);
+        report->set("rematerialized_input_capture_bytes", info.rematerialized_input_capture_bytes);
         report->set("selection_localization_analysis",
                     info.selection_localization_analysis_count);
         report->set(

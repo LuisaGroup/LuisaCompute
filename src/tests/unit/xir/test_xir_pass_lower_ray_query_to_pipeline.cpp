@@ -10,8 +10,12 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/clock.h>
+#include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
@@ -19,7 +23,9 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -430,6 +436,267 @@ void register_tests() {
             expect(value_argument->type() == Type::of<int>());
         }
         expect(count_functions(m) == 3u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "normalized_query_rematerializes_capture_dag_in_dependency_order"_test = [] {
+        for (auto both_handlers : {false, true}) {
+            Module m;
+            auto f = make_fixture(m);
+            auto *input = f.kernel->create_value_argument(Type::of<int>());
+            XIRBuilder b;
+            b.set_insertion_point(f.loop->prev());
+            auto *one = m.create_constant_one(Type::of<int>());
+            auto *scaled = b.call(Type::of<int>(), ArithmeticOp::BINARY_MUL, {input, one});
+            scaled->set_name("rematerialized_scaled");
+            auto *offset = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {scaled, one});
+            offset->set_name("rematerialized_offset");
+            auto *bits = b.bit_cast_(Type::of<uint>(), offset);
+            bits->set_name("rematerialized_bits");
+            b.set_insertion_point(f.surface);
+            // Reverse dependency order deliberately differs from capture order.
+            b.print("{} {} {} {}", {bits, offset, scaled, input});
+            b.br(f.dispatch);
+            if (both_handlers) {
+                b.set_insertion_point(f.procedural->terminator()->prev());
+                b.print("{} {} {} {}", {bits, offset, scaled, input});
+            }
+            expect(xir_verify_module(&m).succeeded());
+
+            // The shared normalization route must preserve capture dependencies
+            // through proceed-shell reconstruction, before callback outlining.
+            auto to_loop = lower_ray_query_to_loop_pass_run_on_function(f.kernel);
+            expect(to_loop.succeeded());
+            expect(to_loop.lowered_ray_query_loop_count == 1u);
+            auto reconstructed = reconstruct_ray_query_loop_pass_run_on_function(f.kernel);
+            expect(reconstructed.succeeded());
+            expect(reconstructed.reconstructed_ray_query_loop_count == 1u);
+            expect(xir_verify_module(&m).succeeded());
+            PassReport report;
+            auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m, &report);
+            expect(info.succeeded());
+            expect(info.lowered_loop_count == 1u);
+            expect(report_value(report, "rematerialized_input_capture") == 3u);
+            expect(report_value(report, "rematerialized_input_capture_bytes") == 12u);
+
+            RayQueryPipelineInst *pipeline = nullptr;
+            f.body->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->isa<RayQueryPipelineInst>()) {
+                    pipeline = static_cast<RayQueryPipelineInst *>(inst);
+                }
+            });
+            expect(pipeline != nullptr);
+            if (pipeline == nullptr) { return; }
+            expect(pipeline->captured_argument_count() == 1u);
+            expect(pipeline->captured_argument(0u) == input);
+            auto *surface = pipeline->on_surface_function();
+            auto *procedural = pipeline->on_procedural_function();
+            expect(surface->arguments().count_size() == 2u);
+            expect(procedural->arguments().count_size() == 2u);
+            Instruction *local_scaled = nullptr;
+            Instruction *local_offset = nullptr;
+            Instruction *local_bits = nullptr;
+            surface->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->name() == "rematerialized_scaled") { local_scaled = inst; }
+                if (inst->name() == "rematerialized_offset") { local_offset = inst; }
+                if (inst->name() == "rematerialized_bits") { local_bits = inst; }
+            });
+            expect(local_scaled != nullptr && local_offset != nullptr && local_bits != nullptr);
+            if (local_scaled != nullptr && local_offset != nullptr && local_bits != nullptr) {
+                expect(local_scaled->operand(0u) == surface->arguments().back());
+                expect(local_offset->operand(0u) == local_scaled);
+                expect(local_bits->operand(0u) == local_offset);
+                expect(local_scaled->next() == local_offset);
+                expect(local_offset->next() == local_bits);
+            }
+            // Each callback has its own resolver and entry values. An empty
+            // candidate kind shares the ABI but needs none of the DAG.
+            expect(procedural->definition()->body_block()->instructions().count_size() ==
+                   (both_handlers ? 5u : 1u));
+            procedural->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->name() == "rematerialized_scaled") {
+                    expect(inst != local_scaled);
+                    expect(inst->operand(0u) == procedural->arguments().back());
+                }
+            });
+            expect(xir_verify_module(&m).succeeded());
+            auto second = lower_ray_query_to_pipeline_pass_run_on_module(&m, &report);
+            expect(second.succeeded());
+            expect(second.lowered_loop_count == 0u);
+            expect(report_value(report, "rematerialized_input_capture") == 0u);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "capture_rematerialization_preserves_snapshots_and_candidate_state"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<int>());
+        b.set_insertion_point(f.loop->prev());
+        auto *state = b.alloca_local(Type::of<int>());
+        b.store(state, one);
+        auto *snapshot = b.load(Type::of<int>(), state);
+        auto *derived = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {snapshot, one});
+        derived->set_name("rematerialized_snapshot_plus_one");
+        auto *query_snapshot = b.call(Type::of<bool>(),
+                                     RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {f.query});
+        auto *clock_snapshot = b.clock();
+        b.set_insertion_point(f.surface);
+        // An incoming counter is observable on every candidate iteration and
+        // must remain the same reference, even when arithmetic is rematerialized.
+        auto *previous = b.load(Type::of<int>(), state);
+        b.store(state, b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {previous, one}));
+        b.print("{} {} {} {}", {derived, snapshot, query_snapshot, clock_snapshot});
+        b.br(f.dispatch);
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m, &report);
+        expect(info.succeeded());
+        expect(report_value(report, "rematerialized_input_capture") == 1u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline == nullptr) { return; }
+        expect(pipeline->captured_argument_count() == 4u);
+        auto captures = [&](const Value *value) noexcept {
+            for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+                if (pipeline->captured_argument(i) == value) { return true; }
+            }
+            return false;
+        };
+        expect(captures(state));
+        expect(captures(snapshot));
+        expect(captures(query_snapshot));
+        expect(captures(clock_snapshot));
+        auto *surface = pipeline->on_surface_function();
+        auto loads = 0u;
+        surface->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+            loads += inst->isa<LoadInst>() ? 1u : 0u;
+            expect(!inst->isa<RayQueryObjectReadInst>());
+            expect(!inst->isa<ClockInst>());
+            if (inst->name() == "rematerialized_snapshot_plus_one") {
+                // It consumes the frozen value argument, never the mutable ref.
+                expect(inst->operand(0u)->isa<ValueArgument>());
+            }
+        });
+        expect(loads == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_rematerialization_does_not_expand_inputs_or_speculate_unsafe_ops"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *numerator = f.kernel->create_value_argument(Type::of<int>());
+        auto *denominator = f.kernel->create_value_argument(Type::of<int>());
+        auto *uncaptured = f.kernel->create_value_argument(Type::of<int>());
+        auto *angle = f.kernel->create_value_argument(Type::of<float>());
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *division = b.call(Type::of<int>(), ArithmeticOp::BINARY_DIV, {numerator, denominator});
+        auto *shift = b.call(Type::of<int>(), ArithmeticOp::BINARY_SHIFT_LEFT, {numerator, denominator});
+        auto *expensive = b.call(Type::of<float>(), ArithmeticOp::SIN, {angle});
+        auto *conversion = b.static_cast_(Type::of<int>(), angle);
+        auto *unavailable_input = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {uncaptured, one});
+        b.set_insertion_point(f.surface);
+        b.print("{} {} {} {} {} {} {} {}",
+                {division, shift, expensive, conversion, unavailable_input, numerator, denominator, angle});
+        b.br(f.dispatch);
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m, &report);
+        expect(info.succeeded());
+        expect(report_value(report, "rematerialized_input_capture") == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        f.body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            expect(pipeline->captured_argument_count() == 8u);
+            for (auto i = 0u; i < pipeline->captured_argument_count(); ++i) {
+                expect(pipeline->captured_argument(i) != uncaptured);
+            }
+            pipeline->on_surface_function()->definition()->traverse_instructions(
+                [&](Instruction *inst) noexcept {
+                    expect(!inst->isa<ArithmeticInst>());
+                    expect(!inst->isa<CastInst>());
+                });
+        }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_rematerialization_preserves_phi_and_aliasing_gep_references"_test = [] {
+        Module m;
+        auto f = make_fixture(m);
+        auto *condition = f.kernel->create_value_argument(Type::of<bool>());
+        auto *left = f.kernel->create_basic_block();
+        auto *right = f.kernel->create_basic_block();
+        auto *join = f.kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(f.loop->prev());
+        auto *state = b.alloca_local(Type::of<int2>());
+        b.store(state, m.create_constant_zero(Type::of<int2>()));
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *field = b.gep(Type::of<int>(), state, {zero});
+        auto detached_loop = f.loop->remove_self();
+        b.set_insertion_point(f.body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(join);
+        b.set_insertion_point(right);
+        b.br(join);
+        b.set_insertion_point(join);
+        auto *selected = b.phi(Type::of<int>());
+        selected->add_incoming(one, left);
+        selected->add_incoming(zero, right);
+        b.append(std::move(detached_loop));
+        b.set_insertion_point(f.surface);
+        auto *before = b.load(Type::of<int2>(), state);
+        b.store(field, selected);
+        b.print("{} {}", {before, b.load(Type::of<int>(), field)});
+        b.br(f.dispatch);
+        b.set_insertion_point(f.merge->terminator()->prev());
+        b.print("{}", {b.load(Type::of<int2>(), state)});
+        expect(xir_verify_module(&m).succeeded());
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(&m, &report);
+        expect(info.succeeded());
+        expect(report_value(report, "rematerialized_input_capture") == 0u);
+        RayQueryPipelineInst *pipeline = nullptr;
+        join->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                pipeline = static_cast<RayQueryPipelineInst *>(inst);
+            }
+        });
+        expect(pipeline != nullptr);
+        if (pipeline != nullptr) {
+            expect(pipeline->captured_argument_count() == 3u);
+            auto *callback = pipeline->on_surface_function();
+            auto argument = callback->arguments().begin();
+            ++argument;// query object precedes the captures
+            for (auto i = 0u; i < pipeline->captured_argument_count(); ++i, ++argument) {
+                auto *captured = pipeline->captured_argument(i);
+                expect(captured == state || captured == field || captured == selected);
+                expect((*argument)->is_reference() == (captured != selected));
+            }
+            callback->definition()->traverse_instructions([&](Instruction *inst) noexcept {
+                expect(!inst->isa<GEPInst>());
+                expect(!inst->isa<PhiInst>());
+            });
+        }
+        expect(selected->is_linked());
+        expect(selected->incoming_count() == 2u);
+        expect(selected->incoming(0u).block == left);
+        expect(selected->incoming(1u).block == right);
         expect(xir_verify_module(&m).succeeded());
     };
 

@@ -47,6 +47,15 @@ class RayQueryPipelineInst;
 //
 // Note: to minimize the number of captured arguments, this pass should be run
 // after other optimization passes. A DCE pass is also recommended after this pass.
+// Native proceed loops must first be normalized by reconstruct_ray_query_loop
+// before mem2reg, while its canonical frontend guard is still available.
+// Selected pipelines rematerialize cheap, total pure expressions whose inputs
+// are constants or already captured SSA values. This reduces persistent context
+// without adding captures, rereading mutable state, or copying references.
+// Handler-local scratch is separately proven definitely initialized on every
+// invocation. Stateful query operations, loads, PHIs, and escaping/cross-candidate
+// storage are not rematerialized. Capture filters and budgets stay conservative
+// and are evaluated before this expression rematerialization.
 
 struct LowerRayQueryToPipelineInfo {
     size_t lowered_loop_count{0u};
