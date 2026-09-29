@@ -8,6 +8,7 @@ boundaries; they do not replace the user-facing programming guides.
 :maxdepth: 1
 
 ../architecture
+cuda_optix_ir
 tile/index
 ../coro_suspend_extensions
 ../coro_shared_callables

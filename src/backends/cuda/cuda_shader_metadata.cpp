@@ -7,6 +7,32 @@
 
 namespace luisa::compute::cuda {
 
+bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
+                                      CUDAShaderMetadata::CodeFormat format) noexcept {
+    if (code.empty()) { return false; }
+    auto read_u32 = [&code](size_t offset) noexcept {
+        return std::to_integer<uint32_t>(code[offset]) |
+               (std::to_integer<uint32_t>(code[offset + 1u]) << 8u) |
+               (std::to_integer<uint32_t>(code[offset + 2u]) << 16u) |
+               (std::to_integer<uint32_t>(code[offset + 3u]) << 24u);
+    };
+    auto has_optix_ir_magic = code.size() >= 4u && read_u32(0u) == 0x7f4e43edu;
+    if (format == CUDAShaderMetadata::CodeFormat::PTX) { return !has_optix_ir_magic; }
+    if (format != CUDAShaderMetadata::CodeFormat::OPTIX_IR ||
+        !has_optix_ir_magic || code.size() < 24u) { return false; }
+    auto read_u16 = [&code](size_t offset) noexcept {
+        return std::to_integer<uint32_t>(code[offset]) |
+               (std::to_integer<uint32_t>(code[offset + 1u]) << 8u);
+    };
+    auto header_size = read_u16(12u);
+    auto ir_level = read_u16(14u);
+    auto scalar_fields_end = read_u32(16u);
+    auto blob_data_end = read_u32(20u);
+    return header_size == 24u && ir_level == 2u &&
+           scalar_fields_end >= header_size &&
+           scalar_fields_end <= blob_data_end && blob_data_end < code.size();
+}
+
 luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata) noexcept {
     luisa::string result;
     result.append(luisa::format("CHECKSUM {:016x} ", metadata.checksum));
@@ -17,6 +43,11 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
                                             metadata.kind == CUDAShaderMetadata::Kind::TILE ?
                                                 "TILE" :
                                                 "RAY_TRACING"));
+    switch (metadata.code_format) {
+        case CUDAShaderMetadata::CodeFormat::PTX: result.append("CODE_FORMAT PTX "); break;
+        case CUDAShaderMetadata::CodeFormat::OPTIX_IR: result.append("CODE_FORMAT OPTIX_IR "); break;
+        default: LUISA_ERROR_WITH_LOCATION("Invalid CUDA shader code format.");
+    }
     result.append(metadata.enable_debug ? "DEBUG TRUE " : "DEBUG FALSE ");
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
@@ -93,6 +124,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<CurveBasisSet> curve_bases;
     luisa::optional<uint3> block_size;
     auto kind = CUDAShaderMetadata::Kind::UNKNOWN;
+    luisa::optional<CUDAShaderMetadata::CodeFormat> code_format;
     luisa::optional<bool> enable_debug;
     luisa::optional<bool> requires_trace_closest;
     luisa::optional<bool> requires_trace_any;
@@ -122,6 +154,20 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 kind = CUDAShaderMetadata::Kind::TILE;
             } else {
                 LUISA_WARNING_WITH_LOCATION("Invalid kind '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        } else if (token == "CODE_FORMAT") {
+            if (code_format.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate code format in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "PTX") {
+                code_format.emplace(CUDAShaderMetadata::CodeFormat::PTX);
+            } else if (x == "OPTIX_IR") {
+                code_format.emplace(CUDAShaderMetadata::CodeFormat::OPTIX_IR);
+            } else {
+                LUISA_WARNING_WITH_LOCATION("Invalid code format '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
         } else if (token == "CHECKSUM") {
@@ -452,6 +498,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Missing kind in shader metadata.");
         return luisa::nullopt;
     }
+    if (code_format.value_or(CUDAShaderMetadata::CodeFormat::PTX) == CUDAShaderMetadata::CodeFormat::OPTIX_IR &&
+        kind != CUDAShaderMetadata::Kind::RAY_TRACING) {
+        LUISA_WARNING_WITH_LOCATION("OptiX IR requires ray-tracing shader metadata.");
+        return luisa::nullopt;
+    }
     if (!curve_bases.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing curve basis set in shader metadata.");
@@ -536,6 +587,8 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .checksum = checksum.value(),
         .curve_bases = curve_bases.value(),
         .kind = kind,
+        // Sidecars written before this field contain PTX.
+        .code_format = code_format.value_or(CUDAShaderMetadata::CodeFormat::PTX),
         .enable_debug = enable_debug.value(),
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),

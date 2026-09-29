@@ -225,6 +225,8 @@ private:
     void _run_optimization_passes(LLVMModulePassManagerCallback callback = {}) noexcept;
     void _dump_module(const luisa::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_ptx() const noexcept;
+    [[nodiscard]] luisa::string _generate_optix_ir() noexcept;
+    void _legalize_optix_ir_atomics() noexcept;
 
     /* the following methods are defined in cuda_codegen_llvm_impl_analysis.cpp */
     void _analyze_ray_tracing_usage(const xir::Module &module) noexcept;

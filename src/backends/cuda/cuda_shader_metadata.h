@@ -4,6 +4,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rhi/curve_basis.h>
 #include <luisa/ast/usage.h>
 
@@ -18,10 +19,16 @@ struct CUDAShaderMetadata {
         TILE,
     };
 
+    enum struct CodeFormat : uint8_t {
+        PTX,
+        OPTIX_IR,
+    };
+
     uint64_t checksum;
     CurveBasisSet curve_bases;
 
     Kind kind;
+    CodeFormat code_format{CodeFormat::PTX};
     bool enable_debug;
     bool requires_trace_closest;
     bool requires_trace_any;
@@ -39,6 +46,7 @@ struct CUDAShaderMetadata {
         return checksum == rhs.checksum &&
                curve_bases == rhs.curve_bases &&
                kind == rhs.kind &&
+               code_format == rhs.code_format &&
                enable_debug == rhs.enable_debug &&
                requires_trace_closest == rhs.requires_trace_closest &&
                requires_trace_any == rhs.requires_trace_any &&
@@ -53,6 +61,10 @@ struct CUDAShaderMetadata {
                format_types == rhs.format_types;
     }
 };
+
+// Checks the serialization envelope, not the semantics of PTX or bitcode.
+[[nodiscard]] bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
+                                                   CUDAShaderMetadata::CodeFormat format) noexcept;
 
 [[nodiscard]] luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata) noexcept;
 [[nodiscard]] luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::string_view metadata) noexcept;

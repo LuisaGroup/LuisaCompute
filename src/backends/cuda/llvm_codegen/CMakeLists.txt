@@ -3,6 +3,18 @@ luisa_compute_link_llvm_into_backend(cuda
         DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
 if (LUISA_COMPUTE_CUDA_LINKED_LLVM)
     message(STATUS "Linking LLVM into the CUDA backend")
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+        if (NOT TARGET luisa-compute-ext-llvm-downgrade)
+            message(FATAL_ERROR "CUDA OptiX IR requires the LLVM 7 bitcode writer target.")
+        endif ()
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE
+                luisa-compute-ext-llvm-downgrade)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE
+                LUISA_COMPUTE_ENABLE_CUDA_OPTIX_IR=1)
+        target_sources(luisa-compute-backend-cuda PRIVATE
+                cuda_codegen_llvm_optix_ir.cpp cuda_codegen_llvm_optix_ir.h
+                cuda_codegen_llvm_optix_ir_legalize.cpp cuda_codegen_llvm_optix_ir_legalize.h)
+    endif ()
     # find CUDA libdevice
     set(CUDA_LIBDEVICE_SEARCH_PATHS
             ${CUDAToolkit_LIBRARY_DIR}/../nvvm/libdevice

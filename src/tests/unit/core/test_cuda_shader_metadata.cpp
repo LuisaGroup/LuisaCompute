@@ -3,6 +3,8 @@
 
 #include <array>
 #include <cstdint>
+#include <cstddef>
+#include <utility>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -11,6 +13,18 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
+
+// A synthetic container for routing and envelope bounds, not a complete
+// OptiX module. The backend remains responsible for validating its IR body.
+constexpr std::array<std::byte, 32u> kOptixIrEnvelope{
+    std::byte{0xed}, std::byte{0x43}, std::byte{0x4e}, std::byte{0x7f},
+    std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+    std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+    std::byte{24}, std::byte{0}, std::byte{2}, std::byte{0},
+    std::byte{24}, std::byte{0}, std::byte{0}, std::byte{0},
+    std::byte{28}, std::byte{0}, std::byte{0}, std::byte{0},
+    std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+    std::byte{0x42}, std::byte{0x43}, std::byte{0xc0}, std::byte{0xde}};
 
 // A sidecar written before the payload field existed, independent of the serializer.
 constexpr string_view kLegacyMetadata =
@@ -103,4 +117,140 @@ int main(int argc, char *argv[]) {
         expect(llvm != ast);
         expect(llvm == make_metadata(32u));
     };
+
+    "cuda_shader_metadata_code_format_defaults_to_ptx"_test = [] {
+        auto metadata = CUDAShaderMetadata{};
+        expect(metadata.code_format == CUDAShaderMetadata::CodeFormat::PTX);
+    };
+
+    "cuda_shader_metadata_code_format_roundtrip"_test = [] {
+        for (auto format : {CUDAShaderMetadata::CodeFormat::PTX, CUDAShaderMetadata::CodeFormat::OPTIX_IR}) {
+            for (auto payload_count : {2u, 32u}) {
+                auto original = make_metadata(payload_count);
+                original.code_format = format;
+                auto serialized = serialize_cuda_shader_metadata(original);
+                auto field = format == CUDAShaderMetadata::CodeFormat::PTX ? "CODE_FORMAT PTX " : "CODE_FORMAT OPTIX_IR ";
+                expect(serialized.find(field) != string::npos);
+                auto parsed = deserialize_cuda_shader_metadata(serialized);
+                expect(parsed.has_value()) << field << "payload count:" << payload_count;
+                if (parsed) {
+                    expect(parsed->code_format == format);
+                    expect(eq(parsed->ray_query_payload_count, payload_count));
+                    expect(*parsed == original);
+                }
+            }
+        }
+    };
+
+    "cuda_shader_metadata_legacy_code_format_defaults_to_ptx"_test = [] {
+        for (auto kind : {"RAY_TRACING", "COMPUTE", "TILE"}) {
+            auto serialized = string{kLegacyMetadata};
+            serialized.replace(serialized.find("RAY_TRACING"), string_view{"RAY_TRACING"}.size(), kind);
+            if (string_view{kind} != "RAY_TRACING") {
+                serialized.replace(serialized.find("RAY_QUERY TRUE"), string_view{"RAY_QUERY TRUE"}.size(), "RAY_QUERY FALSE");
+            }
+            auto parsed = deserialize_cuda_shader_metadata(serialized);
+            expect(parsed.has_value()) << "legacy kind:" << kind;
+            if (parsed) {
+                expect(parsed->code_format == CUDAShaderMetadata::CodeFormat::PTX);
+                expect(eq(parsed->ray_query_payload_count, 2u));
+            }
+        }
+    };
+
+    "cuda_shader_metadata_rejects_unknown_code_format"_test = [] {
+        constexpr std::array<string_view, 8u> invalid_values{
+            "", "ptx", "optix_ir", "OPTIX", "LLVM_IR", "0", "PTXjunk", "OPTIX_IRjunk"};
+        for (auto value : invalid_values) {
+            auto serialized = string{kLegacyMetadata};
+            serialized.append("CODE_FORMAT ").append(value);
+            expect(!deserialize_cuda_shader_metadata(serialized).has_value())
+                << "invalid code format:" << value;
+        }
+    };
+
+    "cuda_shader_metadata_rejects_duplicate_code_format"_test = [] {
+        for (auto first : {"PTX", "OPTIX_IR"}) {
+            for (auto second : {"PTX", "OPTIX_IR"}) {
+                auto serialized = string{kLegacyMetadata};
+                serialized.append("CODE_FORMAT ").append(first).append(" CODE_FORMAT ").append(second).append(" ");
+                expect(!deserialize_cuda_shader_metadata(serialized).has_value())
+                    << "duplicate code formats:" << first << second;
+            }
+        }
+    };
+
+    "cuda_shader_metadata_optix_ir_requires_ray_tracing"_test = [] {
+        for (auto kind : {"COMPUTE", "TILE"}) {
+            auto base = string{kLegacyMetadata};
+            base.replace(base.find("RAY_TRACING"), string_view{"RAY_TRACING"}.size(), kind);
+            base.replace(base.find("RAY_QUERY TRUE"), string_view{"RAY_QUERY TRUE"}.size(), "RAY_QUERY FALSE");
+            // Cross-field validation must not depend on sidecar token order.
+            for (auto format_first : {false, true}) {
+                auto ir = format_first ? string{"CODE_FORMAT OPTIX_IR "}.append(base) : string{base}.append("CODE_FORMAT OPTIX_IR ");
+                expect(!deserialize_cuda_shader_metadata(ir).has_value())
+                    << "OptiX IR kind:" << kind << "format before kind:" << format_first;
+                auto ptx = format_first ? string{"CODE_FORMAT PTX "}.append(base) : string{base}.append("CODE_FORMAT PTX ");
+                expect(deserialize_cuda_shader_metadata(ptx).has_value())
+                    << "PTX kind:" << kind << "format before kind:" << format_first;
+            }
+        }
+        auto before_kind = string{"CODE_FORMAT OPTIX_IR "}.append(kLegacyMetadata);
+        auto parsed = deserialize_cuda_shader_metadata(before_kind);
+        expect(parsed.has_value());
+        if (parsed) {
+            expect(parsed->code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR);
+        }
+    };
+
+    "cuda_shader_metadata_equality_includes_code_format"_test = [] {
+        auto ptx = make_metadata(32u);
+        auto ir = ptx;
+        expect(ptx == ir);
+        ir.code_format = CUDAShaderMetadata::CodeFormat::OPTIX_IR;
+        expect(ptx != ir);
+        expect(ir != ptx);
+        ptx.code_format = CUDAShaderMetadata::CodeFormat::OPTIX_IR;
+        expect(ptx == ir);
+    };
+
+
+    "cuda_shader_code_format_rejects_empty_and_unknown"_test = [] {
+        auto empty = luisa::span<const std::byte>{};
+        expect(!cuda_shader_code_matches_format(empty, CUDAShaderMetadata::CodeFormat::PTX));
+        expect(!cuda_shader_code_matches_format(empty, CUDAShaderMetadata::CodeFormat::OPTIX_IR));
+        expect(!cuda_shader_code_matches_format(luisa::span{kOptixIrEnvelope}, static_cast<CUDAShaderMetadata::CodeFormat>(255u)));
+    };
+
+    "cuda_shader_code_format_distinguishes_text_and_ir_envelope"_test = [] {
+        constexpr std::array<std::byte, 4u> ptx{std::byte{'.'}, std::byte{'v'}, std::byte{'e'}, std::byte{'r'}};
+        expect(cuda_shader_code_matches_format(luisa::span{ptx}, CUDAShaderMetadata::CodeFormat::PTX));
+        expect(!cuda_shader_code_matches_format(luisa::span{ptx}, CUDAShaderMetadata::CodeFormat::OPTIX_IR));
+        expect(cuda_shader_code_matches_format(luisa::span{kOptixIrEnvelope}, CUDAShaderMetadata::CodeFormat::OPTIX_IR));
+        expect(!cuda_shader_code_matches_format(luisa::span{kOptixIrEnvelope}, CUDAShaderMetadata::CodeFormat::PTX));
+    };
+
+    "cuda_shader_code_format_rejects_truncated_ir"_test = [] {
+        auto code = luisa::span{kOptixIrEnvelope};
+        for (auto size = size_t{0u}; size <= 28u; size++) {
+            expect(!cuda_shader_code_matches_format(code.first(size), CUDAShaderMetadata::CodeFormat::OPTIX_IR))
+                << "truncated envelope length:" << size;
+        }
+        // Even an incomplete IR container must not be routed to the PTX path
+        // once its complete four-byte binary signature has been identified.
+        expect(!cuda_shader_code_matches_format(code.first(4u), CUDAShaderMetadata::CodeFormat::PTX));
+    };
+
+    "cuda_shader_code_format_rejects_invalid_ir_envelope_bounds"_test = [] {
+        constexpr std::array<std::pair<size_t, uint8_t>, 8u> mutations{{
+            {0u, 0u}, {12u, 23u}, {14u, 1u}, {16u, 23u},
+            {16u, 29u}, {20u, 23u}, {20u, 32u}, {23u, 255u}}};
+        for (auto [offset, value] : mutations) {
+            auto code = kOptixIrEnvelope;
+            code[offset] = static_cast<std::byte>(value);
+            expect(!cuda_shader_code_matches_format(luisa::span{code}, CUDAShaderMetadata::CodeFormat::OPTIX_IR))
+                << "invalid envelope byte:" << offset << "value:" << static_cast<unsigned>(value);
+        }
+    };
+
 }

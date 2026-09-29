@@ -30,6 +30,7 @@ struct Options {
     bool benchmark{};
     bool diagnose_dispatches{};
     bool large_capture_stress{};
+    bool surface_filter_only{};
     uint32_t rays{257u};
     uint32_t warmup{3u};
     uint32_t dispatches{8u};
@@ -52,6 +53,10 @@ struct Options {
             options.large_capture_stress = true;
             continue;
         }
+        if (argument == "--surface-filter-only") {
+            options.surface_filter_only = true;
+            continue;
+        }
         uint32_t *value = nullptr;
         if (argument == "--rays") {
             value = &options.rays;
@@ -72,6 +77,7 @@ struct Options {
         if (total_records > 16777216u) { return false; }
     }
     return !(options.large_capture_stress && (options.benchmark || options.diagnose_dispatches)) &&
+           !(options.surface_filter_only && (options.benchmark || options.diagnose_dispatches || options.large_capture_stress)) &&
            options.rays <= 1048576u && options.samples <= 101u &&
            options.warmup <= 1000u && options.dispatches <= 1000u;
 }
@@ -277,6 +283,7 @@ struct Options {
             }
             ArrayUInt<30u> surface_values;
             ArrayUInt<30u> procedural_values;
+            ArrayUInt<30u> filter_values;
             auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
                                 make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
             auto surface_hit = surface_accel.traverse(ray, {})
@@ -297,13 +304,27 @@ struct Options {
                                           candidate.terminate();
                                       })
                                       .trace();
-            hits.write(lane * 2u, make_uint4(surface_hit->hit_type, surface_hit->inst,
+            // One module deliberately mixes full handlers with a surface-only
+            // filter. Its independent memory snapshots also exercise both
+            // direct payload and context fallback with the same output oracle.
+            auto filter_hit = surface_accel.traverse(ray, {})
+                                  .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                                      for (auto i = 0u; i < snapshot_count; i++) {
+                                          filter_values[i] = snapshots[i] ^ (0xa5a55a5au + i * 13u);
+                                      }
+                                      candidate.commit();
+                                  })
+                                  .trace();
+            hits.write(lane * 3u, make_uint4(surface_hit->hit_type, surface_hit->inst,
                                              surface_hit->prim, surface_hit->distance().as<uint>()));
-            hits.write(lane * 2u + 1u, make_uint4(procedural_hit->hit_type, procedural_hit->inst,
+            hits.write(lane * 3u + 1u, make_uint4(procedural_hit->hit_type, procedural_hit->inst,
                                                   procedural_hit->prim, procedural_hit->distance().as<uint>()));
+            hits.write(lane * 3u + 2u, make_uint4(filter_hit->hit_type, filter_hit->inst,
+                                                filter_hit->prim, filter_hit->distance().as<uint>()));
             for (auto i = 0u; i < snapshot_count; i++) {
-                outputs.write(lane * (2u * snapshot_count) + i, surface_values[i]);
-                outputs.write(lane * (2u * snapshot_count) + snapshot_count + i, procedural_values[i]);
+                outputs.write(lane * (3u * snapshot_count) + i, surface_values[i]);
+                outputs.write(lane * (3u * snapshot_count) + snapshot_count + i, procedural_values[i]);
+                outputs.write(lane * (3u * snapshot_count) + 2u * snapshot_count + i, filter_values[i]);
             }
         };
         // The intended ABI is N scalar words plus one 64-bit output-array
@@ -312,15 +333,25 @@ struct Options {
         // the actual capture types and direct/fallback codegen selection.
         LUISA_INFO("Ray-query payload boundary fixture: snapshots={}, expected capture words={}, AST hash={:016x}.",
                    snapshot_count, snapshot_count + 2u, kernel.function()->function().hash());
-        auto package_leaf = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}.ptx", snapshot_count,
+        auto llvm_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
+        auto ir_env = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
+        auto optix_ir = llvm_env != nullptr && luisa::string_view{llvm_env} == "1" &&
+                        ir_env != nullptr && luisa::string_view{ir_env} == "1";
+        auto package_stem = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}", snapshot_count,
                                           std::chrono::steady_clock::now().time_since_epoch().count());
+        auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
         auto package_path = luisa::filesystem::absolute(package_leaf.c_str());
         auto package_name = luisa::to_string(package_path);
+        auto extensionless_name = luisa::to_string(luisa::filesystem::absolute(package_stem.c_str()));
         auto metadata_path = luisa::filesystem::path{luisa::format("{}.metadata", package_name).c_str()};
         // Explicit shader names use the bytecode store even with cache disabled.
         // Never reuse or remove an artifact that predates this test invocation.
         auto owned_paths_available = !luisa::filesystem::exists(package_path) &&
                                      !luisa::filesystem::exists(metadata_path);
+        for (auto extension : {".ptx", ".ptx.metadata", ".optixir", ".optixir.metadata"}) {
+            auto candidate = luisa::filesystem::path{luisa::format("{}{}", extensionless_name, extension).c_str()};
+            owned_paths_available = owned_paths_available && !luisa::filesystem::exists(candidate);
+        }
         expect(owned_paths_available) << "unique payload AOT artifact paths";
         if (!owned_paths_available) { return false; }
         struct ArtifactCleanup {
@@ -341,20 +372,23 @@ struct Options {
         auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
         expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
         if (!loaded_shader) { return false; }
+        auto extensionless_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name);
+        expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
+        if (!extensionless_shader) { return false; }
         auto inputs = device.create_buffer<uint>(ray_count * snapshot_count);
-        auto outputs = device.create_buffer<uint>(ray_count * snapshot_count * 2u);
-        auto hits = device.create_buffer<uint4>(ray_count * 2u);
+        auto outputs = device.create_buffer<uint>(ray_count * snapshot_count * 3u);
+        auto hits = device.create_buffer<uint4>(ray_count * 3u);
         luisa::vector<uint> host_inputs(inputs.size());
         luisa::vector<uint> host_outputs(outputs.size());
         luisa::vector<uint4> host_hits(hits.size());
-        for (auto epoch = 0u; epoch < 2u; epoch++) {
+        for (auto epoch = 0u; epoch < 3u; epoch++) {
             for (auto lane = 0u; lane < ray_count; lane++) {
                 for (auto i = 0u; i < snapshot_count; i++) {
                     host_inputs[lane * snapshot_count + i] =
                         lane * 0x9e3779b9u ^ i * 0x85ebca6bu ^ (epoch + 1u) * 0xc2b2ae35u;
                 }
             }
-            const auto &active_shader = epoch == 0u ? shader : loaded_shader;
+            const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? loaded_shader : extensionless_shader;
             stream << inputs.copy_from(luisa::span{host_inputs})
                    << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count)
                    << outputs.copy_to(luisa::span{host_outputs})
@@ -363,10 +397,11 @@ struct Options {
             for (auto lane = 0u; lane < ray_count && correct; lane++) {
                 auto expected_surface = make_uint4(static_cast<uint>(HitType::Surface), 0u, 0u, 0x3f800000u);
                 auto expected_procedural = make_uint4(static_cast<uint>(HitType::Procedural), 0u, 0u, 0x3fa00000u);
-                if (!all(host_hits[lane * 2u] == expected_surface) ||
-                    !all(host_hits[lane * 2u + 1u] == expected_procedural)) {
-                    LUISA_WARNING("Payload capture hit mismatch: snapshots={} epoch={} lane={} surface={} procedural={}.",
-                                  snapshot_count, epoch, lane, host_hits[lane * 2u], host_hits[lane * 2u + 1u]);
+                if (!all(host_hits[lane * 3u] == expected_surface) ||
+                    !all(host_hits[lane * 3u + 1u] == expected_procedural) ||
+                    !all(host_hits[lane * 3u + 2u] == expected_surface)) {
+                    LUISA_WARNING("Payload capture hit mismatch: snapshots={} epoch={} lane={} surface={} procedural={} filter={}.",
+                                  snapshot_count, epoch, lane, host_hits[lane * 3u], host_hits[lane * 3u + 1u], host_hits[lane * 3u + 2u]);
                     correct = false;
                     break;
                 }
@@ -374,18 +409,21 @@ struct Options {
                     auto value = host_inputs[lane * snapshot_count + i];
                     auto expected_surface_value = value ^ (0x13579bdfu + i * 17u);
                     auto expected_procedural_value = value ^ (0x2468ace0u + i * 31u);
-                    auto actual_surface = host_outputs[lane * (2u * snapshot_count) + i];
-                    auto actual_procedural = host_outputs[lane * (2u * snapshot_count) + snapshot_count + i];
-                    if (actual_surface != expected_surface_value || actual_procedural != expected_procedural_value) {
-                        LUISA_WARNING("Payload capture value mismatch: snapshots={} epoch={} lane={} word={} surface={}/{} procedural={}/{}.",
+                    auto actual_surface = host_outputs[lane * (3u * snapshot_count) + i];
+                    auto actual_procedural = host_outputs[lane * (3u * snapshot_count) + snapshot_count + i];
+                    auto expected_filter_value = value ^ (0xa5a55a5au + i * 13u);
+                    auto actual_filter = host_outputs[lane * (3u * snapshot_count) + 2u * snapshot_count + i];
+                    if (actual_surface != expected_surface_value || actual_procedural != expected_procedural_value ||
+                        actual_filter != expected_filter_value) {
+                        LUISA_WARNING("Payload capture value mismatch: snapshots={} epoch={} lane={} word={} surface={}/{} procedural={}/{} filter={}/{}.",
                                       snapshot_count, epoch, lane, i, actual_surface, expected_surface_value,
-                                      actual_procedural, expected_procedural_value);
+                                      actual_procedural, expected_procedural_value, actual_filter, expected_filter_value);
                         correct = false;
                         break;
                     }
                 }
             }
-            expect(correct) << "every independent captured snapshot reaches both surface and procedural handlers";
+            expect(correct) << "every captured snapshot reaches mixed full/filter handlers through JIT and AOT";
             if (!correct) { return false; }
         }
     }
@@ -437,6 +475,7 @@ struct Options {
             distances.write(index, make_float4(hit->bary, hit->committed_ray_t, x));
         }
     };
+    LUISA_INFO("Surface filter fixture: AST hash={:016x}.", kernel.function()->function().hash());
     auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
     auto hits = device.create_buffer<uint4>(ray_count * 2u);
     auto captures = device.create_buffer<uint4>(ray_count * 2u);
@@ -523,6 +562,12 @@ struct Options {
     surface_scene.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
     procedural_scene.emplace_back(single_procedural);
     preserve_scene.emplace_back(procedural);
+    if (options.surface_filter_only) {
+        stream << vertices_buffer.copy_from(luisa::span{vertices})
+               << triangles_buffer.copy_from(luisa::span{triangles})
+               << mesh.build() << synchronize();
+        return run_surface_filter_queries(device, stream, mesh);
+    }
 
     // Termination without a commit is a separate correctness requirement. The
     // benchmark always commits before terminating so that older AST backends
@@ -780,13 +825,13 @@ struct Options {
 int main(int argc, char *argv[]) {
     Options options;
     if (!parse_options(argc, argv, options)) {
-        LUISA_INFO("Usage: {} <backend> [--benchmark] [--diagnose-dispatches] [--large-capture-stress] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--benchmark] [--diagnose-dispatches] [--large-capture-stress] [--surface-filter-only] [--rays N] [--warmup N] [--dispatches N] [--samples N]", argv[0]);
         return 2;
     }
     auto dc = luisa::test::create_device(argc, argv);
     if (options.large_capture_stress) { return run_large_capture(dc.device, options) ? 0 : 1; }
     if (!run(dc.device, options)) { return 1; }
-    if (!options.benchmark) {
+    if (!options.benchmark && !options.surface_filter_only) {
         Options regression_options;
         regression_options.warmup = 1u;
         regression_options.dispatches = 2u;
