@@ -222,7 +222,8 @@ void test_sampler(Device &device) {
     stream << shader(heap, output).dispatch(1u);
     if (supports_explicit_sampler) {
         auto explicit_shader = device.compile(check_explicit_sampler);
-        stream << explicit_shader(heap, output).dispatch(1u);
+        // Keep the shader's executable storage alive until its dispatch ends.
+        stream << explicit_shader(heap, output).dispatch(1u) << synchronize();
     }
     stream << output.copy_to(luisa::span{actual})
            << synchronize();

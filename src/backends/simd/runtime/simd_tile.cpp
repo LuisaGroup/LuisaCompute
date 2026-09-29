@@ -14,15 +14,58 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/optional.h>
 
 #include "simd_device.h"
 #include "simd_shader.h"
 #include "simd_thread_pool.h"
 #include "../../common/env_flag.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace luisa::compute::simd {
 
 namespace {
+
+[[nodiscard]] luisa::optional<luisa::string> tile_environment_value(const char *name) {
+#ifdef _WIN32
+    // /MT gives each module its own CRT environment snapshot. Tile compile
+    // constraints must observe changes made by callers after device creation.
+    SetLastError(ERROR_SUCCESS);
+    auto size = GetEnvironmentVariableA(name, nullptr, 0u);
+    if (size == 0u) {
+        return GetLastError() == ERROR_ENVVAR_NOT_FOUND ?
+                   luisa::nullopt : luisa::optional{luisa::string{}};
+    }
+    luisa::string value;
+    while (true) {
+        // The required size includes the null terminator. Retry if another
+        // thread grows the process environment value between the two reads.
+        value.resize(size);
+        SetLastError(ERROR_SUCCESS);
+        auto length = GetEnvironmentVariableA(name, value.data(), size);
+        if (length == 0u && GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
+            return luisa::nullopt;
+        }
+        if (length < size) {
+            value.resize(length);
+            return value;
+        }
+        size = length;
+    }
+#else
+    if (auto value = std::getenv(name)) { return luisa::string{value}; }
+    return luisa::nullopt;
+#endif
+}
 
 class SIMDTileTargetInfo final : public tile::bridge::xir::ThreadPoolExecutionTargetInfo {
 public:
@@ -47,9 +90,9 @@ public:
 // malformed metadata or override a conflicting explicit Runtime constraint.
 [[nodiscard]] bool root_axis_tiles_from_environment(
     tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
-    auto text = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES");
-    if (text == nullptr) { return true; }
-    auto remaining = luisa::string_view{text};
+    auto text = tile_environment_value("LUISA_SIMD_ROOT_AXIS_TILES");
+    if (!text) { return true; }
+    auto remaining = luisa::string_view{*text};
     luisa::vector<uint32_t> tiles;
     while (true) {
         auto delimiter = remaining.find(',');
@@ -73,9 +116,9 @@ public:
 }
 
 [[nodiscard]] bool native_mma_from_environment(tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
-    auto text = std::getenv("LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH");
-    if (text == nullptr) { return true; }
-    auto token = luisa::string_view{text};
+    auto text = tile_environment_value("LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH");
+    if (!text) { return true; }
+    auto token = luisa::string_view{*text};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
     if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() ||
@@ -88,9 +131,9 @@ public:
 }
 
 [[nodiscard]] bool native_copy_from_environment(tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
-    auto text = std::getenv("LUISA_SIMD_NATIVE_COPY_VECTOR_WIDTH");
-    if (text == nullptr) { return true; }
-    auto token = luisa::string_view{text};
+    auto text = tile_environment_value("LUISA_SIMD_NATIVE_COPY_VECTOR_WIDTH");
+    if (!text) { return true; }
+    auto token = luisa::string_view{*text};
     auto width = uint32_t{0u};
     auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
     if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() ||
