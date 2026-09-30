@@ -1,4 +1,5 @@
 #include <luisa/core/stl/filesystem.h>
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
 #ifndef UNICODE
 #define UNICODE 1
 #endif
@@ -14,8 +15,6 @@
 #define VC_EXTRALEAN 1
 #endif
 
-#include <windows.h>
-#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #endif
 namespace luisa {
