@@ -395,7 +395,7 @@ namespace luisa::compute::simd::detail {
         auto *call = _builder.CreateCall(callee, {argument});
         return half ? _builder.CreateFPTrunc(call, source_type) : call;
     };
-    auto float_constant_like = [&](::llvm::Value *value, double x) {
+    auto float_constant_like = [&](::llvm::Value *value, double x) -> ::llvm::Constant * {
         auto *scalar = ::llvm::ConstantFP::get(
             value->getType()->getScalarType(), x);
         if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(
@@ -799,7 +799,7 @@ namespace luisa::compute::simd::detail {
             return unary([&](::llvm::Value *value, const Type *) {
                 auto *absolute = intrinsic(
                     ::llvm::Intrinsic::fabs, {value});
-                auto *infinity = ::llvm::ConstantFP::getInfinity(
+                ::llvm::Constant *infinity = ::llvm::ConstantFP::getInfinity(
                     value->getType()->getScalarType());
                 if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(
                         value->getType())) {
