@@ -84,6 +84,18 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_function(const xir::FunctionDefi
     LUISA_ERROR_WITH_LOCATION("Unsupported function type.");
 }
 
+void CUDACodegenLLVMImpl::_assume_kernel_argument_storage(IB &b, llvm::Value *value, const xir::Argument *arg, size_t argument_index) noexcept {
+    if (argument_index < _config.bindings.size() && arg->is_resource() && arg->type()->is_texture()) {
+        if (auto binding = luisa::get_if<Function::TextureBinding>(&_config.bindings[argument_index])) {
+            auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
+            auto packed = b.CreateExtractValue(value, llvm_texture_type_storage_index);
+            // CUDASurface packs dimensions below the pixel storage byte.
+            auto llvm_storage = b.CreateAnd(b.CreateLShr(packed, b.getInt64(48)), b.getInt64(0xff));
+            b.CreateAssumption(b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage))));
+        }
+    }
+}
+
 llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::KernelFunction *func) noexcept {
     auto arg_struct_info = _get_kernel_argument_struct(func);
     auto llvm_kernel = _get_or_declare_llvm_function(func);
@@ -106,6 +118,16 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
                 b.getInt32(0), b.getInt32(static_cast<uint32_t>(arg_struct_info->dispatch_size_and_kernel_id_index)), b.getInt32(3)};
             _llvm_ray_tracing_kernel_id_pointer = llvm::ConstantExpr::getInBoundsGetElementPtr(
                 arg_struct_info->llvm_type, llvm_global_arg, kernel_id_indices);
+            auto argument_index = size_t{0u};
+            for (auto arg : func->arguments()) {
+                if (arg->is_resource()) {
+                    std::array<llvm::Constant *, 2u> indices{
+                        b.getInt32(0), b.getInt32(static_cast<uint32_t>(arg_struct_info->argument_indices[argument_index]))};
+                    auto pointer = llvm::ConstantExpr::getInBoundsGetElementPtr(arg_struct_info->llvm_type, llvm_global_arg, indices);
+                    _ray_query_kernel_resources.try_emplace(arg, RayQueryKernelResource{pointer, argument_index});
+                }
+                argument_index++;
+            }
             return b.CreateAlignedLoad(arg_struct_info->llvm_type, llvm_global_arg, llvm_align, "params.load");
         }
         // normal kernels use direct arguments
@@ -119,16 +141,7 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
         auto llvm_member_reg = arg->is_value() ? _convert_llvm_mem_value_to_reg(b, llvm_member_mem, arg->type()) : llvm_member_mem;
         func_ctx.local_values.try_emplace(arg, llvm_member_reg);
         // create assumptions for bound textures' storage modes
-        if (arg_index < _config.bindings.size() && arg->is_resource() && arg->type()->is_texture()) {
-            if (auto binding = luisa::get_if<Function::TextureBinding>(&_config.bindings[arg_index])) {
-                auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
-                auto llvm_storage_packed = b.CreateExtractValue(llvm_member_reg, llvm_texture_type_storage_index);
-                // CUDASurface packs dimensions below the pixel storage byte.
-                auto llvm_storage = b.CreateAnd(b.CreateLShr(llvm_storage_packed, b.getInt64(48)), b.getInt64(0xff));
-                auto llvm_same_storage = b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage)));
-                b.CreateAssumption(llvm_same_storage);
-            }
-        }
+        _assume_kernel_argument_storage(b, llvm_member_reg, arg, arg_index);
         arg_index++;
     }
     // load dispatch_size_and_kernel_id

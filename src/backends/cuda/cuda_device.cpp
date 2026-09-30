@@ -319,8 +319,8 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 16 removes unused fields from the private ray-query state.
-static constexpr uint64_t cuda_llvm_cache_revision = 16u;
+// Revision 17 reconstructs unique ray-query resources from launch parameters.
+static constexpr uint64_t cuda_llvm_cache_revision = 17u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -884,7 +884,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v16{}", expected_metadata.checksum, extension) :
+                   luisa::format("kernel_{:016x}.llvm-v17{}", expected_metadata.checksum, extension) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&

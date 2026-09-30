@@ -1236,6 +1236,7 @@ luisa_compute_add_test(test_xir_translators unit/xir/test_xir_translators.cpp LA
 luisa_compute_add_test(test_xir_interchange unit/xir/test_xir_interchange.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir2ast_translators unit/xir/test_xir2ast_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_resource_origin unit/xir/test_xir_resource_origin.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_promote_ref_forwarding unit/xir/test_xir_pass_promote_ref_forwarding.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_aggregate_field_bitmask unit/xir/test_xir_aggregate_field_bitmask.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias_analysis.cpp LABELS "unit;unit_xir")

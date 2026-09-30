@@ -23,6 +23,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/unordered_map.h>
 
 #include "cuda_codegen_llvm_config.h"
 
@@ -174,9 +175,22 @@ private:
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
     llvm::StructType *_llvm_ray_query_type{nullptr};
     llvm::Constant *_llvm_ray_tracing_kernel_id_pointer{nullptr};
+    struct RayQueryCapture {
+        // A proven kernel resource is reconstructed from immutable launch
+        // parameters. Other values retain their compact context field index.
+        const xir::Argument *root_resource{nullptr};
+        unsigned context_field{0u};
+    };
+    struct RayQueryKernelResource {
+        llvm::Constant *pointer;
+        size_t argument_index;
+    };
+    luisa::unordered_map<const xir::Argument *, const xir::Argument *> _ray_query_resource_origins;
+    llvm::DenseMap<const xir::Argument *, RayQueryKernelResource> _ray_query_kernel_resources;
     struct RayQueryPipeline {
         const xir::RayQueryPipelineInst *inst;
         llvm::StructType *context_type;
+        llvm::SmallVector<RayQueryCapture> captures;
         bool surface_filter;
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
@@ -253,6 +267,7 @@ private:
                                 const Type *type, luisa::span<const xir::Use *const> index_uses) noexcept;
 
     /* the following methods are defined in cuda_codegen_llvm_impl_func.cpp */
+    void _assume_kernel_argument_storage(IB &b, llvm::Value *value, const xir::Argument *arg, size_t argument_index) noexcept;
     [[nodiscard]] llvm::Function *_get_or_declare_llvm_function(const xir::Function *func) noexcept;
     [[nodiscard]] llvm::Function *_declare_llvm_kernel_function(const xir::KernelFunction *func) noexcept;
     [[nodiscard]] llvm::Function *_declare_llvm_callable_function(const xir::CallableFunction *func) noexcept;

@@ -18,6 +18,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/ast/function_builder.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
 
@@ -484,6 +485,126 @@ struct Options {
     return true;
 }
 
+[[nodiscard]] bool run_resource_capture_queries(Device &device, Stream &stream,
+                                                const Accel &surface_scene, const Accel &procedural_scene) {
+    constexpr auto ray_count = 68u;
+    for (auto snapshot_count : {0u, 30u}) {
+        Callable query = [snapshot_count](BufferUInt input, UInt salt, AccelVar accel,
+                                          BufferUInt common, UInt slot, BufferUInt output, UInt lane) noexcept {
+            // Keep ordinary callable forwarding visible to XIR origin analysis.
+            // input has two kernel roots; common, output and accel each have one.
+            luisa::compute::detail::FunctionBuilder::current()->mark_noinline();
+            luisa::vector<UInt> snapshots;
+            snapshots.reserve(snapshot_count);
+            for (auto i = 0u; i < snapshot_count; i++) {
+                snapshots.emplace_back(def(input.read((lane + i) % input.size())));
+            }
+            UInt stamp = 0u;
+            auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                                make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+            auto write_resources = [&]() noexcept {
+                auto input_size = input.size();
+                auto common_size = common.size();
+                auto output_size = output.size();
+                UInt checksum = 0u;
+                for (auto i = 0u; i < snapshot_count; i++) { checksum ^= snapshots[i] * (i * 2u + 1u); }
+                $if (input_size != 0u & common_size != 0u & lane < output_size / 2u) {
+                    auto value = (input.read(lane % input_size) ^
+                                  common.read(lane % common_size) ^ salt ^ checksum) +
+                                 input_size * 3u + common_size * 5u + output_size * 7u;
+                    output.write(slot * (output_size / 2u) + lane, value);
+                    stamp = input_size ^ (common_size << 8u) ^ (output_size << 16u) ^ salt ^ checksum;
+                };
+            };
+            auto hit = accel.traverse(ray, {})
+                           .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                               write_resources();
+                               candidate.commit();
+                           })
+                           .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                               write_resources();
+                               candidate.commit(1.0f);
+                           })
+                           .trace();
+            return make_uint4(hit->hit_type, hit->inst, hit->prim, stamp);
+        };
+        Kernel1D kernel = [&query](BufferUInt input_a, UInt salt_a, AccelVar accel,
+                                   BufferUInt common, UInt salt_b, BufferUInt input_b,
+                                   BufferUInt4 hits, UInt marker, BufferUInt output) noexcept {
+            auto lane = dispatch_x();
+            hits.write(lane * 2u, query(input_a, salt_a ^ marker, accel, common, 0u, output, lane));
+            hits.write(lane * 2u + 1u, query(input_b, salt_b ^ marker, accel, common, 1u, output, lane));
+        };
+        // Thirty independently loaded snapshots exceed the 29-word capture limit
+        // even after resource rematerialization. Correlate this hash with XIR/PTX
+        // dumps to verify both the compact payload and context fallback mappings.
+        LUISA_INFO("Ray-query resource capture fixture: snapshots={}, AST hash={:016x}.", snapshot_count, kernel.function()->function().hash());
+        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+        constexpr auto a_offset = 5u, a_size = 97u, b_offset = 11u, b_size = 113u;
+        constexpr auto common_offset = 7u, common_size = 43u, output_offset = 9u;
+        constexpr auto output_size = ray_count * 2u;
+        constexpr auto sentinel = 0xdeadbeefu, salt_a = 0x13579bdfu, salt_b = 0x2468ace0u, marker = 0x5a5aa5a5u;
+        luisa::vector<uint> host_a(a_offset + a_size + 3u);
+        luisa::vector<uint> host_b(b_offset + b_size + 5u);
+        luisa::vector<uint> host_common(common_offset + common_size + 7u);
+        luisa::vector<uint> host_output(output_offset + output_size + 11u, sentinel);
+        luisa::vector<uint4> host_hits(output_size);
+        for (auto i = 0u; i < host_a.size(); i++) { host_a[i] = i * 17u + 101u; }
+        for (auto i = 0u; i < host_b.size(); i++) { host_b[i] = i * 31u + 503u; }
+        for (auto i = 0u; i < host_common.size(); i++) { host_common[i] = i * 43u + 1009u; }
+        auto input_a = device.create_buffer<uint>(host_a.size());
+        auto input_b = device.create_buffer<uint>(host_b.size());
+        auto common = device.create_buffer<uint>(host_common.size());
+        auto output = device.create_buffer<uint>(host_output.size());
+        auto hits = device.create_buffer<uint4>(host_hits.size());
+        for (auto use_procedural : {false, true}) {
+            const auto &scene = use_procedural ? procedural_scene : surface_scene;
+            std::fill(host_output.begin(), host_output.end(), sentinel);
+            stream << input_a.copy_from(luisa::span{host_a})
+                   << input_b.copy_from(luisa::span{host_b})
+                   << common.copy_from(luisa::span{host_common})
+                   << output.copy_from(luisa::span{host_output})
+                   << shader(input_a.view(a_offset, a_size), salt_a, scene,
+                             common.view(common_offset, common_size), salt_b, input_b.view(b_offset, b_size),
+                             hits, marker, output.view(output_offset, output_size))
+                          .dispatch(ray_count)
+                   << output.copy_to(luisa::span{host_output})
+                   << hits.copy_to(luisa::span{host_hits}) << synchronize();
+            auto correct = true;
+            for (auto slot = 0u; slot < 2u; slot++) {
+                auto size = slot == 0u ? a_size : b_size;
+                auto offset = slot == 0u ? a_offset : b_offset;
+                const auto &input = slot == 0u ? host_a : host_b;
+                auto salt = (slot == 0u ? salt_a : salt_b) ^ marker;
+                for (auto lane = 0u; lane < ray_count; lane++) {
+                    auto checksum = 0u;
+                    for (auto i = 0u; i < snapshot_count; i++) { checksum ^= input[offset + (lane + i) % size] * (i * 2u + 1u); }
+                    auto expected = (input[offset + lane % size] ^ host_common[common_offset + lane % common_size] ^ salt ^ checksum) +
+                                    size * 3u + common_size * 5u + output_size * 7u;
+                    auto expected_type = use_procedural ? HitType::Procedural : HitType::Surface;
+                    auto expected_hit = make_uint4(static_cast<uint>(expected_type), 0u, 0u,
+                                                   size ^ (common_size << 8u) ^ (output_size << 16u) ^ salt ^ checksum);
+                    auto actual = host_output[output_offset + slot * ray_count + lane];
+                    auto hit = host_hits[lane * 2u + slot];
+                    if (actual != expected || !all(hit == expected_hit)) {
+                        LUISA_WARNING("Resource capture mismatch: snapshots={} procedural={} slot={} lane={} value={}/{} hit={}/{}.",
+                                      snapshot_count, use_procedural, slot, lane, actual, expected, hit, expected_hit);
+                        correct = false;
+                    }
+                }
+            }
+            for (auto i = 0u; i < host_output.size(); i++) {
+                if (i < output_offset || i >= output_offset + output_size) {
+                    correct = correct && host_output[i] == sentinel;
+                }
+            }
+            expect(correct) << "resource captures preserve descriptor size/offset, unique roots, conflicting roots and interleaved scalar captures";
+            if (!correct) { return false; }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_surface_filter_queries(Device &device, Stream &stream, const Mesh &mesh) {
     constexpr auto ray_count = 68u;
     Kernel1D kernel = [](AccelVar scene, UInt opaque_mask, BufferUInt4 hits,
@@ -821,6 +942,7 @@ struct Options {
     }
     if (!options.benchmark) {
         if (!run_surface_filter_queries(device, stream, mesh)) { return false; }
+        if (!run_resource_capture_queries(device, stream, surface_scene, procedural_scene)) { return false; }
         return run_payload_capture_boundary(device, stream, surface_scene, procedural_scene);
     }
 
