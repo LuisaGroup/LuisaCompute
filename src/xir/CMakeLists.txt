@@ -73,6 +73,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/uniformity_analysis.cpp
         passes/dom_tree.cpp
         passes/call_graph.cpp
+        passes/resource_origin.cpp
         passes/convergence_region.cpp
         passes/coro_call.cpp
         passes/coro_call_alias.cpp

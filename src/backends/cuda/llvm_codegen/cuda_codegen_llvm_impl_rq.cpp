@@ -405,15 +405,25 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     auto query = generic_pointer(_get_llvm_value(b, func_ctx, inst->query_object()));
     auto id = static_cast<uint32_t>(_ray_query_pipelines.size());
     llvm::SmallVector<llvm::Value *> fields{b.getInt32(id), query};
+    llvm::SmallVector<RayQueryCapture> captures;
     for (auto capture : inst->captured_argument_uses()) {
+        auto value = capture->value();
+        if (value->isa<xir::Argument>()) {
+            auto arg = static_cast<const xir::Argument *>(value);
+            if (auto iter = _ray_query_resource_origins.find(arg); iter != _ray_query_resource_origins.end()) {
+                captures.emplace_back(RayQueryCapture{iter->second, 0u});
+                continue;
+            }
+        }
         // Keep references as references, including aliases and subobject captures.
-        fields.emplace_back(generic_pointer(_get_llvm_value(b, func_ctx, capture->value())));
+        captures.emplace_back(RayQueryCapture{nullptr, static_cast<unsigned>(fields.size())});
+        fields.emplace_back(generic_pointer(_get_llvm_value(b, func_ctx, value)));
     }
     llvm::SmallVector<llvm::Type *> field_types;
     for (auto field : fields) { field_types.emplace_back(field->getType()); }
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
     auto surface_filter = ray_query_pipeline_is_surface_filter(inst);
-    _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type, surface_filter});
+    _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type, std::move(captures), surface_filter});
     // Every pipeline shares the query pointer and id prefix. Captures either
     // occupy the remaining registers or live behind a generic context pointer.
     llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload;
@@ -567,12 +577,25 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 auto word_index = kRayQueryPayloadCaptureOffset;
                 auto direct_payload = ray_query_uses_direct_payload(pipeline.context_type, *_data_layout);
                 auto context = direct_payload ? nullptr : unpack_ray_query_payload(b, b.getPtrTy(), get_payload, word_index);
-                for (auto j = 0u; j < pipeline.inst->captured_argument_count(); j++) {
-                    auto field_index = context_capture_offset + j;
-                    auto field_type = pipeline.context_type->getElementType(field_index);
-                    args.emplace_back(direct_payload ?
-                                          unpack_ray_query_payload(b, field_type, get_payload, word_index) :
-                                          b.CreateLoad(field_type, b.CreateStructGEP(pipeline.context_type, context, field_index)));
+                for (auto &&capture : pipeline.captures) {
+                    if (auto root = capture.root_resource) {
+                        auto iter = _ray_query_kernel_resources.find(root);
+                        LUISA_ASSERT(iter != _ray_query_kernel_resources.end(), "Missing ray-query root resource parameter.");
+                        auto type = _get_llvm_type(root->type());
+                        LUISA_ASSERT(type->mem_type == type->reg_type, "Invalid resource descriptor ABI.");
+                        // Reload the descriptor, never the contents of the resource.
+                        // This preserves bound view offsets and sizes in AH and IS.
+                        auto value = b.CreateAlignedLoad(type->mem_type, iter->second.pointer,
+                                                         llvm::Align{KernelArgumentStruct::argument_alignment}, "query.resource");
+                        _assume_kernel_argument_storage(b, value, root, iter->second.argument_index);
+                        args.emplace_back(value);
+                    } else {
+                        auto field_index = capture.context_field;
+                        auto field_type = pipeline.context_type->getElementType(field_index);
+                        args.emplace_back(direct_payload ?
+                                              unpack_ray_query_payload(b, field_type, get_payload, word_index) :
+                                              b.CreateLoad(field_type, b.CreateStructGEP(pipeline.context_type, context, field_index)));
+                    }
                 }
                 // These hidden arguments are immutable for the whole launch,
                 // including callbacks and every transitive callable. Reload

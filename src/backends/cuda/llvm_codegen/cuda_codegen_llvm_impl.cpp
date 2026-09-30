@@ -15,6 +15,7 @@
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Passes/PassBuilder.h>
 
+#include <luisa/xir/passes/resource_origin.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/memory.h>
@@ -377,6 +378,9 @@ luisa::string CUDACodegenLLVMImpl::_generate_optix_ir() noexcept {
 
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     _analyze_ray_tracing_usage(xir_module);
+    if (_rt_analysis.uses_ray_query) {
+        _ray_query_resource_origins = xir::analyze_unique_resource_origins(&xir_module);
+    }
     _llvm_module->setSourceFileName(luisa::string_view{_config.source_file});
     _llvm_module->setModuleIdentifier(xir_module.name().value_or(""));
     for (auto func : xir_module.function_list()) {

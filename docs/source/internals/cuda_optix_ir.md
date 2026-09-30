@@ -367,3 +367,48 @@ comparisons reversed that result. These measurements do not establish a stable
 end-to-end compile-time improvement. All six renders succeeded and reproduced
 their route-specific hashes. The record is
 `.deps/optixir-compile-ab-20260930-022827/results.json`.
+
+## Reconstructing resource captures (cache v17)
+
+The shared XIR `analyze_unique_resource_origins` analysis proves which resource
+arguments forward an unchanged kernel argument through every ordinary-call and
+ray-query callback edge. Kernel roots map to themselves. Multiple roots,
+computed descriptors, unknown function uses and cyclic dependencies remain
+unproven. The analysis does not assume that resource contents are immutable.
+
+CUDA LLVM excludes proven resource descriptors from both register captures and
+scratch contexts. AH and IS reload the complete descriptor from the corresponding
+constant launch-parameter field, including buffer view offset and length.
+Bound texture storage assumptions use the original kernel argument index.
+Ordinary captured values retain their snapshot semantics, and captured references
+retain their addresses. Explicit per-capture field mappings preserve callback
+argument order when resource and non-resource captures are interleaved.
+
+The 32-word budget is computed after removing these descriptors. General queries
+still reserve two words for the query pointer and one for the pipeline ID;
+captures beyond the remaining 29 words use private scratch and a two-word context
+pointer, for five payload words total. This change does not yet decompose the
+general query's mutable state into bidirectional payloads.
+
+The full MSVC build and **23/23 focused tests passed**, including the new shared
+analysis test and AH/IS resource fixtures with offset views, live lengths,
+conflicting callable roots, and both direct and oversized captures. Both output
+routes passed Compute Sanitizer with **42 assertions and zero memory errors**.
+The records are `.deps/rq-resource-v17-tests.log` and
+`.deps/final-query-memcheck-resource-v17-{0,1}/`.
+
+The mixed-query benchmark's active payload decreased from **12 to 8 words**.
+OptiX reported registers falling from **74 to 70** in raygen, **83 to 78** in AH
+and **84 to 80** in IS. Raygen continuation stack/spills remained **160/12 bytes**;
+IS direct stack remained **8 bytes**. PTX input shrank from **29,913 to 26,197
+bytes**. Optimized LLVM IR confirms descriptor reloads from `@params` in the
+callbacks; see `.deps/rq-resource-v17-dump/`. These code-size and resource-count
+changes do not by themselves establish a throughput improvement.
+
+A longer v16 AST/LLVM baseline used 1,048,576 rays, 1,000 warmup dispatches,
+512 dispatches per sample and nine samples across eight ABBA processes. Identical
+LLVM code ranged from 921.91 to 2,627.28 Mqueries/s. Active GPU clock states varied
+substantially; the clock CSVs include compilation and validation, without exact
+sample boundaries. These results do not establish a stable relative throughput
+or a precise cause of the variation. All eight runs and numerical checks remain
+in `build-msvc-llvm/test-results/ray-query-v16-ast-llvm-long-20260930-085618-997821/`.
