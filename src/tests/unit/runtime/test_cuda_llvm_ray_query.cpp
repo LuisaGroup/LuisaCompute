@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -272,6 +273,207 @@ struct Options {
     return true;
 }
 
+[[nodiscard]] bool run_hardware_payload_boundary(Device &device, Stream &stream,
+                                                 const Accel &surfaces, const Accel &procedurals) {
+    constexpr auto ray_count = 68u;
+    for (auto snapshot_count : {0u, 29u, 30u}) {
+        Kernel1D kernel = [snapshot_count](AccelVar surface_accel, AccelVar procedural_accel,
+                                           BufferUInt inputs, BufferUInt outputs, BufferUInt4 hits) noexcept {
+            set_block_size(64u);
+            auto lane = dispatch_x();
+            // These are separate DSL locals, not one captured array pointer.
+            // Materialize every resource read before constructing either query;
+            // the callback must receive the values of these memory snapshots.
+            luisa::vector<UInt> snapshots;
+            snapshots.reserve(snapshot_count);
+            for (auto i = 0u; i < snapshot_count; i++) {
+                snapshots.emplace_back(def(inputs.read(lane * snapshot_count + i)));
+            }
+            ArrayUInt<30u> surface_values;
+            ArrayUInt<30u> procedural_values;
+            auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
+                                make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+            auto surface_hit = surface_accel.traverse(ray, {})
+                                   .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                                       for (auto i = 0u; i < snapshot_count; i++) {
+                                           surface_values[i] = snapshots[i] ^ (0x13579bdfu + i * 17u);
+                                       }
+                                       candidate.commit();
+                                   })
+                                   .trace();
+            auto procedural_hit = procedural_accel.traverse(ray, {})
+                                      .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                          for (auto i = 0u; i < snapshot_count; i++) {
+                                              procedural_values[i] = snapshots[i] ^ (0x2468ace0u + i * 31u);
+                                          }
+                                          candidate.commit(1.25f);
+                                      })
+                                      .trace();
+            hits.write(lane * 2u, make_uint4(surface_hit->hit_type, surface_hit->inst,
+                                             surface_hit->prim, surface_hit->distance().as<uint>()));
+            hits.write(lane * 2u + 1u, make_uint4(procedural_hit->hit_type, procedural_hit->inst,
+                                                  procedural_hit->prim, procedural_hit->distance().as<uint>()));
+            for (auto i = 0u; i < snapshot_count; i++) {
+                outputs.write(lane * (2u * snapshot_count) + i, surface_values[i]);
+                outputs.write(lane * (2u * snapshot_count) + snapshot_count + i, procedural_values[i]);
+            }
+        };
+        // Both handlers qualify for hardware results. With no snapshots there
+        // are no captures; the module still reserves the public two-word floor.
+        // Otherwise each handler captures N independent load snapshots and one
+        // array reference: 29 + 2 words fit the direct budget, 30 + 2 do not.
+        // Verify the serialized capacity as well as every value below; correlate
+        // the AST hash with .opt.rq.xir / LLVM dumps to inspect actual captures.
+        LUISA_INFO("Hardware payload boundary: snapshots={}, expected capture words={}, AST hash={:016x}.",
+                   snapshot_count, snapshot_count == 0u ? 0u : snapshot_count + 2u, kernel.function()->function().hash());
+        auto llvm_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
+        auto ir_env = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
+        auto llvm_codegen = llvm_env != nullptr && std::strcmp(llvm_env, "1") == 0;
+        auto optix_ir = llvm_codegen && ir_env != nullptr && std::strcmp(ir_env, "1") == 0;
+        auto package_stem = luisa::format("test_cuda_llvm_ray_query_hardware_payload_{}_{}", snapshot_count,
+                                          std::chrono::steady_clock::now().time_since_epoch().count());
+        auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
+        auto package_path = luisa::filesystem::absolute(package_leaf.c_str());
+        auto package_name = luisa::to_string(package_path);
+        auto extensionless_name = luisa::to_string(luisa::filesystem::absolute(package_stem.c_str()));
+        auto metadata_path = luisa::filesystem::path{luisa::format("{}.metadata", package_name).c_str()};
+        // Explicit shader names use the bytecode store even with cache disabled.
+        // Never reuse or remove an artifact that predates this test invocation.
+        auto owned_paths_available = !luisa::filesystem::exists(package_path) &&
+                                     !luisa::filesystem::exists(metadata_path);
+        for (auto extension : {".ptx", ".ptx.metadata", ".optixir", ".optixir.metadata"}) {
+            auto candidate = luisa::filesystem::path{luisa::format("{}{}", extensionless_name, extension).c_str()};
+            owned_paths_available = owned_paths_available && !luisa::filesystem::exists(candidate);
+        }
+        expect(owned_paths_available) << "unique payload AOT artifact paths";
+        if (!owned_paths_available) { return false; }
+        struct ArtifactCleanup {
+            const luisa::filesystem::path &package;
+            const luisa::filesystem::path &metadata;
+            ~ArtifactCleanup() noexcept {
+                for (auto path : {&package, &metadata}) {
+                    std::error_code error;
+                    luisa::filesystem::remove(*path, error);
+                    if (error) {
+                        LUISA_WARNING("Failed to remove payload AOT artifact '{}': {}.",
+                                      luisa::to_string(*path), error.message());
+                    }
+                }
+            }
+        } cleanup{package_path, metadata_path};
+        // Produce the owned package before any consumer for this kernel exists.
+        // compile_only must serialize both files without returning a live shader.
+        LUISA_INFO("Hardware payload compile-only producer begins: snapshots={}.", snapshot_count);
+        {
+            auto producer = device.compile(kernel, ShaderOption{
+                                                       .enable_cache = false,
+                                                       .compile_only = true,
+                                                       .name = package_name});
+            auto produced = !producer && producer.compile_ok() &&
+                            luisa::filesystem::is_regular_file(package_path) &&
+                            luisa::filesystem::is_regular_file(metadata_path) &&
+                            luisa::filesystem::file_size(package_path) != 0u &&
+                            luisa::filesystem::file_size(metadata_path) != 0u;
+            expect(produced) << "compile-only producer writes a package and sidecar without a live shader";
+            if (!produced) { return false; }
+        }
+        LUISA_INFO("Hardware payload compile-only producer ends: snapshots={}.", snapshot_count);
+        auto expected_payload_count = !llvm_codegen ? 2u : snapshot_count == 0u ? 2u :
+                                                       snapshot_count == 29u    ? 32u :
+                                                                                  3u;
+        // Observe the serialized public artifact rather than inferring the
+        // pipeline ABI from the number of DSL variables alone.
+        auto read_payload_count = [&]() noexcept {
+            std::ifstream metadata{metadata_path};
+            luisa::string token;
+            auto value = 0u;
+            while (metadata >> token) {
+                if (token == "RAY_QUERY_PAYLOAD_COUNT") {
+                    metadata >> value;
+                    return metadata ? value : 0u;
+                }
+            }
+            return 0u;
+        };
+        auto serialized_payload_count = read_payload_count();
+        LUISA_INFO("Hardware payload artifact: snapshots={}, payload words={}, expected={}.",
+                   snapshot_count, serialized_payload_count, expected_payload_count);
+        auto correct_payload_count = serialized_payload_count == expected_payload_count;
+        expect(correct_payload_count) << "serialized payload count matches the actual capture boundary";
+        if (!correct_payload_count) { return false; }
+        // Give only our owned files a distinct older timestamp. A named warm
+        // compile must read them without rewriting; no timing heuristic is used.
+        auto old_timestamp = luisa::filesystem::file_time_type::clock::now() - std::chrono::hours{24};
+        luisa::filesystem::last_write_time(package_path, old_timestamp);
+        luisa::filesystem::last_write_time(metadata_path, old_timestamp);
+        auto package_timestamp = luisa::filesystem::last_write_time(package_path);
+        auto metadata_timestamp = luisa::filesystem::last_write_time(metadata_path);
+        auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        auto warm_shader = device.compile(kernel, ShaderOption{.enable_cache = false, .name = package_name});
+        auto reused_artifact = luisa::filesystem::last_write_time(package_path) == package_timestamp &&
+                               luisa::filesystem::last_write_time(metadata_path) == metadata_timestamp &&
+                               read_payload_count() == expected_payload_count;
+        expect(reused_artifact) << "warm compile must adopt the cached payload count without regenerating artifacts";
+        if (!reused_artifact) { return false; }
+        auto loaded_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(package_name);
+        expect(static_cast<bool>(loaded_shader)) << "payload AOT shader loads its serialized OptiX ABI";
+        if (!loaded_shader) { return false; }
+        auto extensionless_shader = device.load_shader<1, Accel, Accel, Buffer<uint>, Buffer<uint>, Buffer<uint4>>(extensionless_name);
+        expect(static_cast<bool>(extensionless_shader)) << "extensionless AOT load discovers the actual PTX or OptiX IR package";
+        if (!extensionless_shader) { return false; }
+        auto inputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count));
+        auto outputs = device.create_buffer<uint>(std::max(1u, ray_count * snapshot_count * 2u));
+        auto hits = device.create_buffer<uint4>(ray_count * 2u);
+        luisa::vector<uint> host_inputs(inputs.size());
+        luisa::vector<uint> host_outputs(outputs.size());
+        luisa::vector<uint4> host_hits(hits.size());
+        for (auto epoch = 0u; epoch < 4u; epoch++) {
+            for (auto lane = 0u; lane < ray_count; lane++) {
+                for (auto i = 0u; i < snapshot_count; i++) {
+                    host_inputs[lane * snapshot_count + i] =
+                        lane * 0x9e3779b9u ^ i * 0x85ebca6bu ^ (epoch + 1u) * 0xc2b2ae35u;
+                }
+            }
+            const auto &active_shader = epoch == 0u ? shader : epoch == 1u ? warm_shader :
+                                                           epoch == 2u     ? loaded_shader :
+                                                                             extensionless_shader;
+            stream << inputs.copy_from(luisa::span{host_inputs})
+                   << active_shader(surfaces, procedurals, inputs, outputs, hits).dispatch(ray_count);
+            if (snapshot_count != 0u) { stream << outputs.copy_to(luisa::span{host_outputs}); }
+            stream << hits.copy_to(luisa::span{host_hits}) << synchronize();
+            bool correct = true;
+            for (auto lane = 0u; lane < ray_count && correct; lane++) {
+                auto expected_surface = make_uint4(static_cast<uint>(HitType::Surface), 0u, 0u, 0x3f800000u);
+                auto expected_procedural = make_uint4(static_cast<uint>(HitType::Procedural), 0u, 0u, 0x3fa00000u);
+                if (!all(host_hits[lane * 2u] == expected_surface) ||
+                    !all(host_hits[lane * 2u + 1u] == expected_procedural)) {
+                    LUISA_WARNING("Hardware payload capture hit mismatch: snapshots={} epoch={} lane={} surface={} procedural={}.",
+                                  snapshot_count, epoch, lane, host_hits[lane * 2u], host_hits[lane * 2u + 1u]);
+                    correct = false;
+                    break;
+                }
+                for (auto i = 0u; i < snapshot_count; i++) {
+                    auto value = host_inputs[lane * snapshot_count + i];
+                    auto expected_surface_value = value ^ (0x13579bdfu + i * 17u);
+                    auto expected_procedural_value = value ^ (0x2468ace0u + i * 31u);
+                    auto actual_surface = host_outputs[lane * (2u * snapshot_count) + i];
+                    auto actual_procedural = host_outputs[lane * (2u * snapshot_count) + snapshot_count + i];
+                    if (actual_surface != expected_surface_value || actual_procedural != expected_procedural_value) {
+                        LUISA_WARNING("Hardware payload capture value mismatch: snapshots={} epoch={} lane={} word={} surface={}/{} procedural={}/{}.",
+                                      snapshot_count, epoch, lane, i, actual_surface, expected_surface_value,
+                                      actual_procedural, expected_procedural_value);
+                        correct = false;
+                        break;
+                    }
+                }
+            }
+            expect(correct) << "every hardware-result capture reaches AH and IS through cold/warm JIT and AOT";
+            if (!correct) { return false; }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_payload_capture_boundary(Device &device, Stream &stream,
                                                 const Accel &surfaces, const Accel &procedurals) {
     constexpr auto ray_count = 257u;
@@ -343,8 +545,8 @@ struct Options {
                    snapshot_count, snapshot_count == 0u ? 0u : snapshot_count + 2u, kernel.function()->function().hash());
         auto llvm_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
         auto ir_env = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
-        auto llvm_codegen = llvm_env != nullptr && luisa::string_view{llvm_env} == "1";
-        auto optix_ir = llvm_codegen && ir_env != nullptr && luisa::string_view{ir_env} == "1";
+        auto llvm_codegen = llvm_env != nullptr && std::strcmp(llvm_env, "1") == 0;
+        auto optix_ir = llvm_codegen && ir_env != nullptr && std::strcmp(ir_env, "1") == 0;
         auto package_stem = luisa::format("test_cuda_llvm_ray_query_payload_{}_{}", snapshot_count,
                                           std::chrono::steady_clock::now().time_since_epoch().count());
         auto package_leaf = luisa::format("{}{}", package_stem, optix_ir ? ".optixir" : ".ptx");
@@ -1054,6 +1256,7 @@ struct Options {
     if (!options.benchmark) {
         if (!run_surface_filter_queries(device, stream, mesh)) { return false; }
         if (!run_resource_capture_queries(device, stream, surface_scene, procedural_scene)) { return false; }
+        if (!run_hardware_payload_boundary(device, stream, surface_scene, procedural_scene)) { return false; }
         return run_payload_capture_boundary(device, stream, surface_scene, procedural_scene);
     }
 
@@ -1091,7 +1294,7 @@ struct Options {
     auto median = sorted[middle];
     if (sorted.size() % 2u == 0u) { median = (median + sorted[middle - 1u]) * 0.5; }
     auto codegen_env = std::getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN");
-    auto requested_codegen = codegen_env != nullptr && luisa::string_view{codegen_env} == "1" ? "llvm" : "ast";
+    auto requested_codegen = codegen_env != nullptr && std::strcmp(codegen_env, "1") == 0 ? "llvm" : "ast";
     auto ray_queries = static_cast<double>(options.rays) * options.dispatches * query_count;
     std::cout << "{\"benchmark\":\"cuda_ray_query_commit_capture\",\"backend\":\"" << device.backend_name()
               << "\",\"requested_codegen\":\"" << requested_codegen

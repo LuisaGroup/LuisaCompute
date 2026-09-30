@@ -10,8 +10,8 @@ namespace luisa::compute::cuda {
 namespace {
 constexpr auto context_capture_offset = 2u;
 constexpr auto kRayQueryPayloadWordCount = 32u;
-constexpr auto kRayQueryPayloadCaptureOffset = 3u;
-constexpr auto kRayQueryPayloadCaptureWordCount = kRayQueryPayloadWordCount - kRayQueryPayloadCaptureOffset;
+constexpr auto kRayQueryPayloadHardwareCaptureOffset = 1u;
+constexpr auto kRayQueryPayloadGeneralCaptureOffset = 3u;
 // Private protocol between the generated custom IS and AH entry points.
 // OptiX reserves hit kinds above 127 for built-in surface intersections.
 constexpr auto ray_query_procedural_hit_kind = 1u;
@@ -31,23 +31,24 @@ constexpr auto ray_query_procedural_terminated_hit_kind = 2u;
 
 // Counts are saturated above the direct payload budget. Unsupported types and
 // large aggregates use the generic context path without partially packing them.
-[[nodiscard]] uint32_t ray_query_payload_word_count(llvm::Type *type, const llvm::DataLayout &layout) noexcept {
-    constexpr auto overflow = kRayQueryPayloadCaptureWordCount + 1u;
+[[nodiscard]] uint32_t ray_query_payload_word_count(llvm::Type *type, const llvm::DataLayout &layout,
+                                                        uint32_t budget) noexcept {
+    auto overflow = budget + 1u;
     if (auto structure = llvm::dyn_cast<llvm::StructType>(type)) {
         if (structure->isOpaque()) { return overflow; }
         auto count = 0u;
         for (auto field : structure->elements()) {
-            auto words = ray_query_payload_word_count(field, layout);
-            if (words > kRayQueryPayloadCaptureWordCount - count) { return overflow; }
+            auto words = ray_query_payload_word_count(field, layout, budget);
+            if (words > budget - count) { return overflow; }
             count += words;
         }
         return count;
     }
-    auto repeated_count = [&layout](llvm::Type *element, uint64_t count) noexcept {
+    auto repeated_count = [&layout, budget, overflow](llvm::Type *element, uint64_t count) noexcept {
         if (count == 0u) { return 0u; }
-        auto words = ray_query_payload_word_count(element, layout);
+        auto words = ray_query_payload_word_count(element, layout, budget);
         if (words == 0u) { return 0u; }
-        return count > kRayQueryPayloadCaptureWordCount / words ? overflow : static_cast<uint32_t>(count) * words;
+        return count > budget / words ? overflow : static_cast<uint32_t>(count) * words;
     };
     if (auto array = llvm::dyn_cast<llvm::ArrayType>(type)) {
         return repeated_count(array->getElementType(), array->getNumElements());
@@ -60,11 +61,12 @@ constexpr auto ray_query_procedural_terminated_hit_kind = 2u;
     return bits == 0u ? overflow : (bits + 31u) / 32u;
 }
 
-[[nodiscard]] bool ray_query_uses_direct_payload(llvm::StructType *context_type, const llvm::DataLayout &layout) noexcept {
+[[nodiscard]] bool ray_query_uses_direct_payload(llvm::StructType *context_type, const llvm::DataLayout &layout,
+                                                        uint32_t budget) noexcept {
     auto count = 0u;
     for (auto i = context_capture_offset; i < context_type->getNumElements(); i++) {
-        auto words = ray_query_payload_word_count(context_type->getElementType(i), layout);
-        if (words > kRayQueryPayloadCaptureWordCount - count) { return false; }
+        auto words = ray_query_payload_word_count(context_type->getElementType(i), layout, budget);
+        if (words > budget - count) { return false; }
         count += words;
     }
     return true;
@@ -460,14 +462,13 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     auto context_type = llvm::StructType::create(_llvm_context, field_types, "luisa.ray.query.context");
     auto hardware_result = ray_query_pipeline_has_hardware_result(inst);
     _ray_query_pipelines.emplace_back(RayQueryPipeline{inst, context_type, std::move(captures), hardware_result});
-    // Every pipeline shares the query pointer and id prefix. Captures either
-    // occupy the remaining registers or live behind a generic context pointer.
-    llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload;
-    // Qualified callbacks need only invocation-local acceptance state.
-    // The hardware owns the persistent hit; do not expose the caller's query.
-    pack_ray_query_payload(b, hardware_result ? llvm::ConstantPointerNull::get(b.getPtrTy()) : query, payload);
-    payload.emplace_back(b.getInt32(id));
-    if (ray_query_uses_direct_payload(context_type, *_data_layout)) {
+    // The id is shared by both layouts. Only general handlers receive a
+    // query pointer; hardware results start their captures immediately after id.
+    llvm::SmallVector<llvm::Value *, kRayQueryPayloadWordCount> payload{b.getInt32(id)};
+    if (!hardware_result) { pack_ray_query_payload(b, query, payload); }
+    auto capture_offset = hardware_result ? kRayQueryPayloadHardwareCaptureOffset : kRayQueryPayloadGeneralCaptureOffset;
+    auto capture_budget = kRayQueryPayloadWordCount - capture_offset;
+    if (ray_query_uses_direct_payload(context_type, *_data_layout, capture_budget)) {
         for (auto i = context_capture_offset; i < fields.size(); i++) {
             pack_ray_query_payload(b, fields[i], payload);
         }
@@ -587,8 +588,8 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
 }
 
 void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
-    // A payload type has one capacity for the whole module. Keep the stable
-    // query-pointer/id/capture layout, but do not reserve unused tail words.
+    // A payload type has one capacity for the whole module. Each pipeline
+    // uses id, an optional query pointer, then captures; pad only to this capacity.
     // The private OptiX intrinsic still has its fixed 32-word signature.
     auto i32 = llvm::Type::getInt32Ty(_llvm_context);
     for (auto call : _ray_query_trace_calls) {
@@ -632,15 +633,16 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.SetInsertPoint(surface);
         }
         auto get_payload = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
-        auto id = b.CreateCall(get_payload, {b.getInt32(2u)});
+        auto id = b.CreateCall(get_payload, {b.getInt32(0u)});
         auto emit_callback = [&](const RayQueryPipeline &pipeline, const xir::Function *callback, llvm::Value *query) noexcept {
             if (callback != nullptr) {
                 auto callee = _get_or_declare_llvm_function(callback);
                 LUISA_ASSERT(callee->arg_size() == pipeline.inst->captured_argument_count() + 3u,
                              "Invalid ray-query callback capture ABI.");
                 llvm::SmallVector<llvm::Value *> args{query};
-                auto word_index = kRayQueryPayloadCaptureOffset;
-                auto direct_payload = ray_query_uses_direct_payload(pipeline.context_type, *_data_layout);
+                auto word_index = pipeline.hardware_result ? kRayQueryPayloadHardwareCaptureOffset : kRayQueryPayloadGeneralCaptureOffset;
+                auto capture_budget = kRayQueryPayloadWordCount - word_index;
+                auto direct_payload = ray_query_uses_direct_payload(pipeline.context_type, *_data_layout, capture_budget);
                 auto context = direct_payload ? nullptr : unpack_ray_query_payload(b, b.getPtrTy(), get_payload, word_index);
                 for (auto &&capture : pipeline.captures) {
                     if (auto root = capture.root_resource) {
@@ -741,7 +743,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 continue;
             }
         }
-        auto prefix_word_index = 0u;
+        auto prefix_word_index = 1u;
         auto query = unpack_ray_query_payload(b, b.getPtrTy(), get_payload, prefix_word_index);
         if (!procedural) {
             _store_ray_query_field(b, query, llvm_ray_query_type_committed_index, b.getFalse());
