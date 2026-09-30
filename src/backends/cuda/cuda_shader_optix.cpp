@@ -1,3 +1,5 @@
+#include <luisa/core/clock.h>
+
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_stream.h"
@@ -7,6 +9,7 @@
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
 #include "cuda_shader_optix.h"
+#include "cuda_shader_metadata.h"
 #include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
@@ -46,12 +49,18 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     return size;
 }
 
-CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<std::byte> ptx,
+CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<std::byte> code,
                                  const char *entry, const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
                  metadata.argument_usages},
       _bound_arguments{std::move(bound_arguments)} {
+
+    LUISA_ASSERT(metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING,
+                 "OptiX shaders require ray-tracing metadata.");
+    LUISA_ASSERT(cuda_shader_code_matches_format({code.data(), code.size()}, metadata.code_format),
+                 "OptiX shader code does not match its metadata format.");
+    auto code_format_name = metadata.code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ? "OPTIX_IR" : "PTX";
 
     // compute argument buffer size
     _argument_buffer_size = 0u;
@@ -94,15 +103,19 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     static constexpr std::array ray_trace_payload_semantics{
         optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_CH_READ,
     };
-    static constexpr std::array ray_query_payload_semantics{
-        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
-        optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE | optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ,
-    };
+    LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
+                 "Invalid OptiX ray-query payload count {}.", metadata.ray_query_payload_count);
+    // Both ABIs pass captures from the caller to the candidate handlers. Mutable
+    // references and query results are written through pointers, not payloads.
+    constexpr auto query_semantics = optix::PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE |
+                                     optix::PAYLOAD_SEMANTICS_IS_READ | optix::PAYLOAD_SEMANTICS_AH_READ;
+    std::array<uint32_t, 32u> ray_query_payload_semantics;
+    ray_query_payload_semantics.fill(query_semantics);
 
     std::array<optix::PayloadType, 2u> payload_types{};
     payload_types[0].numPayloadValues = ray_trace_payload_semantics.size();
     payload_types[0].payloadSemantics = ray_trace_payload_semantics.data();
-    payload_types[1].numPayloadValues = ray_query_payload_semantics.size();
+    payload_types[1].numPayloadValues = metadata.ray_query_payload_count;
     payload_types[1].payloadSemantics = ray_query_payload_semantics.data();
 
     optix::ModuleCompileOptions module_compile_options{};
@@ -126,6 +139,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
         metadata.requires_motion_blur ?
             optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY :
             optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+    // Typed payloads above declare their own word counts. OptiX requires this
+    // untyped count to be zero when module_compile_options.numPayloadTypes > 0.
     pipeline_compile_options.numPayloadValues = 0u;
     auto primitive_flags = metadata.requires_ray_query ?
                                (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM | optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
@@ -146,27 +161,36 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
 
     char log[2048] = {};               // For error reporting from OptiX creation functions
     size_t log_size = sizeof(log) - 1u;// munis one to tell OptiX not to overwrite the trailing '\0'
-    if (auto result = optix::api().moduleCreate(
-            optix_ctx, &module_compile_options,
-            &pipeline_compile_options,
-            reinterpret_cast<const char *>(ptx.data()), ptx.size(),
+    auto create_module = [&](uint32_t attempt) noexcept {
+        log_size = sizeof(log) - 1u;
+        log[0] = '\0';
+        Clock clock;
+        // Both PTX text and OptiX IR are accepted with their exact byte size.
+        // Binary IR may contain embedded zeroes and must never be treated as a C string.
+        auto result = optix::api().moduleCreate(
+            optix_ctx, &module_compile_options, &pipeline_compile_options,
+            reinterpret_cast<const char *>(code.data()), code.size(),
             log, &log_size, &_module);
-        result != optix::RESULT_SUCCESS) {
+        LUISA_INFO("OptiX moduleCreate: format={}, bytes={}, attempt={}, duration={:.3f} ms.",
+                   code_format_name, code.size(), attempt, clock.toc());
+        return result;
+    };
+    if (auto result = create_module(1u); result != optix::RESULT_SUCCESS) {
+        if (metadata.code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR) {
+            LUISA_ERROR_WITH_LOCATION(
+                "OptiX IR shader compilation failed with error {}: {}.\n{}{}",
+                optix::api().getErrorName(result), optix::api().getErrorString(result),
+                static_cast<const char *>(log), log_size > sizeof(log) ? " ..."sv : ""sv);
+        }
         LUISA_WARNING_WITH_LOCATION(
             "OptiX shader compilation failed with error {}: {}. Retrying with patched PTX version.\n{}{}",
             optix::api().getErrorName(result),
             optix::api().getErrorString(result),
             static_cast<const char *>(log),
             log_size > sizeof(log) ? " ..."sv : ""sv);
-        // retry with patched PTX version
-        CUDAShader::_patch_ptx_version(ptx);
-        LUISA_CHECK_OPTIX_WITH_LOG(
-            log, log_size,
-            optix::api().moduleCreate(
-                optix_ctx, &module_compile_options,
-                &pipeline_compile_options,
-                reinterpret_cast<const char *>(ptx.data()), ptx.size(),
-                log, &log_size, &_module));
+        // PTX compatibility retry never applies to the binary OptiX IR format.
+        CUDAShader::_patch_ptx_version(code);
+        LUISA_CHECK_OPTIX_WITH_LOG(log, log_size, create_module(2u));
     }
 
     // create program groups

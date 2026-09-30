@@ -322,18 +322,19 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
                                                 llvm::ConstantFP::getZero(b.getFloatTy());
             auto llvm_mask = uses_motion_blur ? _get_llvm_value(b, func_ctx, inst->operand(3)) :
                                                 _get_llvm_value(b, func_ctx, inst->operand(2));
-            auto llvm_flags = is_any ? b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT) :
-                                       b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
             auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
             hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_inst_id_index);
             hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_prim_id_index);
             hit = b.CreateInsertValue(hit, b.CreateExtractValue(llvm_ray, llvm_ray_type_t_max_index), llvm_committed_hit_type_t_index);
-            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_ray_query_type()));
-            query = b.CreateInsertValue(query, llvm_accel, llvm_ray_query_type_accel_index);
+            auto query_type = _get_llvm_ray_query_type();
+            auto query_accel = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type->getStructElementType(llvm_ray_query_type_accel_index)));
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_handle_index), llvm_accel_type_handle_index);
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_instances_index), llvm_accel_type_instances_index);
+            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type));
+            query = b.CreateInsertValue(query, query_accel, llvm_ray_query_type_accel_index);
             query = b.CreateInsertValue(query, llvm_ray, llvm_ray_query_type_ray_index);
             query = b.CreateInsertValue(query, llvm_time, llvm_ray_query_type_time_index);
             query = b.CreateInsertValue(query, b.CreateZExtOrTrunc(llvm_mask, b.getInt32Ty()), llvm_ray_query_type_mask_index);
-            query = b.CreateInsertValue(query, llvm_flags, llvm_ray_query_type_flags_index);
             query = b.CreateInsertValue(query, hit, llvm_ray_query_type_hit_index);
             return b.CreateInsertValue(query, b.getInt8(llvm_ray_query_state_initialized), llvm_ray_query_type_state_index);
         }
@@ -892,7 +893,7 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::
 void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
                                             llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
                                             llvm::ArrayRef<llvm::Value *> registers) noexcept {
-    LUISA_DEBUG_ASSERT(registers.size() <= 2);
+    LUISA_DEBUG_ASSERT(registers.size() <= 32u);
     auto handle = b.CreateExtractValue(accel, llvm_accel_type_handle_index);
     auto ox = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 0});
     auto oy = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 1});
@@ -954,11 +955,22 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
             args.emplace_back(undef);
         }
     }
+    if (_config.output_format == CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR) {
+        // Direct IR already carries float operand types, as in the SDK's optixTraverse.
+        // Retain the typed-register workaround for PTX ingestion only.
+        llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(),
+                                      "call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_hitobject_traverse, ($32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80);",
+                                      llvm_asm->getConstraintString(), true);
+    }
     // The payload can contain pointers to mutable traversal state and captures.
     // OptiX invokes hit programs that access that memory before returning.
     llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
                                     (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
-    b.CreateCall(llvm_asm, args);
+    auto call = b.CreateCall(llvm_asm, args);
+    if (payload_type == optix::PAYLOAD_TYPE_ID_1) {
+        _ray_query_trace_calls.emplace_back(call);
+        _ray_query_payload_count = std::max(_ray_query_payload_count, static_cast<uint32_t>(registers.size()));
+    }
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_undef(IB &b) noexcept {

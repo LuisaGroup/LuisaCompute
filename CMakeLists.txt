@@ -74,6 +74,13 @@ else ()
     option(LUISA_COMPUTE_ENABLE_SAFE_MODE "Enable safe mode for runtime" OFF)
 endif ()
 
+# Declare CUDA compiler options before src/ext so its optional legacy bitcode
+# writer is available when the CUDA backend is configured later.
+option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN
+        "Enable experimental LLVM-based CUDA codegen" OFF)
+option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR
+        "Enable experimental LLVM-to-OptiX IR support for CUDA" OFF)
+
 # The SIMD CPU backend is staged behind an explicit option until the Phase 2
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
@@ -213,6 +220,14 @@ endif ()
 
 # validate the options
 include(scripts/validate_options.cmake)
+
+if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR AND
+        (NOT LUISA_COMPUTE_ENABLE_CUDA OR
+                NOT LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN))
+    message(FATAL_ERROR
+            "CUDA OptiX IR requires LUISA_COMPUTE_ENABLE_CUDA=ON and "
+            "LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON.")
+endif ()
 
 # enable objc and objcxx for Apple platforms
 if (APPLE)

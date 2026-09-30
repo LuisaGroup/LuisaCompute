@@ -7,7 +7,35 @@
 
 namespace luisa::compute::cuda {
 
+bool cuda_shader_code_matches_format(luisa::span<const std::byte> code,
+                                      CUDAShaderMetadata::CodeFormat format) noexcept {
+    if (code.empty()) { return false; }
+    auto read_u32 = [&code](size_t offset) noexcept {
+        return std::to_integer<uint32_t>(code[offset]) |
+               (std::to_integer<uint32_t>(code[offset + 1u]) << 8u) |
+               (std::to_integer<uint32_t>(code[offset + 2u]) << 16u) |
+               (std::to_integer<uint32_t>(code[offset + 3u]) << 24u);
+    };
+    auto has_optix_ir_magic = code.size() >= 4u && read_u32(0u) == 0x7f4e43edu;
+    if (format == CUDAShaderMetadata::CodeFormat::PTX) { return !has_optix_ir_magic; }
+    if (format != CUDAShaderMetadata::CodeFormat::OPTIX_IR ||
+        !has_optix_ir_magic || code.size() < 24u) { return false; }
+    auto read_u16 = [&code](size_t offset) noexcept {
+        return std::to_integer<uint32_t>(code[offset]) |
+               (std::to_integer<uint32_t>(code[offset + 1u]) << 8u);
+    };
+    auto header_size = read_u16(12u);
+    auto ir_level = read_u16(14u);
+    auto scalar_fields_end = read_u32(16u);
+    auto blob_data_end = read_u32(20u);
+    return header_size == 24u && ir_level == 2u &&
+           scalar_fields_end >= header_size &&
+           scalar_fields_end <= blob_data_end && blob_data_end < code.size();
+}
+
 luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata) noexcept {
+    LUISA_ASSERT(metadata.ray_query_payload_count >= 2u && metadata.ray_query_payload_count <= 32u,
+                 "Cannot serialize an unresolved or invalid ray-query payload count.");
     luisa::string result;
     result.append(luisa::format("CHECKSUM {:016x} ", metadata.checksum));
     result.append(luisa::format("KIND {} ", metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN ?
@@ -17,10 +45,16 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
                                             metadata.kind == CUDAShaderMetadata::Kind::TILE ?
                                                 "TILE" :
                                                 "RAY_TRACING"));
+    switch (metadata.code_format) {
+        case CUDAShaderMetadata::CodeFormat::PTX: result.append("CODE_FORMAT PTX "); break;
+        case CUDAShaderMetadata::CodeFormat::OPTIX_IR: result.append("CODE_FORMAT OPTIX_IR "); break;
+        default: LUISA_ERROR_WITH_LOCATION("Invalid CUDA shader code format.");
+    }
     result.append(metadata.enable_debug ? "DEBUG TRUE " : "DEBUG FALSE ");
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
     result.append(metadata.requires_trace_any ? "TRACE_ANY TRUE " : "TRACE_ANY FALSE ");
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
+    result.append(luisa::format("RAY_QUERY_PAYLOAD_COUNT {} ", metadata.ray_query_payload_count));
     result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
     result.append(metadata.requires_motion_blur ? "MOTION_BLUR TRUE " : "MOTION_BLUR FALSE ");
     result.append(luisa::format("MAX_REGISTER_COUNT {} ", metadata.max_register_count));
@@ -92,10 +126,12 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<CurveBasisSet> curve_bases;
     luisa::optional<uint3> block_size;
     auto kind = CUDAShaderMetadata::Kind::UNKNOWN;
+    luisa::optional<CUDAShaderMetadata::CodeFormat> code_format;
     luisa::optional<bool> enable_debug;
     luisa::optional<bool> requires_trace_closest;
     luisa::optional<bool> requires_trace_any;
     luisa::optional<bool> requires_ray_query;
+    luisa::optional<uint32_t> ray_query_payload_count;
     luisa::optional<bool> requires_printing;
     luisa::optional<bool> requires_motion_blur;
     luisa::optional<uint> max_register_count;
@@ -120,6 +156,20 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 kind = CUDAShaderMetadata::Kind::TILE;
             } else {
                 LUISA_WARNING_WITH_LOCATION("Invalid kind '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        } else if (token == "CODE_FORMAT") {
+            if (code_format.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate code format in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "PTX") {
+                code_format.emplace(CUDAShaderMetadata::CodeFormat::PTX);
+            } else if (x == "OPTIX_IR") {
+                code_format.emplace(CUDAShaderMetadata::CodeFormat::OPTIX_IR);
+            } else {
+                LUISA_WARNING_WITH_LOCATION("Invalid code format '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
         } else if (token == "CHECKSUM") {
@@ -240,6 +290,17 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                     "Invalid requires_ray_query flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
+        } else if (token == "RAY_QUERY_PAYLOAD_COUNT") {
+            if (ray_query_payload_count.has_value()) {
+                LUISA_WARNING_WITH_LOCATION("Duplicate ray-query payload count in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value() || x.value() < 2u || x.value() > 32u) {
+                LUISA_WARNING_WITH_LOCATION("Invalid ray-query payload count in shader metadata; expected 2 through 32 words.");
+                return luisa::nullopt;
+            }
+            ray_query_payload_count.emplace(static_cast<uint32_t>(x.value()));
         } else if (token == "PRINTING") {
             if (requires_printing.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -439,6 +500,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Missing kind in shader metadata.");
         return luisa::nullopt;
     }
+    if (code_format.value_or(CUDAShaderMetadata::CodeFormat::PTX) == CUDAShaderMetadata::CodeFormat::OPTIX_IR &&
+        kind != CUDAShaderMetadata::Kind::RAY_TRACING) {
+        LUISA_WARNING_WITH_LOCATION("OptiX IR requires ray-tracing shader metadata.");
+        return luisa::nullopt;
+    }
     if (!curve_bases.has_value()) {
         LUISA_WARNING_WITH_LOCATION(
             "Missing curve basis set in shader metadata.");
@@ -523,10 +589,14 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         .checksum = checksum.value(),
         .curve_bases = curve_bases.value(),
         .kind = kind,
+        // Sidecars written before this field contain PTX.
+        .code_format = code_format.value_or(CUDAShaderMetadata::CodeFormat::PTX),
         .enable_debug = enable_debug.value(),
         .requires_trace_closest = requires_trace_closest.value(),
         .requires_trace_any = requires_trace_any.value(),
         .requires_ray_query = requires_ray_query.value(),
+        // Sidecars written before the payload ABI field used the two-word context pointer.
+        .ray_query_payload_count = ray_query_payload_count.value_or(2u),
         .requires_printing = requires_printing.value(),
         .requires_motion_blur = requires_motion_blur.value(),
         .max_register_count = max_register_count.value(),

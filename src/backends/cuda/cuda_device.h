@@ -182,9 +182,9 @@ private:
         luisa::string name,
         const string &source, const ShaderOption &option,
         luisa::span<const char *const> nvrtc_options,
-        const CUDAShaderMetadata &expected_metadata,
+        CUDAShaderMetadata expected_metadata,
         luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-        luisa::function<luisa::string()> generate_ptx = {}) noexcept;
+        luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx = {}) noexcept;
 
 public:
     CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io, bool use_lmdb,

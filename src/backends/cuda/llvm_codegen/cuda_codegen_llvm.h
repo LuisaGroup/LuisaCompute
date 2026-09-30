@@ -12,7 +12,12 @@ class Module;
 
 namespace luisa::compute::cuda {
 
-[[nodiscard]] luisa::string luisa_compute_cuda_codegen_llvm(
+struct CUDACodegenLLVMResult {
+    luisa::string code;
+    uint32_t ray_query_payload_count{2u};
+};
+
+[[nodiscard]] CUDACodegenLLVMResult luisa_compute_cuda_codegen_llvm(
     const xir::Module &xir_module,
     const CUDACodegenLLVMConfig &config) noexcept;
 

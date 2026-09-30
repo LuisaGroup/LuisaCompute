@@ -23,6 +23,13 @@
 #include "cuda_codegen_llvm_device_bitcode.h"
 #include "cuda_codegen_llvm_impl.h"
 
+#ifdef LUISA_COMPUTE_ENABLE_CUDA_OPTIX_IR
+#include <llvm/IR/Metadata.h>
+#include "../../../ext/llvm_downgrade.h"
+#include "cuda_codegen_llvm_optix_ir.h"
+#include "cuda_codegen_llvm_optix_ir_legalize.h"
+#endif
+
 #undef None
 
 namespace luisa::compute::cuda {
@@ -201,6 +208,10 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
     // add fast-math flags to FPMathOperators
     if (_config.enable_fast_math) {
         for (auto &f : *_llvm_module) {
+            // Match NVRTC --use_fast_math's single-precision FTZ behavior.
+            if (!f.isDeclaration()) {
+                f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+            }
             for (auto &bb : f) {
                 for (auto &inst : bb) {
                     if (llvm::isa<llvm::FPMathOperator>(inst)) {
@@ -305,6 +316,65 @@ luisa::string CUDACodegenLLVMImpl::_generate_ptx() const noexcept {
     return {ptx.begin(), ptx.end()};
 }
 
+luisa::string CUDACodegenLLVMImpl::_generate_optix_ir() noexcept {
+#ifdef LUISA_COMPUTE_ENABLE_CUDA_OPTIX_IR
+    LUISA_ASSERT(_rt_analysis.uses_ray_tracing, "OptiX IR requires a ray-tracing kernel.");
+    _legalize_optix_ir_atomics();
+    luisa_compute_cuda_llvm_legalize_optix_ir(*_llvm_module);
+    // Interpret kernel annotations before setting NVIDIA's consumed marker.
+    // PTX_Kernel already carries the entry ABI and must not be rewritten.
+    llvm::DenseSet<llvm::Function *> annotated_kernels;
+    if (auto annotations = _llvm_module->getNamedMetadata("nvvm.annotations")) {
+        for (auto node : annotations->operands()) {
+            LUISA_ASSERT(node != nullptr && node->getNumOperands() >= 3u,
+                         "Malformed NVVM annotation in OptiX IR input.");
+            auto annotation = llvm::dyn_cast_or_null<llvm::MDString>(node->getOperand(1));
+            // The supplied pure-writer protocol only establishes the kernel
+            // transplant. Do not mark other unhandled semantics as consumed.
+            LUISA_ASSERT(annotation != nullptr && annotation->getString() == "kernel",
+                         "Unsupported NVVM annotation in the experimental OptiX IR writer.");
+            auto constant = llvm::dyn_cast_or_null<llvm::ConstantAsMetadata>(node->getOperand(2));
+            auto enabled = constant == nullptr ? nullptr : llvm::dyn_cast<llvm::ConstantInt>(constant->getValue());
+            LUISA_ASSERT(enabled != nullptr, "Invalid NVVM kernel annotation value.");
+            if (enabled->isZero()) { continue; }
+            auto value = llvm::dyn_cast_or_null<llvm::ValueAsMetadata>(node->getOperand(0));
+            auto function = value == nullptr ? nullptr : llvm::dyn_cast<llvm::Function>(value->getValue());
+            LUISA_ASSERT(function != nullptr, "Invalid NVVM kernel annotation target.");
+            annotated_kernels.insert(function);
+        }
+    }
+    constexpr std::array<std::string_view, 9u> entry_prefixes{
+        "__raygen__", "__miss__", "__closesthit__", "__anyhit__", "__intersection__",
+        "__direct_callable__", "__continuation_callable__", "__exception__", "__callable__"};
+    for (auto &function : *_llvm_module) {
+        if (function.isDeclaration()) { continue; }
+        auto ptx_kernel = function.getCallingConv() == llvm::CallingConv::PTX_Kernel;
+        auto optix_entry = false;
+        for (auto prefix : entry_prefixes) {
+            optix_entry |= function.getName().starts_with(prefix);
+        }
+        auto annotated_kernel = annotated_kernels.contains(&function);
+        if (ptx_kernel || optix_entry || annotated_kernel) {
+            function.removeFnAttr(llvm::Attribute::NoInline);
+            function.removeFnAttr(llvm::Attribute::OptimizeNone);
+            function.addFnAttr(llvm::Attribute::AlwaysInline);
+        }
+        if (!ptx_kernel && (optix_entry || annotated_kernel)) {
+            function.addFnAttr("nvvm.kernel");
+        }
+        function.addFnAttr("nvvm.annotations_transplanted");
+    }
+    LUISA_ASSERT(!llvm::verifyModule(*_llvm_module, &llvm::errs()),
+                 "Invalid LLVM module after OptiX IR annotation transplant.");
+    // The downgrade consumes the module and writes immediately after typed
+    // pointer reconstruction. Never run LLVM optimization on that result.
+    auto bitcode = llvm_downgrade_to_7(std::move(_llvm_module));
+    return luisa_compute_cuda_llvm_encode_optix_ir({bitcode.data(), bitcode.size()}, _config.cuda_arch);
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA OptiX IR output was requested without LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR.");
+#endif
+}
+
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     _analyze_ray_tracing_usage(xir_module);
     _llvm_module->setSourceFileName(luisa::string_view{_config.source_file});
@@ -346,7 +416,11 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
     if (dump_llvm_ir) {
         _llvm_module->print(llvm::errs(), nullptr, false, true);
     }
-    return _generate_ptx();
+    switch (_config.output_format) {
+        case CUDACodegenLLVMConfig::OutputFormat::PTX: return _generate_ptx();
+        case CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR: return _generate_optix_ir();
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid CUDA LLVM output format.");
 }
 
 }// namespace luisa::compute::cuda

@@ -86,7 +86,8 @@ on_load(function(target)
     if type(lc_llvm_path) == "string" and lc_llvm_path ~= "" then
         -- XIR kernels, including autodiff, lower directly to LLVM/PTX.
         target:add("defines", 'LUISA_ENABLE_XIR', 'LUISA_COMPUTE_ENABLE_LLVM')
-        target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp'))
+        -- OptiX IR requires CMake's opt-in LLVM 7 writer; xmake remains PTX-only.
+        target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp|cuda_codegen_llvm_optix_ir*.cpp'))
     end
     target:add("defines", "LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
     target:add("deps", "lc-vulkan-swapchain", "lc-volk")

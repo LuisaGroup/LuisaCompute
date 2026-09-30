@@ -1,7 +1,22 @@
 add_library(luisa-compute-ext INTERFACE)
 
-if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
+if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
+        LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+    # LLVMConfig exports its own CRT choice. Do not let it change the
+    # directory default inherited by the remaining third-party targets.
+    set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED FALSE)
+    if (DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED TRUE)
+        set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+    endif ()
     find_package(LLVM CONFIG REQUIRED)
+    if (LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "${LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME}")
+    else ()
+        unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+    endif ()
+    unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED)
+    unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME)
     if (NOT LLVM_VERSION_MAJOR EQUAL 22)
         message(FATAL_ERROR
                 "The in-tree llvm-downgrade sources currently require LLVM 22, "
@@ -103,8 +118,13 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
         file(RELATIVE_PATH LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE
                 "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
                 "${LUISA_LLVM_DOWNGRADE_INPUT}")
-        file(SHA256 "${LUISA_LLVM_DOWNGRADE_INPUT}"
-                LUISA_LLVM_DOWNGRADE_INPUT_SHA256)
+        # Git may check these text sources out as CRLF on Windows. Validate
+        # their canonical contents, then prepare the same LF mirror everywhere.
+        file(READ "${LUISA_LLVM_DOWNGRADE_INPUT}" LUISA_LLVM_DOWNGRADE_INPUT_TEXT)
+        string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_INPUT_TEXT
+                "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+        string(SHA256 LUISA_LLVM_DOWNGRADE_INPUT_SHA256
+                "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
         string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
                 "${LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE}:"
                 "${LUISA_LLVM_DOWNGRADE_INPUT_SHA256}\n")
@@ -119,8 +139,11 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
                 "fingerprint ${LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT}, "
                 "found ${LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT}.")
     endif ()
-    file(SHA256 "${LUISA_LLVM_DOWNGRADE_PATCH}"
-            LUISA_LLVM_DOWNGRADE_PATCH_SHA256)
+    file(READ "${LUISA_LLVM_DOWNGRADE_PATCH}" LUISA_LLVM_DOWNGRADE_PATCH_TEXT)
+    string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_PATCH_TEXT
+            "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
+    string(SHA256 LUISA_LLVM_DOWNGRADE_PATCH_SHA256
+            "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
     string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
             "overlay:${LUISA_LLVM_DOWNGRADE_PATCH_SHA256}\n")
     string(SHA256 LUISA_LLVM_DOWNGRADE_FINGERPRINT
@@ -158,6 +181,21 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
                 "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/test"
                 "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/tools"
                 DESTINATION "${LUISA_LLVM_DOWNGRADE_DIR}")
+        foreach (LUISA_LLVM_DOWNGRADE_INPUT IN LISTS
+                LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+            file(RELATIVE_PATH LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE
+                    "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                    "${LUISA_LLVM_DOWNGRADE_INPUT}")
+            file(READ "${LUISA_LLVM_DOWNGRADE_INPUT}" LUISA_LLVM_DOWNGRADE_INPUT_TEXT)
+            string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_INPUT_TEXT
+                    "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+            file(WRITE "${LUISA_LLVM_DOWNGRADE_DIR}/${LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE}"
+                    "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+        endforeach ()
+        set(LUISA_LLVM_DOWNGRADE_MIRROR_PATCH
+                "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-llvm22-air.patch")
+        file(WRITE "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
+                "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
         set(LUISA_LLVM_DOWNGRADE_GIT_ENV
                 "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}")
         execute_process(
@@ -165,7 +203,7 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
                 --unset=GIT_DIR --unset=GIT_WORK_TREE
                 "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
                 "${GIT_EXECUTABLE}" apply --check --whitespace=nowarn
-                "${LUISA_LLVM_DOWNGRADE_PATCH}"
+                "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
                 WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
                 RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT
                 OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_OUTPUT
@@ -182,7 +220,7 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
                 --unset=GIT_DIR --unset=GIT_WORK_TREE
                 "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
                 "${GIT_EXECUTABLE}" apply --whitespace=nowarn
-                "${LUISA_LLVM_DOWNGRADE_PATCH}"
+                "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
                 WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
                 RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_RESULT
                 OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_OUTPUT
@@ -198,14 +236,27 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
     endif ()
 
     add_library(luisa-compute-ext-llvm-downgrade STATIC
-            llvm_downgrade.cpp llvm_downgrade.h
+            llvm_downgrade.h
             ${LUISA_LLVM_DOWNGRADE_DIR}/common/legacy_opts.cpp
-            ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter140.cpp
-            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter140.cpp
             ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.cpp
-            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.h
-            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.cpp
-            ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.h)
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.h)
+    if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
+        target_sources(luisa-compute-ext-llvm-downgrade PRIVATE
+                llvm_downgrade.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.h)
+        target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE LLVMDG_HAS_140=1)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+        target_sources(luisa-compute-ext-llvm-downgrade PRIVATE
+                llvm_downgrade70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.h)
+    endif ()
     target_include_directories(luisa-compute-ext-llvm-downgrade
             BEFORE PRIVATE ${LUISA_LLVM_DOWNGRADE_DIR}/include)
     target_include_directories(luisa-compute-ext-llvm-downgrade
@@ -216,12 +267,21 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
             ${LLVM_INCLUDE_DIRS})
     separate_arguments(LUISA_LLVM_DOWNGRADE_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
     target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
-            ${LUISA_LLVM_DOWNGRADE_DEFINITIONS}
-            -include ${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h)
-    if (NOT LLVM_ENABLE_RTTI)
-        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE -fno-rtti)
+            ${LUISA_LLVM_DOWNGRADE_DEFINITIONS})
+    if (MSVC)
+        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+                "/FI${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h")
+    else ()
+        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+                -include ${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h)
     endif ()
-    target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE LLVMDG_HAS_140=1)
+    if (NOT LLVM_ENABLE_RTTI)
+        if (MSVC)
+            target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE /GR-)
+        else ()
+            target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE -fno-rtti)
+        endif ()
+    endif ()
     target_compile_features(luisa-compute-ext-llvm-downgrade PUBLIC cxx_std_20)
     set_target_properties(luisa-compute-ext-llvm-downgrade PROPERTIES
             POSITION_INDEPENDENT_CODE ON
@@ -681,6 +741,7 @@ install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 if (LUISA_COMPUTE_ENABLE_VULKAN OR
     LUISA_COMPUTE_ENABLE_CUDA OR
     LUISA_COMPUTE_ENABLE_FALLBACK OR
-    LUISA_COMPUTE_ENABLE_HIP)
+    LUISA_COMPUTE_ENABLE_HIP OR
+    (LUISA_COMPUTE_ENABLE_SIMD AND LUISA_COMPUTE_ENABLE_GUI AND NOT APPLE))
     add_subdirectory(volk)
 endif ()

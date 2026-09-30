@@ -21,6 +21,11 @@ struct CUDACodegenLLVMConfig {
         LEVEL_AGGRESSIVE = 3,
     };
 
+    enum struct OutputFormat : uint8_t {
+        PTX,
+        OPTIX_IR,
+    };
+
     luisa::string source_file{};
     luisa::span<const Function::Binding> bindings{};
     std::array<uint32_t, 3> block_size{};// {0, 0, 0} if dynamic, must be constant for now
@@ -30,6 +35,7 @@ struct CUDACodegenLLVMConfig {
     bool enable_debug_info{false};
     bool requires_ray_tracing{false};
     bool requires_ray_query{false};
+    OutputFormat output_format{OutputFormat::PTX};
 };
 
 }// namespace luisa::compute::cuda

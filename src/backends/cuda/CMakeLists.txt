@@ -82,7 +82,6 @@ if (CUDAToolkit_FOUND)
     endif ()
 
     # LLVM
-    option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN "Enable experimental LLVM-based CUDA codegen" OFF)
     if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
         add_subdirectory(llvm_codegen)
     endif ()

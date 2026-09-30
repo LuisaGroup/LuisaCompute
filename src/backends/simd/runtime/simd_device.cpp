@@ -32,6 +32,7 @@
 #include "simd_procedural_primitive.h"
 #include "simd_shader.h"
 #include "simd_stream.h"
+#include "simd_swapchain.h"
 #include "simd_thread_pool.h"
 #include "simd_texture.h"
 
@@ -307,18 +308,36 @@ void SIMDDevice::set_stream_log_callback(
 }
 
 SwapchainCreationInfo SIMDDevice::create_swapchain(
-    const SwapchainOption &, uint64_t) noexcept {
+    const SwapchainOption &option, uint64_t stream_handle) noexcept {
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
+    auto *stream = reinterpret_cast<SIMDStream *>(stream_handle);
+    auto *swapchain = luisa::new_with_allocator<SIMDSwapchain>(stream, option);
+    return {ResourceCreationInfo{
+                .handle = reinterpret_cast<uint64_t>(swapchain),
+                .native_handle = swapchain->native_handle()},
+            swapchain->storage()};
+#else
+    LUISA_WARNING_WITH_LOCATION("SIMD display requires a GUI build with Vulkan swapchain support.");
     SwapchainCreationInfo info{};
     info.invalidate();
     return info;
+#endif
 }
 
-void SIMDDevice::destroy_swapchain(uint64_t) noexcept {}
+void SIMDDevice::destroy_swapchain(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<SIMDSwapchain *>(handle));
+}
 
 void SIMDDevice::present_display_in_stream(
-    uint64_t, uint64_t, uint64_t) noexcept {
-    LUISA_ERROR_WITH_LOCATION(
-        "The SIMD backend does not provide a display swapchain yet.");
+    uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
+    auto *stream = reinterpret_cast<SIMDStream *>(stream_handle);
+    auto *swapchain = reinterpret_cast<SIMDSwapchain *>(swapchain_handle);
+    auto *image = reinterpret_cast<SIMDTexture *>(image_handle);
+    swapchain->present(stream, image);
+#else
+    LUISA_ERROR_WITH_LOCATION("SIMD display requires a GUI build with Vulkan swapchain support.");
+#endif
 }
 
 ShaderCreationInfo SIMDDevice::create_shader(

@@ -322,6 +322,13 @@ luisa_compute_add_test(test_sparse_buffer_tile_plan unit/core/test_sparse_buffer
 target_include_directories(test_sparse_buffer_tile_plan PRIVATE ../runtime)
 luisa_compute_add_test(test_sparse_texture_tile_plan unit/core/test_sparse_texture_tile_plan.cpp LABELS "unit;unit_core")
 target_include_directories(test_sparse_texture_tile_plan PRIVATE ../runtime)
+if (TARGET luisa-compute-backend-cuda)
+    # Sidecar parsing is host-only; compile the helper without loading the CUDA backend.
+    luisa_compute_add_test(test_cuda_shader_metadata
+            unit/core/test_cuda_shader_metadata.cpp LABELS "unit;unit_core;unit_cuda")
+    target_sources(test_cuda_shader_metadata PRIVATE ../backends/cuda/cuda_shader_metadata.cpp)
+    target_include_directories(test_cuda_shader_metadata PRIVATE ../backends/cuda)
+endif ()
 luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
 target_sources(test_hip_curve_bounds PRIVATE ../backends/hip/hip_curve_bounds.cpp)
 target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)
@@ -1127,9 +1134,13 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_test(test_cuda_llvm_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
     luisa_compute_add_test(test_cuda_llvm_motion_ray_query unit/runtime/test_hip_motion_ray_query.cpp)
     luisa_compute_add_test(test_cuda_llvm_ray_query_bounds unit/runtime/test_cuda_llvm_ray_query_bounds.cpp)
+    luisa_compute_add_test(test_cuda_llvm_float_atomics unit/runtime/test_cuda_llvm_float_atomics.cpp)
+    luisa_compute_add_test(test_cuda_llvm_ray_query_images unit/runtime/test_cuda_llvm_ray_query_images.cpp)
+    luisa_compute_add_test(test_cuda_llvm_bool_reductions unit/runtime/test_cuda_llvm_bool_reductions.cpp)
     if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
         foreach (test_target IN ITEMS test_cuda_llvm_ray_query test_cuda_llvm_shader_cache
                 test_cuda_llvm_curve_ray_query test_cuda_llvm_motion_ray_query test_cuda_llvm_ray_query_bounds
+                test_cuda_llvm_float_atomics test_cuda_llvm_ray_query_images test_cuda_llvm_bool_reductions
                 test_ray_query_world_ray test_accel_visibility test_accel_build_modes)
             add_dependencies(${test_target} luisa-compute-backend-cuda)
             set(require_compile OFF)
@@ -1140,11 +1151,27 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
                     COMMAND ${CMAKE_COMMAND}
                     "-DTEST_EXECUTABLE=$<TARGET_FILE:${test_target}>"
                     "-DREQUIRE_COMPILE=${require_compile}"
+                    -DREQUIRE_PTX=ON
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/common/run_cuda_llvm_test.cmake")
             set_tests_properties(cuda_llvm_${test_target} PROPERTIES
                     LABELS "integration;integration_cuda;integration_cuda_llvm"
-                    ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1"
+                    ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=0"
                     TIMEOUT 300)
+            if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR AND
+                    NOT test_target STREQUAL "test_cuda_llvm_shader_cache")
+                # Cached fixtures still recreate their OptiX module in each
+                # process. Check its real input format even on a warm cache.
+                add_test(NAME cuda_optix_ir_${test_target}
+                        COMMAND ${CMAKE_COMMAND}
+                        "-DTEST_EXECUTABLE=$<TARGET_FILE:${test_target}>"
+                        "-DREQUIRE_COMPILE=${require_compile}"
+                        -DREQUIRE_OPTIX_IR=ON
+                        -P "${CMAKE_CURRENT_SOURCE_DIR}/common/run_cuda_llvm_test.cmake")
+                set_tests_properties(cuda_optix_ir_${test_target} PROPERTIES
+                        LABELS "integration;integration_cuda;integration_cuda_optix_ir"
+                        ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=1"
+                        TIMEOUT 300)
+            endif ()
         endforeach ()
     endif ()
 endif ()

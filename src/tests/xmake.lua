@@ -675,6 +675,9 @@ end
       test_proj("test_cuda_llvm_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
       test_proj("test_cuda_llvm_motion_ray_query", "unit/runtime/test_hip_motion_ray_query.cpp")
       test_proj("test_cuda_llvm_ray_query_bounds", "unit/runtime/test_cuda_llvm_ray_query_bounds.cpp")
+      test_proj("test_cuda_llvm_float_atomics", "unit/runtime/test_cuda_llvm_float_atomics.cpp")
+      test_proj("test_cuda_llvm_ray_query_images", "unit/runtime/test_cuda_llvm_ray_query_images.cpp")
+      test_proj("test_cuda_llvm_bool_reductions", "unit/runtime/test_cuda_llvm_bool_reductions.cpp")
       -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
       test_proj("test_cuda_ptx_version", "unit/runtime/test_cuda_ptx_version.cpp", false, function()
           add_includedirs("../backends/cuda")

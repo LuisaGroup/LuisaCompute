@@ -143,11 +143,10 @@ public:
     static constexpr auto llvm_ray_query_type_ray_index = 1;
     static constexpr auto llvm_ray_query_type_time_index = 2;
     static constexpr auto llvm_ray_query_type_mask_index = 3;
-    static constexpr auto llvm_ray_query_type_flags_index = 4;
-    static constexpr auto llvm_ray_query_type_hit_index = 5;
-    static constexpr auto llvm_ray_query_type_committed_index = 6;
-    static constexpr auto llvm_ray_query_type_terminated_index = 7;
-    static constexpr auto llvm_ray_query_type_state_index = 8;
+    static constexpr auto llvm_ray_query_type_hit_index = 4;
+    static constexpr auto llvm_ray_query_type_committed_index = 5;
+    static constexpr auto llvm_ray_query_type_terminated_index = 6;
+    static constexpr auto llvm_ray_query_type_state_index = 7;
 
     static constexpr auto llvm_ray_query_state_surface_terminated = 0;
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
@@ -178,8 +177,11 @@ private:
     struct RayQueryPipeline {
         const xir::RayQueryPipelineInst *inst;
         llvm::StructType *context_type;
+        bool surface_filter;
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
+    std::vector<llvm::CallInst *> _ray_query_trace_calls;
+    uint32_t _ray_query_payload_count{2u};
     llvm::DenseMap<const Type *, std::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, std::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -224,6 +226,8 @@ private:
     void _run_optimization_passes(LLVMModulePassManagerCallback callback = {}) noexcept;
     void _dump_module(const luisa::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_ptx() const noexcept;
+    [[nodiscard]] luisa::string _generate_optix_ir() noexcept;
+    void _legalize_optix_ir_atomics() noexcept;
 
     /* the following methods are defined in cuda_codegen_llvm_impl_analysis.cpp */
     void _analyze_ray_tracing_usage(const xir::Module &module) noexcept;
@@ -418,6 +422,7 @@ private:
 public:
     explicit CUDACodegenLLVMImpl(CUDACodegenLLVMConfig config) noexcept;
     [[nodiscard]] luisa::string generate(const xir::Module &xir_module) noexcept;
+    [[nodiscard]] uint32_t ray_query_payload_count() const noexcept { return _ray_query_payload_count; }
 };
 
 }// namespace luisa::compute::cuda
