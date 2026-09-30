@@ -109,7 +109,12 @@ struct Options {
         auto seed = lane * 0x9e3779b9u ^ epoch * 0x85ebca6bu;
         // Runtime indexing in both the caller and outlined handlers keeps the
         // entire 2 KiB object addressable across all three traversal calls.
-        ArrayUInt<element_count> values;
+        // The following loop initializes every element before any query.
+        // Skip the redundant 512-element default-initializer fold, which
+        // exceeds Clang's default expression nesting limit.
+        ArrayUInt<element_count> values{static_cast<const Expression *>(
+            luisa::compute::detail::FunctionBuilder::current()->local(
+                Type::of<std::array<uint, element_count>>()))};
         $for (j, element_count) {
             values[j] = (seed ^ j * 0xc2b2ae35u) & 0x3fffffffu;
         };
