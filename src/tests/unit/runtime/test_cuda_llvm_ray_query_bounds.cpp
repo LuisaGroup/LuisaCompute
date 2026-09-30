@@ -114,6 +114,62 @@ namespace {
     return passed;
 }
 
+[[nodiscard]] bool test_procedural_commit_recovery(
+    Device &device, Stream &stream, const Accel &scene,
+    const Buffer<float> &attempted_t, luisa::span<const float> attempts) {
+    Kernel1D kernel = [](AccelVar accel, BufferFloat attempted_t,
+                         BufferUInt4 summaries, BufferFloat4 details) noexcept {
+        auto index = dispatch_x();
+        auto value = attempted_t.read(index);
+        auto ray = make_ray(make_float3(0.0f, 0.0f, 2.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.25f, 1.75f);
+        for (auto any : {false, true}) {
+            UInt seen = 0u;
+            Float final_bound = -1.0f;
+            auto candidate_handler = [&](ProceduralCandidate &candidate) noexcept {
+                auto candidate_hit = candidate.hit();
+                // OR is stable if traversal repeats the same AABB candidate.
+                seen |= ite(candidate_hit->inst == 0u & candidate_hit->prim == 0u, 1u, 2u);
+                candidate.commit(value);
+                candidate.commit(0.5f);
+                final_bound = candidate.ray()->t_max();
+            };
+            auto hit = any ? accel.traverse_any(ray, {}).on_procedural_candidate(candidate_handler).trace() :
+                             accel.traverse(ray, {}).on_procedural_candidate(candidate_handler).trace();
+            auto output = index * 2u + static_cast<uint>(any);
+            summaries.write(output, make_uint4(hit->hit_type, hit->inst, hit->prim, seen));
+            details.write(output, make_float4(hit->distance(), hit->bary, final_bound));
+        }
+    };
+    LUISA_INFO("Procedural commit recovery fixture: AST hash={:016x}.", kernel.function()->function().hash());
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .enable_fast_math = false});
+    auto summaries = device.create_buffer<uint4>(attempts.size() * 2u);
+    auto details = device.create_buffer<float4>(summaries.size());
+    luisa::vector<uint4> host_summaries(summaries.size());
+    luisa::vector<float4> host_details(details.size());
+    stream << shader(scene, attempted_t, summaries, details).dispatch(attempts.size())
+           << summaries.copy_to(luisa::span{host_summaries})
+           << details.copy_to(luisa::span{host_details}) << synchronize();
+    auto passed = true;
+    for (auto i = 0u; i < attempts.size(); i++) {
+        auto first_is_closer = std::isfinite(attempts[i]) && attempts[i] >= 0.25f && attempts[i] < 0.5f;
+        auto expected_distance = first_is_closer ? attempts[i] : 0.5f;
+        for (auto any = 0u; any < 2u; any++) {
+            auto index = i * 2u + any;
+            auto hit = host_summaries[index];
+            auto detail = host_details[index];
+            auto expected_hit = make_uint4(static_cast<uint>(HitType::Procedural), 0u, 0u, 1u);
+            auto correct = all(hit == expected_hit) && detail.x == expected_distance &&
+                           detail.y == 0.0f && detail.z == 0.0f && detail.w == expected_distance;
+            expect(correct) << luisa::format(
+                "procedural recovery: any={} case={} attempted={} hit={} detail={} expected_t={}",
+                any, i, attempts[i], hit, detail, expected_distance);
+            passed &= correct;
+        }
+    }
+    return passed;
+}
+
 [[nodiscard]] bool test_commit_bounds(Device &device) {
     constexpr auto t_min = 0.25f;
     constexpr auto t_max = 1.75f;
@@ -206,7 +262,8 @@ namespace {
             }
         }
     }
-    return test_callback_implicit_arguments(device, stream, primitive) && passed;
+    return test_callback_implicit_arguments(device, stream, primitive) &&
+           test_procedural_commit_recovery(device, stream, scene, input, luisa::span{attempts}) && passed;
 }
 
 }// namespace

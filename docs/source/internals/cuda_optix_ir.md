@@ -405,6 +405,15 @@ bytes**. Optimized LLVM IR confirms descriptor reloads from `@params` in the
 callbacks; see `.deps/rq-resource-v17-dump/`. These code-size and resource-count
 changes do not by themselves establish a throughput improvement.
 
+The subsequent eight-process v16/v17 LLVM comparison changed only the CUDA DLL.
+Raw process-median throughput was **1,718.810 versus 1,113.680 Mqueries/s**;
+the two ABBA groups moved **+5.63% and -35.21%**, respectively. GPU-utilization
+samples at or above 90% had per-process median graphics clocks ranging from
+825 to 1,665 MHz, and the CSVs do not isolate measured phases. All eight numerical
+oracles passed. This unstable result does not establish a throughput improvement;
+no slow runs were removed. The complete record is
+`build-msvc-llvm/test-results/ray-query-resource-v17-long-20260930-093030-124997/`.
+
 A longer v16 AST/LLVM baseline used 1,048,576 rays, 1,000 warmup dispatches,
 512 dispatches per sample and nine samples across eight ABBA processes. Identical
 LLVM code ranged from 921.91 to 2,627.28 Mqueries/s. Active GPU clock states varied
@@ -412,3 +421,62 @@ substantially; the clock CSVs include compilation and validation, without exact
 sample boundaries. These results do not establish a stable relative throughput
 or a precise cause of the variation. All eight runs and numerical checks remain
 in `build-msvc-llvm/test-results/ray-query-v16-ast-llvm-long-20260930-085618-997821/`.
+
+## Recovering native traversal results (cache v18)
+
+Qualified AH/IS callbacks now use the implicit OptiX hit object instead of
+passing the caller's query address through traversal. AH supports candidate-hit
+reads, triangle commits, and termination after a commit in the same block.
+IS supports candidate-hit/ray reads and procedural commits. Invocation-local
+state preserves bound tightening and invalid-then-valid or valid-then-invalid
+commit behavior; LLVM inlining/SROA removes unused fields. Final hit kind,
+distance, instance, primitive and barycentrics are decoded after traversal,
+with guarded miss/triangle/curve/custom getters and zero custom barycentrics.
+
+Intermediate committed-hit/state observations, query aliases, AH ray-bound
+observations and procedural termination retain the general stateful path.
+This is a conservative qualification, not a claim that every query needs no
+software state. The native-result layout still reserves two null query-pointer
+words in v18; removing that padding is a separate ABI change.
+
+The full MSVC build and **23/23 focused tests passed**. Added fixtures exercise
+accepted surface termination and procedural commit recovery with exact bounds,
+including NaN/Inf in precise mode. Both PTX and OptiX IR passed query integration
+under Compute Sanitizer with **43 assertions and zero errors**. Evidence:
+`.deps/rq-hardware-v18-{build,tests,memcheck}.log`.
+
+For `test_procedural`, optimized LLVM no longer has a query alloca. PTX input
+decreased **16,305 -> 14,366 bytes**, raygen continuation stack **128 -> 32 bytes**,
+and AH registers **73 -> 67**; raygen stayed at **67 registers** and IS increased
+**72 -> 74**, with zero spills. The dumps are in
+`.deps/procedural-hardware-v18-dump/`.
+
+The initial 1024-spp comparison correctly stopped on differing PNG hashes.
+All **1,207 changed pixels** were black in v17 and colored in v18; AST, Fallback
+and SIMD were nonblack at all those positions. Fallback, SIMD and v18 each
+passed the existing gallery reference. Inspection found the old fast-math
+IS range checks can accept a NaN into software hit state even when native
+reporting does not accept it. The renderer can produce that NaN when subtracting
+nearly equal squared distances before a square root. This is not a finite-input
+query regression; precise-mode NaN rejection remains covered separately.
+The failed exact comparison and subsequent CPU image analyses are preserved in
+`procedural-hardware-v18-abba-20260930-094553-000023/` under the test-results
+directory and `.deps/procedural-hardware-v18-*-image-analysis.json`.
+
+A separate eight-process v17/v18 ABBA run required every process to pass the
+unmodified gallery reference and exact PNG reproducibility within each version.
+Median throughput was **1,141.27 -> 1,189.42 spp/s (+4.22%)**, with group ratios
+**+3.91% and +4.18%**. It includes blit and final readback; laptop clocks were
+unlocked, so this is a local observation rather than a general speed guarantee.
+The v18 AST/LLVM four-process comparison measured **1,211.28 / 1,205.53 spp/s**.
+Full records are `procedural-hardware-v18-reference-abba-20260930-095720-629103/`
+and `procedural-hardware-repeat-abba-20260930-095053-182962/` under test-results.
+
+A single-instruction diagnostic on a private v17 PTX cache changed only the
+perpendicular-distance rejection from `setp.gt` to `setp.gtu`, rejecting NaN.
+It removed all 1,207 reported black pixels (matching v18 there exactly) and
+43 additional bright-region pinholes still present in v18. Every originally
+nonblack pixel was unchanged. Thus native-result recovery is not by itself a
+complete fix for NaN capture side effects. The untouched baseline, exact patch,
+cache hashes and output analysis are preserved in
+`.deps/procedural-v17-nan-diagnostic/`; no reference image was regenerated.

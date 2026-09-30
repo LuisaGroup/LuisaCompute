@@ -605,6 +605,110 @@ struct Options {
     return true;
 }
 
+[[nodiscard]] bool run_surface_filter_termination(Device &device, Stream &stream, const Mesh &mesh) {
+    constexpr auto ray_count = 68u;
+    Kernel1D kernel = [](AccelVar scene, BufferUInt4 hits,
+                         BufferUInt4 captures, BufferFloat4 distances) noexcept {
+        auto lane = dispatch_x();
+        UInt accept_mask = lane & 3u;
+        Float x = (lane % 17u).cast<float>() * (1.0f / 32.0f) - 0.25f;
+        auto ray = make_ray(make_float3(x, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+        for (auto any : {false, true}) {
+            UInt calls = 0u;
+            UInt accepted = 0u;
+            UInt seen = 0u;
+            UInt invalid = 0u;
+            UInt stamp = lane ^ 0x1234u;
+            auto filter = [&](auto &candidate) noexcept {
+                // Any callback after an accepted termination is an error,
+                // regardless of the backend's candidate visitation order.
+                $if (accepted != 0u) { invalid |= 1u; };
+                calls += 1u;
+                auto h = candidate.hit();
+                $if (h.inst > 1u | h.prim != 0u) {
+                    invalid |= 2u;
+                }
+                $else {
+                    UInt bit = 1u << h.inst;
+                    seen |= bit;
+                    Float expected_t = ite(h.inst == 0u, 0.75f, 1.0f);
+                    $if (!(abs(h.bary.x - (0.25f + x * 0.25f)) <= 1e-5f &
+                           abs(h.bary.y - 0.5f) <= 1e-5f &
+                           abs(h.committed_ray_t - expected_t) <= 1e-5f)) {
+                        invalid |= 4u;
+                    };
+                    $if ((accept_mask & bit) != 0u) {
+                        accepted += 1u;
+                        stamp = (lane ^ 0x5678u) + bit * 17u;
+                        candidate.commit();
+                        candidate.terminate();
+                    };
+                };
+            };
+            auto hit = any ? scene.traverse_any(ray, {}).on_surface_candidate(filter).trace() :
+                             scene.traverse(ray, {}).on_surface_candidate(filter).trace();
+            auto index = lane * 2u + static_cast<uint>(any);
+            hits.write(index, make_uint4(hit->hit_type, hit->inst, hit->prim, stamp));
+            captures.write(index, make_uint4(calls, accepted, seen, invalid));
+            distances.write(index, make_float4(hit->bary, hit->committed_ray_t, x));
+        }
+    };
+    LUISA_INFO("Surface filter termination fixture: AST hash={:016x}.", kernel.function()->function().hash());
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+    auto scene = device.create_accel();
+    scene.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, 0.25f)), 0xffu, false);
+    scene.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    auto hits = device.create_buffer<uint4>(ray_count * 2u);
+    auto captures = device.create_buffer<uint4>(ray_count * 2u);
+    auto distances = device.create_buffer<float4>(ray_count * 2u);
+    luisa::vector<uint4> host_hits(hits.size());
+    luisa::vector<uint4> host_captures(captures.size());
+    luisa::vector<float4> host_distances(distances.size());
+    stream << scene.build()
+           << shader(scene, hits, captures, distances).dispatch(ray_count)
+           << hits.copy_to(host_hits.data())
+           << captures.copy_to(host_captures.data())
+           << distances.copy_to(host_distances.data()) << synchronize();
+    auto correct = true;
+    for (auto lane = 0u; lane < ray_count; lane++) {
+        auto accept_mask = lane & 3u;
+        auto expected_x = static_cast<float>(lane % 17u) / 32.0f - 0.25f;
+        for (auto any = 0u; any < 2u; any++) {
+            auto index = lane * 2u + any;
+            auto h = host_hits[index];
+            auto c = host_captures[index];
+            auto d = host_distances[index];
+            auto valid = c.w == 0u && (c.z & ~3u) == 0u && d.w == expected_x;
+            if (accept_mask == 0u) {
+                // Rejected candidates may be repeated after BVH splitting.
+                valid = valid && h.x == static_cast<uint>(HitType::Miss) &&
+                        c.x >= 2u && c.y == 0u && c.z == 3u && h.w == (lane ^ 0x1234u);
+            } else {
+                auto valid_instance = h.y < 2u && (accept_mask & (1u << h.y)) != 0u;
+                valid = valid && h.x == static_cast<uint>(HitType::Surface) && valid_instance &&
+                        h.z == 0u && c.y == 1u && c.x >= (c.z == 3u ? 2u : 1u);
+                if (valid_instance) {
+                    auto bit = 1u << h.y;
+                    valid = valid && (c.z & bit) != 0u &&
+                            h.w == (lane ^ 0x5678u) + bit * 17u &&
+                            std::abs(d.x - (0.25f + expected_x * 0.25f)) <= 1e-5f &&
+                            std::abs(d.y - 0.5f) <= 1e-5f &&
+                            std::abs(d.z - (h.y == 0u ? 0.75f : 1.0f)) <= 1e-5f;
+                    if (accept_mask == 3u) { valid = valid && c.x == 1u && c.z == bit; }
+                }
+            }
+            if (!valid) {
+                LUISA_WARNING("Surface filter termination mismatch: lane={}, any={}, mask={}, hit={}, captures={}, bary/t={}.",
+                              lane, any, accept_mask, h, c, d);
+                correct = false;
+            }
+        }
+    }
+    expect(correct) << "accepted surface termination stops callbacks and preserves hit fields and captured writes";
+    return correct;
+}
+
 [[nodiscard]] bool run_surface_filter_queries(Device &device, Stream &stream, const Mesh &mesh) {
     constexpr auto ray_count = 68u;
     Kernel1D kernel = [](AccelVar scene, UInt opaque_mask, BufferUInt4 hits,
@@ -711,7 +815,7 @@ struct Options {
         expect(correct) << "surface filtering preserves closest/any hits, opaque traversal and captured writes";
         if (!correct) { return false; }
     }
-    return true;
+    return run_surface_filter_termination(device, stream, mesh);
 }
 
 [[nodiscard]] bool run(Device &device, const Options &options) {

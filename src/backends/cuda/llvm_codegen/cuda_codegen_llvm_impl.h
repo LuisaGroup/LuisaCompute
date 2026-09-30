@@ -191,7 +191,7 @@ private:
         const xir::RayQueryPipelineInst *inst;
         llvm::StructType *context_type;
         llvm::SmallVector<RayQueryCapture> captures;
-        bool surface_filter;
+        bool hardware_result;
     };
     std::vector<RayQueryPipeline> _ray_query_pipelines;
     std::vector<llvm::CallInst *> _ray_query_trace_calls;
