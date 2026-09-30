@@ -163,13 +163,20 @@ int main(int argc, char *argv[]) {
                                         $if (cos_theta > 0.0f) {
                                             Float center_distance = length(to_center);
                                             Float projected_distance = center_distance * cos_theta;
-                                            Float perpendicular_distance = sqrt(
+                                            // Cancellation near a sphere's center can make this
+                                            // squared distance slightly negative through roundoff.
+                                            Float perpendicular_distance_squared = max(
                                                 center_distance * center_distance -
-                                                projected_distance * projected_distance);
+                                                    projected_distance * projected_distance,
+                                                0.0f);
+                                            Float perpendicular_distance = sqrt(perpendicular_distance_squared);
                                             $if (perpendicular_distance <= sphere_radius) {
-                                                Float half_chord = sqrt(
+                                                // The accepted tangent boundary is nonnegative too,
+                                                // but fused arithmetic can round its radicand below zero.
+                                                Float half_chord = sqrt(max(
                                                     sphere_radius * sphere_radius -
-                                                    perpendicular_distance * perpendicular_distance);
+                                                        perpendicular_distance * perpendicular_distance,
+                                                    0.0f));
                                                 Float hit_distance = projected_distance - half_chord;
                                                 $if (hit_distance <= candidate_ray->t_max()) {
                                                     Float3 normal = normalize(
