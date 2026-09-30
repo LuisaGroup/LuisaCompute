@@ -149,6 +149,9 @@ struct SIMDCompiledKernel {
     bool cooperative_block{false};
     bool direct_control_flow{false};
     size_t predicated_acyclic_surface_filter_handler_count{0u};
+    // Actual compiler policy, including Tile precise-math overrides.
+    // Raw JIT entry callers must provide its matching FP environment.
+    bool enable_fast_math{false};
     uint32_t warp_width{0u};
     std::string target_triple{};
     // Populated only when explicitly requested for diagnostics.

@@ -31,6 +31,7 @@
 #include "simd_bindless_array.h"
 #include "simd_accel.h"
 #include "simd_buffer.h"
+#include "../../common/cpu_fp_control.h"
 #include "simd_thread_pool.h"
 #include "simd_texture.h"
 
@@ -119,6 +120,7 @@ struct SIMDPrintDispatchContext {
     const luisa::vector<std::unique_ptr<ShaderPrintFormatter>>
         *formatters{nullptr};
     const DeviceInterface::StreamLogCallback *log_callback{nullptr};
+    const cpu::CPUFloatingPointState *host_fp_state{nullptr};
 };
 
 void simd_print_callback(
@@ -130,6 +132,8 @@ void simd_print_callback(
         context != nullptr && context->formatters != nullptr &&
             format_id < context->formatters->size(),
         "SIMD print callback received invalid format metadata.");
+    // Formatting and user callbacks are host work, not shader arithmetic.
+    cpu::ScopedCPUFloatingPointEnvironment host_environment{context->host_fp_state};
     auto *formatter = (*context->formatters)[format_id].get();
     static thread_local luisa::string scratch;
     scratch.clear();
@@ -697,13 +701,17 @@ void SIMDShader::_dispatch_once(
                           uint64_t{1u} :
                           (grid_count - 1u) / target_chunks + 1u;
     if (_blocks_per_task != 0u) { grain_size = _blocks_per_task; }
-    SIMDPrintDispatchContext debug_context{
-        .formatters = &_print_formatters,
-        .log_callback = &log_callback,
-    };
     thread_pool.parallel_for(
         grid_count, grain_size,
         [&](uint64_t begin, uint64_t end) noexcept {
+            // This boundary covers both pool workers and the caller-thread
+            // path, including packet/block batches and cooperative kernels.
+            cpu::ScopedCPUFloatingPointEnvironment shader_environment{_compiled.enable_fast_math};
+            SIMDPrintDispatchContext debug_context{
+                .formatters = &_print_formatters,
+                .log_callback = &log_callback,
+                .host_fp_state = shader_environment.saved_state(),
+            };
             SIMDPacketLaunchConfig config{};
             config.dispatch_size[0u] = dispatch_size.x;
             config.dispatch_size[1u] = dispatch_size.y;

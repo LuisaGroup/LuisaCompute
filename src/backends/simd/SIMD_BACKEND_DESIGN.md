@@ -1435,7 +1435,14 @@ encode an x86 or Arm instruction in Schedule IR codegen.
 ### 10.1 Native math tiers
 
 `ShaderOption::enable_fast_math` is carried by `SIMDShader` through the SIMD
-compiler and Schedule-to-LLVM emitter. A varying f32 math operation selects
+compiler and Schedule-to-LLVM emitter and retained in `SIMDCompiledKernel`.
+Fast runtime dispatch scopes FTZ/DAZ to each executing chunk, including
+the single-worker caller-thread path, and restores host state afterward.
+The final module marks f32 denormals as `preserve-sign` and other types
+as dynamic before JIT optimization (LLVM 22 string attributes or LLVM 23
+`DenormalFPEnv`). Precise kernels remain unchanged; Tile uses its actual
+post-override math policy. See the execution contract for subnormal
+relaxation and raw JIT entry requirements. A varying f32 math operation selects
 the precise or fast fixed-vector provider at its use site. The fallback XIR
 code generator uses the same selection for DSL float2/float3/float4. A
 warp-uniform value remains scalar and performs one scalar LLVM math operation;

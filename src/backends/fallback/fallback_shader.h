@@ -44,6 +44,7 @@ private:
     luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>> _print_formatters;
 
     uint3 _block_size;
+    bool _enable_fast_math{false};
     luisa::unique_ptr<::llvm::orc::LLJIT> _jit{};
     luisa::unique_ptr<::llvm::TargetMachine> _target_machine{};
 

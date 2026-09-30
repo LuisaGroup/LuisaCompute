@@ -9,6 +9,9 @@
 #include <string>
 #include <utility>
 
+#include <llvm/ADT/FloatingPointMode.h>
+#include <llvm/Config/llvm-config.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
@@ -277,6 +280,7 @@ SIMDCompiledKernel compile_simd_kernel(
     size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
     bool enable_contiguous_private_access) {
     SIMDCompiledKernel result{
+        .enable_fast_math = enable_fast_math,
         .warp_width = warp_width,
     };
     auto schedule_options = schedule::XIRToScheduleOptions{
@@ -929,6 +933,25 @@ SIMDCompiledKernel compile_simd_kernel(
             "stack_pinned_state_slots={}",
             entry_name, result.cold_state_slot_count,
             result.stack_pinned_state_slot_count);
+    }
+    if (enable_fast_math) {
+        // Runtime dispatch establishes f32 FTZ/DAZ for the complete JIT
+        // call tree. Other types follow the target's dynamic environment
+        // (for example, MXCSR also affects f64, but not every f16 op).
+        for (auto &function : *module) {
+            if (function.isDeclaration()) { continue; }
+#if LLVM_VERSION_MAJOR >= 23
+            auto environment = ::llvm::DenormalFPEnv{
+                ::llvm::DenormalMode::getDynamic(),
+                ::llvm::DenormalMode::getPreserveSign()};
+            ::llvm::AttrBuilder attributes{*context};
+            attributes.addDenormalFPEnvAttr(environment);
+            function.addFnAttrs(attributes);
+#else
+            function.addFnAttr("denormal-fp-math", "dynamic,dynamic");
+            function.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+#endif
+        }
     }
     auto llvm_entry_name = llvm_result.entry->getName().str();
     auto llvm_packet_batch_entry_name =

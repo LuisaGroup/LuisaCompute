@@ -4,6 +4,12 @@
 #include <array>
 #include <bit>
 #include <cerrno>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <iostream>
+#include <thread>
+#include <utility>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +24,7 @@
 #include <unistd.h>
 #endif
 
+#include <luisa/core/intrin.h>
 #include <luisa/backends/ext/simd_config_ext.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/luisa-compute.h>
@@ -30,6 +37,277 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
+
+struct TestFloatingPointState {
+    uint64_t control{};
+    uint64_t status{};
+
+    [[nodiscard]] static TestFloatingPointState read() noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        return {_mm_getcsr(), 0u};
+#else
+        TestFloatingPointState state;
+        asm volatile("mrs %0, FPCR" : "=r"(state.control)::"memory");
+        asm volatile("mrs %0, FPSR" : "=r"(state.status)::"memory");
+        return state;
+#endif
+    }
+
+    void apply() const noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        _mm_setcsr(static_cast<uint32_t>(control));
+#else
+        asm volatile("msr FPCR, %0\n\tisb" ::"r"(control) : "memory");
+        asm volatile("msr FPSR, %0" ::"r"(status) : "memory");
+#endif
+    }
+
+    [[nodiscard]] uint64_t mode() const noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        return control & 0xffc0u;// Sticky exception flags may change in precise code.
+#else
+        return control;
+#endif
+    }
+
+    [[nodiscard]] TestFloatingPointState ieee() const noexcept {
+        auto state = *this;
+#if defined(LUISA_ARCH_X86_64)
+        // Round-to-nearest, masked exceptions, gradual underflow, clear status.
+        state.control = (control & ~uint64_t{0xe07fu}) | 0x1f80u;
+#else
+        state.control &= ~((uint64_t{1u} << 24u) | (uint64_t{3u} << 22u) |
+                           (uint64_t{0x1fu} << 8u) | uint64_t{3u});
+        state.status = 0u;
+#endif
+        return state;
+    }
+
+    [[nodiscard]] TestFloatingPointState flush() const noexcept {
+        auto state = *this;
+#if defined(LUISA_ARCH_X86_64)
+        state.control |= 0x8040u;
+#else
+        state.control |= uint64_t{1u} << 24u;
+#endif
+        return state;
+    }
+};
+
+void test_fast_math_environment(Context &context) {
+    const auto original = TestFloatingPointState::read();
+    struct Restore {
+        TestFloatingPointState state;
+        ~Restore() noexcept { state.apply(); }
+    } restore{original};
+    struct Case {
+        uint4 input;
+        uint2 precise;
+        uint2 fast;
+    };
+    // Integer input/output bits keep the host's FP environment out of the oracle.
+    const std::array cases{
+        Case{make_uint4(0x00000001u, 0x40000000u, 0x00000001u, 0u), make_uint2(2u, 2u), make_uint2(0u)},
+        Case{make_uint4(0x80000001u, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80000002u), make_uint2(0u)},
+        Case{make_uint4(0x00800000u, 0x3f000000u, 0x80800000u, 0u), make_uint2(0x00400000u, 0u), make_uint2(0u)},
+        Case{make_uint4(0x80800000u, 0x3f000000u, 0x00800000u, 0u), make_uint2(0x80400000u, 0u), make_uint2(0u)},
+        Case{make_uint4(0x00800001u, 0x3f800000u, 0x80800000u, 0u), make_uint2(0x00800001u, 1u), make_uint2(0x00800001u, 0u)},
+        Case{make_uint4(0x80800001u, 0x3f800000u, 0x00800000u, 0u), make_uint2(0x80800001u, 0x80000001u), make_uint2(0x80800001u, 0u)},
+        Case{make_uint4(0x007fffffu, 0x40000000u, 0x00000001u, 0u), make_uint2(0x00fffffeu, 0x00800000u), make_uint2(0u)},
+        Case{make_uint4(0x807fffffu, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80fffffeu, 0x80800000u), make_uint2(0u)}};
+    for (auto worker_count : {1u, 4u}) {
+        for (auto ambient_flush : {false, true}) {
+            auto ambient = original.ieee();
+            if (ambient_flush) { ambient = ambient.flush(); }
+            // Worker startup FP state is platform-specific (Windows CRT threads
+            // start in IEEE mode). Observe each real worker before testing restoration.
+            ambient.apply();
+            DeviceConfig config{};
+            config.extension = luisa::make_unique<SIMDDeviceConfigExt>(4u, worker_count);
+            auto device = context.create_device("simd", &config);
+            auto stream = device.create_stream();
+            auto input = device.create_buffer<uint4>(cases.size());
+            auto count = worker_count * 32u;
+            auto output = device.create_buffer<uint2>(count);
+            luisa::vector<uint4> host_input;
+            for (auto &&item : cases) { host_input.emplace_back(item.input); }
+            luisa::vector<uint2> observed(count);
+            stream << input.copy_from(luisa::span{host_input}) << synchronize();
+
+            Kernel1D kernel = [](BufferUInt4 input, BufferUInt2 output) noexcept {
+                set_block_size(32u);
+                set_warp_size(4u);
+                // The callback observes the host mode; the following arithmetic
+                // verifies that execution re-enters the shader's fast mode.
+                $if (thread_x() == 0u) { device_log("simd-ftz-probe"); };
+                auto operands = input.read(dispatch_x() % 8u);
+                auto value = operands.x.as<float>();
+                auto factor = operands.y.as<float>();
+                auto addend = operands.z.as<float>();
+                output.write(dispatch_x(), make_uint2((value * factor).as<uint>(), (value + addend).as<uint>()));
+            };
+            auto precise = device.compile(kernel, {.enable_cache = false, .enable_fast_math = false});
+            auto fast = device.compile(kernel, {.enable_cache = false, .enable_fast_math = true});
+            std::mutex mutex;
+            std::condition_variable ready;
+            luisa::vector<std::thread::id> threads;
+            luisa::vector<uint64_t> modes;
+            bool rendezvous_ok = true;
+            stream.set_log_callback([&](luisa::string_view message) noexcept {
+                auto mode = TestFloatingPointState::read().mode();
+                auto thread = std::this_thread::get_id();
+                std::unique_lock lock{mutex};
+                rendezvous_ok &= message == "simd-ftz-probe";
+                threads.emplace_back(thread);
+                modes.emplace_back(mode);
+                ready.notify_all();
+                // One block per worker, one chunk per block. Holding the first
+                // callback forces all workers to participate without scheduling
+                // assumptions. A broken path fails in finite time, not a hang.
+                rendezvous_ok &= ready.wait_for(lock, std::chrono::seconds{2}, [&] { return threads.size() >= worker_count; });
+            });
+            luisa::vector<std::pair<std::thread::id, uint64_t>> initial_worker_modes;
+            for (auto phase = 0u; phase < 5u; phase++) {
+                const auto fast_math = phase == 1u || phase == 3u;
+                threads.clear();
+                modes.clear();
+                rendezvous_ok = true;
+                std::fill(observed.begin(), observed.end(), make_uint2(~0u));
+                ambient.apply();
+                stream << output.copy_from(luisa::span{observed})
+                       << (fast_math ? fast : precise)(input, output).dispatch(count)
+                       << output.copy_to(luisa::span{observed}) << synchronize();
+                auto returned_mode = TestFloatingPointState::read().mode();
+                expect(returned_mode == ambient.mode()) << "SIMD dispatch changed caller FP control state"
+                    << " workers=" << worker_count << " caller_flush=" << ambient_flush << " phase=" << phase
+                    << " actual=" << returned_mode << " expected=" << ambient.mode();
+                expect(rendezvous_ok && threads.size() == worker_count) << "all SIMD execution threads must reach the probe";
+                auto unique_threads = threads;
+                std::sort(unique_threads.begin(), unique_threads.end());
+                unique_threads.erase(std::unique(unique_threads.begin(), unique_threads.end()), unique_threads.end());
+                expect(unique_threads.size() == worker_count) << "probe did not cover every configured worker";
+                if (phase == 0u) {
+                    for (auto i = size_t{0u}; i < threads.size(); i++) {
+                        initial_worker_modes.emplace_back(threads[i], modes[i]);
+                    }
+                }
+                bool restored = true;
+                for (auto i = size_t{0u}; i < threads.size(); i++) {
+                    auto initial = std::find_if(initial_worker_modes.begin(), initial_worker_modes.end(),
+                                                [&](auto &&item) { return item.first == threads[i]; });
+                    // The IEEE setup must still prove gradual underflow on every
+                    // thread. Only a pre-flushed caller permits platform startup
+                    // differences; its workers must preserve their own initial mode.
+                    auto expected = !ambient_flush || worker_count == 1u ? ambient.mode() :
+                                    initial == initial_worker_modes.end() ? ~uint64_t{0u} : initial->second;
+                    if (modes[i] != expected) {
+                        LUISA_WARNING("SIMD FP callback mismatch: workers={}, caller_flush={}, phase={}, slot={}, actual=0x{:x}, expected=0x{:x}.",
+                                      worker_count, ambient_flush, phase, i, modes[i], expected);
+                        restored = false;
+                    }
+                }
+                expect(restored) << "SIMD host callback or later precise dispatch changed the execution thread's original FP mode";
+                if (worker_count == 1u) {
+                    expect(threads.size() == 1u && threads.front() == std::this_thread::get_id()) << "single-worker dispatch must run on the caller";
+                }
+                // Precise inherits an existing flush mode; only the IEEE setup
+                // asserts gradual underflow. Fast zeros have no sign contract.
+                if (!ambient_flush || fast_math) {
+                    bool correct = true;
+                    for (auto row = 0u; row < count; row++) {
+                        auto expected = fast_math ? cases[row % 8u].fast : cases[row % 8u].precise;
+                        for (auto component = 0u; component < 2u; component++) {
+                            auto actual = observed[row][component];
+                            correct &= fast_math && expected[component] == 0u ? (actual & 0x7fffffffu) == 0u : actual == expected[component];
+                        }
+                    }
+                    expect(correct) << "SIMD fast FTZ/DAZ or precise gradual-underflow result differs";
+                }
+            }
+        }
+    }
+}
+
+int benchmark_fast_math_environment(Context &context, uint worker_count, bool expect_flush) {
+    const auto original = TestFloatingPointState::read();
+    struct Restore {
+        TestFloatingPointState state;
+        ~Restore() noexcept { state.apply(); }
+    } restore{original};
+    original.ieee().apply();
+    DeviceConfig config{};
+    config.extension = luisa::make_unique<SIMDDeviceConfigExt>(4u, worker_count);
+    auto device = context.create_device("simd", &config);
+    auto stream = device.create_stream();
+    constexpr auto count = 32768u;
+    constexpr auto iterations = 256u;
+    auto input = device.create_buffer<uint4>(count);
+    auto output = device.create_buffer<uint>(count);
+    luisa::vector<uint4> host_input(count);
+    luisa::vector<uint> observed(count);
+    Kernel1D kernel = [](BufferUInt4 input, BufferUInt output, UInt iterations) noexcept {
+        set_block_size(128u);
+        set_warp_size(4u);
+        auto operands = input.read(dispatch_x());
+        Float value = operands.x.as<float>();
+        auto factor = operands.y.as<float>();
+        auto increment = operands.z.as<float>();
+        $for (step, iterations) { value = value * factor + increment; };
+        output.write(dispatch_x(), value.as<uint>());
+    };
+    using Timer = std::chrono::steady_clock;
+    auto compile_begin = Timer::now();
+    // Both baseline and candidate DLLs compile exactly this fast shader.
+    auto shader = device.compile(kernel, {.enable_cache = false, .enable_fast_math = true});
+    auto compile_ms = std::chrono::duration<double, std::milli>(Timer::now() - compile_begin).count();
+    std::cout << "SIMD_FTZ_BENCH workers=" << worker_count << " width=4 fast_math=true expected="
+              << (expect_flush ? "flush" : "gradual") << " elements=" << count
+              << " iterations=" << iterations << " compile_ms=" << compile_ms << '\n';
+    for (auto denormal : {false, true}) {
+        for (auto row = 0u; row < count; row++) {
+            host_input[row] = make_uint4(denormal ? 4u + (row & 7u) : 0x3f800000u,
+                                         0x3f800000u, denormal ? 2u : 0x3e800000u, 0u);
+        }
+        stream << input.copy_from(luisa::span{host_input}) << synchronize();
+        auto dispatch = [&] { stream << shader(input, output, iterations).dispatch(count) << synchronize(); };
+        auto verify = [&] {
+            stream << output.copy_to(luisa::span{observed}) << synchronize();
+            for (auto row = 0u; row < count; row++) {
+                auto expected = denormal ? 4u + (row & 7u) + iterations * 2u : 0x42820000u;
+                auto matches = denormal && expect_flush ? (observed[row] & 0x7fffffffu) == 0u : observed[row] == expected;
+                if (!matches) {
+                    std::cerr << "SIMD FTZ benchmark oracle failed: row=" << row
+                              << " actual_bits=" << observed[row] << " gradual_bits=" << expected << '\n';
+                    return false;
+                }
+            }
+            return true;
+        };
+        for (auto warmup = 0u; warmup < 4u; warmup++) { dispatch(); }
+        if (!verify()) { return 1; }
+        auto measure = [&](uint repeats) {
+            auto begin = Timer::now();
+            for (auto repeat = 0u; repeat < repeats; repeat++) { dispatch(); }
+            return std::chrono::duration<double, std::milli>(Timer::now() - begin).count();
+        };
+        auto repeats = 1u;
+        // Bound calibration work; each stored sample targets >= 100 ms.
+        while (measure(repeats) < 100.0 && repeats < 1024u) { repeats *= 2u; }
+        std::array<double, 7u> samples{};
+        for (auto sample = 0u; sample < samples.size(); sample++) {
+            samples[sample] = measure(repeats) / repeats;
+            if (!verify()) { return 1; }
+            std::cout << "SIMD_FTZ_SAMPLE dataset=" << (denormal ? "denormal" : "normal")
+                      << " index=" << sample << " repeats=" << repeats << " ms=" << samples[sample] << '\n';
+        }
+        std::sort(samples.begin(), samples.end());
+        auto median_ms = samples[samples.size() / 2u];
+        std::cout << "SIMD_FTZ_RESULT dataset=" << (denormal ? "denormal" : "normal")
+                  << " median_ms=" << median_ms << " million_steps_per_s="
+                  << (static_cast<double>(count) * iterations / (median_ms * 1000.0)) << '\n';
+    }
+    return 0;
+}
 
 void set_environment_variable(
     const char *name, const char *value) noexcept {
@@ -186,6 +464,21 @@ struct ScopedEnvironmentVariable {
 }// namespace
 
 int main(int argc, char *argv[]) {
+    if (argc > 1 && std::strcmp(argv[1], "--ftz-benchmark") == 0) {
+        if (argc != 4 || (std::strcmp(argv[2], "1") != 0 && std::strcmp(argv[2], "4") != 0) ||
+            (std::strcmp(argv[3], "gradual") != 0 && std::strcmp(argv[3], "flush") != 0)) {
+            std::cerr << "Usage: --ftz-benchmark <1|4 workers> <gradual|flush expected>\n";
+            return 1;
+        }
+        Context context{argv[0]};
+        return benchmark_fast_math_environment(context, argv[2][0] == '1' ? 1u : 4u,
+                                               std::strcmp(argv[3], "flush") == 0);
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--ftz-only") == 0) {
+        Context context{argv[0]};
+        test_fast_math_environment(context);
+        return 0;
+    }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     expect(invalid_worker_override_fails_closed(
@@ -208,6 +501,7 @@ int main(int argc, char *argv[]) {
         expect(device.compute_warp_size() == 2u)
             << "SIMD environment width override was not honored";
     }
+    test_fast_math_environment(context);
 
     {
         ScopedEnvironmentVariable invalid_worker_override{

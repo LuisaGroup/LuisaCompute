@@ -5,7 +5,9 @@
 #include <charconv>
 #include <cmath>
 #include <fstream>
+#include <utility>
 
+#include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
@@ -14,6 +16,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Analysis/AliasAnalysis.h>
@@ -49,6 +52,7 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
+#include "../common/cpu_fp_control.h"
 #include "../common/shader_print_formatter.h"
 
 #include "fallback_device.h"
@@ -130,7 +134,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 8u;
+static constexpr auto fallback_shader_cache_abi = 9u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -312,8 +316,40 @@ static void luisa_fallback_assert(bool condition, const char *message) noexcept 
 }
 
 static thread_local const DeviceInterface::StreamLogCallback *current_device_log_callback{nullptr};
+static thread_local const cpu::CPUFloatingPointState *current_host_fp_state{nullptr};
+
+class FallbackShaderEnvironment {
+private:
+    cpu::ScopedCPUFloatingPointEnvironment _floating_point;
+    const DeviceInterface::StreamLogCallback *_previous_log_callback;
+    const cpu::CPUFloatingPointState *_previous_host_state;
+
+public:
+    FallbackShaderEnvironment(bool enable_fast_math,
+                              const DeviceInterface::StreamLogCallback *log_callback) noexcept
+        : _floating_point{enable_fast_math},
+          _previous_log_callback{std::exchange(current_device_log_callback, log_callback)},
+          _previous_host_state{std::exchange(current_host_fp_state, _floating_point.saved_state())} {}
+
+    ~FallbackShaderEnvironment() noexcept {
+        current_device_log_callback = _previous_log_callback;
+        current_host_fp_state = _previous_host_state;
+    }
+
+    FallbackShaderEnvironment(const FallbackShaderEnvironment &) = delete;
+    FallbackShaderEnvironment &operator=(const FallbackShaderEnvironment &) = delete;
+};
+
+static void luisa_fallback_debug_break(
+    xir::DebugBreakInst::Callback callback, void *data,
+    xir::DebugBreakInst::Evaluate evaluate) noexcept {
+    cpu::ScopedCPUFloatingPointEnvironment host_environment{current_host_fp_state};
+    callback(data, evaluate);
+}
 
 static void luisa_fallback_print(const FallbackShader *shader, size_t fmt_id, const std::byte *args) noexcept {
+    // Formatting and user callbacks are host work, not shader arithmetic.
+    cpu::ScopedCPUFloatingPointEnvironment host_environment{current_host_fp_state};
     static thread_local luisa::string scratch;
     scratch.clear();
     auto formatter = shader->print_formatter(fmt_id);
@@ -331,7 +367,8 @@ struct FallbackShaderLaunchConfig {
     uint3 block_size;
 };
 
-FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &option, Function kernel) noexcept {
+FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &option, Function kernel) noexcept
+    : _enable_fast_math{option.enable_fast_math} {
 
     _initialize_target_machine_jit(option);
 
@@ -417,6 +454,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         map_symbol("luisa.coro.free", &luisa_coro_free);
         map_symbol("luisa.shared.memory", &luisa_shared_memory);
         map_symbol("luisa.assert", &luisa_fallback_assert);
+        map_symbol("luisa.debug.break.invoke", &luisa_fallback_debug_break);
 
         if (auto error = _jit->getMainJITDylib().define(
                 llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
@@ -759,8 +797,22 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     llvm_module->setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
 
-    // add fast-math flags to instructions
+    // Dispatch establishes f32 FTZ/DAZ for the complete JIT call tree.
+    // Native-math helpers share that environment, but retain their own FMF.
     for (auto &&f : *llvm_module) {
+        if (option.enable_fast_math && !f.isDeclaration()) {
+#if LLVM_VERSION_MAJOR >= 23
+            auto environment = llvm::DenormalFPEnv{
+                llvm::DenormalMode::getDynamic(),
+                llvm::DenormalMode::getPreserveSign()};
+            llvm::AttrBuilder attributes{*llvm_ctx};
+            attributes.addDenormalFPEnvAttr(environment);
+            f.addFnAttrs(attributes);
+#else
+            f.addFnAttr("denormal-fp-math", "dynamic,dynamic");
+            f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+#endif
+        }
         if (f.hasFnAttribute("luisa.cpu.native_math")) { continue; }
         for (auto &&bb : f) {
             for (auto &&inst : bb) {
@@ -1039,7 +1091,7 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
     auto grid_size = roundup_div(dispatch_size, block_size);
     auto grid_count = grid_size.x * grid_size.y * grid_size.z;
 
-    queue->enqueue_parallel(grid_count, [queue, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
+    queue->enqueue_parallel(grid_count, [queue, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
         auto config = dispatch_buffer.config();
         auto dispatch_size = config->dispatch_size;
         auto block_size = config->block_size;
@@ -1055,9 +1107,10 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
         };
         auto launch_params = dispatch_buffer.argument_buffer();
         luisa_coro_reset_counter();
-        current_device_log_callback = queue->log_callback() ? &queue->log_callback() : nullptr;
+        FallbackShaderEnvironment environment{
+            enable_fast_math,
+            queue->log_callback() ? &queue->log_callback() : nullptr};
         config->kernel(launch_params, &launch_config);
-        current_device_log_callback = nullptr;
     });
 }
 

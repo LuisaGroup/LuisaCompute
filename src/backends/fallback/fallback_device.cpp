@@ -4,11 +4,6 @@
 
 #include <luisa/core/intrin.h>
 
-#ifdef LUISA_ARCH_X86_64
-#include <xmmintrin.h>
-#include <pmmintrin.h>
-#endif
-
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -53,14 +48,8 @@ FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexce
         _io = config->binary_io;
     }
 
-#if defined(LUISA_ARCH_X86_64)
-    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
-    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
-#elif defined(LUISA_ARCH_ARM64)
-    uint64_t fpcr;
-    asm volatile("mrs %0, FPCR" : "=r"(fpcr));                  /* read */
-    asm volatile("msr FPCR, %0" ::"r"(fpcr | (1ull << 24ull))); /* write */
-#endif
+    // Shader dispatch establishes its FP policy on the executing worker.
+    // Creating a device must not change the caller's floating-point state.
 
     // embree
     _rtc_device = rtcNewDevice("frequency_level=simd128,verbose=1");

@@ -988,9 +988,18 @@ luisa_compute_add_test(test_complex_kernel      unit/runtime/test_complex_kernel
 if (TARGET luisa-compute-backend-fallback)
     # Uses two independent fallback Device instances and a shared in-memory
     # BinaryIO to verify cold compilation, object-cache reuse, and dynamic
-    # uniform arguments. Kept out of unattended CTest because it requires the
-    # optional LLVM/Embree fallback backend at runtime.
+    # uniform arguments. The general cache/codegen suite remains manual;
+    # only the focused FTZ submode is registered below when Fallback is built.
     luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+    add_dependencies(test_fallback_shader_cache luisa-compute-backend-fallback)
+    foreach (_fallback_single_threading IN ITEMS 0 1)
+        add_test(NAME fallback_fast_math_environment_${_fallback_single_threading}
+                COMMAND $<TARGET_FILE:test_fallback_shader_cache> --ftz-only)
+        set_tests_properties(fallback_fast_math_environment_${_fallback_single_threading} PROPERTIES
+                LABELS "unit;unit_runtime;integration_fallback"
+                ENVIRONMENT "LUISA_SINGLE_THREADING=${_fallback_single_threading}"
+                TIMEOUT 120)
+    endforeach ()
     luisa_compute_add_test(test_fallback_coro_allocation
             unit/runtime/test_fallback_coro_allocation.cpp
             LABELS "unit;unit_runtime;integration_fallback")

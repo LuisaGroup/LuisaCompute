@@ -3348,8 +3348,13 @@ private:
             auto llvm_arg_ptr = b.CreateStructGEP(llvm_struct_type, llvm_struct_alloca, i);
             b.CreateStore(llvm_args[i], llvm_arg_ptr);
         }
-        // invoke the callback
-        auto llvm_call = b.CreateCall(llvm_callback, {llvm_struct_alloca, llvm_eval_func});
+        // Host callbacks temporarily recover the worker's incoming FP state.
+        auto llvm_invoke_type = llvm::FunctionType::get(
+            b.getVoidTy(), {llvm_ptr_type, llvm_ptr_type, llvm_ptr_type}, false);
+        auto llvm_invoke = _llvm_module->getOrInsertFunction(
+            "luisa.debug.break.invoke", llvm_invoke_type);
+        auto llvm_call = b.CreateCall(
+            llvm_invoke, {llvm_callback, llvm_struct_alloca, llvm_eval_func});
         b.CreateLifetimeEnd(llvm_struct_alloca);
         return llvm_call;
     }

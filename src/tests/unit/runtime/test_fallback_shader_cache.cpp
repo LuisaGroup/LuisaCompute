@@ -2,10 +2,14 @@
 #include "memory_binary_io.h"
 
 #include <array>
+#include <algorithm>
+#include <mutex>
+#include <thread>
 #include <cstdlib>
 #include <cstring>
 
 #include <luisa/core/binary_io.h>
+#include <luisa/core/intrin.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/context.h>
@@ -19,6 +23,273 @@ using namespace luisa::compute;
 namespace {
 
 using luisa::test::MemoryBinaryIO;
+
+struct TestFloatingPointState {
+    uint64_t control{};
+    uint64_t status{};
+
+    [[nodiscard]] static TestFloatingPointState read() noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        return {_mm_getcsr(), 0u};
+#else
+        TestFloatingPointState state;
+        asm volatile("mrs %0, FPCR" : "=r"(state.control)::"memory");
+        asm volatile("mrs %0, FPSR" : "=r"(state.status)::"memory");
+        return state;
+#endif
+    }
+
+    void apply() const noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        _mm_setcsr(static_cast<uint32_t>(control));
+#else
+        asm volatile("msr FPCR, %0\n\tisb" ::"r"(control) : "memory");
+        asm volatile("msr FPSR, %0" ::"r"(status) : "memory");
+#endif
+    }
+
+    [[nodiscard]] uint64_t mode() const noexcept {
+#if defined(LUISA_ARCH_X86_64)
+        return control & 0xffc0u;// Sticky exception flags may change in precise code.
+#else
+        return control;
+#endif
+    }
+
+    [[nodiscard]] TestFloatingPointState ieee() const noexcept {
+        auto state = *this;
+#if defined(LUISA_ARCH_X86_64)
+        // Round-to-nearest, masked exceptions, gradual underflow, clear status.
+        state.control = (control & ~uint64_t{0xe07fu}) | 0x1f80u;
+#else
+        state.control &= ~((uint64_t{1u} << 24u) | (uint64_t{3u} << 22u) |
+                           (uint64_t{0x1fu} << 8u) | uint64_t{3u});
+        state.status = 0u;
+#endif
+        return state;
+    }
+
+    [[nodiscard]] TestFloatingPointState flush() const noexcept {
+        auto state = *this;
+#if defined(LUISA_ARCH_X86_64)
+        state.control |= 0x8040u;
+#else
+        state.control |= uint64_t{1u} << 24u;
+#endif
+        return state;
+    }
+};
+
+struct FallbackDebugProbe {
+    std::mutex mutex;
+    luisa::span<const uint4> inputs;
+    std::array<uint, 8u> expected_multiply{};
+    luisa::vector<uint> visits;
+    std::thread::id submitter;
+    uint64_t expected_mode{};
+    bool fast_math{};
+    bool correct{true};
+};
+
+// The DSL macro emits a capture-free host wrapper. This pointer belongs only
+// to the synchronized FTZ fixture and is never retained by the callback.
+FallbackDebugProbe *active_fallback_debug_probe = nullptr;
+
+void record_fallback_debug_probe(uint3 dispatch_id, uint token,
+                                 uint4 operands, uint2 snapshot) noexcept {
+    auto *probe = active_fallback_debug_probe;
+    if (probe == nullptr) { return; }// The visit-count oracle detects a missing probe.
+    const auto mode = TestFloatingPointState::read().mode();
+    const auto thread = std::this_thread::get_id();
+    std::scoped_lock lock{probe->mutex};
+    if (dispatch_id.x >= probe->visits.size()) {
+        probe->correct = false;
+        return;
+    }
+    probe->visits[dispatch_id.x]++;
+    const auto row = dispatch_id.x % 8u;
+    const auto expected_token = dispatch_id.x ^ 0x5a35a53cu;
+    const auto expected_multiply = probe->expected_multiply[row];
+    const auto multiply_matches = probe->fast_math && expected_multiply == 0u ?
+                                      (snapshot.x & 0x7fffffffu) == 0u :
+                                      snapshot.x == expected_multiply;
+    probe->correct &= mode == probe->expected_mode && thread != probe->submitter &&
+                      dispatch_id.y == 0u && dispatch_id.z == 0u &&
+                      token == expected_token && snapshot.y == expected_token &&
+                      std::memcmp(&operands, &probe->inputs[row], sizeof(uint4)) == 0 &&
+                      multiply_matches;
+}
+void test_fallback_fast_math_environment(const char *program_path) {
+    const auto original = TestFloatingPointState::read();
+    struct Restore {
+        TestFloatingPointState state;
+        ~Restore() noexcept { state.apply(); }
+    } restore{original};
+    const auto ieee = original.ieee();
+    ieee.apply();
+    MemoryBinaryIO binary_io;
+    Context context{program_path};
+    DeviceConfig config{.binary_io = &binary_io};
+    auto device = context.create_device("fallback", &config);
+    expect(TestFloatingPointState::read().mode() == ieee.mode())
+        << "creating a Fallback device must not change caller FP control state";
+    // Construct the asynchronous dispatcher and its lazily created pool before
+    // changing the submitter's environment. Precise uses the worker's mode.
+    ieee.apply();
+    auto stream = device.create_stream();
+    struct Case {
+        uint4 input;
+        uint2 precise;
+        uint2 fast;
+    };
+    const std::array cases{
+        Case{make_uint4(0x00000001u, 0x40000000u, 0x00000001u, 0u), make_uint2(2u, 2u), make_uint2(0u)},
+        Case{make_uint4(0x80000001u, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80000002u), make_uint2(0u)},
+        Case{make_uint4(0x00800000u, 0x3f000000u, 0x80800000u, 0u), make_uint2(0x00400000u, 0u), make_uint2(0u)},
+        Case{make_uint4(0x80800000u, 0x3f000000u, 0x00800000u, 0u), make_uint2(0x80400000u, 0u), make_uint2(0u)},
+        Case{make_uint4(0x00800001u, 0x3f800000u, 0x80800000u, 0u), make_uint2(0x00800001u, 1u), make_uint2(0x00800001u, 0u)},
+        Case{make_uint4(0x80800001u, 0x3f800000u, 0x00800000u, 0u), make_uint2(0x80800001u, 0x80000001u), make_uint2(0x80800001u, 0u)},
+        Case{make_uint4(0x007fffffu, 0x40000000u, 0x00000001u, 0u), make_uint2(0x00fffffeu, 0x00800000u), make_uint2(0u)},
+        Case{make_uint4(0x807fffffu, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80fffffeu, 0x80800000u), make_uint2(0u)}};
+    constexpr auto block_count = 64u;
+    constexpr auto count = block_count * 32u;
+    auto input = device.create_buffer<uint4>(cases.size());
+    auto output = device.create_buffer<uint2>(count);
+    auto probe_output = device.create_buffer<uint2>(count);
+    luisa::vector<uint4> host_input;
+    for (auto &&item : cases) { host_input.emplace_back(item.input); }
+    luisa::vector<uint2> observed(count);
+    luisa::vector<uint2> probe_observed(count);
+    stream << input.copy_from(luisa::span{host_input}) << synchronize();
+    auto make_kernel = [](bool probe) {
+        return Kernel1D{[probe](BufferUInt4 input, BufferUInt2 output) noexcept {
+            set_block_size(32u);
+            if (probe) {
+                $if (thread_x() == 0u) { device_log("fallback-ftz-probe"); };
+            }
+            if (probe) {
+                UInt token = dispatch_x() ^ 0x5a35a53cu;
+                UInt4 watched = input.read(dispatch_x() % 8u);
+                UInt2 snapshot = make_uint2((watched.x.as<float>() * watched.y.as<float>()).as<uint>(), token);
+                $if (thread_x() < 8u) {
+                    // Custom host callback only: no default debugger trap.
+                    $debug_break_on(token, watched, snapshot,
+                                    record_fallback_debug_probe(dispatch_id, token, watched, snapshot));
+                };
+            }
+            // Read again after the opaque host callback, then perform observable
+            // arithmetic under the restored shader environment.
+            auto operands = input.read(dispatch_x() % 8u);
+            auto value = operands.x.as<float>();
+            auto factor = operands.y.as<float>();
+            auto addend = operands.z.as<float>();
+            output.write(dispatch_x(), make_uint2((value * factor).as<uint>(), (value + addend).as<uint>()));
+        }};
+    };
+    // Fallback intentionally excludes printing kernels from its object cache.
+    // Validate warm execution and host callbacks with separate kernel variants.
+    auto kernel = make_kernel(false);
+    auto probe_kernel = make_kernel(true);
+    auto precise = device.compile(kernel, {.enable_cache = true, .enable_fast_math = false});
+    auto cold_fast = device.compile(kernel, {.enable_cache = true, .enable_fast_math = true});
+    expect(binary_io.cache_write_count == 4u) << "precise and fast cold objects must have separate cache entries";
+    auto reads = binary_io.cache_read_count;
+    auto writes = binary_io.cache_write_count;
+    auto warm_fast = device.compile(kernel, {.enable_cache = true, .enable_fast_math = true});
+    expect(binary_io.cache_read_count == reads + 2u && binary_io.cache_write_count == writes)
+        << "fast FTZ object must be loaded from the existing object and metadata";
+    reads = binary_io.cache_read_count;
+    auto warm_precise = device.compile(kernel, {.enable_cache = true, .enable_fast_math = false});
+    expect(binary_io.cache_read_count == reads + 2u && binary_io.cache_write_count == writes)
+        << "precise object must retain its own warm-cache entry";
+    auto probe_precise = device.compile(probe_kernel, {.enable_cache = false, .enable_fast_math = false});
+    auto probe_fast = device.compile(probe_kernel, {.enable_cache = false, .enable_fast_math = true});
+
+    std::mutex mutex;
+    luisa::vector<std::thread::id> worker_threads;
+    luisa::vector<uint64_t> worker_modes;
+    bool valid_messages = true;
+    stream.set_log_callback([&](luisa::string_view message) noexcept {
+        auto mode = TestFloatingPointState::read().mode();
+        auto thread = std::this_thread::get_id();
+        std::scoped_lock lock{mutex};
+        valid_messages &= message == "fallback-ftz-probe";
+        worker_threads.emplace_back(thread);
+        worker_modes.emplace_back(mode);
+    });
+    FallbackDebugProbe debug_probe;
+    debug_probe.inputs = luisa::span{host_input};
+    debug_probe.visits.resize(count);
+    debug_probe.submitter = std::this_thread::get_id();
+    debug_probe.expected_mode = ieee.mode();
+    active_fallback_debug_probe = &debug_probe;
+    struct ResetDebugProbe {
+        ~ResetDebugProbe() noexcept { active_fallback_debug_probe = nullptr; }
+    } reset_debug_probe;
+    for (auto phase = 0u; phase < 5u; phase++) {
+        const auto fast_math = phase == 1u || phase == 3u;
+        debug_probe.fast_math = fast_math;
+        debug_probe.correct = true;
+        std::fill(debug_probe.visits.begin(), debug_probe.visits.end(), 0u);
+        for (auto row = 0u; row < cases.size(); row++) {
+            debug_probe.expected_multiply[row] = fast_math ? cases[row].fast.x : cases[row].precise.x;
+        }
+        auto &shader = phase == 1u ? cold_fast : phase == 2u ? warm_precise :
+                                             phase == 3u     ? warm_fast :
+                                                               precise;
+        worker_threads.clear();
+        worker_modes.clear();
+        valid_messages = true;
+        std::fill(observed.begin(), observed.end(), make_uint2(~0u));
+        std::fill(probe_observed.begin(), probe_observed.end(), make_uint2(~0u));
+        // The first precise dispatch initializes the pool with IEEE state.
+        // Later submissions deliberately use a different caller environment.
+        auto caller_state = phase % 2u == 0u ? ieee : ieee.flush();
+        caller_state.apply();
+        auto dispatcher_mode = ~uint64_t{0u};
+        auto dispatcher_thread = std::thread::id{};
+        stream << output.copy_from(luisa::span{observed})
+               << shader(input, output).dispatch(count)
+               << output.copy_to(luisa::span{observed})
+               << probe_output.copy_from(luisa::span{probe_observed})
+               << (fast_math ? probe_fast : probe_precise)(input, probe_output).dispatch(count)
+               << probe_output.copy_to(luisa::span{probe_observed})
+               << [&]() noexcept {
+                      dispatcher_mode = TestFloatingPointState::read().mode();
+                      dispatcher_thread = std::this_thread::get_id();
+                  }
+               << synchronize();
+        expect(TestFloatingPointState::read().mode() == caller_state.mode())
+            << "Fallback asynchronous submission changed the caller's FP mode";
+        expect(dispatcher_thread != std::this_thread::get_id() && dispatcher_mode == ieee.mode())
+            << "completion callback must see the asynchronous dispatcher's original FP mode";
+        expect(valid_messages && worker_modes.size() == block_count)
+            << "every Fallback block must emit one host callback";
+        expect(std::all_of(worker_modes.begin(), worker_modes.end(), [&](auto mode) { return mode == ieee.mode(); }))
+            << "shader log callback must see the original worker FP mode";
+        expect(std::all_of(worker_threads.begin(), worker_threads.end(), [&](auto thread) { return thread != std::this_thread::get_id(); }))
+            << "Fallback shader callbacks must execute asynchronously, not on the submitter";
+        bool debug_visits_match = true;
+        for (auto row = 0u; row < count; row++) {
+            debug_visits_match &= debug_probe.visits[row] == (row % 32u < 8u ? 1u : 0u);
+        }
+        expect(debug_probe.correct && debug_visits_match)
+            << "custom debug callback must preserve worker FP mode and evaluate every watched snapshot exactly"
+            << " phase=" << phase << " fast_math=" << fast_math;
+        bool correct = true;
+        for (auto row = 0u; row < count; row++) {
+            auto expected = fast_math ? cases[row % 8u].fast : cases[row % 8u].precise;
+            for (auto component = 0u; component < 2u; component++) {
+                auto actual = observed[row][component];
+                correct &= fast_math && expected[component] == 0u ? (actual & 0x7fffffffu) == 0u : actual == expected[component];
+                auto probe_actual = probe_observed[row][component];
+                correct &= fast_math && expected[component] == 0u ? (probe_actual & 0x7fffffffu) == 0u : probe_actual == expected[component];
+            }
+        }
+        expect(correct) << "Fallback cold/warm fast FTZ or later precise result differs";
+    }
+}
+
 
 [[nodiscard]] int run_cached_kernel(
     const char *program_path, const BinaryIO *binary_io,
@@ -148,6 +419,10 @@ run_minimal_codegen_vector_kernel(const char *program_path) noexcept {
 int main(int argc, char *argv[]) {
     auto program_path =
         argc > 0 && argv != nullptr ? argv[0] : "";
+    if (argc == 2 && std::strcmp(argv[1], "--ftz-only") == 0) {
+        test_fallback_fast_math_environment(program_path);
+        return 0;
+    }
     // This must be set before the first fallback backend module is loaded.
 #if defined(_WIN32)
     _putenv_s("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT", "1");

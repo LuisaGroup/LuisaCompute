@@ -1690,8 +1690,32 @@ are not audited as scaled `exp`/`log` compositions. For all three fast
 exponential functions, the reference maps positive subnormal outputs to
 `+0` as required by the fast-tier contract.
 
-Fast special-value and domain behavior is defined, not inherited from LLVM
-undefined fast-math assumptions:
+SIMD runtime fast-math shaders execute their complete JIT call tree with
+single-precision denormal inputs and results permitted to flush to signed
+zero. Runtime dispatch enables x86 MXCSR FTZ/DAZ or Arm FPCR.FZ (and
+FPCR.FIZ when alternative handling is active) once per
+work chunk and restores the exact prior control and status registers on
+return. This also covers the caller-thread single-worker path, outlined
+ray-query handlers, and packet/block/cooperative wrappers. User print
+callbacks temporarily run in the saved host environment. Other precision
+types follow the selected target's dynamic environment; no uniform f16
+flushing behavior is promised. This policy permits reduced subnormal
+precision; it does not guarantee a throughput improvement.
+
+Precise shaders retain their existing behavior and do not change the
+thread's floating-point environment. In particular, they do not force IEEE
+mode if their caller or the creator of their worker threads enabled FTZ.
+The effective policy is stored with the compiled kernel, so ordered
+reductions and strict MMA Tile overrides remain precise. Direct callers
+of a compiled fast JIT entry must establish the same FP environment as
+runtime dispatch and restore it after the call.
+
+The following provider-level special-value/domain rules describe the
+isolated native math functions in an IEEE environment, as exercised by
+their direct JIT tests. Runtime fast shaders supersede their subnormal
+preservation rules: subnormal operands/results and arithmetic depending
+on them may instead use signed zero. Normal finite inputs keep the stated
+bounds when their evaluation does not depend on subnormal intermediates.
 
 - all NaN results use canonical quiet NaN `0x7fc00000`;
 - `sin`, `cos`, and `tan` map either infinity to NaN; `sin` and `tan`
