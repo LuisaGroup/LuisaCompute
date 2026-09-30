@@ -603,3 +603,81 @@ writer and the matching SDK reader. Logs are in
 Support for both host LLVM API versions does not establish compatibility with
 arbitrary LLVM, CUDA, OptiX, or driver versions; the runtime OptiX IR path remains
 explicitly opt-in. These Windows results do not constitute native ARM testing.
+
+Final validation on both SDKs completed **eight Compute Sanitizer memcheck
+runs**: `test_cuda_llvm_ray_query` and `test_cuda_llvm_ray_query_bounds`, each
+through LLVM/PTX and LLVM/OptiX IR. All processes exited successfully with
+**zero errors**, passing 73 and 266 assertions respectively. Logs confirm the
+requested RTX module format, including OptiX IR without a PTX fallback.
+
+All **ten 1024-spp procedural renders** (Fallback, SIMD, AST/NVRTC, LLVM/PTX
+and LLVM/OptiX IR on each SDK) passed the unchanged gallery reference, with
+RGB PSNR **44.89–45.25 dB**. Saved PNG hashes matched their records. The two
+historical diagnostic masks, containing 1,207 affected positions and 43
+residual pinhole positions, contained **zero all-black RGB pixels** in every
+render. This checks those known artifacts in this scene; it does not establish
+pixel identity across routes or absence of artifacts in arbitrary scenes.
+Manifests, process results and `pinhole-analysis.json` are retained under
+`.deps/final-dual-llvm-22-final-20260930-121642-6149630/` and
+`.deps/final-dual-llvm-23-final-20260930-121959-0258811/`.
+
+## Local performance measurements after LLVM 22/23 validation
+
+On 2026-09-30, each SDK ran two serial ABBA groups per scene on the RTX 4060
+Laptop GPU. Each fresh process used a private shader cache and disabled the
+OptiX disk cache; the runtime files were identical within each SDK comparison.
+Only the OptiX IR environment switch changed. Logs verified the requested
+module format and fresh LLVM generation. All 32 renders passed their original
+gallery references, and PNGs were repeatable within each SDK/scene/route.
+
+Cutout used 4096 spp and three iterations, with 64 spp per dispatch and no
+register cap. Its reported throughput excludes the first iteration and uses
+the median elapsed time of the remaining two. Procedural used 1024 spp; its
+post-compile interval includes first launch, blit and final readback. These
+are application timings, not isolated GPU kernel timings. The table contains
+medians across four processes per route; times are milliseconds.
+
+| LLVM | Scene | PTX spp/s | OptiX IR spp/s | RTX LLVM generation, PTX / IR | OptiX module creation, PTX / IR |
+|---|---|---:|---:|---:|---:|
+| 22.1.8 | Cutout | 499.38 | 473.87 | 138.88 / 235.04 | 217.43 / 1419.48 |
+| 22.1.8 | Procedural | 1219.76 | 1188.10 | 107.09 / 96.56 | 121.67 / 129.33 |
+| 23.1.2 | Cutout | 558.13 | 400.13 | 182.31 / 304.33 | 567.78 / 763.62 |
+| 23.1.2 | Procedural | 1210.78 | 1217.20 | 112.63 / 85.31 | 115.51 / 142.89 |
+
+**These measurements do not establish a stable OptiX IR speedup.** Cutout
+had large within-process and between-process variation, and compilation had
+long tails on both routes. For example, the first four LLVM 22 Cutout runs
+had median graphics clocks of 1320, 1680, 1005 and 1560 MHz among samples with
+at least 90% GPU utilization. Clock logs cover entire processes rather than
+exact measured phases. The machine was reported idle; no clocks or power
+settings were changed, and no slow runs were discarded. IR/PTX throughput
+ratios for the two groups were 0.994/0.898 (LLVM 22 Cutout), 0.879/0.979
+(LLVM 22 Procedural), 0.868/0.735 (LLVM 23 Cutout), and 1.042/1.004
+(LLVM 23 Procedural). Skipping LLVM's PTX emission did not demonstrate lower
+end-to-end compilation latency in these runs. OptiX IR remains opt-in.
+
+Full manifests, per-process timings, compiler properties, clock samples and
+images are in
+`build-msvc-llvm/test-results/final-llvm22-ptx-ir-abba-20260930-122459-716262/`
+and
+`build-msvc-llvm23/test-results/final-llvm23-ptx-ir-abba-20260930-123142-158800/`.
+
+A separate LLVM 22 v18/v19 comparison changed only the CUDA backend DLL.
+Cutout's payload fell from 3 to 2 words and AH/IS registers from 65 to 64;
+raygen stayed at 70 registers with a 96-byte continuation stack and 236
+bytes of continuation spills. Its two ABBA throughput ratios were
+0.651 and 1.372, so this does not establish a throughput change. Procedural
+measured 1208.23 / 1206.54 spp/s with group ratios 1.021 and 0.975, also
+without an established speedup. All same-scene v18/v19 PNGs were identical.
+
+The separate Cutout AST/LLVM comparison still showed a performance gap:
+602.66 / 429.82 spp/s, with LLVM/AST group ratios 0.682 and 0.697. LLVM
+raygen used 70 registers versus AST's 64; continuation spills were 236
+versus 232 bytes. These statistics do not measure occupancy or establish
+the cause of the gap. LLVM process medians ranged from 267.66 to 560.82
+spp/s, so the aggregate difference is not a stable estimate of its size.
+This comparison and the v18/v19 Cutout comparison take the median of all
+three iterations, unlike the PTX/IR comparison above; their aggregate
+numbers must not be compared directly. Evidence is in
+`build-msvc-llvm/test-results/cutout-{v18-v19,ast-v19}-final/` and
+`build-msvc-llvm/test-results/procedural-v18-v19-final-abba-20260930-124733-476831/`.

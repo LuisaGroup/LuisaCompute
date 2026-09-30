@@ -1710,6 +1710,28 @@ reductions and strict MMA Tile overrides remain precise. Direct callers
 of a compiled fast JIT entry must establish the same FP environment as
 runtime dispatch and restore it after the call.
 
+On 2026-09-30, an LLVM 22.1.8/MSVC microbenchmark on an Intel Core Ultra 7
+155H used four distinct P cores (affinity mask `0x15400`), the same executable
+and dependencies, and changed only the SIMD backend DLL. Two ABBA groups
+per worker count compared 32,768 elements with 256 arithmetic steps:
+
+| Workers | Denormal-heavy throughput ratio | Ordinary-input throughput ratio |
+| --- | ---: | ---: |
+| 1 | 26.35x | 0.992x |
+| 4 | 25.61x | 1.024x |
+
+Both groups showed the denormal-heavy benefit. Ordinary-input ratios varied
+between groups (0.923/1.009 for one worker and 1.036/0.999 for four workers),
+so this does not establish an ordinary-input speedup. Both DLLs passed their
+respective exact-bit result oracles; flushing subnormals intentionally changes
+the fast-tier numerical result. Evidence is in
+`build-msvc-llvm/test-results/simd-ftz-pcores-abba-20260930-122351-333248/`.
+An earlier unpinned capture of the same microbenchmark produced byte-identical
+JIT objects and assembly for both DLLs and worker counts
+(`.deps/simd-ftz-assembly-comparison.json`). The speedup therefore must not be
+attributed to changed JIT machine code; dispatch changes the runtime FP
+environment. Neither result generalizes to arbitrary shaders or processors.
+
 The following provider-level special-value/domain rules describe the
 isolated native math functions in an IEEE environment, as exercised by
 their direct JIT tests. Runtime fast shaders supersede their subnormal
