@@ -41,7 +41,8 @@ constexpr auto kNvvmForwardSubstitution = [] {
 }// namespace
 
 luisa::string luisa_compute_cuda_llvm_encode_optix_ir(
-    luisa::span<const std::byte> bitcode, uint32_t cuda_arch) noexcept {
+    luisa::span<const std::byte> bitcode, uint32_t cuda_arch,
+    bool enable_fast_math) noexcept {
     constexpr std::array<uint8_t, 4u> bitcode_magic{0x42u, 0x43u, 0xc0u, 0xdeu};
     LUISA_ASSERT(bitcode.size() >= bitcode_magic.size(), "Missing LLVM bitcode for OptiX IR.");
     for (auto i = 0u; i < bitcode_magic.size(); i++) {
@@ -50,8 +51,8 @@ luisa::string luisa_compute_cuda_llvm_encode_optix_ir(
     }
     LUISA_ASSERT(cuda_arch != 0u && cuda_arch <= 0xffffu / 10u,
                  "CUDA architecture is outside the OptiX IR container's scalar range.");
-    constexpr auto scalar_fields_end = 44u;
-    constexpr auto payload_offset = 48u;
+    auto scalar_fields_end = enable_fast_math ? 48u : 44u;
+    auto payload_offset = scalar_fields_end + 4u;
     LUISA_ASSERT(bitcode.size() <= std::numeric_limits<size_t>::max() - payload_offset,
                  "OptiX IR container size overflow.");
     luisa::vector<std::byte> output;
@@ -79,6 +80,13 @@ luisa::string luisa_compute_cuda_llvm_encode_optix_ir(
     append_u16(0u);
     append_u16(3u);
     append_u16(0u);// The host LLVM pipeline has already optimized the module.
+    if (enable_fast_math) {
+        // NVRTC --ftz=true changes only this container scalar, leaving
+        // its bitcode identical. OptiX consumes this option separately
+        // from upstream LLVM denormal function attributes.
+        append_u16(13u);
+        append_u16(1u);
+    }
     append_u16(99u);
     append_u16(0u);
     append_u16(0u);

@@ -64,6 +64,13 @@ end)
 test_proj("test_sparse_texture_tile_plan", "unit/core/test_sparse_texture_tile_plan.cpp", false, function()
     add_includedirs("../runtime")
 end)
+if has_config("lc_cuda_backend") then
+    test_proj("test_cuda_shader_metadata", "unit/core/test_cuda_shader_metadata.cpp", false, function()
+        add_includedirs("../backends/cuda")
+        add_files("../backends/cuda/cuda_shader_metadata.cpp",
+                  "../backends/cuda/llvm_codegen/cuda_codegen_llvm_optix_ir.cpp")
+    end)
+end
 test_proj("test_pixel_storage", "unit/core/test_pixel_storage.cpp")
 test_proj("test_eastl_allocation", "unit/core/test_eastl_allocation.cpp")
 test_proj("test_argument_block_layout", "unit/ext/test_argument_block_layout.cpp", false, function()

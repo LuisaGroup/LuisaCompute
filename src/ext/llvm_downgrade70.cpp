@@ -6,6 +6,7 @@
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/InlineAsm.h>
@@ -73,6 +74,9 @@ void validate_llvm_7_module(const llvm::Module &module) noexcept {
         auto type = types.pop_back_val();
         if (!visited_types.insert(type).second) { continue; }
         switch (type->getTypeID()) {
+#if LLVM_VERSION_MAJOR >= 23
+            case llvm::Type::ByteTyID:
+#endif
             case llvm::Type::ScalableVectorTyID:
             case llvm::Type::BFloatTyID:
             case llvm::Type::X86_AMXTyID:

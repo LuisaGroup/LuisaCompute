@@ -326,7 +326,9 @@ if (TARGET luisa-compute-backend-cuda)
     # Sidecar parsing is host-only; compile the helper without loading the CUDA backend.
     luisa_compute_add_test(test_cuda_shader_metadata
             unit/core/test_cuda_shader_metadata.cpp LABELS "unit;unit_core;unit_cuda")
-    target_sources(test_cuda_shader_metadata PRIVATE ../backends/cuda/cuda_shader_metadata.cpp)
+    target_sources(test_cuda_shader_metadata PRIVATE
+            ../backends/cuda/cuda_shader_metadata.cpp
+            ../backends/cuda/llvm_codegen/cuda_codegen_llvm_optix_ir.cpp)
     target_include_directories(test_cuda_shader_metadata PRIVATE ../backends/cuda)
 endif ()
 luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
@@ -386,6 +388,29 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
         target_link_libraries(test_hip_callable_abi PRIVATE
                 ${_hip_callable_abi_llvm_libs})
     endif ()
+endif ()
+if (TARGET luisa-compute-ext-llvm-downgrade AND LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+    # LLVM was discovered in a sibling scope; use the same cached SDK for this
+    # CPU-only writer/reader regression without loading a runtime backend.
+    find_package(LLVM REQUIRED CONFIG)
+    add_executable(test_llvm_downgrade70 unit/ext/test_llvm_downgrade70.cpp)
+    target_compile_features(test_llvm_downgrade70 PRIVATE cxx_std_20)
+    target_include_directories(test_llvm_downgrade70 PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../ext ${LLVM_INCLUDE_DIRS})
+    separate_arguments(_llvm_downgrade70_test_definitions NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+    target_compile_options(test_llvm_downgrade70 PRIVATE ${_llvm_downgrade70_test_definitions})
+    if (NOT LLVM_ENABLE_RTTI)
+        if (MSVC)
+            target_compile_options(test_llvm_downgrade70 PRIVATE /GR-)
+        else ()
+            target_compile_options(test_llvm_downgrade70 PRIVATE -fno-rtti)
+        endif ()
+    endif ()
+    llvm_map_components_to_libnames(_llvm_downgrade70_test_libraries bitreader core support)
+    target_link_libraries(test_llvm_downgrade70 PRIVATE
+            luisa-compute-ext-llvm-downgrade ${_llvm_downgrade70_test_libraries})
+    add_test(NAME test_llvm_downgrade70 COMMAND test_llvm_downgrade70)
+    set_tests_properties(test_llvm_downgrade70 PROPERTIES LABELS "unit;unit_ext;unit_llvm")
 endif ()
 luisa_compute_add_test(test_glslang_spirv unit/ext/test_glslang_spirv.cpp LABELS "unit;unit_ext")
 # glslang is linked explicitly: the old luisa-compute-ext INTERFACE edge that

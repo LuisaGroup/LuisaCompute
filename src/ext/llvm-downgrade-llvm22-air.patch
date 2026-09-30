@@ -1,12 +1,120 @@
-# LuisaCompute LLVM 22/AIR overlay for JuliaLLVM/llvm-downgrade.
-# Base commit: 6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb.
+# LuisaCompute LLVM 22/23 and AIR overlay for JuliaLLVM/llvm-downgrade.
+# Base commit: 4244e2a1ec56dd9c714755453ba840a48a0b5ee5.
 # CMake applies this patch only to a disposable build-tree mirror.
 
-diff --git a/src/BitcodeWriter140.cpp b/src/BitcodeWriter140.cpp
-index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a863ac308 100644
+--- a/common/DowngradeError.h
++++ b/common/DowngradeError.h
+@@ -1,6 +1,9 @@
+ #pragma once
+ 
+ #include "llvm/ADT/Twine.h"
++#if defined(LLVMDG_ABORT_ON_ERROR)
++#include "llvm/Support/ErrorHandling.h"
++#endif
+ #include <string>
+ 
+ namespace llvmdg {
+@@ -9,9 +12,15 @@
+   std::string Message;
+ };
+ 
+-// Throw directly from the writers: LLVM may be built without unwind cleanups.
++// Embedded callers can retain the original fatal-error contract without
++// allowing a writer exception to cross a noexcept or exception-free boundary.
++// The upstream C API keeps its recoverable exception contract by default.
+ [[noreturn]] inline void reportError(const llvm::Twine &Message) {
++#if defined(LLVMDG_ABORT_ON_ERROR)
++  llvm::report_fatal_error(Message, false);
++#else
+   throw DowngradeError{Message.str()};
++#endif
+ }
+ 
+ } // namespace llvmdg
+--- /dev/null
++++ b/common/LegacyAttributes.h
+@@ -0,0 +1,35 @@
++#pragma once
++
++#include "llvm/Config/llvm-config.h"
++
++#if LLVM_VERSION_MAJOR >= 23
++#include "llvm/ADT/FloatingPointMode.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/StringRef.h"
++#include <cstdint>
++
++namespace llvmdg {
++
++// LLVM 23 replaced the two string attributes with denormal_fpenv. Preserve
++// both complete output/input modes when targeting readers from before LLVM 23.
++// A null Record is the attribute-group enumerator's counting-only operation.
++inline unsigned
++encodeLegacyDenormalFPEnv(llvm::DenormalFPEnv Env,
++                         llvm::SmallVectorImpl<uint64_t> *Record) {
++  if (Record) {
++    auto Emit = [&](llvm::StringRef Name, llvm::DenormalMode Mode) {
++      auto Value = Mode.str(); // legacy names and output,input order
++      Record->push_back(4); // string attribute with a value
++      Record->append(Name.begin(), Name.end());
++      Record->push_back(0);
++      Record->append(Value.begin(), Value.end());
++      Record->push_back(0);
++    };
++    Emit("denormal-fp-math", Env.DefaultMode);
++    Emit("denormal-fp-math-f32", Env.F32Mode);
++  }
++  return 2;
++}
++
++} // namespace llvmdg
++#endif
+--- /dev/null
++++ b/common/LegacyConstants.h
+@@ -0,0 +1,30 @@
++#pragma once
++
++#include "DowngradeError.h"
++#include "llvm/Config/llvm-config.h"
++#include "llvm/IR/Constants.h"
++#include "llvm/IR/DerivedTypes.h"
++
++namespace llvmdg {
++
++// LLVM 23 represents numeric vector splats as zero-operand ConstantInt/FP.
++// Older readers require an aggregate referencing separately encoded scalar
++// constants. Preserve APInt/APFloat bits, including wide values and NaNs.
++inline llvm::Constant *getLegacyVectorSplatElement(const llvm::Constant *C) {
++#if LLVM_VERSION_MAJOR >= 23
++  if (!C->getType()->isVectorTy() || C->isNullValue() ||
++      !llvm::isa<llvm::ConstantInt, llvm::ConstantFP>(C))
++    return nullptr;
++  if (!llvm::isa<llvm::FixedVectorType>(C->getType()))
++    reportError("scalable numeric vector splats are not supported by the IR downgrader");
++  if (auto *CI = llvm::dyn_cast<llvm::ConstantInt>(C))
++    return llvm::ConstantInt::get(C->getContext(), CI->getValue());
++  return llvm::ConstantFP::get(C->getContext(),
++                               llvm::cast<llvm::ConstantFP>(C)->getValueAPF());
++#else
++  (void)C;
++  return nullptr;
++#endif
++}
++
++} // namespace llvmdg
 --- a/src/BitcodeWriter140.cpp
 +++ b/src/BitcodeWriter140.cpp
-@@ -155,6 +155,8 @@ protected:
+@@ -11,6 +11,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "DowngradeError.h"
++#include "LegacyAttributes.h"
++#include "LegacyConstants.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "ValueEnumerator140.h"
+ #include "PointerRewriter.h"
+@@ -155,6 +158,8 @@
    /// The Module to write to bitcode.
    const Module &M;
  
@@ -15,7 +123,7 @@ index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a
    /// Enumerates ids for all values in the module.
    ValueEnumerator140 VE;
  
-@@ -183,7 +185,8 @@ public:
+@@ -183,7 +188,8 @@
                            bool ShouldPreserveUseListOrder,
                            const ModuleSummaryIndex *Index)
        : BitcodeWriterBase140(Stream, StrtabBuilder), M(M),
@@ -25,7 +133,19 @@ index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a
      // Enumerate typed pointers, in a deterministic module order so the emitted
      // type table (and thus the whole bitcode) is reproducible across runs.
      PointerMap = PointerRewriter::buildPointerMap(M);
-@@ -1086,8 +1089,13 @@ void ModuleBitcodeWriter140::writeTypeTable() {
+@@ -800,6 +806,11 @@
+       Record->append(Vals);
+   };
+ 
++#if LLVM_VERSION_MAJOR >= 23
++  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
++    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
++#endif
++
+   // LLVM 14 has no memory(...) attribute; decompose the MemoryEffects into
+   // the legacy standalone enum attributes the LLVM 14 reader knows.
+   if (Attr.hasAttribute(Attribute::Memory)) {
+@@ -1085,8 +1096,13 @@
        // STRUCT: [ispacked, eltty x N]
        TypeVals.push_back(ST->isPacked());
        // Output all of the element types.
@@ -40,7 +160,39 @@ index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a
  
        if (ST->isLiteral()) {
          Code = bitc::TYPE_CODE_STRUCT_ANON;
-@@ -2267,6 +2275,9 @@ void ModuleBitcodeWriter140::writeNamedMetadata(
+@@ -1127,9 +1143,11 @@
+         TypeVals.push_back(true);
+       break;
+     }
++#if LLVM_VERSION_MAJOR >= 23
+     case Type::ByteTyID:
+       llvmdg::reportError("Byte types are not supported with LLVM 14");
+       break;
++#endif
+     case Type::TargetExtTyID:
+       llvmdg::reportError("Target extension types are not supported with LLVM 14");
+       break;
+@@ -1342,6 +1360,7 @@
+   const std::string &DL = M.getDataLayoutStr();
+   if (!DL.empty())
+     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
++#if LLVM_VERSION_MAJOR >= 23
+   // Since LLVM 23 module-level inline asm is a list of fragments with
+   // per-fragment target properties. The legacy record is a single string, so
+   // concatenate the fragments and drop the properties.
+@@ -1351,6 +1370,11 @@
+       Asm += Frag.Asm;
+     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
+   }
++#else
++  if (!M.getModuleInlineAsm().empty())
++    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
++                      0 /*TODO*/);
++#endif
+ 
+   // Emit information about sections and GC, computing how many there are. Also
+   // compute the maximum alignment value.
+@@ -2275,6 +2299,9 @@
  
    unsigned Abbrev = createNamedMetadataAbbrev();
    for (const NamedMDNode &NMD : M.named_metadata()) {
@@ -50,7 +202,19 @@ index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a
      // Write name.
      StringRef Str = NMD.getName();
      Record.append(Str.bytes_begin(), Str.bytes_end());
-@@ -2893,7 +2904,8 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -2705,6 +2732,11 @@
+       Code = bitc::CST_CODE_POISON;
+     } else if (isa<UndefValue>(C)) {
+       Code = bitc::CST_CODE_UNDEF;
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      Code = bitc::CST_CODE_AGGREGATE;
++      auto *VT = cast<FixedVectorType>(C->getType());
++      Record.append(VT->getNumElements(), VE.getValueID(Splat));
++      AbbrevToUse = AggregateAbbrev;
+     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
+       if (IV->getBitWidth() <= 64) {
+         uint64_t V = IV->getSExtValue();
+@@ -2901,7 +2933,8 @@
        Record.push_back(VE.getValueID(NC->getGlobalValue()));
      } else {
  #ifndef NDEBUG
@@ -60,11 +224,373 @@ index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a
  #endif
        llvm_unreachable("Unknown constant!");
      }
-diff --git a/src/BitcodeWriter50.cpp b/src/BitcodeWriter50.cpp
-index a7b7d1fed8d2c546feba609ede256ae6389ec19c..ba6c684be7b30fb885e329ab86eb551d4d4e1ddb 100644
+@@ -3110,6 +3143,7 @@
+       }
+     }
+     break;
++#if LLVM_VERSION_MAJOR >= 23
+   case Instruction::UncondBr:
+     {
+       Code = bitc::FUNC_CODE_INST_BR;
+@@ -3126,6 +3160,19 @@
+       pushValue(II.getCondition(), InstID, Vals);
+     }
+     break;
++#else
++  case Instruction::Br:
++    {
++      Code = bitc::FUNC_CODE_INST_BR;
++      const BranchInst &II = cast<BranchInst>(I);
++      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
++      if (II.isConditional()) {
++        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
++        pushValue(II.getCondition(), InstID, Vals);
++      }
++    }
++    break;
++#endif
+   case Instruction::Switch:
+     {
+       Code = bitc::FUNC_CODE_INST_SWITCH;
+@@ -4559,8 +4606,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDefs().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
+@@ -4574,8 +4625,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDecls().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
+--- a/src/BitcodeWriter150.cpp
++++ b/src/BitcodeWriter150.cpp
+@@ -11,6 +11,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "DowngradeError.h"
++#include "LegacyAttributes.h"
++#include "LegacyConstants.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "ValueEnumerator150.h"
+ #include "llvm/ADT/APFloat.h"
+@@ -808,6 +811,11 @@
+       Record->append(Vals);
+   };
+ 
++#if LLVM_VERSION_MAJOR >= 23
++  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
++    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
++#endif
++
+   // LLVM 15 has no memory(...) attribute; decompose the MemoryEffects into
+   // the legacy standalone enum attributes the LLVM 15 reader knows.
+   if (Attr.hasAttribute(Attribute::Memory)) {
+@@ -1111,9 +1119,11 @@
+         TypeVals.push_back(true);
+       break;
+     }
++#if LLVM_VERSION_MAJOR >= 23
+     case Type::ByteTyID:
+       llvmdg::reportError("Byte types are not supported with LLVM 15");
+       break;
++#endif
+     case Type::TargetExtTyID:
+       llvmdg::reportError("Target extension types are not supported with LLVM 15");
+       break;
+@@ -1334,6 +1344,7 @@
+   const std::string &DL = M.getDataLayoutStr();
+   if (!DL.empty())
+     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
++#if LLVM_VERSION_MAJOR >= 23
+   // Since LLVM 23 module-level inline asm is a list of fragments with
+   // per-fragment target properties. The legacy record is a single string, so
+   // concatenate the fragments and drop the properties.
+@@ -1343,6 +1354,11 @@
+       Asm += Frag.Asm;
+     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
+   }
++#else
++  if (!M.getModuleInlineAsm().empty())
++    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
++                      0 /*TODO*/);
++#endif
+ 
+   // Emit information about sections and GC, computing how many there are. Also
+   // compute the maximum alignment value.
+@@ -2683,6 +2699,11 @@
+       Code = bitc::CST_CODE_POISON;
+     } else if (isa<UndefValue>(C)) {
+       Code = bitc::CST_CODE_UNDEF;
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      Code = bitc::CST_CODE_AGGREGATE;
++      auto *VT = cast<FixedVectorType>(C->getType());
++      Record.append(VT->getNumElements(), VE.getValueID(Splat));
++      AbbrevToUse = AggregateAbbrev;
+     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
+       if (IV->getBitWidth() <= 64) {
+         uint64_t V = IV->getSExtValue();
+@@ -3052,6 +3073,7 @@
+       }
+     }
+     break;
++#if LLVM_VERSION_MAJOR >= 23
+   case Instruction::UncondBr:
+     {
+       Code = bitc::FUNC_CODE_INST_BR;
+@@ -3068,6 +3090,19 @@
+       pushValue(II.getCondition(), InstID, Vals);
+     }
+     break;
++#else
++  case Instruction::Br:
++    {
++      Code = bitc::FUNC_CODE_INST_BR;
++      const BranchInst &II = cast<BranchInst>(I);
++      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
++      if (II.isConditional()) {
++        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
++        pushValue(II.getCondition(), InstID, Vals);
++      }
++    }
++    break;
++#endif
+   case Instruction::Switch:
+     {
+       Code = bitc::FUNC_CODE_INST_SWITCH;
+@@ -4527,8 +4562,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDefs().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
+@@ -4542,8 +4581,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDecls().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
+--- a/src/BitcodeWriter180.cpp
++++ b/src/BitcodeWriter180.cpp
+@@ -11,6 +11,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "DowngradeError.h"
++#include "LegacyAttributes.h"
++#include "LegacyConstants.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "ValueEnumerator180.h"
+ #include "llvm/ADT/APFloat.h"
+@@ -870,6 +873,11 @@
+       Record->append(Vals);
+   };
+ 
++#if LLVM_VERSION_MAJOR >= 23
++  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
++    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
++#endif
++
+   // LLVM 18 has no captures(...) attribute; it only knows the legacy
+   // standalone "nocapture" enum attribute. Emit it when the pointer is
+   // not captured at all; otherwise drop the (conservative) hint.
+@@ -1136,9 +1144,11 @@
+         TypeVals.push_back(true);
+       break;
+     }
++#if LLVM_VERSION_MAJOR >= 23
+     case Type::ByteTyID:
+       llvmdg::reportError("Byte types are not supported with LLVM 18");
+       break;
++#endif
+     case Type::TargetExtTyID: {
+       TargetExtType *TET = cast<TargetExtType>(T);
+       Code = bitc::TYPE_CODE_TARGET_TYPE;
+@@ -1379,6 +1389,7 @@
+   const std::string &DL = M.getDataLayoutStr();
+   if (!DL.empty())
+     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
++#if LLVM_VERSION_MAJOR >= 23
+   // Since LLVM 23 module-level inline asm is a list of fragments with
+   // per-fragment target properties. The legacy record is a single string, so
+   // concatenate the fragments and drop the properties.
+@@ -1388,6 +1399,11 @@
+       Asm += Frag.Asm;
+     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
+   }
++#else
++  if (!M.getModuleInlineAsm().empty())
++    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
++                      0 /*TODO*/);
++#endif
+ 
+   // Emit information about sections and GC, computing how many there are. Also
+   // compute the maximum alignment value.
+@@ -2738,6 +2754,11 @@
+       Code = bitc::CST_CODE_POISON;
+     } else if (isa<UndefValue>(C)) {
+       Code = bitc::CST_CODE_UNDEF;
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      Code = bitc::CST_CODE_AGGREGATE;
++      auto *VT = cast<FixedVectorType>(C->getType());
++      Record.append(VT->getNumElements(), VE.getValueID(Splat));
++      AbbrevToUse = AggregateAbbrev;
+     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
+       if (IV->getBitWidth() <= 64) {
+         uint64_t V = IV->getSExtValue();
+@@ -3107,6 +3128,7 @@
+       }
+     }
+     break;
++#if LLVM_VERSION_MAJOR >= 23
+   case Instruction::UncondBr:
+     {
+       Code = bitc::FUNC_CODE_INST_BR;
+@@ -3123,6 +3145,19 @@
+       pushValue(II.getCondition(), InstID, Vals);
+     }
+     break;
++#else
++  case Instruction::Br:
++    {
++      Code = bitc::FUNC_CODE_INST_BR;
++      const BranchInst &II = cast<BranchInst>(I);
++      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
++      if (II.isConditional()) {
++        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
++        pushValue(II.getCondition(), InstID, Vals);
++      }
++    }
++    break;
++#endif
+   case Instruction::Switch:
+     {
+       Code = bitc::FUNC_CODE_INST_SWITCH;
+@@ -4685,8 +4720,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDefs().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
+@@ -4700,8 +4739,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDecls().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
++#endif
+       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
+               GlobalValue::dropLLVMManglingEscape(S)))) {
+         NameVals.push_back(StrtabBuilder.add(S));
 --- a/src/BitcodeWriter50.cpp
 +++ b/src/BitcodeWriter50.cpp
-@@ -2625,7 +2625,8 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -12,6 +12,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "DowngradeError.h"
++#include "LegacyAttributes.h"
++#include "LegacyConstants.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "ValueEnumerator50.h"
+ #include "PointerRewriter.h"
+@@ -708,6 +711,11 @@
+       Record->append(Vals);
+   };
+ 
++#if LLVM_VERSION_MAJOR >= 23
++  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
++    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
++#endif
++
+   // The memory(...) attribute postdates 5.0; decompose the MemoryEffects into
+   // the legacy standalone enum attributes the 5.0 reader (and verifier) knows.
+   if (Attr.hasAttribute(Attribute::Memory)) {
+@@ -1025,9 +1033,11 @@
+     case Type::X86_AMXTyID:
+       llvmdg::reportError("AMX types are not supported with LLVM 5.0");
+       break;
++#if LLVM_VERSION_MAJOR >= 23
+     case Type::ByteTyID:
+       llvmdg::reportError("Byte types are not supported with LLVM 5.0");
+       break;
++#endif
+     case Type::TargetExtTyID:
+       llvmdg::reportError("Target extension types are not supported with LLVM 5.0");
+       break;
+@@ -1213,6 +1223,7 @@
+   const std::string &DL = M.getDataLayoutStr();
+   if (!DL.empty())
+     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
++#if LLVM_VERSION_MAJOR >= 23
+   // Since LLVM 23 module-level inline asm is a list of fragments with
+   // per-fragment target properties. The legacy record is a single string, so
+   // concatenate the fragments and drop the properties.
+@@ -1222,6 +1233,11 @@
+       Asm += Frag.Asm;
+     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
+   }
++#else
++  if (!M.getModuleInlineAsm().empty())
++    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
++                      0 /*TODO*/);
++#endif
+ 
+   // Emit information about sections and GC, computing how many there are. Also
+   // compute the maximum alignment value.
+@@ -2449,6 +2465,11 @@
+       Code = bitc::CST_CODE_NULL;
+     } else if (isa<UndefValue>(C)) {
+       Code = bitc::CST_CODE_UNDEF;
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      Code = bitc::CST_CODE_AGGREGATE;
++      auto *VT = cast<FixedVectorType>(C->getType());
++      Record.append(VT->getNumElements(), VE.getValueID(Splat));
++      AbbrevToUse = AggregateAbbrev;
+     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
+       if (IV->getBitWidth() <= 64) {
+         uint64_t V = IV->getSExtValue();
+@@ -2634,7 +2655,8 @@
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -74,11 +600,129 @@ index a7b7d1fed8d2c546feba609ede256ae6389ec19c..ba6c684be7b30fb885e329ab86eb551d
  #endif
        llvm_unreachable("Unknown constant!");
      }
-diff --git a/src/BitcodeWriter70.cpp b/src/BitcodeWriter70.cpp
-index 1c6dbe9c67d1a49ab7c193fe86bf45f3f00d4e32..c9e0d1a89b44e7fccad540934a90d2b614aa21d5 100644
+@@ -2828,6 +2850,7 @@
+       }
+     }
+     break;
++#if LLVM_VERSION_MAJOR >= 23
+   case Instruction::UncondBr:
+     {
+       Code = bitc::FUNC_CODE_INST_BR;
+@@ -2844,6 +2867,19 @@
+       pushValue(II.getCondition(), InstID, Vals);
+     }
+     break;
++#else
++  case Instruction::Br:
++    {
++      Code = bitc::FUNC_CODE_INST_BR;
++      const BranchInst &II = cast<BranchInst>(I);
++      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
++      if (II.isConditional()) {
++        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
++        pushValue(II.getCondition(), InstID, Vals);
++      }
++    }
++    break;
++#endif
+   case Instruction::Switch:
+     {
+       Code = bitc::FUNC_CODE_INST_SWITCH;
+@@ -3983,8 +4019,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDefs().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
++#endif
+       NameVals.push_back(StrtabBuilder.add(S));
+       NameVals.push_back(S.size());
+     }
+@@ -3993,8 +4033,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDecls().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
++#endif
+       NameVals.push_back(StrtabBuilder.add(S));
+       NameVals.push_back(S.size());
+     }
 --- a/src/BitcodeWriter70.cpp
 +++ b/src/BitcodeWriter70.cpp
-@@ -2678,7 +2678,8 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -12,6 +12,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "DowngradeError.h"
++#include "LegacyAttributes.h"
++#include "LegacyConstants.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "ValueEnumerator70.h"
+ #include "PointerRewriter.h"
+@@ -735,6 +738,11 @@
+       Record->append(Vals);
+   };
+ 
++#if LLVM_VERSION_MAJOR >= 23
++  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
++    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
++#endif
++
+   // The memory(...) attribute postdates 7.0; decompose the MemoryEffects into
+   // the legacy standalone enum attributes the 7.0 reader (and verifier) knows.
+   if (Attr.hasAttribute(Attribute::Memory)) {
+@@ -1047,9 +1055,11 @@
+     case Type::X86_AMXTyID:
+       llvmdg::reportError("AMX types are not supported with LLVM 7.0");
+       break;
++#if LLVM_VERSION_MAJOR >= 23
+     case Type::ByteTyID:
+       llvmdg::reportError("Byte types are not supported with LLVM 7.0");
+       break;
++#endif
+     case Type::TargetExtTyID:
+       llvmdg::reportError("Target extension types are not supported with LLVM 7.0");
+       break;
+@@ -1247,6 +1257,7 @@
+   const std::string &DL = M.getDataLayoutStr();
+   if (!DL.empty())
+     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
++#if LLVM_VERSION_MAJOR >= 23
+   // Since LLVM 23 module-level inline asm is a list of fragments with
+   // per-fragment target properties. The legacy record is a single string, so
+   // concatenate the fragments and drop the properties.
+@@ -1256,6 +1267,11 @@
+       Asm += Frag.Asm;
+     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
+   }
++#else
++  if (!M.getModuleInlineAsm().empty())
++    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
++                      0 /*TODO*/);
++#endif
+ 
+   // Emit information about sections and GC, computing how many there are. Also
+   // compute the maximum alignment value.
+@@ -2501,6 +2517,11 @@
+       Code = bitc::CST_CODE_NULL;
+     } else if (isa<UndefValue>(C)) {
+       Code = bitc::CST_CODE_UNDEF;
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      Code = bitc::CST_CODE_AGGREGATE;
++      auto *VT = cast<FixedVectorType>(C->getType());
++      Record.append(VT->getNumElements(), VE.getValueID(Splat));
++      AbbrevToUse = AggregateAbbrev;
+     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
+       if (IV->getBitWidth() <= 64) {
+         uint64_t V = IV->getSExtValue();
+@@ -2686,7 +2707,8 @@
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -88,11 +732,63 @@ index 1c6dbe9c67d1a49ab7c193fe86bf45f3f00d4e32..c9e0d1a89b44e7fccad540934a90d2b6
  #endif
        llvm_unreachable("Unknown constant!");
      }
-diff --git a/src/PointerRewriter.cpp b/src/PointerRewriter.cpp
-index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8a5eea05b 100644
+@@ -2881,6 +2903,7 @@
+       }
+     }
+     break;
++#if LLVM_VERSION_MAJOR >= 23
+   case Instruction::UncondBr:
+     {
+       Code = bitc::FUNC_CODE_INST_BR;
+@@ -2897,6 +2920,19 @@
+       pushValue(II.getCondition(), InstID, Vals);
+     }
+     break;
++#else
++  case Instruction::Br:
++    {
++      Code = bitc::FUNC_CODE_INST_BR;
++      const BranchInst &II = cast<BranchInst>(I);
++      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
++      if (II.isConditional()) {
++        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
++        pushValue(II.getCondition(), InstID, Vals);
++      }
++    }
++    break;
++#endif
+   case Instruction::Switch:
+     {
+       Code = bitc::FUNC_CODE_INST_SWITCH;
+@@ -4132,8 +4168,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDefs().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
++#endif
+       NameVals.push_back(StrtabBuilder.add(S));
+       NameVals.push_back(S.size());
+     }
+@@ -4142,8 +4182,12 @@
+   }
+ 
+   if (!Index.cfiFunctionDecls().empty()) {
++#if LLVM_VERSION_MAJOR >= 23
+     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
+       StringRef S = Sym.first;
++#else
++    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
++#endif
+       NameVals.push_back(StrtabBuilder.add(S));
+       NameVals.push_back(S.size());
+     }
 --- a/src/PointerRewriter.cpp
 +++ b/src/PointerRewriter.cpp
-@@ -298,10 +298,13 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+@@ -299,10 +299,13 @@
      }
    }
  
@@ -108,7 +804,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
    if (MDNode *MD = F->getMetadata("arg_eltypes")) {
      for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
        auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
-@@ -310,9 +313,8 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+@@ -311,9 +314,8 @@
            cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
  
        auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
@@ -119,7 +815,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
        Changed = true;
      }
    }
-@@ -340,9 +342,15 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+@@ -341,9 +343,15 @@
      Changed = true;
    }
  
@@ -138,7 +834,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
  }
  
  static bool isNoopCast(const Value *V) {
-@@ -527,6 +535,7 @@ bool bitcastInstructionOperands(Module &M) {
+@@ -528,6 +536,7 @@
  // bitcast operands to calls, whose type can be altered by metadata attached to
  // the function
  bool bitcastFunctionOperands(Module &M) {
@@ -146,7 +842,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
    for (Function &F : M) {
      auto *FTy = F.getFunctionType();
      auto *NewFTy = getTypedFunctionType(&F);
-@@ -543,18 +552,22 @@ bool bitcastFunctionOperands(Module &M) {
+@@ -544,18 +553,22 @@
              continue;
  
            prependBitcast(M, CI, Idx);
@@ -173,7 +869,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
  }
  
  // The value type a global value is emitted with (the pointee of its typed
-@@ -725,6 +738,15 @@ PointerTypeMap PointerRewriter::buildPointerMap(const Module &M) {
+@@ -726,6 +739,15 @@
          }
        }
      }
@@ -189,7 +885,7 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
    }
  
    return PointerMap;
-@@ -982,6 +1004,46 @@ static bool bitcastBlockAddresses(Module &M) {
+@@ -980,6 +1002,46 @@
    return !BAs.empty();
  }
  
@@ -236,11 +932,9 @@ index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8
  bool PointerRewriter::run() {
    bool Changed = demotePointerConstants(M);
  
-diff --git a/src/PointerRewriter.h b/src/PointerRewriter.h
-index c0532223fe7b7a0f1c094c743cc2316b39ebc7e4..50b0fbfd6b68a0495fbd57b8a74eef75199586f0 100644
 --- a/src/PointerRewriter.h
 +++ b/src/PointerRewriter.h
-@@ -22,9 +22,12 @@ namespace llvm {
+@@ -22,9 +22,12 @@
  class Constant;
  class Value;
  class Module;
@@ -253,7 +947,7 @@ index c0532223fe7b7a0f1c094c743cc2316b39ebc7e4..50b0fbfd6b68a0495fbd57b8a74eef75
  
  class PointerRewriter {
  public:
-@@ -33,6 +36,7 @@ public:
+@@ -33,6 +36,7 @@
    bool run();
  
    static PointerTypeMap buildPointerMap(const Module &M);
@@ -261,11 +955,17 @@ index c0532223fe7b7a0f1c094c743cc2316b39ebc7e4..50b0fbfd6b68a0495fbd57b8a74eef75
    static bool requiresPointerRewriting(const Constant *C);
  
    // Lower intrinsics to their legacy form: drop lifetime markers (whose
-diff --git a/src/ValueEnumerator140.cpp b/src/ValueEnumerator140.cpp
-index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d007078af 100644
 --- a/src/ValueEnumerator140.cpp
 +++ b/src/ValueEnumerator140.cpp
-@@ -31,6 +31,7 @@
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "ValueEnumerator140.h"
++#include "LegacyConstants.h"
+ #include "llvm/ADT/SmallPtrSet.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Config/llvm-config.h"
+@@ -31,6 +32,7 @@
  #include "llvm/IR/Module.h"
  #include "llvm/IR/Operator.h"
  #include "llvm/IR/Type.h"
@@ -273,7 +973,7 @@ index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d
  #include "llvm/IR/Use.h"
  #include "llvm/IR/User.h"
  #include "llvm/IR/Value.h"
-@@ -367,9 +368,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
+@@ -367,9 +369,11 @@
    return V.first->getType()->isIntOrIntVectorTy();
  }
  
@@ -288,7 +988,22 @@ index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d
    if (ShouldPreserveUseListOrder)
      UseListOrders = predictUseListOrder(M);
  
-@@ -1022,10 +1025,22 @@ void ValueEnumerator140::EnumerateType(Type *Ty) {
+@@ -977,6 +981,14 @@
+   if (const Constant *C = dyn_cast<Constant>(V)) {
+     if (isa<GlobalValue>(C)) {
+       // Initializers for globals are handled explicitly elsewhere.
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      // Numeric splats have no IR operands in LLVM 23, but the legacy
++      // aggregate record needs the scalar's value ID before the vector.
++      EnumerateValue(Splat);
++      Values.push_back(std::make_pair(V, 1U));
++      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
++      ValueMap[V] = Values.size();
++      return;
+     } else if (C->getNumOperands()) {
+       // If a constant has operands, enumerate them.  This makes sure that if a
+       // constant has uses (for example an array of const ints), that they are
+@@ -1022,10 +1034,22 @@
      if (!STy->isLiteral())
        *TypeID = ~0U;
  
@@ -314,8 +1029,6 @@ index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d
  
    // Refresh the TypeID pointer in case the table rehashed.
    TypeID = &TypeMap[Ty];
-diff --git a/src/ValueEnumerator140.h b/src/ValueEnumerator140.h
-index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e146e214a 100644
 --- a/src/ValueEnumerator140.h
 +++ b/src/ValueEnumerator140.h
 @@ -13,6 +13,7 @@
@@ -326,7 +1039,7 @@ index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e
  #include "llvm/ADT/ArrayRef.h"
  #include "llvm/ADT/DenseMap.h"
  #include "llvm/ADT/UniqueVector.h"
-@@ -115,6 +116,7 @@ private:
+@@ -115,6 +116,7 @@
    SmallDenseMap<unsigned, MDRange, 1> FunctionMDInfo;
  
    bool ShouldPreserveUseListOrder;
@@ -334,7 +1047,7 @@ index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e
  
    using AttributeGroupMapType = DenseMap<IndexAndAttrSet, unsigned>;
    AttributeGroupMapType AttributeGroupMap;
-@@ -149,7 +151,8 @@ private:
+@@ -149,7 +151,8 @@
    unsigned FirstInstID;
  
  public:
@@ -344,9 +1057,117 @@ index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e
    ValueEnumerator140(const ValueEnumerator140 &) = delete;
    ValueEnumerator140 &operator=(const ValueEnumerator140 &) = delete;
  
-diff --git a/test/tests/ret_eltype.ll b/test/tests/ret_eltype.ll
-new file mode 100644
-index 0000000000000000000000000000000000000000..45a6d49d3e6b5dfe0db75d212e8900c0a853892c
+--- a/src/ValueEnumerator150.cpp
++++ b/src/ValueEnumerator150.cpp
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "ValueEnumerator150.h"
++#include "LegacyConstants.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Config/llvm-config.h"
+ #include "llvm/IR/Argument.h"
+@@ -891,6 +892,14 @@
+   if (const Constant *C = dyn_cast<Constant>(V)) {
+     if (isa<GlobalValue>(C)) {
+       // Initializers for globals are handled explicitly elsewhere.
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      // Numeric splats have no IR operands in LLVM 23, but the legacy
++      // aggregate record needs the scalar's value ID before the vector.
++      EnumerateValue(Splat);
++      Values.push_back(std::make_pair(V, 1U));
++      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
++      ValueMap[V] = Values.size();
++      return;
+     } else if (C->getNumOperands()) {
+       // If a constant has operands, enumerate them.  This makes sure that if a
+       // constant has uses (for example an array of const ints), that they are
+--- a/src/ValueEnumerator180.cpp
++++ b/src/ValueEnumerator180.cpp
+@@ -11,6 +11,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "ValueEnumerator180.h"
++#include "LegacyConstants.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Config/llvm-config.h"
+ #include "llvm/IR/Argument.h"
+@@ -891,6 +892,14 @@
+   if (const Constant *C = dyn_cast<Constant>(V)) {
+     if (isa<GlobalValue>(C)) {
+       // Initializers for globals are handled explicitly elsewhere.
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      // Numeric splats have no IR operands in LLVM 23, but the legacy
++      // aggregate record needs the scalar's value ID before the vector.
++      EnumerateValue(Splat);
++      Values.push_back(std::make_pair(V, 1U));
++      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
++      ValueMap[V] = Values.size();
++      return;
+     } else if (C->getNumOperands()) {
+       // If a constant has operands, enumerate them.  This makes sure that if a
+       // constant has uses (for example an array of const ints), that they are
+--- a/src/ValueEnumerator50.cpp
++++ b/src/ValueEnumerator50.cpp
+@@ -12,6 +12,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "ValueEnumerator50.h"
++#include "LegacyConstants.h"
+ #include "llvm/ADT/SmallPtrSet.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Config/llvm-config.h"
+@@ -883,6 +884,14 @@
+   if (const Constant *C = dyn_cast<Constant>(V)) {
+     if (isa<GlobalValue>(C)) {
+       // Initializers for globals are handled explicitly elsewhere.
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      // Numeric splats have no IR operands in LLVM 23, but the legacy
++      // aggregate record needs the scalar's value ID before the vector.
++      EnumerateValue(Splat);
++      Values.push_back(std::make_pair(V, 1U));
++      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
++      ValueMap[V] = Values.size();
++      return;
+     } else if (C->getNumOperands()) {
+       // If a constant has operands, enumerate them.  This makes sure that if a
+       // constant has uses (for example an array of const ints), that they are
+--- a/src/ValueEnumerator70.cpp
++++ b/src/ValueEnumerator70.cpp
+@@ -12,6 +12,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "ValueEnumerator70.h"
++#include "LegacyConstants.h"
+ #include "llvm/ADT/STLExtras.h"
+ #include "llvm/ADT/SmallPtrSet.h"
+ #include "llvm/IR/Constants.h"
+@@ -857,6 +858,14 @@
+   if (const Constant *C = dyn_cast<Constant>(V)) {
+     if (isa<GlobalValue>(C)) {
+       // Initializers for globals are handled explicitly elsewhere.
++    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
++      // Numeric splats have no IR operands in LLVM 23, but the legacy
++      // aggregate record needs the scalar's value ID before the vector.
++      EnumerateValue(Splat);
++      Values.push_back(std::make_pair(V, 1U));
++      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
++      ValueMap[V] = Values.size();
++      return;
+     } else if (C->getNumOperands()) {
+       // If a constant has operands, enumerate them.  This makes sure that if a
+       // constant has uses (for example an array of const ints), that they are
+--- /dev/null
++++ b/test/tests/denormal_fpenv.ll
+@@ -0,0 +1,8 @@
++; MIN-LLVM: 23
++; VERSIONS: 5.0 7.0 14.0 15.0 18.0
++; Modern denormal controls must not disappear as unknown enum attributes.
++; Asymmetric modes also check output/input ordering and the f32 override.
++define float @keep_modes(float %x) denormal_fpenv(ieee|positivezero, float: preservesign|ieee) {
++  ret float %x
++}
++; CHECK: attributes #0 = { "denormal-fp-math"="ieee,positive-zero" "denormal-fp-math-f32"="preserve-sign,ieee" }
 --- /dev/null
 +++ b/test/tests/ret_eltype.ll
 @@ -0,0 +1,23 @@
@@ -373,9 +1194,6 @@ index 0000000000000000000000000000000000000000..45a6d49d3e6b5dfe0db75d212e8900c0
 +; CHECK: declare{{.*}}void @consume_resource(%resource addrspace(2)*)
 +; CHECK: call %resource addrspace(2)* @get_resource()
 +; CHECK: call void @consume_resource(%resource addrspace(2)*
-diff --git a/test/tests/struct_eltypes.ll b/test/tests/struct_eltypes.ll
-new file mode 100644
-index 0000000000000000000000000000000000000000..d6db9495315496828de11e61e7d55198884c7f87
 --- /dev/null
 +++ b/test/tests/struct_eltypes.ll
 @@ -0,0 +1,22 @@
@@ -401,4 +1219,3 @@ index 0000000000000000000000000000000000000000..d6db9495315496828de11e61e7d55198
 +; CHECK-DAG: %argument_buffer = type { i32, %resource_wrapper addrspace(2)* }
 +; CHECK: define void @consume_argument_buffer(%argument_buffer addrspace(2)*
 +; CHECK-NOT: !llvm.struct_eltypes
-

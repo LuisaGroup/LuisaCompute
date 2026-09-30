@@ -2,6 +2,8 @@
 // Created by mike on 9/19/25.
 //
 
+#include <llvm/ADT/FloatingPointMode.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -91,7 +93,9 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
             options.NoInfsFPMath = true;
             options.NoNaNsFPMath = true;
 #endif
+#if LLVM_VERSION_MAJOR < 23
             options.NoSignedZerosFPMath = true;
+#endif
 #if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = true;
 #endif
@@ -104,7 +108,9 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
             options.NoInfsFPMath = false;
             options.NoNaNsFPMath = false;
 #endif
+#if LLVM_VERSION_MAJOR < 23
             options.NoSignedZerosFPMath = false;
+#endif
 #if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = false;
 #endif
@@ -211,7 +217,15 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         for (auto &f : *_llvm_module) {
             // Match NVRTC --use_fast_math's single-precision FTZ behavior.
             if (!f.isDeclaration()) {
+#if LLVM_VERSION_MAJOR >= 23
+                auto denormal_env = f.getDenormalFPEnv();
+                denormal_env.F32Mode = llvm::DenormalMode::getPreserveSign();
+                llvm::AttrBuilder attributes{_llvm_context};
+                attributes.addDenormalFPEnvAttr(denormal_env);
+                f.addFnAttrs(attributes);
+#else
                 f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+#endif
             }
             for (auto &bb : f) {
                 for (auto &inst : bb) {
@@ -370,7 +384,8 @@ luisa::string CUDACodegenLLVMImpl::_generate_optix_ir() noexcept {
     // The downgrade consumes the module and writes immediately after typed
     // pointer reconstruction. Never run LLVM optimization on that result.
     auto bitcode = llvm_downgrade_to_7(std::move(_llvm_module));
-    return luisa_compute_cuda_llvm_encode_optix_ir({bitcode.data(), bitcode.size()}, _config.cuda_arch);
+    return luisa_compute_cuda_llvm_encode_optix_ir(
+        {bitcode.data(), bitcode.size()}, _config.cuda_arch, _config.enable_fast_math);
 #else
     LUISA_ERROR_WITH_LOCATION("CUDA OptiX IR output was requested without LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR.");
 #endif

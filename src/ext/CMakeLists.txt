@@ -17,10 +17,10 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
     endif ()
     unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED)
     unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME)
-    if (NOT LLVM_VERSION_MAJOR EQUAL 22)
+    if (NOT (LLVM_VERSION_MAJOR EQUAL 22 OR LLVM_VERSION_MAJOR EQUAL 23))
         message(FATAL_ERROR
-                "The in-tree llvm-downgrade sources currently require LLVM 22, "
-                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 22.")
+                "The in-tree llvm-downgrade sources require LLVM 22 or 23, "
+                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 22 or 23.")
     endif ()
     # LLVM may have been configured on a generic Unix host while targeting
     # iOS, in which case its exported LLVMSupport target carries a standalone
@@ -43,9 +43,9 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
     set(LUISA_LLVM_DOWNGRADE_PATCH
             "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm22-air.patch")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT
-            "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb")
+            "4244e2a1ec56dd9c714755453ba840a48a0b5ee5")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT
-            "52b685b225f004e0b776ec784d3a4eda0afde4bbc21a150fc95b33f9eee2cbea")
+            "fb1144a70631e27bae3cdba193d89c28f4e54e75a28a9d1788244b0f856d3edc")
     if (NOT EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/BitcodeWriter140.cpp")
         message(FATAL_ERROR
                 "The llvm-downgrade submodule is missing. Run "
@@ -149,12 +149,12 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
     string(SHA256 LUISA_LLVM_DOWNGRADE_FINGERPRINT
             "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
 
-    # Keep the pinned third-party checkout pristine. The LLVM 22 and AIR typed-
+    # Keep the pinned third-party checkout pristine. The LLVM 22/23 and AIR typed-
     # pointer extensions live in the parent repository as a reviewable patch,
     # which is applied to a disposable copy in the build tree. Reuse a matching
     # mirror so ordinary reconfiguration does not invalidate its object files.
     set(LUISA_LLVM_DOWNGRADE_DIR
-            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm22-air")
+            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm${LLVM_VERSION_MAJOR}-air")
     set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE
             "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-source-fingerprint")
     set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR ON)
@@ -193,7 +193,7 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
                     "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
         endforeach ()
         set(LUISA_LLVM_DOWNGRADE_MIRROR_PATCH
-                "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-llvm22-air.patch")
+                "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-llvm22-23-air.patch")
         file(WRITE "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
                 "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
         set(LUISA_LLVM_DOWNGRADE_GIT_ENV
@@ -202,7 +202,7 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
                 COMMAND "${CMAKE_COMMAND}" -E env
                 --unset=GIT_DIR --unset=GIT_WORK_TREE
                 "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
-                "${GIT_EXECUTABLE}" apply --check --whitespace=nowarn
+                "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --check --whitespace=nowarn
                 "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
                 WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
                 RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT
@@ -219,7 +219,7 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
                 COMMAND "${CMAKE_COMMAND}" -E env
                 --unset=GIT_DIR --unset=GIT_WORK_TREE
                 "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
-                "${GIT_EXECUTABLE}" apply --whitespace=nowarn
+                "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --whitespace=nowarn
                 "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
                 WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
                 RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_RESULT
@@ -257,6 +257,10 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
                 ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.cpp
                 ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.h)
     endif ()
+    # The embedding wrappers deliberately preserve the pre-C-API fatal-error
+    # contract: do not let upstream writer exceptions escape their boundaries.
+    target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE
+            LLVMDG_ABORT_ON_ERROR=1)
     target_include_directories(luisa-compute-ext-llvm-downgrade
             BEFORE PRIVATE ${LUISA_LLVM_DOWNGRADE_DIR}/include)
     target_include_directories(luisa-compute-ext-llvm-downgrade

@@ -170,6 +170,122 @@ namespace {
     return passed;
 }
 
+[[nodiscard]] bool test_denormal_arithmetic(
+    Device &device, Stream &stream, const ProceduralPrimitive &primitive) {
+    struct DenormalCase {
+        uint4 operands;
+        uint2 precise;
+        uint2 fast;
+    };
+    // Runtime operands are IEEE bits, so the host's own FTZ mode cannot change
+    // either the inputs or the oracle. The fourth input component is unused.
+    const std::array cases{
+        DenormalCase{make_uint4(0x00000001u, 0x40000000u, 0x00000001u, 0u), make_uint2(0x00000002u, 0x00000002u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x80000001u, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80000002u, 0x80000002u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x003fffffu, 0x40000000u, 0x00000001u, 0u), make_uint2(0x007ffffeu, 0x00400000u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x803fffffu, 0x40000000u, 0x80000001u, 0u), make_uint2(0x807ffffeu, 0x80400000u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x00800000u, 0x3f000000u, 0x80800000u, 0u), make_uint2(0x00400000u, 0u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x80800000u, 0x3f000000u, 0x00800000u, 0u), make_uint2(0x80400000u, 0u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x00000000u, 0x40000000u, 0x00000000u, 0u), make_uint2(0u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x80000000u, 0x40000000u, 0x80000000u, 0u), make_uint2(0x80000000u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x00800001u, 0x3f800000u, 0x80800000u, 0u), make_uint2(0x00800001u, 0x00000001u), make_uint2(0x00800001u, 0u)},
+        DenormalCase{make_uint4(0x80800001u, 0x3f800000u, 0x00800000u, 0u), make_uint2(0x80800001u, 0x80000001u), make_uint2(0x80800001u, 0u)},
+        DenormalCase{make_uint4(0x007fffffu, 0x40000000u, 0x00000001u, 0u), make_uint2(0x00fffffeu, 0x00800000u), make_uint2(0u)},
+        DenormalCase{make_uint4(0x807fffffu, 0x40000000u, 0x80000001u, 0u), make_uint2(0x80fffffeu, 0x80800000u), make_uint2(0u)}};
+    auto count = static_cast<uint>(cases.size());
+    const std::array vertices{
+        make_float3(-0.5f, -0.5f, 1.0f), make_float3(0.5f, -0.5f, 1.0f),
+        make_float3(0.0f, 0.5f, 1.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    auto vertices_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangles_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertices_buffer, triangles_buffer);
+    auto scene = device.create_accel();
+    scene.emplace_back(mesh, translation(3.0f, 0.0f, 0.0f), 0xffu, false);
+    scene.emplace_back(primitive);
+    auto inputs = device.create_buffer<uint4>(count);
+    auto observed = device.create_buffer<uint2>(count * 3u);
+    auto hits = device.create_buffer<uint4>(count * 2u);
+    luisa::vector<uint4> host_inputs;
+    for (auto &&item : cases) { host_inputs.emplace_back(item.operands); }
+    luisa::vector<uint2> host_observed(observed.size());
+    luisa::vector<uint4> host_hits(hits.size());
+    stream << vertices_buffer.copy_from(luisa::span{vertices})
+           << triangles_buffer.copy_from(luisa::span{triangles})
+           << inputs.copy_from(luisa::span{host_inputs}) << mesh.build() << scene.build();
+
+    Callable arithmetic = [](UInt4 operands) noexcept {
+        auto value = operands.x.as<float>();
+        auto factor = operands.y.as<float>();
+        auto addend = operands.z.as<float>();
+        return make_uint2((value * factor).as<uint>(), (value + addend).as<uint>());
+    };
+    // This kernel remains ordinary CUDA/PTX even when the RTX output is OptiX IR.
+    Kernel1D compute = [&](BufferUInt4 inputs, BufferUInt2 observed) noexcept {
+        auto row = dispatch_x();
+        observed.write(row, arithmetic(inputs.read(row)));
+    };
+    Kernel1D trace = [&](AccelVar accel, BufferUInt4 inputs, BufferUInt2 observed,
+                         BufferUInt4 hits) noexcept {
+        auto lane = dispatch_x();
+        auto row = lane % count;
+        auto ray = make_ray(make_float3(ite(lane < count, 3.0f, 0.0f), 0.0f, 2.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 3.0f);
+        auto write_result = [&]() noexcept {
+            // Loads and floating-point arithmetic execute inside AH or IS.
+            observed.write(count + lane, arithmetic(inputs.read(row)));
+        };
+        auto hit = accel.traverse(ray, {})
+                       .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                           write_result();
+                           candidate.commit();
+                       })
+                       .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                           write_result();
+                           candidate.commit(1.0f);
+                       })
+                       .trace();
+        hits.write(lane, make_uint4(hit->hit_type, hit->inst, hit->prim,
+                                    hit->distance().as<uint>()));
+    };
+    bool passed = true;
+    for (auto fast_math : {false, true}) {
+        ShaderOption options{.enable_cache = false, .enable_fast_math = fast_math};
+        auto compute_shader = device.compile(compute, options);
+        auto trace_shader = device.compile(trace, options);
+        std::fill(host_observed.begin(), host_observed.end(), make_uint2(~0u));
+        stream << observed.copy_from(luisa::span{host_observed})
+               << compute_shader(inputs, observed).dispatch(count)
+               << trace_shader(scene, inputs, observed, hits).dispatch(count * 2u)
+               << observed.copy_to(luisa::span{host_observed})
+               << hits.copy_to(luisa::span{host_hits}) << synchronize();
+        for (auto stage = 0u; stage < 3u; stage++) {
+            for (auto row = 0u; row < count; row++) {
+                auto actual = host_observed[stage * count + row];
+                auto expected = fast_math ? cases[row].fast : cases[row].precise;
+                auto matches = [fast_math](uint actual_bits, uint expected_bits) noexcept {
+                    // Fast math has nsz: a flushed zero's sign is not promised.
+                    // Precise mode compares every bit, including negative zero.
+                    return fast_math && expected_bits == 0u ?
+                               (actual_bits & 0x7fffffffu) == 0u :
+                               actual_bits == expected_bits;
+                };
+                auto correct = matches(actual.x, expected.x) && matches(actual.y, expected.y);
+                if (stage != 0u) {
+                    auto expected_hit = make_uint4(static_cast<uint>(stage == 1u ? HitType::Surface : HitType::Procedural),
+                                                   stage - 1u, 0u, 0x3f800000u);
+                    correct &= all(host_hits[(stage - 1u) * count + row] == expected_hit);
+                }
+                expect(correct) << luisa::format(
+                    "denormal arithmetic: stage={} fast={} case={} input={} actual_bits={} expected_bits={}",
+                    stage, fast_math, row, cases[row].operands, actual, expected);
+                passed &= correct;
+            }
+        }
+    }
+    return passed;
+}
+
 [[nodiscard]] bool test_commit_bounds(Device &device) {
     constexpr auto t_min = 0.25f;
     constexpr auto t_max = 1.75f;
@@ -263,7 +379,8 @@ namespace {
         }
     }
     return test_callback_implicit_arguments(device, stream, primitive) &&
-           test_procedural_commit_recovery(device, stream, scene, input, luisa::span{attempts}) && passed;
+           test_procedural_commit_recovery(device, stream, scene, input, luisa::span{attempts}) &&
+           test_denormal_arithmetic(device, stream, primitive) && passed;
 }
 
 }// namespace

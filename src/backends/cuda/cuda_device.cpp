@@ -1164,9 +1164,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
         if (generate_ptx) {
             auto hash = cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
-            // OptiX IR revision 9 passes native float operands to traversal.
+            // OptiX IR revision 10 preserves LLVM 23 attributes/vector splats
+            // and carries fast-math FTZ in the container compilation options.
             return code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
-                       luisa::hash_combine({static_cast<uint64_t>(code_format), 9u}, hash) : hash;
+                       luisa::hash_combine({static_cast<uint64_t>(code_format), 10u}, hash) : hash;
         }
 #endif
         return CUDACompiler::compute_hash(scratch.string(), nvrtc_options);

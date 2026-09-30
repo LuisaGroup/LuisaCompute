@@ -1,5 +1,6 @@
 #include "ut/ut.hpp"
 #include "cuda_shader_metadata.h"
+#include "llvm_codegen/cuda_codegen_llvm_optix_ir.h"
 
 #include <array>
 #include <cstdint>
@@ -59,6 +60,44 @@ constexpr string_view kLegacyMetadata =
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+
+    "cuda_optix_ir_encoder_fast_math_ftz_option"_test = [] {
+        // A raw bitcode signature suffices for this CPU-only envelope test.
+        constexpr std::array bitcode{
+            std::byte{0x42}, std::byte{0x43}, std::byte{0xc0}, std::byte{0xde}};
+        auto precise = luisa_compute_cuda_llvm_encode_optix_ir(luisa::span{bitcode}, 89u, false);
+        auto default_options = luisa_compute_cuda_llvm_encode_optix_ir(luisa::span{bitcode}, 89u);
+        auto fast = luisa_compute_cuda_llvm_encode_optix_ir(luisa::span{bitcode}, 89u, true);
+        // The precise header remains the original format, byte for byte.
+        constexpr std::array<uint8_t, 44u> precise_header{
+            0xed, 0x43, 0x4e, 0x7f, 1, 0x43, 2, 0x73, 3, 2, 7, 0,
+            24, 0, 2, 0, 44, 0, 0, 0, 48, 0, 0, 0,
+            1, 0, 0x7a, 3, 2, 0, 0, 0, 3, 0, 0, 0,
+            99, 0, 0, 0, 0, 0, 0, 0};
+        constexpr std::array<uint8_t, 48u> fast_header{
+            0xed, 0x43, 0x4e, 0x7f, 1, 0x43, 2, 0x73, 3, 2, 7, 0,
+            24, 0, 2, 0, 48, 0, 0, 0, 52, 0, 0, 0,
+            1, 0, 0x7a, 3, 2, 0, 0, 0, 3, 0, 0, 0,
+            13, 0, 1, 0, 99, 0, 0, 0, 0, 0, 0, 0};
+        expect(precise == default_options);
+        expect(eq(precise.size(), size_t{48u} + bitcode.size()));
+        expect(eq(fast.size(), size_t{52u} + bitcode.size()));
+        if (precise.size() == 48u + bitcode.size() && fast.size() == 52u + bitcode.size()) {
+            for (auto i = size_t{0u}; i < precise_header.size(); i++) {
+                expect(eq(static_cast<uint8_t>(precise[i]), precise_header[i])) << "precise byte:" << i;
+            }
+            for (auto i = size_t{0u}; i < fast_header.size(); i++) {
+                expect(eq(static_cast<uint8_t>(fast[i]), fast_header[i])) << "fast byte:" << i;
+            }
+            // FTZ changes only the header; seed and encoded bitcode are identical.
+            expect(precise.substr(44u) == fast.substr(48u));
+            for (const auto *encoded : {&precise, &fast}) {
+                auto bytes = luisa::span{
+                    reinterpret_cast<const std::byte *>(encoded->data()), encoded->size()};
+                expect(cuda_shader_code_matches_format(bytes, CUDAShaderMetadata::CodeFormat::OPTIX_IR));
+            }
+        }
+    };
 
     "cuda_shader_metadata_payload_roundtrip"_test = [] {
         for (auto payload_count : {2u, 3u, 5u, 31u, 32u}) {

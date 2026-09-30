@@ -8,7 +8,7 @@ the default shader compiler.
 The pipeline is:
 
 ```text
-DSL / AST -> shared XIR normalization -> LLVM 22 optimization
+DSL / AST -> shared XIR normalization -> LLVM 22 or 23 optimization
           -> OptiX IR compatibility lowering
           -> NVVM kernel annotation transplant
           -> in-tree LLVM 7 bitcode writer -> level-2 OptiX IR container
@@ -24,7 +24,7 @@ remain available.
 Configure with both experimental CMake options enabled. Both default to `OFF`:
 
 ```powershell
-# Run from an MSVC developer PowerShell. Replace LLVM_DIR with your LLVM 22 package.
+# Run from an MSVC developer PowerShell. Use a full LLVM 22 or 23 development package.
 cmake -S . -B build-msvc-llvm -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_CXX_COMPILER=cl `
@@ -32,16 +32,46 @@ cmake -S . -B build-msvc-llvm -G Ninja `
   -DLUISA_COMPUTE_ENABLE_CUDA=ON `
   -DLUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON `
   -DLUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR=ON `
-  -DLLVM_DIR="C:/deps/llvm-22/lib/cmake/llvm"
+  -DLLVM_DIR="C:/deps/llvm-23/lib/cmake/llvm"
 cmake --build build-msvc-llvm
 ```
 
-The pinned in-tree downgrader requires **LLVM 22**. It compiles as a static helper
-against the same LLVM package used by the CUDA backend; installing LLVM 7 or a
-second host LLVM is unnecessary. On Windows, match the LLVM package's CRT and
-RTTI configuration. The MSVC package used for bring-up requires `/MT`; CMake
-uses `/FI` for the legacy writer shim and matches LLVM's disabled RTTI.
-The existing Apple LLVM 14/AIR serialization path retains its own writer.
+The pinned in-tree downgrader accepts **LLVM 22 and 23**. It compiles as a static
+helper against the same LLVM package used by the CUDA backend; installing LLVM 7
+or a second host LLVM is unnecessary. Use separate build directories when
+switching host LLVM major versions. The existing Apple LLVM 14/AIR serialization
+path retains its own writer.
+
+On Windows, obtain the full `clang+llvm-<version>-x86_64-pc-windows-msvc`
+development archive, including LLVM headers, static libraries, and
+`lib/cmake/llvm/LLVMConfig.cmake`. The CLI/toolchain installer alone is not a
+substitute for these development files. The official LLVM 23.1.2 archive used
+here targets the MSVC ABI, uses `/MT`, and disables RTTI and exceptions. Match
+the package's CRT/RTTI configuration; CMake uses `/FI` for the legacy writer shim
+and matches LLVM's disabled RTTI. The application and backend remain compiled
+with MSVC; the archive's own build compiler does not select the project compiler.
+
+That LLVM 23 SDK exports real `ZLIB::ZLIB` and `zstd::libzstd_static` link
+dependencies without bundling their development libraries. Provide compatible
+MSVC static libraries and headers instead of removing those dependencies or
+creating empty imported targets. For example, append these arguments to the
+configuration above after installing Zlib and Zstd into `C:/deps/llvm-support`:
+
+```powershell
+-DZLIB_INCLUDE_DIR="C:/deps/llvm-support/include" `
+-DZLIB_LIBRARY_RELEASE="C:/deps/llvm-support/lib/zlibstatic.lib" `
+-DZLIB_USE_STATIC_LIBS=ON `
+-Dzstd_INCLUDE_DIR="C:/deps/llvm-support/include" `
+-Dzstd_LIBRARY="C:/deps/llvm-support/lib/zstd_static.lib" `
+-Dzstd_STATIC_LIBRARY="C:/deps/llvm-support/lib/zstd_static.lib"
+```
+
+The local dependency setup builds official Zlib 1.3.1 and Zstd 1.5.7 sources with
+MSVC `/MT` and retains source/library hashes and COFF CRT checks in
+`.deps/llvm23/dependencies/provenance.json`. The full SDK and its local allocator
+adaptation have separate provenance under `.deps/llvm23/sdk/`. These local
+records describe the validation environment; they are not required repository
+files or a substitute for obtaining compatible dependencies.
 
 Set both environment variables **before starting the application**:
 
@@ -87,6 +117,23 @@ load checks the `.ptx` artifact first and uses `.optixir` only if that PTX file 
 absent. Loading follows the saved metadata; the runtime environment switches
 select generation, not the interpretation of an existing artifact.
 
+## Fast-math denormal mode
+
+OptiX IR fast-math generation adds container scalar tag `13 = 1` for
+flush-to-zero, in addition to the LLVM denormal function attributes.
+A CPU-only CUDA 13.4 NVRTC comparison of `--optix-ir` with and without
+`--ftz=true` produced byte-identical decoded bitcode; the sole difference
+was this four-byte container scalar and its resulting payload offsets.
+LLVM attributes alone did not enable FTZ in the ray-query AH/IS runtime
+regression on the validation driver. No other observed NVRTC fast-math
+container options are copied. Precise generation retains the previous
+header exactly, and ordinary compute shaders still emit PTX.
+
+The host-only `test_cuda_shader_metadata` checks both headers, lengths,
+payload offsets, and identical seed/encoded bitcode. Device tests in
+`test_cuda_llvm_ray_query_bounds` check runtime subnormal inputs and
+results through ordinary compute, any-hit, and intersection stages.
+
 ## Compatibility boundary
 
 The container follows the supplied proof of concept's observed CUDA 13.3
@@ -95,6 +142,31 @@ level-2 layout. Its format fields and NVIDIA's
 Success on one driver/CUDA/OptiX combination does not establish compatibility
 with another. LLVM 7-compatible bitcode serialization alone also does not prove
 that the target OptiX compiler accepts every intrinsic in that module.
+
+The C++ wrapper `luisa::compute::llvm_downgrade_to_7` consumes an already
+optimized `std::unique_ptr<llvm::Module>` and returns in-memory bitcode bytes.
+The overlay is pinned to upstream downgrader commit `4244e2a1`, with source and
+patch fingerprints checked before creating a build-directory mirror for the
+selected LLVM major. It conditionally handles the LLVM 23 branch, module-assembly,
+and attribute APIs while preserving the existing AIR typed-pointer adaptations.
+Unsupported input fails explicitly; the embedded helper uses fatal diagnostics
+instead of letting third-party exceptions escape its `noexcept` boundary.
+
+LLVM 23 represents denormal modes with `DenormalFPEnv` rather than the two legacy
+string attributes. Before legacy serialization, the writer translates both the
+default and f32 modes back to `denormal-fp-math` and `denormal-fp-math-f32`,
+preserving each mode's output/input order. This is required by old bitcode
+readers and does not replace the OptiX IR container FTZ setting described above.
+The changed writer is separated by OptiX IR cache revision **10**; it does not
+change the LLVM/PTX writer path.
+
+LLVM 23 also represents numeric vector splats as `ConstantInt`/`ConstantFP`.
+Legacy writers must emit a vector aggregate referring to the scalar constant,
+with the scalar registered by the value enumerator. Treating these objects as
+scalar records produced malformed bitcode: the dynamic image fixture was
+rejected by OptiX, and LLVM's own reader reported `Invalid float const record`.
+The adaptation preserves each lane's bits, including wide integer and floating
+types, without changing arithmetic permissions or the PTX code-generation path.
 
 The adapter transfers recognized kernel annotation meaning before adding the
 consumed marker and keeps the PTX kernel calling convention. Unsupported NVVM
@@ -135,9 +207,10 @@ does not run these adaptations:
 Before legacy serialization, fast-math flags are also removed from calls that
 return aggregates: LLVM 7 does not encode those permissions on aggregate calls.
 This removal does not change the call's defined result. The wrapper still
-rejects `freeze`, scalable vectors, bfloat16, AMX, and target-extension types;
-other unsupported instructions or intrinsics remain an explicit compatibility
-boundary. These adaptations and limits apply to OptiX IR, not to LLVM/PTX.
+rejects `freeze`, scalable vectors, bfloat16, AMX, target-extension types, and
+LLVM 23's `byte` type; other unsupported instructions or intrinsics remain an
+explicit compatibility boundary. These adaptations and limits apply to OptiX IR,
+not to LLVM/PTX.
 
 ## Initial adapter validation (5b28304a3, LLVM cache v12)
 
@@ -208,9 +281,10 @@ when comparing performance.
 
 ## Subsequent shared ray-query payload sizing (LLVM cache v14)
 
-LLVM/PTX and LLVM/OptiX IR now declare the actual maximum ray-query payload
-capacity needed by the shader, within **2–32 words**. The existing layout is
-unchanged: two words carry the query pointer, the third carries the pipeline ID,
+At cache v14, LLVM/PTX and LLVM/OptiX IR began declaring the actual maximum
+ray-query payload capacity needed by the shader, within **2–32 words**. The layout
+at that revision was unchanged: two words carry the query pointer, the third
+carries the pipeline ID,
 and direct captures occupy up to 29 further words. A capture-free cutout shader
 therefore uses **3 words**. A shader using only the generic context fallback
 needs **5 words**, including its context pointer; the direct-capture boundary
@@ -480,3 +554,52 @@ nonblack pixel was unchanged. Thus native-result recovery is not by itself a
 complete fix for NaN capture side effects. The untouched baseline, exact patch,
 cache hashes and output analysis are preserved in
 `.deps/procedural-v17-nan-diagnostic/`; no reference image was regenerated.
+
+## Compact native-result payload prefix (cache v19)
+
+Cache v19 removes the unused query-pointer prefix from qualified native-result
+pipelines. Every pipeline places its ID in payload `p0`. General stateful queries
+place their original query pointer in `p1/p2`; native-result callbacks need no
+caller query pointer. Captures retain their snapshot or reference identity, and
+proven kernel resource descriptors are still reconstructed from launch parameters.
+
+| Pipeline path | Direct captures | Direct capture budget | Oversized/unsupported capture fallback |
+|---|---|---:|---|
+| Qualified native result | Start at `p1` | 31 words | `p0` ID + `p1/p2` context pointer: 3 words |
+| General stateful query | Start at `p3`, after the query pointer | 29 words | `p0` ID + `p1/p2` query pointer + `p3/p4` context pointer: 5 words |
+
+The host-declared capacity remains **2–32 words** and is the maximum required by
+any pipeline in the shader. A capture-free native-result pipeline uses one
+meaningful word but retains the minimum two-word declaration. Direct captures
+that fill either budget use all 32 words. Mixed general/native-result handlers
+share one consistent active count; the private OptiX intrinsic still has a fixed
+32-word signature with unused tail operands. Large capture aggregates use the
+context fallback rather than exceeding that signature.
+
+`RAY_QUERY_PAYLOAD_COUNT` continues to round-trip through cache and AOT metadata.
+Legacy metadata without the field defaults to 2. Cache **v19** distinguishes the
+new generated ABI; existing explicit AOT files retain their own saved module
+and count and are not reinterpreted as newly generated code. This prefix change
+applies to LLVM/PTX and LLVM/OptiX IR and leaves the AST/NVRTC two-word ABI intact.
+
+With LLVM **22.1.8**, both output routes passed the expanded query integration
+fixture with **73 assertions per route** and Compute Sanitizer
+`ERROR SUMMARY: 0 errors`. The logs are
+`.deps/final-query-memcheck-compact-v19-{0,1}/{stdout,sanitizer}.log`.
+This includes direct/fallback payload boundaries, mixed handlers, resource
+reconstruction, and cache/AOT readback. No throughput conclusion is attached to
+this layout validation.
+
+Both LLVM **22.1.8** and **23.1.2** completed the full MSVC/CMake build and passed
+**31/31** focused CTest cases on the RTX 4060 Laptop GPU with CUDA/driver 13.4.
+The cases cover both CUDA output routes, dynamic image/volume storage, ray-query
+bounds and FTZ behavior, CPU fast-math environments, resource reconstruction,
+and the host-only `test_llvm_downgrade70` writer regression. That regression
+checks 27 numeric vector patterns in globals, nested aggregates and local
+returns, plus asymmetric default/f32 denormal modes, through the actual legacy
+writer and the matching SDK reader. Logs are in
+`.deps/final-validation-logs/{00-llvm23,01-llvm22}-focused.log`.
+
+Support for both host LLVM API versions does not establish compatibility with
+arbitrary LLVM, CUDA, OptiX, or driver versions; the runtime OptiX IR path remains
+explicitly opt-in. These Windows results do not constitute native ARM testing.
