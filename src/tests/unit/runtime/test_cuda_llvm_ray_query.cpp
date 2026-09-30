@@ -259,7 +259,9 @@ struct Options {
 }
 
 [[nodiscard]] bool run(Device &device, const Options &options) {
-    constexpr auto query_count = 5u;
+    // static constexpr so the DSL kernel lambdas below can reference it without
+    // an explicit capture (automatic-storage locals are not implicitly capturable).
+    static constexpr auto query_count = 5u;
     auto stream = device.create_stream();
     const std::array vertices{
         make_float3(-2.0f, -2.0f, 0.0f),

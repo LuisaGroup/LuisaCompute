@@ -1138,8 +1138,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (!extCallName.empty()) {
                         luisa::vector<const Type *> arg_types;
                         luisa::vector<Usage> argument_usages;
-                        arg_types.resize_uninitialized(lcArgs.size());
-                        argument_usages.resize_uninitialized(lcArgs.size());
+                        // Elements are fully overwritten by the loops below; use the
+                        // portable vector_resize helper (resize_uninitialized on EASTL,
+                        // resize on the system STL) instead of the EASTL-only method.
+                        vector_resize(arg_types, lcArgs.size());
+                        vector_resize(argument_usages, lcArgs.size());
                         for (auto &i : argument_usages) {
                             i = Usage::READ;
                         }

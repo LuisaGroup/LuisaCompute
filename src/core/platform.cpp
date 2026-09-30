@@ -17,6 +17,14 @@ static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
 #define NOMINMAX 1
 #endif
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN 1
+#endif
+
+#ifndef VC_EXTRALEAN
+#define VC_EXTRALEAN 1
+#endif
+
 #include <windows.h>
 #ifndef NDEBUG
 #pragma comment(lib, "dbghelp.lib")
@@ -281,6 +289,8 @@ char env_separator() noexcept {
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+#include <cstdio>
+#include <cstring>
 
 #ifdef LUISA_PLATFORM_APPLE
 #ifdef LUISA_PLATFORM_IOS
@@ -437,7 +447,33 @@ luisa::string cpu_name() noexcept {
     }
     return brand;
 #else
-    return "Unknown ARM64";// TODO: implement this
+    // Linux exposes the CPU model name through /proc/cpuinfo; there is no
+    // architecturally-defined CPUID equivalent on AArch64.
+    if (auto file = std::fopen("/proc/cpuinfo", "r"); file != nullptr) {
+        char line[256];
+        while (std::fgets(line, sizeof(line), file) != nullptr) {
+            if (std::strncmp(line, "Model name", 10) != 0 &&
+                std::strncmp(line, "Hardware", 8) != 0) {
+                continue;
+            }
+            auto *colon = std::strchr(line, ':');
+            if (colon == nullptr) { continue; }
+            ++colon;
+            while (*colon == ' ' || *colon == '\t') { ++colon; }
+            luisa::string name{colon};
+            while (!name.empty() &&
+                   (name.back() == '\n' || name.back() == '\r' ||
+                    name.back() == ' ' || name.back() == '\t')) {
+                name.pop_back();
+            }
+            if (!name.empty()) {
+                std::fclose(file);
+                return name;
+            }
+        }
+        std::fclose(file);
+    }
+    return "Unknown ARM64";
 #endif
 }
 #else
@@ -502,3 +538,22 @@ luisa::string to_string(const TraceItem &item) noexcept {
     return luisa::format("{}", item);
 }
 }// namespace luisa
+
+// Unity-build hygiene: the macros defined above before <windows.h>, plus the
+// classic windows.h polluters, must not leak into the other translation units
+// merged into the same unity-build blob.
+#if defined(LUISA_PLATFORM_WINDOWS)
+#undef UNICODE
+#undef NOMINMAX
+#undef WIN32_LEAN_AND_MEAN
+#undef VC_EXTRALEAN
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+#ifdef pascal
+#undef pascal
+#endif
+#endif
