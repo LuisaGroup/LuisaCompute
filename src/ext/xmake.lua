@@ -183,7 +183,8 @@ if lc_tvm_enabled and os.exists(path.join(lc_tvm_root, "CMakeLists.txt")) then
               -- src/support is header-only in current TVM (no .cc files).
               -- TVMScript shared core (explicit list, mirroring CMake).
               path.join(lc_tvm_root, "src/script/ir_builder/base.cc"),
-              path.join(lc_tvm_root, "src/script/ir_builder/ir/**.cc"),
+              path.join(lc_tvm_root, "src/script/ir_builder/frame.cc"),
+              path.join(lc_tvm_root, "src/script/ir_builder/ir.cc"),
               path.join(lc_tvm_root, "src/script/printer/config.cc"),
               path.join(lc_tvm_root, "src/script/printer/script_printer.cc"),
               path.join(lc_tvm_root, "src/script/printer/doc.cc"),
