@@ -92,6 +92,20 @@ def check_matrix_limits(op, dims, tile, backend=None):
                 (op != "bmm" or (m + tile[0] - 1) // tile[0] <= 65535), "matrix launch grid exceeds CUDA limits")
 
 
+def pointwise_schedule_algorithm(op, dims, schedule, backend=None):
+    require(op in {"swiglu", "gelu_residual", "rope"}, "not a feature-independent pointwise operation")
+    require(isinstance(dims, (list, tuple)) and len(dims) == 2 and
+            all(type(v) is int and 0 < v <= 65536 for v in dims), "invalid pointwise dimensions")
+    require(isinstance(schedule, list) and len(schedule) == 3 and
+            all(type(v) is int and v > 0 for v in schedule) and
+            schedule[0] == schedule[2] == 1 and schedule[1] <= 16384, "invalid pointwise schedule")
+    require(op != "rope" or dims[1] % 2 == 0, "RoPE requires an even width")
+    logical = dims[1] // 2 if op == "rope" else dims[1]
+    if backend == "cuda":
+        require((logical + schedule[1] - 1) // schedule[1] <= 65535, "pointwise launch grid exceeds CUDA limits")
+    return "feature_tiled_pointwise_fp32_compute" if schedule[1] < logical else "whole_row_tile_fp32_compute"
+
+
 def check_semantics(manifest):
     op, semantics = manifest["operation"], manifest.get("semantics", {})
     constraints = {"accumulation": "float32"}
@@ -150,12 +164,16 @@ def load_packet(path):
         require(max(vocabulary * width, tokens * width) <= 2**24, "embedding tensors exceed allocation bound")
         schedule = manifest.get("tile")
         require(isinstance(schedule, list) and len(schedule) == 3 and
-                all(type(x) is int and x > 0 for x in schedule) and schedule[0] == schedule[2] == 1 and
+                all(type(x) is int and x > 0 for x in schedule) and schedule[0] in {1, 4, 8} and schedule[2] == 1 and
                 schedule[1] <= 16384, "invalid embedding schedule")
-        require(manifest.get("algorithm") == "uniform_int64_row_gather", "embedding algorithm mismatch")
+        algorithm = "uniform_int64_row_gather" if schedule[0] == 1 else "serial_grouped_uniform_int64_row_gather"
+        require(manifest.get("algorithm") == algorithm, "embedding algorithm mismatch")
         require(manifest.get("pattern") in {"random", "adversarial"}, "embedding requires random/adversarial pattern")
         if manifest.get("backend") == "cuda":
             require((width + schedule[1] - 1) // schedule[1] <= 65535, "embedding launch grid exceeds CUDA limits")
+    if op in {"swiglu", "gelu_residual", "rope"}:
+        algorithm = pointwise_schedule_algorithm(op, dims, manifest.get("tile"), manifest.get("backend"))
+        require(manifest.get("algorithm") == algorithm, "pointwise realized algorithm mismatch")
     if op == "rope":
         require(dims[1] % 2 == 0, "RoPE requires an even width")
     if op in {"attention", "attention_tensorcore"}:

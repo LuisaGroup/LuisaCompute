@@ -19,6 +19,11 @@ struct Artifact {
     luisa::string source;
     luisa::string error;
     luisa::string entry{"luisa_tile_main"};
+    // Optional independent entry. The original entry never contains alignment
+    // assumptions; only a host-side test of the final device pointers may
+    // select this specialization. Bits index the direct device buffer ABI.
+    luisa::string aligned16_entry;
+    uint32_t aligned16_buffer_mask{0u};
     std::array<uint32_t, 3u> grid{1u, 1u, 1u};
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<BufferArgument> arguments;
@@ -35,6 +40,7 @@ struct Artifact {
 // native scans and rearrangements. MMA permits shared singleton batch axes.
 // Other lane-dependent gathers, nested maps and explicit layout constraints reject.
 // Buffer parameters are contiguous row-major views with static extents.
-[[nodiscard]] Artifact generate(const tile::Function &function, bool enable_fast_math = false) noexcept;
+[[nodiscard]] Artifact generate(const tile::Function &function, bool enable_fast_math = false,
+                                bool enable_aligned16 = false) noexcept;
 
 }// namespace luisa::compute::cuda::native_tile

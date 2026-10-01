@@ -180,7 +180,9 @@ enum class ElementwiseOp : uint8_t {
     LOG,
     SQRT,
     TANH,
-    ABS
+    ABS,
+    // Storage-preserving f32 <-> u32 only; append to preserve existing opcode values.
+    BITCAST
 };
 
 enum class MemoryEffect : uint8_t {

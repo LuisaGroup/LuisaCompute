@@ -802,6 +802,67 @@ void blocked_row_operations(Device &device, uint32_t block_rows, uint32_t rows =
     }
 }
 
+template<typename T>
+void feature_tiled_pointwise(Device &device, uint32_t rows) {
+    using namespace test::tile_workloads;
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto word = [](T value) noexcept { return std::bit_cast<Word>(value); };
+    auto guard = T{-719.5f};
+    constexpr auto feature_tile = 32u;
+    for (auto op : {"swiglu", "gelu_residual", "rope"}) {
+        auto rope = std::strcmp(op, "rope") == 0;
+        auto width = rope ? 130u : 65u;
+        Options options;
+        options.backend = "cuda"; options.lowering = "native"; options.operation = op;
+        options.precision = std::is_same_v<T, float> ? "fp32" : std::is_same_v<T, half> ? "fp16" : "bf16";
+        options.dimensions = {rows, width}; options.tile = {1, feature_tile, 1};
+        options.pattern = "random"; options.seed = 20261001u;
+        auto fixture = make_fixture<T>(options);
+        expect(fixture.error.empty()) << fixture.error;
+        if (!fixture.error.empty() || !fixture.kernel) { return; }
+        expect(fixture.kernel->valid());
+        expect(fixture.algorithm == "feature_tiled_pointwise_fp32_compute");
+        auto shader = tile::compile(device, *fixture.kernel, {}, {.enable_fast_math = false});
+        if (!check_native(shader, make_uint3(rows, 3u, 1u), 4u)) { return; }
+        expect(shader.metadata().source.find("ct::store_masked(") != string::npos);
+        expect(shader.metadata().arguments[3].minimum_size_bytes == rows * width * sizeof(T));
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        for (auto generation = 0u; generation < 2u; generation++) {
+            options.seed = 20261001u + generation;
+            options.pattern = generation == 0u ? "random" : "adversarial";
+            auto data = make_fixture<T>(options);
+            expect(data.error.empty()) << data.error;
+            if (!data.error.empty()) { return; }
+            std::array<luisa::vector<T>, 3u> inputs;
+            std::array<Buffer<T>, 3u> buffers;
+            for (auto input = 0u; input < 3u; input++) {
+                inputs[input].assign(data.inputs[input].size() + 2u * kPad, guard);
+                for (auto i = size_t{0u}; i < data.inputs[input].size(); i++) { inputs[input][kPad + i] = T{data.inputs[input][i]}; }
+                buffers[input] = device.create_buffer<T>(inputs[input].size());
+                stream << buffers[input].copy_from(luisa::span{inputs[input]});
+            }
+            auto readonly = inputs;
+            luisa::vector<T> output(data.expected.size() + 2u * kPad, guard);
+            std::fill_n(output.begin() + kPad, data.expected.size(), T{std::numeric_limits<float>::quiet_NaN()});
+            auto gpu_output = device.create_buffer<T>(output.size());
+            stream << gpu_output.copy_from(luisa::span{output})
+                   << shader(buffers[0].view(kPad, data.inputs[0].size()), buffers[1].view(kPad, data.inputs[1].size()),
+                             buffers[2].view(kPad, data.inputs[2].size()), gpu_output.view(kPad, data.expected.size())).dispatch();
+            for (auto input = 0u; input < 3u; input++) { stream << buffers[input].copy_to(luisa::span{inputs[input]}); }
+            stream << gpu_output.copy_to(luisa::span{output}) << synchronize();
+            for (auto input = 0u; input < 3u; input++) {
+                for (auto i = size_t{0u}; i < inputs[input].size(); i++) { expect(word(inputs[input][i]) == word(readonly[input][i])); }
+            }
+            for (auto i = size_t{0u}; i < data.expected.size(); i++) {
+                auto actual = static_cast<float>(output[kPad + i]);
+                auto error = std::abs(static_cast<double>(actual) - data.expected[i]);
+                expect(std::isfinite(actual) && error <= data.bound[i]) << op << " rows=" << rows << " i=" << i << " error=" << error << " bound=" << data.bound[i];
+            }
+            for (auto i = 0u; i < kPad; i++) { expect(word(output[i]) == word(guard)); expect(word(output[kPad + data.expected.size() + i]) == word(guard)); }
+        }
+    }
+}
+
 void row_operations(Device &device, bool fast_norm = false) {
     using test::tile_llm::RowOp;
     for (auto op : {RowOp::RMS_NORM, RowOp::LAYER_NORM, RowOp::SWIGLU, RowOp::ROPE, RowOp::MASKED_SOFTMAX, RowOp::GELU_RESIDUAL}) {
@@ -1345,13 +1406,30 @@ void chunked_sort_pipeline(Device &device, int64_t columns, int64_t chunk, size_
 
 
 template<typename T>
-void embedding_rows(Device &device, uint32_t width, uint32_t tokens, uint32_t feature_tile) {
+void embedding_rows(Device &device, uint32_t width, uint32_t tokens, uint32_t feature_tile, uint32_t block_rows = 1u) {
     constexpr auto vocabulary = 7u;
-    auto kernel = luisa::test::tile_embedding::embedding_rows<T>(vocabulary, width, tokens, feature_tile);
+    auto kernel = luisa::test::tile_embedding::embedding_rows<T>(vocabulary, width, tokens, feature_tile, block_rows);
     expect(kernel.valid());
     if (!kernel.valid()) { return; }
     auto shader = tile::compile(device, kernel, {}, ShaderOption{.enable_fast_math = false});
-    if (!check_native(shader, make_uint3(tokens, (width + feature_tile - 1u) / feature_tile, 1u), 3u)) { return; }
+    if (!check_native(shader, make_uint3((tokens + block_rows - 1u) / block_rows, (width + feature_tile - 1u) / feature_tile, 1u), 3u)) { return; }
+    if (block_rows != 1u) {
+        auto serials = 0u, maps = 0u, point_accesses = 0u;
+        auto visit = [&](auto &&self, const tile::Block &block) -> void {
+            for (auto op : block.operations()) {
+                serials += op->kind() == tile::OperationKind::SERIAL;
+                maps += op->kind() == tile::OperationKind::TILE_MAP;
+                point_accesses += (op->kind() == tile::OperationKind::VIEW_LOAD ||
+                                   op->kind() == tile::OperationKind::VIEW_STORE) && !op->domain();
+                for (auto i = 0u; i < op->region_count(); i++) {
+                    for (auto j = 0u; j < op->region(i)->block_count(); j++) { self(self, *op->region(i)->block(j)); }
+                }
+            }
+        };
+        visit(visit, *kernel.function().body().block(0u));
+        expect(eq(serials, 1u)); expect(eq(maps, 0u)); expect(eq(point_accesses, 0u));
+        expect(shader.metadata().source.find("for (long long") != luisa::string::npos);
+    }
     constexpr auto element = std::is_same_v<T, float> ? tile::ScalarType::FLOAT32 :
                              std::is_same_v<T, half> ? tile::ScalarType::FLOAT16 : tile::ScalarType::BFLOAT16;
     expect(shader.metadata().arguments[0].element == element);
@@ -1948,6 +2026,89 @@ void rejected_options(Device &device) {
     expect_rejected(tile::compile(device, kernel, {}, option), "native_include");
 }
 
+void packed_fp32_sort(Device &device) {
+    using namespace tile;
+    constexpr auto rows = 2u, width = 32u, inner = 4u, count = rows * width * inner;
+    constexpr auto index_guard = int64_t{-719};
+    constexpr uint32_t special[]{0u, 0x80000000u, 0x7f800000u, 0xff800000u, 1u, 0x80000001u,
+                                 0x007fffffu, 0x807fffffu, 0x00800000u, 0x80800000u,
+                                 0x7f7fffffu, 0xff7fffffu, 0x3f800001u, 0xbf800001u, 0u, 0x80000000u};
+    GuardedBuffer input{device, count}, output{device, count};
+    std::vector<int64_t> indices(count + 2u * kPad, index_guard), expected_indices(count);
+    std::vector<uint32_t> expected_bits(count);
+    auto gpu_indices = device.create_buffer<int64_t>(indices.size());
+    for (auto a = 0u; a < rows; a++) {
+        for (auto b = 0u; b < width; b++) {
+            for (auto c = 0u; c < inner; c++) {
+                input[(a * width + b) * inner + c] = std::bit_cast<float>(special[(b + a * 7u + c * 3u) % std::size(special)]);
+            }
+        }
+    }
+    auto original = input.host;
+    auto numeric = [](uint32_t word) noexcept {
+        auto exponent = (word / 0x800000u) % 256u, mantissa = word % 0x800000u;
+        auto magnitude = exponent == 255u ? std::numeric_limits<double>::infinity() :
+                         std::ldexp(static_cast<double>(mantissa + (exponent == 0u ? 0u : 0x800000u)),
+                                    exponent == 0u ? -149 : static_cast<int>(exponent) - 150);
+        return word >= 0x80000000u ? -magnitude : magnitude;
+    };
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto descending : {false, true}) {
+        auto kernel = tile_kernel("native_packed_fp32", [=](TensorView<const float, 3> a, TensorView<float, 3> b, TensorView<int64_t, 3> c) {
+                          auto row = axis("row", rows), ranked = axis("ranked", width), lane = axis("lane", inner);
+                          for (auto &nest : parallel(shape(1))) {
+                              static_cast<void>(nest);
+                              auto value = a.tile(coord(0, 0, 0), shape(row, ranked, lane)).load();
+                              auto sorted = tile::sort(value, ranked, descending, SortAlgorithm::PACKED_FP32);
+                              b(coord(0, 0, 0), sorted.values.space()).store(sorted.values);
+                              c(coord(0, 0, 0), sorted.indices.space()).store(sorted.indices);
+                          }
+                      }).capture(tensor_shape(rows, width, inner), tensor_shape(rows, width, inner), tensor_shape(rows, width, inner));
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto shader = tile::compile(device, kernel, {}, {.enable_fast_math = false});
+        if (!check_native(shader, make_uint3(1u), 3u)) { return; }
+        auto &&source = shader.metadata().source;
+        auto loads = size_t{0};
+        for (auto at = size_t{0}; (at = source.find("ct::load(", at)) != luisa::string::npos; at += 9u) { loads++; }
+        expect(loads == 1u) << "packed output must decode without a second input gather";
+        expect(source.find("ct::tile<unsigned long long") != luisa::string::npos);
+        expect(source.find("ct::element_bitcast<unsigned>") != luisa::string::npos);
+        expect(source.find("ct::element_bitcast<float>") != luisa::string::npos);
+        expect(shader.metadata().arguments[0].usage == Usage::READ);
+        expect(shader.metadata().arguments[1].usage == Usage::WRITE);
+        expect(shader.metadata().arguments[2].usage == Usage::WRITE);
+        for (auto a = 0u; a < rows; a++) {
+            for (auto c = 0u; c < inner; c++) {
+                std::array<int64_t, width> order{};
+                std::iota(order.begin(), order.end(), int64_t{0});
+                std::stable_sort(order.begin(), order.end(), [&](auto lhs, auto rhs) {
+                    auto x = numeric(bits(input[(a * width + static_cast<uint32_t>(lhs)) * inner + c]));
+                    auto y = numeric(bits(input[(a * width + static_cast<uint32_t>(rhs)) * inner + c]));
+                    return descending ? x > y : x < y;
+                });
+                for (auto b = 0u; b < width; b++) {
+                    auto offset = (a * width + b) * inner + c;
+                    expected_indices[offset] = order[b];
+                    expected_bits[offset] = bits(input[(a * width + static_cast<uint32_t>(order[b])) * inner + c]);
+                }
+            }
+        }
+        output.poison(); std::fill(indices.begin(), indices.end(), index_guard);
+        stream << input.buffer.copy_from(input.host.data()) << output.buffer.copy_from(output.host.data()) << gpu_indices.copy_from(indices.data())
+               << shader(input.view(), output.view(), gpu_indices.view(kPad, count)).dispatch()
+               << input.buffer.copy_to(input.host.data()) << output.buffer.copy_to(output.host.data()) << gpu_indices.copy_to(indices.data()) << synchronize();
+        check_readonly(input, original); input.check_guards(); output.check_guards();
+        for (auto i = 0u; i < count; i++) {
+            expect(bits(output[i]) == expected_bits[i]) << "packed value=" << i;
+            expect(indices[kPad + i] == expected_indices[i]) << "packed index=" << i;
+        }
+        for (auto i = 0u; i < kPad; i++) {
+            expect(indices[i] == index_guard); expect(indices[kPad + count + i] == index_guard);
+        }
+    }
+}
+
 void rejected_shapes_and_constraints(Device &device) {
     ShaderOption strict{.enable_fast_math = false};
     auto non_power_two = test::tile_xir::gemm({.m = 31, .n = 37, .k = 19, .bm = 3, .bn = 16, .bk = 8});
@@ -2085,6 +2246,13 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ir_proven_pointer_memory_bounds"_test = [&] { proven_pointer_memory_bounds(device); };
     "tile_cuda_ir_simultaneous_carry_swap"_test = [&] { swap_oracle(device); };
     "tile_cuda_ir_llm_rows"_test = [&] { row_operations(device); };
+    "tile_cuda_ir_feature_tiled_pointwise"_test = [&] {
+        for (auto rows : {1u, 3u}) {
+            feature_tiled_pointwise<float>(device, rows);
+            feature_tiled_pointwise<half>(device, rows);
+            feature_tiled_pointwise<tile::bfloat16>(device, rows);
+        }
+    };
     "tile_cuda_ir_named_axis_broadcast"_test = [&] { named_axis_broadcast(device); };
     "tile_cuda_ir_ordered_reductions"_test = [&] { ordered_reductions(device); };
     "tile_cuda_ir_elementary_math"_test = [&] { elementary_math(device); };
@@ -2118,7 +2286,15 @@ int main(int argc, char *argv[]) {
         embedding_rows<float>(device, 65u, 37u, 32u);
         embedding_rows<half>(device, 65u, 37u, 32u);
         embedding_rows<tile::bfloat16>(device, 65u, 37u, 32u);
+        for (auto block_rows : {4u, 8u}) {
+            embedding_rows<float>(device, 65u, 37u, 32u, block_rows);
+            embedding_rows<half>(device, 65u, 37u, 32u, block_rows);
+            embedding_rows<tile::bfloat16>(device, 65u, 37u, 32u, block_rows);
+        }
+        embedding_rows<float>(device, 1u, 1u, 1u, 4u);
+        embedding_rows<tile::bfloat16>(device, 1u, 1u, 1u, 8u);
     };
+    "tile_cuda_ir_packed_fp32"_test = [&] { packed_fp32_sort(device); };
     "tile_cuda_ir_integer_primitives"_test = [&] {
         for (auto width : {1u, 32u, 33u}) {
             integer_primitives<int32_t>(device, width);

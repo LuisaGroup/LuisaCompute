@@ -16,8 +16,32 @@ using namespace compute;
 
 template<typename T>
 [[nodiscard]] tile::Kernel embedding_rows(int64_t vocabulary, int64_t width,
-                                         int64_t tokens, int64_t feature_tile) {
+                                         int64_t tokens, int64_t feature_tile, int64_t block_rows = 1) {
     using namespace tile;
+    if (block_rows != 1) {
+        // A scheduling experiment using existing ordered regions and ordinary
+        // domain-bearing loads. This is not a lane-varying map memory access.
+        return tile_kernel("embedding_serial_grouped_int64_rows", [=](TensorView<const T, 2> table,
+                                                                      TensorView<const int64_t, 1> ids,
+                                                                      TensorView<T, 2> output) {
+                   auto token_blocks = axis("token_blocks", (tokens + block_rows - 1) / block_rows);
+                   auto feature_blocks = axis("feature_blocks", (width + feature_tile - 1) / feature_tile);
+                   auto serial_row = axis("serial_row", block_rows);
+                   auto row = axis("row", 1), feature = axis("feature", feature_tile), one_id = axis("one_id", 1);
+                   for (auto &nest : parallel(shape(token_blocks, feature_blocks))) {
+                       auto first = nest.index(token_blocks) * block_rows;
+                       auto start = nest.index(feature_blocks) * feature_tile;
+                       for (auto &serial : nest.serial(shape(serial_row))) {
+                           auto token = first + serial.index(serial_row);
+                           // A tail token reads zero as its ID, hence a valid
+                           // table row; its output row remains bounds-masked.
+                           auto selected = ids.tile(coord(token), shape(one_id)).load().at(coord(0));
+                           auto values = table.tile(coord(selected, start), shape(row, feature)).load();
+                           output(coord(token, start), shape(row, feature)).store(values);
+                       }
+                   }
+               }).capture(tensor_shape(vocabulary, width), tensor_shape(tokens), tensor_shape(tokens, width));
+    }
     return tile_kernel("embedding_uniform_int64_rows", [=](TensorView<const T, 2> table,
                                                           TensorView<const int64_t, 1> ids,
                                                           TensorView<T, 2> output) {

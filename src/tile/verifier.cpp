@@ -435,7 +435,7 @@ private:
 
     void _verify_elementwise(const Operation *operation) noexcept {
         auto op = operation->elementwise_op();
-        auto unary = op == ElementwiseOp::NEG || op == ElementwiseOp::CAST ||
+        auto unary = op == ElementwiseOp::NEG || op == ElementwiseOp::CAST || op == ElementwiseOp::BITCAST ||
                      op == ElementwiseOp::LOGICAL_NOT ||
                      op == ElementwiseOp::EXP || op == ElementwiseOp::LOG ||
                      op == ElementwiseOp::SQRT || op == ElementwiseOp::TANH ||
@@ -466,6 +466,17 @@ private:
                 _error(operation, "elementwise operands must be scalar or Tile values");
                 return;
             }
+        }
+        if (op == ElementwiseOp::BITCAST) {
+            auto &&from = operation->operand(0u)->type();
+            auto pair = (from.scalar_type() == ScalarType::FLOAT32 && result.scalar_type() == ScalarType::UINT32) ||
+                        (from.scalar_type() == ScalarType::UINT32 && result.scalar_type() == ScalarType::FLOAT32);
+            if (!pair || (from.kind() != TypeKind::SCALAR && from.kind() != TypeKind::TILE) ||
+                (result.kind() != TypeKind::SCALAR && result.kind() != TypeKind::TILE) ||
+                !_same_element_shape(from, result)) {
+                _error(operation, "elementwise bitcast requires float32 <-> uint32 and identical scalar-versus-Tile shape");
+            }
+            return;
         }
         if (op == ElementwiseOp::CAST) {
             if (!_same_element_shape(operation->operand(0u)->type(), result)) {

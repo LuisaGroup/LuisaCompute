@@ -555,7 +555,8 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                     ok = false;
                     return;
                 }
-                auto func = static_cast<CUfunction>(shader->handle());
+                auto func = tile_shader == nullptr ? static_cast<CUfunction>(shader->handle()) :
+                                                     tile_shader->select_entry({tile_pointers.data(), tile_shader->parameter_count()});
                 auto block_size = shader->block_size();
                 // The launch configuration _launch computes for this dispatch.
                 auto blocks = (dispatch_size + block_size - 1u) / block_size;

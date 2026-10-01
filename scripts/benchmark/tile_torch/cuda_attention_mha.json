@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "description": "Existing operation only: MHA (Hq=Hkv) and B=2 exercise untested head/batch mapping in causal decode and last-Q chunked prefill; not two new operator categories.",
+  "cases": [
+    {
+      "id": "coverage-attention-mha-b2-h4-q1-k65-d32-fp32",
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        4,
+        1,
+        65,
+        32,
+        32
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "coverage-attention-mha-b2-h4-q17-k65-d32-fp32",
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        4,
+        17,
+        65,
+        32,
+        32
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

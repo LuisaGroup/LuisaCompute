@@ -108,6 +108,7 @@ luisa::string_view to_string(ElementwiseOp op) noexcept {
         case ElementwiseOp::SQRT: return "sqrt"sv;
         case ElementwiseOp::TANH: return "tanh"sv;
         case ElementwiseOp::ABS: return "abs"sv;
+        case ElementwiseOp::BITCAST: return "bitcast"sv;
     }
     return "invalid"sv;
 }

@@ -799,6 +799,7 @@ private:
         auto op = operation.elementwise_op();
         auto &result = operation.result(0u)->type();
         if (op == ElementwiseOp::CAST) { return _cast(result, operation.operand(0u)->type(), inputs[0u]); }
+        if (op == ElementwiseOp::BITCAST) { return _builder.bit_cast_(_type(result), inputs[0u]); }
         // Selection and identity moves operate on encoded values unchanged.
         if (op == ElementwiseOp::SELECT) { return _elementwise(op, _type(result), inputs); }
         Elements values = inputs;

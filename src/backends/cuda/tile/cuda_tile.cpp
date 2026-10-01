@@ -208,9 +208,10 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             auto element = arg->type().scalar_type();
             auto element_bytes = tile::scalar_type_size(element);
             auto supported = element == tile::ScalarType::FLOAT32 || element == tile::ScalarType::FLOAT16 ||
-                             element == tile::ScalarType::BFLOAT16 || element == tile::ScalarType::INT64;
+                             element == tile::ScalarType::BFLOAT16 || element == tile::ScalarType::INT64 ||
+                             element == tile::ScalarType::UINT32;
             if (!supported || !volume || *volume == 0u || *volume > INT32_MAX || *volume > SIZE_MAX / element_bytes) {
-                return fail("CUDA TIRx Runtime requires nonempty, static, int32-addressable FP32/FP16/BF16/INT64 buffers");
+                return fail("CUDA TIRx Runtime requires nonempty, static, int32-addressable FP32/FP16/BF16/INT64/UINT32 buffers");
             }
             auto usage = Usage::NONE;
             for (auto use : arg->use_list()) {
@@ -345,6 +346,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 case tile::ScalarType::FLOAT16: element = Type::of<half>(); break;
                 case tile::ScalarType::BFLOAT16: element = Type::of<tile::bfloat16>(); break;
                 case tile::ScalarType::INT64: element = Type::of<int64_t>(); break;
+                case tile::ScalarType::UINT32: element = Type::of<uint32_t>(); break;
                 default: return fail("Unsupported CUDA TIRx sidecar argument type");
             }
             shader_metadata.argument_types.emplace_back(Type::buffer(element)->description());
@@ -588,13 +590,20 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     if (!option.native_include.empty()) {
         return fail("CUDA Tile IR does not support native_include");
     }
-    auto artifact = native_tile::generate(kernel, option.enable_fast_math);
+    auto aligned16_option = luisa::get_environment_variable("LUISA_CUDA_TILE_IR_ALIGNED16");
+    auto aligned16_requested = aligned16_option && luisa::string_view{*aligned16_option} == "1";
+    auto artifact = native_tile::generate(kernel, option.enable_fast_math, aligned16_requested);
     if (!artifact.ok()) { return fail(artifact.error); }
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
     metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1)";
     if (option.enable_fast_math) { metadata.realization += "; elementwise-fp32-approx-ftz-rsqrt-v2"; }
+    if (aligned16_requested) {
+        metadata.realization += luisa::format("; aligned16-requested; aligned16-buffer-mask={}; {}",
+                                              artifact.aligned16_buffer_mask,
+                                              artifact.aligned16_entry.empty() ? "aligned16-ineligible" : "host-selected-dual-entry-aligned16-v1");
+    }
     // enable_cache is a hint. This experimental route deliberately does not
     // consult/write the PTX cache, a user archive, or an in-memory binary cache.
     luisa::vector<Usage> usages;
@@ -629,8 +638,19 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                                            static_cast<int>(status), static_cast<int>(cleanup));
             return nullptr;
         }
+        CUfunction aligned16_function{};
+        if (!artifact.aligned16_entry.empty()) {
+            status = cuModuleGetFunction(&aligned16_function, module, artifact.aligned16_entry.c_str());
+            if (status != CUDA_SUCCESS) {
+                auto cleanup = cuModuleUnload(module);
+                metadata.error = luisa::format("CUDA Tile IR aligned entry lookup failed (CUDA {}, module cleanup {})",
+                                               static_cast<int>(status), static_cast<int>(cleanup));
+                return nullptr;
+            }
+        }
         return new_with_allocator<CUDAShaderTile>(module, function, std::move(artifact.entry),
-                                                  artifact.grid, std::move(bindings), std::move(usages));
+                                                  artifact.grid, std::move(bindings), std::move(usages),
+                                                  aligned16_function, artifact.aligned16_buffer_mask);
     });
     if (shader == nullptr) { return ShaderCreationInfo::make_invalid(); }
     ShaderCreationInfo info{};

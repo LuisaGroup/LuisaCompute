@@ -16,6 +16,9 @@ class Emitter {
 private:
     const Function &_function;
     const bool _enable_fast_math;
+    const bool _enable_aligned16;
+    uint32_t _aligned16_seen{0u};
+    uint32_t _aligned16_rejected{0u};
     Artifact _artifact;
     luisa::unordered_map<const Value *, luisa::string> _values;
     luisa::unordered_map<const Value *, size_t> _buffers;
@@ -316,6 +319,7 @@ private:
             case ElementwiseOp::NEG: expression = luisa::format("(-{})", a); break;
             case ElementwiseOp::LOGICAL_NOT: expression = luisa::format("(!{})", a); break;
             case ElementwiseOp::CAST: expression = luisa::format("ct::element_cast<{}>({})", _element(op.result(0u)->type()), a); break;
+            case ElementwiseOp::BITCAST: expression = luisa::format("ct::element_bitcast<{}>({})", _element(op.result(0u)->type()), a); break;
             case ElementwiseOp::MIN:
             case ElementwiseOp::MAX: {
                 auto name = op.elementwise_op() == ElementwiseOp::MIN ? "min" : "max";
@@ -401,6 +405,48 @@ private:
         return true;
     }
 
+    [[nodiscard]] bool _origin_multiple_of_eight(const Value *value, uint32_t depth = 0u) const noexcept {
+        if (depth >= 32u) { return false; }
+        auto fact = _index_facts.find(value);
+        if (fact == _index_facts.end()) { return false; }
+        // The existing interval proof excludes negative values and overflow.
+        if (fact->second.minimum == fact->second.maximum) {
+            return fact->second.minimum % 8u == 0u;
+        }
+        if (auto product = _index_operation(value, ElementwiseOp::MUL)) {
+            for (auto i = 0u; i < 2u; i++) {
+                auto constant = _index_facts.find(product->operand(i));
+                if (constant != _index_facts.end() && constant->second.minimum == constant->second.maximum &&
+                    constant->second.minimum % 8u == 0u) { return true; }
+            }
+        }
+        if (auto sum = _index_operation(value, ElementwiseOp::ADD)) {
+            return _origin_multiple_of_eight(sum->operand(0u), depth + 1u) &&
+                   _origin_multiple_of_eight(sum->operand(1u), depth + 1u);
+        }
+        return false;
+    }
+    void _record_aligned16_view(const Operation &op, size_t argument_index,
+                                const IndexSpace &space, const IndexSpace &view_space) noexcept {
+        if (!_enable_aligned16) { return; }
+        auto bit = uint32_t{1u} << argument_index;
+        _aligned16_seen |= bit;
+        auto element = _artifact.arguments[argument_index].element;
+        // This initial specialization is deliberately limited to narrow,
+        // row-major accesses with complete static bounds. A row's
+        // stride and every contiguous eight-element group start are 16-byte
+        // multiples relative to the root. A single unproved access excludes
+        // that root, while other independently proved roots remain eligible.
+        auto eligible = (element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16) &&
+                        _view_fully_in_bounds(op, space, view_space);
+        if (eligible) {
+            auto last = space.rank() - 1u;
+            eligible = space.axis(last).extent.constant_value() % 8u == 0u &&
+                       view_space.axis(last).extent.constant_value() % 8u == 0u &&
+                       _origin_multiple_of_eight(op.operand(1u + last));
+        }
+        if (!eligible) { _aligned16_rejected |= bit; }
+    }
     void _view(const Operation &op) noexcept {
         auto view = op.operand(0u);
         auto found = _buffers.find(view);
@@ -415,6 +461,7 @@ private:
         auto &argument = _artifact.arguments[found->second];
         argument.read |= read;
         argument.written |= !read;
+        _record_aligned16_view(op, found->second, space, view_space);
         auto prefix = luisa::format("mem{}", op.id());
         // Keep the existing pointer Tile shape/layout. Elide masks only when
         // the scalar index facts prove every lane in bounds; all partial tails,
@@ -992,8 +1039,8 @@ private:
     }
 
 public:
-    explicit Emitter(const Function &function, bool enable_fast_math) noexcept
-        : _function{function}, _enable_fast_math{enable_fast_math} {}
+    explicit Emitter(const Function &function, bool enable_fast_math, bool enable_aligned16) noexcept
+        : _function{function}, _enable_fast_math{enable_fast_math}, _enable_aligned16{enable_aligned16} {}
     [[nodiscard]] Artifact run() noexcept {
         auto module = _function.parent_module();
         if (module == nullptr) {
@@ -1041,10 +1088,34 @@ public:
         if (_parallel_count != 1u) { _fail(nullptr, "exactly one root PARALLEL is required"); }
         _artifact.source += "}\n";
         if (!_artifact.error.empty()) { _artifact.source.clear(); }
+        auto mask = _aligned16_seen & ~_aligned16_rejected;
+        if (_artifact.ok() && mask != 0u) {
+            _artifact.aligned16_entry = "luisa_tile_aligned16";
+            _artifact.aligned16_buffer_mask = mask;
+            // Keep the entire original entry byte-for-byte. Same-entry
+            // guarded assumptions can affect the compiler's fallback branch,
+            // so the host chooses between two separate entry functions.
+            auto begin = _artifact.source.find("extern \"C\" __tile_global__ void ");
+            auto aligned = _artifact.source.substr(begin);
+            auto entry = aligned.find(_artifact.entry);
+            aligned.replace(entry, _artifact.entry.size(), _artifact.aligned16_entry);
+            auto body = aligned.find(") {\n") + 4u;
+            luisa::string assumptions;
+            for (auto i = 0u; i < _artifact.arguments.size(); i++) {
+                if ((mask & (uint32_t{1u} << i)) != 0u) {
+                    assumptions += luisa::format("    buffer{} = ct::assume_aligned<16>(buffer{});\n", i, i);
+                }
+            }
+            aligned.insert(body, assumptions);
+            _artifact.source += '\n';
+            _artifact.source += aligned;
+        }
         return std::move(_artifact);
     }
 };
 }// namespace
 
-Artifact generate(const tile::Function &function, bool enable_fast_math) noexcept { return Emitter{function, enable_fast_math}.run(); }
+Artifact generate(const tile::Function &function, bool enable_fast_math, bool enable_aligned16) noexcept {
+    return Emitter{function, enable_fast_math, enable_aligned16}.run();
+}
 }// namespace luisa::compute::cuda::native_tile

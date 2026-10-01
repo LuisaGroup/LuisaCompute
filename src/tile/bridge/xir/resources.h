@@ -136,6 +136,7 @@ private:
                         case ElementwiseOp::MIN:
                         case ElementwiseOp::MAX:
                         case ElementwiseOp::CAST:
+                        case ElementwiseOp::BITCAST:
                         case ElementwiseOp::SELECT:
                         case ElementwiseOp::EQ:
                         case ElementwiseOp::NE:

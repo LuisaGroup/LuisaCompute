@@ -99,6 +99,53 @@ inline void build_rows(Fixture &f, const Options &o) {
     f.output_shape = {rows, reduction ? 1 : width};
     f.algorithm = op == "scan" ? "inclusive_sum_unordered_tree" : op == "scan_ordered" ? "quadratic_reference_ordered_inclusive_scan" :
                                                                                          "whole_row_tile_fp32_compute";
+    auto pointwise = op == "swiglu" || op == "gelu_residual" || op == "rope";
+    auto logical_width = op == "rope" ? width / 2 : width;
+    if (pointwise && tile_width < logical_width) {
+        f.algorithm = "feature_tiled_pointwise_fp32_compute";
+        auto blocks = ceil_div(logical_width, tile_width);
+        if (op == "rope") {
+            // Keep the physical pair axis: a feature tail cannot overwrite
+            // the other half of the logical RoPE row.
+            auto definition = tile_kernel("workload_rope_feature_tiles", [=](TensorView<const T, 3> X,
+                                                                               TensorView<const T, 3> C,
+                                                                               TensorView<const T, 3> S,
+                                                                               TensorView<T, 3> Y) {
+                auto program_row = axis("program_row", rows), block = axis("feature_block", blocks);
+                auto m = axis("m", 1), pair = axis("pair", 1), n = axis("n", tile_width);
+                for (auto &nest : parallel(shape(program_row, block))) {
+                    auto r = nest.index(program_row), start = nest.index(block) * tile_width;
+                    auto x = cast<float>(X.tile(coord(r, 0, start), shape(m, pair, n)).load());
+                    auto y = cast<float>(X.tile(coord(r, 1, start), shape(m, pair, n)).load());
+                    auto c = cast<float>(C.tile(coord(r, 0, start), shape(m, pair, n)).load());
+                    auto s = cast<float>(S.tile(coord(r, 0, start), shape(m, pair, n)).load());
+                    Y(coord(r, 0, start), shape(m, pair, n)).store(cast<T>(x * c - y * s));
+                    Y(coord(r, 1, start), shape(m, pair, n)).store(cast<T>(x * s + y * c));
+                }
+            });
+            f.kernel = definition.capture(tensor_shape(rows, 2, width / 2), tensor_shape(rows, 1, width / 2),
+                                          tensor_shape(rows, 1, width / 2), tensor_shape(rows, 2, width / 2));
+        } else {
+            auto definition = tile_kernel("workload_pointwise_feature_tiles", [=](TensorView<const T, 2> X,
+                                                                                  TensorView<const T, 2> U,
+                                                                                  TensorView<const T, 2> V,
+                                                                                  TensorView<T, 2> Y) {
+                auto program_row = axis("program_row", rows), block = axis("feature_block", blocks);
+                auto m = axis("m", 1), n = axis("n", tile_width);
+                for (auto &nest : parallel(shape(program_row, block))) {
+                    auto row = nest.index(program_row), start = nest.index(block) * tile_width;
+                    auto x = cast<float>(X.tile(coord(row, start), shape(m, n)).load());
+                    auto result = op == "swiglu" ?
+                        x / (1.0f + exp(-x)) * cast<float>(U.tile(coord(row, start), shape(m, n)).load()) :
+                        0.5f * x * (1.0f + tanh(0.7978845608f * (x + 0.044715f * x * x * x))) + cast<float>(U.tile(coord(row, start), shape(m, n)).load());
+                    Y(coord(row, start), shape(m, n)).store(cast<T>(result));
+                }
+            });
+            f.kernel = definition.capture(tensor_shape(rows, width), tensor_shape(rows, width),
+                                          tensor_shape(rows, width), tensor_shape(rows, width));
+        }
+        return;
+    }
     if (op == "rope") {
         // A physical pair axis makes a padded half-width Tile safe: stores
         // cannot overlap the other half when the logical half has a tail.
@@ -246,9 +293,10 @@ template<typename T = float>
     auto tensorcore_attention = op == "attention_tensorcore";
     auto attention = op == "attention" || tensorcore_attention;
     auto chunked = o.ranking_algorithm == "chunked_bitonic_c256" || o.ranking_algorithm == "chunked_bitonic_c512";
-    if ((o.ranking_algorithm != "full_sort_prefix" && o.ranking_algorithm != "repeated_extrema" && !chunked) ||
+    if ((o.ranking_algorithm != "full_sort_prefix" && o.ranking_algorithm != "packed_fp32" && o.ranking_algorithm != "repeated_extrema" && !chunked) ||
+        (o.ranking_algorithm == "packed_fp32" && op != "sort" && op != "topk") ||
         (o.ranking_algorithm == "repeated_extrema" && op != "topk") || (chunked && op != "sort")) {
-        f.error = "ranking_algorithm must be full_sort_prefix, repeated_extrema for topk, or chunked_bitonic_c256/c512 for sort";
+        f.error = "ranking_algorithm must be full_sort_prefix/packed_fp32, repeated_extrema for topk, or chunked_bitonic_c256/c512 for sort";
         return f;
     }
     if constexpr (std::is_same_v<T, float>) {
@@ -293,10 +341,15 @@ template<typename T = float>
         auto width = o.dimensions[1];
         auto logical_width = op == "rope" ? width / 2 : width;
         auto independent_rows = op == "scan" || op == "reduce_sum" || op == "reduce_max";
+        auto pointwise = op == "swiglu" || op == "gelu_residual" || op == "rope";
         auto valid_row_block = o.tile[0] == 1 || (independent_rows && (o.tile[0] == 4 || o.tile[0] == 8));
-        if (!valid_row_block || o.tile[2] != 1 || o.tile[1] < logical_width || o.tile[1] > 16384 ||
+        if (!valid_row_block || o.tile[2] != 1 || o.tile[1] <= 0 || (!pointwise && o.tile[1] < logical_width) || o.tile[1] > 16384 ||
             (op == "rope" && width % 2 != 0) || (op == "scan_ordered" && o.tile[1] > 1024)) {
-            f.error = "row schedule requires BR1 (or BR4/8 for scan/sum/max), padded width and tile K=1; ordered scan width <=1024 and RoPE width even";
+            f.error = "row schedule requires BR1 (or BR4/8 for scan/sum/max), positive BD (full width except swiglu/gelu_residual/rope) and K=1; ordered scan width <=1024 and RoPE width even";
+            return f;
+        }
+        if (o.backend == "cuda" && pointwise && ceil_div(logical_width, o.tile[1]) > 65535) {
+            f.error = "pointwise feature launch grid exceeds CUDA limits";
             return f;
         }
         build_rows<T>(f, o);
@@ -353,11 +406,11 @@ template<typename T = float>
     } else if (embedding) {
         auto vocabulary = o.dimensions[0], width = o.dimensions[1], tokens = o.dimensions[2];
         if (std::any_of(o.dimensions.begin(), o.dimensions.end(), [](int64_t d) noexcept { return d > 65536; }) ||
-            o.tile[0] != 1 || o.tile[2] != 1 || o.tile[1] <= 0 || o.tile[1] > 16384 ||
+            (o.tile[0] != 1 && o.tile[0] != 4 && o.tile[0] != 8) || o.tile[2] != 1 || o.tile[1] <= 0 || o.tile[1] > 16384 ||
             !product_bounded(std::array{vocabulary, width}, 1ull << 24u) ||
             !product_bounded(std::array{tokens, width}, 1ull << 24u) ||
             (o.pattern != "random" && o.pattern != "adversarial")) {
-            f.error = "embedding requires V,D,T<=65536, tile=(1,BD<=16384,1), tensors<=2^24 and random/adversarial pattern";
+            f.error = "embedding requires V,D,T<=65536, tile=(BR1/4/8,BD<=16384,1), tensors<=2^24 and random/adversarial pattern";
             return f;
         }
         if (o.backend == "cuda" && (width + o.tile[1] - 1) / o.tile[1] > 65535) {
@@ -375,10 +428,10 @@ template<typename T = float>
             f.error = "embedding input IDs must be exact INT64 values in [0,V)";
             return f;
         }
-        f.kernel = tile_embedding::embedding_rows<T>(vocabulary, width, tokens, o.tile[1]);
+        f.kernel = tile_embedding::embedding_rows<T>(vocabulary, width, tokens, o.tile[1], o.tile[0]);
         f.input_shapes = {vector<int64_t>{vocabulary, width}, {1}, {1}};
         f.output_shape = {tokens, width};
-        f.algorithm = "uniform_int64_row_gather";
+        f.algorithm = o.tile[0] == 1 ? "uniform_int64_row_gather" : "serial_grouped_uniform_int64_row_gather";
     } else if (first_max) {
         auto r = o.dimensions[0], n = o.dimensions[1], padded = o.tile[1];
         if (o.tile[0] != 1 || o.tile[2] != 1 || padded < n || padded > 16384 ||
@@ -410,9 +463,10 @@ template<typename T = float>
                 // Keep the sorting network, but expose its needed prefix to
                 // native Tile IR before the store mask. Power-of-two padding
                 // also covers a logical K such as 7 without native K=7 Tiles.
+                auto algorithm = o.ranking_algorithm == "packed_fp32" ? SortAlgorithm::PACKED_FP32 : SortAlgorithm::DEFAULT;
                 auto ranked = op == "topk" ?
-                    compute::tile::topk(finite, column, std::bit_ceil(static_cast<uint64_t>(k)), true) :
-                    compute::tile::sort(finite, column, true);
+                    compute::tile::topk(finite, column, std::bit_ceil(static_cast<uint64_t>(k)), true, algorithm) :
+                    compute::tile::sort(finite, column, true, algorithm);
                 // This remains full-sort-prefix, not a selection algorithm.
                 Values(origin, ranked.values.space()).store(cast<T>(ranked.values));
                 Indices(origin, ranked.indices.space()).store(ranked.indices);
@@ -444,7 +498,8 @@ template<typename T = float>
         f.input_shapes = {vector<int64_t>{r, n}, {1}, {1}};
         f.output_shape = {r, k};
         f.ranking = true;
-        f.algorithm = chunked ? "stable_chunked_bitonic_whole_tile_merge" :
+        f.algorithm = o.ranking_algorithm == "packed_fp32" ? "stable_packed_fp32_full_sort_prefix" :
+                      chunked ? "stable_chunked_bitonic_whole_tile_merge" :
                       o.ranking_algorithm == "repeated_extrema" ? "stable_repeated_extrema" :
                       op == "sort" ? "padded_bitonic_full_sort" : "padded_bitonic_full_sort_prefix";
     } else {

@@ -307,6 +307,8 @@ private:
     friend Scalar<bool> detail_make_compare(ElementwiseOp, const Scalar<U> &, const Scalar<U> &) noexcept;
     template<scalar_cpp_type To, scalar_cpp_type From>
     friend Scalar<To> cast(const Scalar<From> &) noexcept;
+    template<scalar_cpp_type To, scalar_cpp_type From>
+    friend Scalar<To> bitcast(const Scalar<From> &) noexcept;
     template<scalar_cpp_type U>
     friend Scalar<U> ite(const Scalar<bool> &, const Scalar<U> &, const Scalar<U> &) noexcept;
 
@@ -465,6 +467,17 @@ template<scalar_cpp_type To, scalar_cpp_type From>
 [[nodiscard]] Scalar<To> cast(const Scalar<From> &value) noexcept {
     detail::ValueHandle operands[]{value._handle};
     return Scalar<To>{detail::make_elementwise_operation(ElementwiseOp::CAST, operands, scalar_type_v<To>)};
+}
+
+// Preserve all storage bits, including signed zero, subnormals and NaN payloads.
+// The initial portable contract is deliberately limited to float <-> uint32_t.
+template<scalar_cpp_type To, scalar_cpp_type From>
+[[nodiscard]] Scalar<To> bitcast(const Scalar<From> &value) noexcept {
+    static_assert((std::same_as<To, float> && std::same_as<From, uint32_t>) ||
+                  (std::same_as<To, uint32_t> && std::same_as<From, float>),
+                  "Tile bitcast currently supports only float <-> uint32_t");
+    detail::ValueHandle operands[]{value._handle};
+    return Scalar<To>{detail::make_elementwise_operation(ElementwiseOp::BITCAST, operands, scalar_type_v<To>)};
 }
 
 // If condition then true_value else false_value, matching the SIMT DSL's ite.

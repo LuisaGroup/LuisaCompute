@@ -74,6 +74,28 @@ class CudaEmbeddingTests(unittest.TestCase):
                 self.assertIn("input1.i64", tensor_receipts(path, case)[1])
                 verify_packet(packet)
 
+    def test_serial_grouped_schedule_preserves_exact_packet_and_algorithm(self):
+        for precision in ("fp32", "fp16", "bf16"):
+            for br in (4, 8):
+                with self.subTest(precision=precision, br=br), tempfile.TemporaryDirectory() as temporary:
+                    path, case, expected = self.packet(Path(temporary), precision)
+                    case["tile"][0] = br
+                    manifest = json.loads(path.read_text())
+                    manifest["tile"][0] = br
+                    manifest["algorithm"] = "serial_grouped_uniform_int64_row_gather"
+                    path.write_text(json.dumps(manifest))
+                    self.assertEqual(validate_case(case, 0)["tile"][0], br)
+                    packet = load_packet(path)
+                    self.assertEqual(validate_output(packet, expected)["max_abs_error"], 0)
+                    tensor_receipts(path, case)
+                    for wrong in ("uniform_int64_row_gather", "mapped_int64_row_gather"):
+                        manifest["algorithm"] = wrong
+                        path.write_text(json.dumps(manifest))
+                        with self.assertRaisesRegex(ValueError, "algorithm"): load_packet(path)
+                        with self.assertRaisesRegex(ValueError, "algorithm"): tensor_receipts(path, case)
+        for br in (0, 2, 3, 16):
+            with self.assertRaises(ValueError): validate_case(self.case(tile=[br, 32, 1]), 0)
+
     def test_invalid_ids_rejected_exactly_before_torch(self):
         for invalid in (-1, 7, 2**24+1, 2**53+1, 2**63-1):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temporary:

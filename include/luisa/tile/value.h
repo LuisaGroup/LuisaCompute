@@ -364,6 +364,16 @@ template<scalar_cpp_type To, scalar_cpp_type From>
     return Tile<To>{detail::make_tile_elementwise(ElementwiseOp::CAST, operands, scalar_type_v<To>)};
 }
 
+// Same named axes and lane count; this never performs numeric conversion.
+template<scalar_cpp_type To, scalar_cpp_type From>
+[[nodiscard]] Tile<To> bitcast(const Tile<From> &value) noexcept {
+    static_assert((std::same_as<To, float> && std::same_as<From, uint32_t>) ||
+                  (std::same_as<To, uint32_t> && std::same_as<From, float>),
+                  "Tile bitcast currently supports only float <-> uint32_t");
+    Value *operands[]{value.ir_value()};
+    return Tile<To>{detail::make_tile_elementwise(ElementwiseOp::BITCAST, operands, scalar_type_v<To>)};
+}
+
 template<typename C, typename A, typename B>
     requires(detail::is_tile_v<std::remove_cvref_t<C>> || detail::tile_binary_operands<A, B>) &&
             (std::same_as<std::remove_cvref_t<C>, Tile<bool>> || std::same_as<std::remove_cvref_t<C>, Scalar<bool>>)

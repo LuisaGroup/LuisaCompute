@@ -59,14 +59,21 @@ CUDAShaderTile::CUDAShaderTile(CUDADevice *device, luisa::vector<std::byte> ptx,
 CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::string entry,
                                const std::array<uint32_t, 3u> &grid,
                                luisa::vector<uint32_t> buffer_arguments,
-                               luisa::vector<Usage> argument_usages) noexcept
+                               luisa::vector<Usage> argument_usages,
+                               CUfunction aligned16_function,
+                               uint32_t aligned16_buffer_mask) noexcept
     : CUDAShader{nullptr, std::move(argument_usages)},
-      _module{module}, _function{function}, _entry{std::move(entry)},
+      _module{module}, _function{function}, _aligned16_function{aligned16_function},
+      _aligned16_buffer_mask{aligned16_buffer_mask}, _entry{std::move(entry)},
       _grid{grid}, _block_size{1u, 1u, 1u},
       _buffer_arguments{std::move(buffer_arguments)} {
     // module_image remains empty: Vulkan interop uses the DSL parameter ABI.
     // CUDA graphs encode Tile's direct pointer list explicitly.
     LUISA_ASSERT(_module != nullptr && _function != nullptr, "Native Tile requires an owned module and entry.");
+    LUISA_ASSERT(_buffer_arguments.size() <= 31u &&
+                     ((_aligned16_function == nullptr) == (_aligned16_buffer_mask == 0u)) &&
+                     (_aligned16_buffer_mask >> _buffer_arguments.size()) == 0u,
+                 "Native Tile aligned entry has an invalid device binding mask.");
 }
 
 CUDAShaderTile::~CUDAShaderTile() noexcept {
@@ -91,6 +98,15 @@ bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
         pointers[slot] = buffer->binding(arg.offset, arg.size).handle;
     }
     return true;
+}
+
+CUfunction CUDAShaderTile::select_entry(luisa::span<const CUdeviceptr> pointers) const noexcept {
+    if (_aligned16_function == nullptr || pointers.size() != _buffer_arguments.size()) { return _function; }
+    CUdeviceptr alignment_bits = 0u;
+    for (auto slot = size_t{0u}; slot < pointers.size(); slot++) {
+        if ((_aligned16_buffer_mask & (uint32_t{1u} << slot)) != 0u) { alignment_bits |= pointers[slot]; }
+    }
+    return (alignment_bits & 15u) == 0u ? _aligned16_function : _function;
 }
 
 void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
@@ -120,7 +136,7 @@ void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
     auto block = _block_size;
     auto stream = encoder.stream()->handle();
     LUISA_CHECK_CUDA(cuLaunchKernel(
-        _function,
+        select_entry({pointers.data(), parameter_count}),
         _grid[0], _grid[1], _grid[2],
         block.x, block.y, block.z,
         0u, stream, kernel_parameters.data(), nullptr));

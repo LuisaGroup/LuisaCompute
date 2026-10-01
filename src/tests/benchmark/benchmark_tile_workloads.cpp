@@ -339,7 +339,7 @@ template<typename T>
 int run(int argc, char *argv[]) {
     workloads::Options options;
     if (argc < 13 || argc > 19 || (argc - 13) % 2 != 0) {
-        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1]\n";
+        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|packed_fp32|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1]\n";
         std::cerr << "BMM operation dimensions are B,M,N,K; tile is BM,BN,BK.\n";
         std::cerr << "Embedding dimensions are V,D,T; tile is 1,feature_width,1, with true INT64 row IDs.\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
@@ -371,7 +371,7 @@ int run(int argc, char *argv[]) {
         } else if (flag == "--ranking-algorithm" && !ranking_seen) {
             ranking_seen = true;
             options.ranking_algorithm = argv[i + 1];
-            if (options.ranking_algorithm != "full_sort_prefix" && options.ranking_algorithm != "repeated_extrema" &&
+            if (options.ranking_algorithm != "full_sort_prefix" && options.ranking_algorithm != "packed_fp32" && options.ranking_algorithm != "repeated_extrema" &&
                 options.ranking_algorithm != "chunked_bitonic_c256" && options.ranking_algorithm != "chunked_bitonic_c512") {
                 return finish(options, {}, "failed", "invalid --ranking-algorithm", 1);
             }
@@ -547,6 +547,64 @@ int run(int argc, char *argv[]) {
         }
         return commands;
     };
+    std::string native_alignment_receipts;
+    if (options.backend == "cuda" && options.lowering == "native") {
+        // Inspect the actual command binding order, including BufferView byte
+        // offsets. Record only pointer residues, never device addresses. This
+        // predicts the shared runtime selector, not a device-side trace.
+        vector<std::pair<uint64_t, uintptr_t>> buffer_bases;
+        auto register_buffer = [&](auto &&buffer) {
+            buffer_bases.emplace_back(buffer.handle(), reinterpret_cast<uintptr_t>(buffer.native_handle()));
+        };
+        for (auto &&input : inputs) { register_buffer(input); }
+        register_buffer(output);
+        register_buffer(indices);
+        if (fixture.input_ids) { register_buffer(input_ids); }
+        if (fixture.scratch_elements != 0u) {
+            for (auto &&buffer : scratch_values) { register_buffer(buffer); }
+            for (auto &&buffer : scratch_indices) { register_buffer(buffer); }
+        }
+        auto request = luisa::get_environment_variable("LUISA_CUDA_TILE_IR_ALIGNED16");
+        auto requested = request && string_view{*request} == "1";
+        auto commands = make_commands(1u).steal_commands();
+        LUISA_ASSERT(commands.size() == shaders.size(), "Alignment receipts require one command per stage.");
+        std::ostringstream receipt;
+        receipt << '[';
+        for (auto stage = size_t{0u}; stage < shaders.size(); stage++) {
+            auto command = static_cast<const ShaderDispatchCommand *>(commands[stage].get());
+            auto args = command->arguments();
+            auto realization = string_view{shaders[stage].metadata().realization};
+            constexpr string_view marker = "aligned16-buffer-mask=";
+            auto position = realization.find(marker);
+            auto mask = uint64_t{0u};
+            if (position != string_view::npos) {
+                auto text = realization.substr(position + marker.size());
+                text = text.substr(0u, text.find(';'));
+                LUISA_ASSERT(integer(text, mask), "Invalid alignment mask metadata.");
+            }
+            LUISA_ASSERT(args.size() <= 31u && (mask >> args.size()) == 0u, "Invalid alignment mask.");
+            vector<uint32_t> residues;
+            auto aligned = mask != 0u;
+            for (auto slot = size_t{0u}; slot < args.size(); slot++) {
+                auto &&arg = args[slot];
+                LUISA_ASSERT(arg.tag == Argument::Tag::BUFFER, "Tile alignment receipt expects buffers.");
+                auto base = std::find_if(buffer_bases.begin(), buffer_bases.end(), [&](auto &&item) { return item.first == arg.buffer.handle; });
+                LUISA_ASSERT(base != buffer_bases.end(), "Unknown buffer in alignment receipt.");
+                auto residue = static_cast<uint32_t>(((base->second & 15u) + (arg.buffer.offset & 15u)) & 15u);
+                residues.emplace_back(residue);
+                if ((mask & (uint64_t{1u} << slot)) != 0u && residue != 0u) { aligned = false; }
+            }
+            if (stage != 0u) { receipt << ','; }
+            receipt << "{\"stage\":" << stage << ",\"requested\":" << (requested ? "true" : "false")
+                    << ",\"eligible_buffer_mask\":" << mask << ",\"final_argument_mod16\":";
+            array(receipt, residues);
+            receipt << ",\"expected_selected_entry\":";
+            quoted(receipt, aligned ? "luisa_tile_aligned16" : "luisa_tile_main");
+            receipt << '}';
+        }
+        receipt << ']';
+        native_alignment_receipts = receipt.str();
+    }
     auto batch = [&](uint64_t repetitions, bool instrumented, double &device_ms) {
         stream.synchronize();
         auto before = Clock::now();
@@ -759,6 +817,10 @@ int run(int argc, char *argv[]) {
     }
     out << ",\"status\":\"passed\",\"realization\":";
     quoted(out, shader.metadata().realization);
+    if (!native_alignment_receipts.empty()) {
+        out << ",\"native_alignment\":" << native_alignment_receipts
+            << ",\"native_alignment_evidence\":\"actual command BufferView offsets plus CUDA native buffer base modulo 16; expected host selection, not device trace\"";
+    }
     pipeline_metadata(out, fixture);
     if (!fixture.pipeline_widths.empty()) {
         out << ",\"pipeline_stages\":[";

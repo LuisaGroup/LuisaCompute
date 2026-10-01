@@ -500,6 +500,7 @@ private:
 
     [[nodiscard]] static tvm::PrimExpr _apply_elementwise(
         ElementwiseOp op, luisa::span<const tvm::PrimExpr> operands, tvm::PrimType result_type) {
+        if (op == ElementwiseOp::BITCAST) { return tvm::reinterpret(result_type, operands[0u]); }
         auto bf16 = tvm::PrimType::BFloat(16);
         auto f32 = tvm::PrimType::Float(32);
         if (result_type == bf16 && op != ElementwiseOp::SELECT) {
@@ -538,6 +539,7 @@ private:
             case ElementwiseOp::SQRT: return tvm::sqrt(operands[0u]);
             case ElementwiseOp::TANH: return tvm::tanh(operands[0u]);
             case ElementwiseOp::ABS: return tvm::abs(operands[0u]);
+            case ElementwiseOp::BITCAST:
             case ElementwiseOp::INVALID: break;
         }
         return {};

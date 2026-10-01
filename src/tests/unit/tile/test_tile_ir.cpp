@@ -445,8 +445,42 @@ void test_intrusive_instruction_mutation() {
     expect(verify(module).ok());
 }
 
+void test_bitcast_contract() {
+    auto check = [](ScalarType from_element, ScalarType to_element, int mode, bool accepted) {
+        Module module;
+        auto function = module.create_function("bitcast_contract");
+        auto root = function->body().append_block();
+        auto x = module.dimensions().create_dimension("x"), y = module.dimensions().create_dimension("y");
+        IndexSpace xy, yx, different;
+        static_cast<void>(xy.add(x, 2u)); static_cast<void>(xy.add(y, 4u));
+        static_cast<void>(yx.add(y, 4u)); static_cast<void>(yx.add(x, 2u));
+        static_cast<void>(different.add(x, 2u)); static_cast<void>(different.add(y, 8u));
+        auto from = mode == 0 || mode == 7 ? Type::scalar(from_element) : mode == 5 ? Type::view(from_element, xy) :
+                    mode == 6 ? Type::index() : Type::tile(from_element, xy);
+        auto to = mode == 0 || mode == 3 || mode == 5 || mode == 6 ? Type::scalar(to_element) :
+                  Type::tile(to_element, mode == 2 ? yx : mode == 4 ? different : xy);
+        IRBuilder builder{root};
+        Value *operands[]{root->add_argument(from)};
+        static_cast<void>(builder.create_elementwise(ElementwiseOp::BITCAST, operands, to));
+        auto checked = verify(module);
+        expect(checked.ok() == accepted);
+        if (!accepted) { expect(!checked.diagnostics().empty()); }
+    };
+    for (auto mode : {0, 1}) {
+        check(ScalarType::FLOAT32, ScalarType::UINT32, mode, true);
+        check(ScalarType::UINT32, ScalarType::FLOAT32, mode, true);
+    }
+    for (auto mode : {2, 3, 4, 5, 6, 7}) { check(ScalarType::FLOAT32, ScalarType::UINT32, mode, false); }
+    check(ScalarType::FLOAT32, ScalarType::UINT64, 0, false);
+    check(ScalarType::FLOAT32, ScalarType::INT32, 0, false);
+    check(ScalarType::BOOL, ScalarType::UINT32, 0, false);
+    check(ScalarType::FLOAT16, ScalarType::UINT16, 1, false);
+    check(ScalarType::FLOAT32, ScalarType::FLOAT32, 0, false);
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    "tile_ir_bitcast_contract"_test = test_bitcast_contract;
     "tile_ir_opaque_type_with_windows_macro"_test = test_opaque_type_with_windows_macro;
     "tile_ir_allocator_owned_lifetimes"_test = test_allocator_owned_ir_lifetimes;
     "tile_ir_analysis_result_lifetimes"_test = test_analysis_result_lifetimes<alignof(void *)>;

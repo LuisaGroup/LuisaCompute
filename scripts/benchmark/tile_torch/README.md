@@ -1503,3 +1503,59 @@ are comparisons for the same workload, not additional shape coverage.
 1024-cubed GEMM. A larger tile is not assumed to be faster. These three new
 inventories use the standard Torch contract and the same matrix command;
 argmax always requires first-index ties even under that contract.
+
+### Explicit scheduling and alignment experiments
+
+For `swiglu`, `gelu_residual` and `rope`, `tile[1]` may also split the feature
+dimension across programs. RoPE uses half the physical row width as its feature
+extent, retaining a separate pair axis so tail stores cannot overwrite the
+other half. These cases report `feature_tiled_pointwise_fp32_compute`. Whole-row
+schedules keep their original capture, FP32 arithmetic and numerical bounds.
+Other row operations still require a tile covering the whole feature extent.
+`cuda_pointwise_schedules.json` includes whole-row controls, feature-block
+candidates and tail cases.
+
+Embedding additionally permits explicit `tile[0]` values of four or eight.
+These schedules use an ordered SERIAL region over rows, with one uniform INT64
+ID load per iteration; they report `serial_grouped_uniform_int64_row_gather`.
+The default one-row schedule and its `uniform_int64_row_gather` identity remain
+unchanged. Feature width and row grouping are separate tuning dimensions.
+`cuda_embedding_schedules.json` covers these two dimensions separately.
+
+`cuda_packed_sort.json` compares full stable sorting against
+`ranking_algorithm: "packed_fp32"` on identical inputs. The candidate uses one
+reversible UINT64-key network, including original indices and signed-zero bits,
+and decodes values without another input gather. Its realization is
+`stable_packed_fp32_full_sort_prefix`. Narrow storage is promoted exactly to
+FP32 as in the existing ranking fixture. Run these comparisons with
+`--ranking-contract stable`; both sides must satisfy the same tie contract.
+The existing default and chunked algorithms remain selectable.
+
+`cuda_matrix.py --native-aligned16` explicitly enables the native-only
+`LUISA_CUDA_TILE_IR_ALIGNED16=1` experiment. Compilation retains the original
+entry and adds a second entry only for FP16/BF16 buffer roots whose every access
+has proved bounds, row stride and feature origin alignment. The runtime checks
+the final device pointers, including BufferView offsets, before selecting that
+entry. Direct launches and CUDA Graph construction share this selector; whole
+graph updates rebuild the selection from the new bindings. No aliasing promise
+is introduced. The flag is off by default, and is removed from inherited
+environments for every matrix child unless explicitly requested for native CUDA.
+
+Each native stage records an eligible-buffer mask, actual argument-address
+residues modulo 16, and `expected_selected_entry`. The last field is a host-side
+prediction, not an execution trace. Requested but ineligible cases still use
+the original entry; distinguish them from specialized cases when reporting
+performance. Controls and candidates require separate output directories and
+otherwise identical case and graph-v2 settings. Compilation includes both
+entries and its cost is retained separately from warm execution timing.
+`cuda_alignment.json` provides matching off/on cases for GEMM, BMM, scan,
+normalization, softmax and reductions, including ineligible tail controls.
+`cuda_attention_mha.json` adds batch-two MHA decode and prefill with a ragged
+key length, complementing the existing causal GQA/MQA attention cases.
+
+The [coverage156 checkpoint](results/2026-10-01-coverage156-v2/README.md)
+records the preceding `15d411fc` implementation: 51 operation/shape combinations
+and 94 operation/shape/dtype combinations, including 6 long-scan compiler
+failures. It preserves every schedule and raw sample, with separate strict and
+common-envelope numerical acceptance. It is a baseline for these experiments,
+not a result for the new packed, feature-blocked, SERIAL or aligned entries.

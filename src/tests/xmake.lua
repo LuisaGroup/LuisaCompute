@@ -717,6 +717,9 @@ end
     test_proj("test_tile_cuda_graph", "unit/tile/test_tile_cuda_graph.cpp", false, function()
         add_deps("lc-tile")
     end)
+    test_proj("test_tile_cuda_alignment", "unit/tile/test_tile_cuda_alignment.cpp", false, function()
+        add_deps("lc-tile")
+    end)
 
     -- The optional TIRx bridge is compiled into lc-tile when
     -- lc_tile_tirx_bridge is enabled. Without it this executable verifies the

@@ -50,6 +50,13 @@ they are not numeric conversion and preserve NaN payloads. Narrowing a wide
 integer or FP64 value to BF16 currently requires an explicit intermediate
 `cast<float>` on these bridges, rather than silently introducing double rounding.
 
+`tile::bitcast<uint32_t>(float_value)` and `tile::bitcast<float>(uint_value)`
+reinterpret the storage bits of a Scalar or Tile without numerical conversion.
+They preserve the named axes and extents, including zero signs, subnormals and
+NaN payloads. This initial API supports only the float32/uint32 pair; other
+widths and index/view conversions are rejected. Native CUDA Tile, XIR and
+TIRx lower this operation as a bit reinterpretation.
+
 FP8 host wrappers expose exact bit storage and decoding to float32, but no
 implicit float-to-FP8 constructor. A future quantizing conversion must specify
 rounding and overflow/saturation independently of the format. Scale, zero point
@@ -769,6 +776,17 @@ network, radix digit, lane exchange, shared memory, or merge pass. Distribution
 analysis may keep the axis local, repartition it, or reject a requested
 single-kernel schedule that cannot communicate across the required participant
 scope. A target may replace a proved equivalent expansion with a sort atom.
+
+The current C++ API is `sort(x, feature, largest)` and
+`topk(x, feature, count, largest)`, returning `RankedTile<T>` with values and
+INT64 source indices. It requires non-NaN inputs and breaks equal-value ties by
+original index, including ties between the two zero signs. An explicit final
+`SortAlgorithm::PACKED_FP32` argument selects a reversible UINT64-key network
+for float32 and power-of-two extents up to 2^31. The key carries the original
+index and zero sign, so decoding recovers the original value bits without a
+second input gather. Other inputs reject this option; the default algorithm
+is unchanged. The richer ordering-policy example above describes the intended
+interface, rather than additional implemented overloads.
 
 Fixed-size Top-K *does* have a useful reduction algebra. For a deterministic
 total key `(valid, value, original_index)`, define:

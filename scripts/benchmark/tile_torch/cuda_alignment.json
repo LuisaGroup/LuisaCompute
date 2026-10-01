@@ -1,0 +1,322 @@
+{
+  "schema": 1,
+  "status": "prepared_not_executed",
+  "methodology": "Run this identical inventory in separate default and --native-aligned16 production graph-v2 cohorts. Do not infer selected entry from enabled flag; use per-stage actual pointer residues and eligibility receipts. No schedule optimum assumed.",
+  "cases": [
+    {
+      "id": "aligned16-gemm-1024x1024x1024-fp16",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-scan-128x8192-fp16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-reduce_sum-128x8192-fp16",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-rmsnorm-1x8192-fp16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-layernorm-1x8192-fp16",
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-bmm-2x64x64x64-fp16",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        64,
+        64,
+        64
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-gemm-127x257x65-fp16",
+      "operation": "gemm",
+      "dimensions": [
+        127,
+        257,
+        65
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-gemm-1024x1024x1024-bf16",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-scan-128x8192-bf16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-reduce_sum-128x8192-bf16",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-rmsnorm-1x8192-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-layernorm-1x8192-bf16",
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-bmm-2x64x64x64-bf16",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        64,
+        64,
+        64
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-gemm-127x257x65-bf16",
+      "operation": "gemm",
+      "dimensions": [
+        127,
+        257,
+        65
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-control-scan-128x8192-fp32",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-control-rmsnorm-17x65-fp16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-softmax-128x1024-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-softmax-128x1024-bf16",
+      "operation": "softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ],
+  "parent_inventory": "paired16-cases.json retained byte-for-byte; two explicit softmax additions"
+}

@@ -32,6 +32,8 @@ class CUDAShaderTile final : public CUDAShader {
 private:
     CUmodule _module{};
     CUfunction _function{};
+    CUfunction _aligned16_function{};
+    uint32_t _aligned16_buffer_mask{0u};
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
@@ -60,7 +62,9 @@ public:
     CUDAShaderTile(CUmodule module, CUfunction function, luisa::string entry,
                    const std::array<uint32_t, 3u> &grid,
                    luisa::vector<uint32_t> buffer_arguments,
-                   luisa::vector<Usage> argument_usages) noexcept;
+                   luisa::vector<Usage> argument_usages,
+                   CUfunction aligned16_function = nullptr,
+                   uint32_t aligned16_buffer_mask = 0u) noexcept;
     ~CUDAShaderTile() noexcept override;
     [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
     [[nodiscard]] bool is_tile() const noexcept override { return true; }
@@ -69,6 +73,9 @@ public:
     // order, with BufferView offsets folded into plain device pointers.
     [[nodiscard]] bool encode_buffer_pointers(luisa::span<const Argument> arguments,
                                               luisa::span<CUdeviceptr> pointers) const noexcept;
+    // Select only after argument reordering and BufferView offsets are encoded.
+    // The generic handle/entry remain the safe, unspecialized function.
+    [[nodiscard]] CUfunction select_entry(luisa::span<const CUdeviceptr> pointers) const noexcept;
     [[nodiscard]] void *handle() const noexcept override { return _function; }
     [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
     [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }

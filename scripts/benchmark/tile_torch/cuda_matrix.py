@@ -114,7 +114,7 @@ def validate_case(row, default_seed):
     op = row["operation"]
     require(type(row.get("fast_math", False)) is bool, "fast_math must be boolean")
     ranking = row.get("ranking_algorithm", "full_sort_prefix")
-    require(ranking in {"full_sort_prefix", "repeated_extrema", "chunked_bitonic_c256", "chunked_bitonic_c512"}, "unknown ranking algorithm")
+    require(ranking in {"full_sort_prefix", "packed_fp32", "repeated_extrema", "chunked_bitonic_c256", "chunked_bitonic_c512"}, "unknown ranking algorithm")
     require("ranking_algorithm" not in row or op in {"sort", "topk"}, "ranking_algorithm is only applicable to ranking")
     require(ranking != "repeated_extrema" or op == "topk", "repeated_extrema requires topk")
     require(not ranking.startswith("chunked_bitonic_") or op == "sort", "chunked bitonic requires sort")
@@ -135,12 +135,12 @@ def validate_case(row, default_seed):
         require((tile[0] == 1 or (blockable and tile[0] in {4, 8})) and
                 tile[2] == 1 and tile[1] <= 16384, "invalid row schedule")
         require(op != "rope" or dims[1] % 2 == 0, "RoPE width must be even")
-        require(tile[1] >= (dims[1] // 2 if op == "rope" else dims[1]), "row tile does not cover the logical width")
+        require(op in {"swiglu", "gelu_residual", "rope"} or tile[1] >= dims[1], "row tile does not cover the logical width")
         require(op != "scan_ordered" or tile[1] <= 1024, "ordered reference scan is bounded to tile width 1024")
     elif op == "embedding":
         vocabulary, width, tokens = dims
         require(max(vocabulary * width, tokens * width) <= 2**24, "embedding tensors exceed allocation bound")
-        require(tile[0] == tile[2] == 1 and tile[1] <= 16384, "invalid embedding schedule")
+        require(tile[0] in {1, 4, 8} and tile[2] == 1 and tile[1] <= 16384, "invalid embedding schedule")
         require(row.get("pattern", "random") in {"random", "adversarial"}, "embedding requires random/adversarial pattern")
     elif op == "bmm":
         b, m, n, k = dims
@@ -208,10 +208,15 @@ def tensor_receipts(manifest_path, expected_case):
     if expected_case["operation"] in {"sort", "topk"}:
         ranking = expected_case.get("ranking_algorithm", "full_sort_prefix")
         require(manifest.get("ranking_algorithm", "full_sort_prefix") == ranking, "manifest ranking algorithm mismatch")
-        algorithm = ("stable_chunked_bitonic_whole_tile_merge" if ranking.startswith("chunked_bitonic_") else
+        algorithm = ("stable_packed_fp32_full_sort_prefix" if ranking == "packed_fp32" else
+                     "stable_chunked_bitonic_whole_tile_merge" if ranking.startswith("chunked_bitonic_") else
                      "stable_repeated_extrema" if ranking == "repeated_extrema" else
                      "padded_bitonic_full_sort" if expected_case["operation"] == "sort" else "padded_bitonic_full_sort_prefix")
         require(manifest.get("algorithm") == algorithm, "manifest realized ranking algorithm mismatch")
+    if expected_case["operation"] in {"swiglu", "gelu_residual", "rope"}:
+        from cuda_torch_baseline import pointwise_schedule_algorithm
+        algorithm = pointwise_schedule_algorithm(expected_case["operation"], expected_case["dimensions"], expected_case["tile"], manifest.get("backend"))
+        require(manifest.get("algorithm") == algorithm, "pointwise realized algorithm mismatch")
     if expected_case["operation"] == "argmax":
         require(manifest.get("algorithm") == "stable_first_index_argmax", "argmax algorithm mismatch")
         require(manifest.get("indices", {}).get("storage_dtype") == "int64", "argmax requires int64 indices")
@@ -219,7 +224,8 @@ def tensor_receipts(manifest_path, expected_case):
     storage = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}[expected_case["precision"]]
     if expected_case["operation"] == "embedding":
         vocabulary, width, tokens = expected_case["dimensions"]
-        require(manifest.get("algorithm") == "uniform_int64_row_gather", "embedding algorithm mismatch")
+        algorithm = "uniform_int64_row_gather" if expected_case["tile"][0] == 1 else "serial_grouped_uniform_int64_row_gather"
+        require(manifest.get("algorithm") == algorithm, "embedding algorithm mismatch")
         require([entry.get("name") for entry in manifest["inputs"]] == ["input0", "input1"] and
                 [entry.get("storage_dtype") for entry in manifest["inputs"]] == [storage, "int64"] and
                 [entry.get("shape") for entry in manifest["inputs"]] == [[vocabulary, width], [tokens]] and
@@ -243,6 +249,47 @@ def tensor_receipts(manifest_path, expected_case):
         require(file.stat().st_size == math.prod(shape) * element_bytes, f"wrong tensor byte count: {file}")
         hashes[name] = digest(file)
     return manifest, hashes
+
+
+def alignment_receipts(result, requested):
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    receipts = result.get("native_alignment")
+    if receipts is None and not requested:
+        # Preserve read-only validation of pre-specialization historical runs.
+        require(all("aligned16-requested" not in stage.get("realization", "") for stage in stages), "missing alignment receipts")
+        return []
+    require(isinstance(receipts, list) and len(receipts) == len(stages), "missing per-stage alignment receipts")
+    for index, (receipt, stage) in enumerate(zip(receipts, stages)):
+        require(receipt.get("stage") == index and receipt.get("requested") is requested, "alignment request/stage mismatch")
+        mask, residues = receipt.get("eligible_buffer_mask"), receipt.get("final_argument_mod16")
+        require(type(mask) is int and mask >= 0 and isinstance(residues, list) and len(residues) <= 31 and
+                all(type(value) is int and 0 <= value < 16 for value in residues) and mask >> len(residues) == 0,
+                "invalid alignment pointer/mask receipt")
+        realization = stage.get("realization", "")
+        require(("aligned16-requested" in realization) is requested, "alignment request/realization mismatch")
+        if requested:
+            require(f"aligned16-buffer-mask={mask};" in realization and
+                    (("host-selected-dual-entry-aligned16-v1" in realization) == (mask != 0)) and
+                    (("aligned16-ineligible" in realization) == (mask == 0)), "alignment eligibility mismatch")
+        else:
+            require(mask == 0, "default run contains alignment specialization")
+        aligned = bool(mask) and all(value == 0 for slot, value in enumerate(residues) if mask & (1 << slot))
+        require(receipt.get("expected_selected_entry") == ("luisa_tile_aligned16" if aligned else "luisa_tile_main"),
+                "alignment selected entry mismatch")
+    return receipts
+
+
+def route_environment(environment, route, native_aligned16=False):
+    # Never inherit experimental specialization into a control or another
+    # route. Only an explicit native request may set the exact opt-in value.
+    result = dict(environment)
+    result.pop("LUISA_CUDA_TILE_IR_ALIGNED16", None)
+    result.pop("LUISA_CUDA_TILE_IR", None)
+    if route == "native":
+        result["LUISA_CUDA_TILE_IR"] = "1"
+        if native_aligned16:
+            result["LUISA_CUDA_TILE_IR_ALIGNED16"] = "1"
+    return result
 
 
 def child(cpu, command, work, environment, mask, timeout):
@@ -321,6 +368,8 @@ def native_result(process, path, row, args, route):
             if args.graph_batch:
                 require(result["graph_batch"] == args.graph_batch and len(result["graph_event_stream_span_us_per_op"]) == args.samples,
                         "native graph contract mismatch")
+    if result["status"] == "passed" and route == "native":
+        alignment_receipts(result, getattr(args, "native_aligned16", False))
     artifacts = {}
     if result["status"] == "passed" and row.get("ranking_algorithm", "").startswith("chunked_bitonic_"):
         chunk = 256 if row["ranking_algorithm"] == "chunked_bitonic_c256" else 512
@@ -436,6 +485,7 @@ def main(argv=None):
     parser.add_argument("--affinity-mask", type=lambda value: int(value, 0), help="explicit Windows group-0 process affinity mask")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--routes", default="native,tirx", help="comma-separated native,tirx,simd; CUDA runs remain serial")
+    parser.add_argument("--native-aligned16", action="store_true", help="opt in to host-selected 16-byte aligned native Tile entries; other routes stay unchanged")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -481,7 +531,7 @@ def main(argv=None):
     environment = os.environ.copy()
     removed = {}
     for key in list(environment):
-        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
+        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
             removed[key] = environment.pop(key)
     overrides = {"LUISA_SIMD_WORKER_COUNT": str(args.threads), "LUISA_SIMD_WARP_WIDTH": "8", "OPENBLAS_NUM_THREADS": str(args.threads),
                  "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads), "GOTO_NUM_THREADS": str(args.threads),
@@ -499,6 +549,8 @@ def main(argv=None):
     files += list((build / "bin").glob("luisa*.dll"))
     files += [path for name in ("luisa_cuda_tile_compiler.exe", "luisa_nvrtc.exe") if (path := build / "bin" / name).is_file()]
     files += list((ROOT / "src/backends/cuda/tile").glob("cuda_tile*.cpp"))
+    files += [ROOT / name for name in ("src/backends/cuda/tile/cuda_tile_codegen.h", "src/backends/cuda/cuda_shader_tile.h",
+                                       "src/backends/cuda/cuda_shader_tile.cpp", "src/backends/cuda/extensions/cuda_graph_ext.cpp")]
     for path in args.path_prefix:
         files += list(path.resolve().glob("*tvm*.dll"))
     identities = {str(path): dict(sha256=digest(path), bytes=path.stat().st_size) for path in files}
@@ -546,12 +598,15 @@ def main(argv=None):
                         command += ["--ranking-algorithm", definition["ranking_algorithm"]]
                     if args.graph_batch and route != "simd":
                         command += ["--graph-batch", args.graph_batch]
-                    child_environment = {**environment, **({"LUISA_CUDA_TILE_IR": "1"} if route == "native" else {})}
+                    child_environment = route_environment(environment, route, args.native_aligned16)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
                     except Exception as error:
                         item["runs"][route] = dict(status="failed", process=process, error=str(error), traceback=traceback.format_exc())
+                    item["runs"][route]["native_aligned16_requested"] = route == "native" and args.native_aligned16
+                    item["runs"][route]["environment_overrides"] = {
+                        key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:

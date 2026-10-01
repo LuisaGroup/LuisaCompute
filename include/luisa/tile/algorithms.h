@@ -87,6 +87,10 @@ template<scalar_cpp_type T>
     return reduce(ite(value == peak, indices, std::numeric_limits<int64_t>::max()), dimension, minimum);
 }
 
+// The default composition remains unchanged on every backend. PACKED_FP32
+// is explicit and requires non-NaN float values, a power-of-two axis and N <= 2^31.
+enum class SortAlgorithm : uint8_t { DEFAULT, PACKED_FP32 };
+
 template<scalar_cpp_type T>
 struct RankedTile {
     Tile<T> values;
@@ -158,6 +162,50 @@ template<scalar_cpp_type T, scalar_cpp_type I>
     return {std::move(values), cast<int64_t>(indices)};
 }
 
+// Reversible UINT64 keys carry one sorting network. Integer division and
+// remainder use exact power-of-two constants; no floating arithmetic or
+// pointer gather participates in either encoding or decoding.
+[[nodiscard]] inline RankedTile<float> packed_bitonic_sort_fp32(const Tile<float> &value, Axis dimension, bool largest) noexcept {
+    constexpr auto sign = uint32_t{0x80000000u};
+    constexpr auto low_mask = uint32_t{0x7fffffffu};
+    constexpr auto word_mask = uint32_t{0xffffffffu};
+    constexpr auto word_scale = uint64_t{1u} << 32u;
+    auto bits = bitcast<uint32_t>(value);
+    auto normalized = ite(bits % sign == 0u, uint32_t{0u}, bits);
+    auto negative = normalized >= sign;
+    auto numerical = largest ? ite(negative, normalized, low_mask - normalized) :
+                               ite(negative, word_mask - normalized, normalized + sign);
+    auto indices = cast<uint64_t>(iota(dimension)) + zeros<uint64_t>(value.space());
+    auto payload = indices * uint64_t{2u} + cast<uint64_t>(bits / sign);
+    auto keys = cast<uint64_t>(numerical) * word_scale + payload;
+    auto lane = iota(dimension);
+    auto extent = dimension.extent().constant_value();
+    for (auto span = uint64_t{2u}; span <= extent;) {
+        for (auto stride = span / 2u; stride != 0u; stride /= 2u) {
+            auto partner = [&](const Nest &nest) {
+                auto i = nest.index(dimension);
+                auto distance = static_cast<int64_t>(stride);
+                auto group = 2 * distance;
+                auto j = i / group * group + (i + distance) % group;
+                return projected_coordinates(value.space(), nest, dimension.dimension(), j);
+            };
+            auto other = reindex(keys, value.space(), partner);
+            auto first = (lane / static_cast<int64_t>(stride) % 2 == 0) ==
+                         (lane / static_cast<int64_t>(span) % 2 == 0);
+            // Composite keys are unique: original index precedes the sign bit.
+            keys = ite(first == (other < keys), other, keys);
+        }
+        if (span == extent) { break; }
+        span *= 2u;
+    }
+    auto sorted_payload = cast<uint32_t>(keys % word_scale);
+    auto sorted_numerical = cast<uint32_t>(keys / word_scale);
+    auto restored_normalized = largest ? ite(sorted_numerical >= sign, sorted_numerical, low_mask - sorted_numerical) :
+                                         ite(sorted_numerical < sign, word_mask - sorted_numerical, sorted_numerical - sign);
+    auto original_bits = ite(restored_normalized == 0u, (sorted_payload % uint32_t{2u}) * sign, restored_normalized);
+    return {bitcast<float>(original_bits), cast<int64_t>(sorted_payload / uint32_t{2u})};
+}
+
 template<scalar_cpp_type T>
 [[nodiscard]] RankedTile<T> bitonic_sort(const Tile<T> &value, Axis dimension, bool largest) noexcept {
     // Only the carried original indices are narrowed. Coordinates retain their
@@ -171,11 +219,12 @@ template<scalar_cpp_type T>
 
 }// namespace detail
 
-// Stable total order on finite values; ties use the original index. This
+// Stable total order on non-NaN values (including infinities); ties use the original index. This
 // uses a bitonic network for power-of-two axes, and retains a general quadratic
 // composition for other extents. Selecting a prefix never changes tie order.
 template<scalar_cpp_type T>
-[[nodiscard]] RankedTile<T> topk(const Tile<T> &value, Axis dimension, uint64_t count, bool largest = true) noexcept {
+[[nodiscard]] RankedTile<T> topk(const Tile<T> &value, Axis dimension, uint64_t count, bool largest = true,
+                                 SortAlgorithm algorithm = SortAlgorithm::DEFAULT) noexcept {
     auto source_axis = value.space().axis_index(dimension.dimension());
     if (!source_axis || !dimension.extent().is_constant() ||
         dimension.extent().constant_value() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
@@ -184,8 +233,22 @@ template<scalar_cpp_type T>
         return {};
     }
     auto extent = dimension.extent().constant_value();
+    if (algorithm != SortAlgorithm::DEFAULT && algorithm != SortAlgorithm::PACKED_FP32) {
+        detail::capture_error("unknown Tile sort algorithm");
+        return {};
+    }
+    if (algorithm == SortAlgorithm::PACKED_FP32 &&
+        (!std::same_as<T, float> || !std::has_single_bit(extent) || extent > (uint64_t{1u} << 31u))) {
+        detail::capture_error("packed sort requires float32, a power-of-two axis and N <= 2^31");
+        return {};
+    }
     if (std::has_single_bit(extent)) {
-        auto sorted = detail::bitonic_sort(value, dimension, largest);
+        auto sorted = [&] {
+            if constexpr (std::same_as<T, float>) {
+                if (algorithm == SortAlgorithm::PACKED_FP32) { return detail::packed_bitonic_sort_fp32(value, dimension, largest); }
+            }
+            return detail::bitonic_sort(value, dimension, largest);
+        }();
         if (count == extent) { return sorted; }
         auto rank_axis = axis("rank", count);
         IndexSpace output;
@@ -242,8 +305,9 @@ template<scalar_cpp_type T>
 }
 
 template<scalar_cpp_type T>
-[[nodiscard]] RankedTile<T> sort(const Tile<T> &value, Axis dimension, bool descending = false) noexcept {
-    return topk(value, dimension, dimension.extent().constant_value(), descending);
+[[nodiscard]] RankedTile<T> sort(const Tile<T> &value, Axis dimension, bool descending = false,
+                                 SortAlgorithm algorithm = SortAlgorithm::DEFAULT) noexcept {
+    return topk(value, dimension, dimension.extent().constant_value(), descending, algorithm);
 }
 
 }// namespace luisa::compute::tile
