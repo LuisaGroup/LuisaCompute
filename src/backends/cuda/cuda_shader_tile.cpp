@@ -62,15 +62,35 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
                                luisa::vector<Usage> argument_usages) noexcept
     : CUDAShader{nullptr, std::move(argument_usages)},
       _module{module}, _function{function}, _entry{std::move(entry)},
-      _grid{grid}, _block_size{1u, 1u, 1u}, _graph_compatible{false},
+      _grid{grid}, _block_size{1u, 1u, 1u},
       _buffer_arguments{std::move(buffer_arguments)} {
-    // module_image remains empty. Vulkan interop and CUDA graphs use the DSL
-    // parameter ABI, which is incompatible with Tile's direct pointer list.
+    // module_image remains empty: Vulkan interop uses the DSL parameter ABI.
+    // CUDA graphs encode Tile's direct pointer list explicitly.
     LUISA_ASSERT(_module != nullptr && _function != nullptr, "Native Tile requires an owned module and entry.");
 }
 
 CUDAShaderTile::~CUDAShaderTile() noexcept {
     LUISA_CHECK_CUDA(cuModuleUnload(_module));
+}
+
+bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
+                                            luisa::span<CUdeviceptr> pointers) const noexcept {
+    if (args.size() != argument_count() || pointers.size() != _buffer_arguments.size() || pointers.size() > 31u) { return false; }
+    // Validate unused host parameters too, before graph dependency analysis.
+    for (auto &&arg : args) {
+        if (arg.tag != Argument::Tag::BUFFER || arg.buffer.handle == ~uint64_t{0}) { return false; }
+        auto base = reinterpret_cast<const CUDABufferBase *>(arg.buffer.handle);
+        if (base == nullptr || base->is_indirect() || arg.buffer.offset > base->size_bytes() ||
+            arg.buffer.size > base->size_bytes() - arg.buffer.offset) { return false; }
+    }
+    for (auto slot = size_t{0u}; slot < pointers.size(); slot++) {
+        auto index = _buffer_arguments[slot];
+        if (index >= args.size()) { return false; }
+        auto &&arg = args[index].buffer;
+        auto buffer = reinterpret_cast<const CUDABuffer *>(arg.handle);
+        pointers[slot] = buffer->binding(arg.offset, arg.size).handle;
+    }
+    return true;
 }
 
 void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
@@ -89,22 +109,11 @@ void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
                  "CUDA Tile shader exceeds the supported kernel parameter "
                  "envelope ({} device buffers).",
                  parameter_count);
-    luisa::vector<CUdeviceptr> pointers(parameter_count);
-    luisa::vector<void *> kernel_parameters(parameter_count);
+    std::array<CUdeviceptr, 31u> pointers{};
+    std::array<void *, 31u> kernel_parameters{};
+    LUISA_ASSERT(encode_buffer_pointers(args, {pointers.data(), parameter_count}),
+                 "Direct-buffer Tile arguments have an invalid type, count, or range.");
     for (auto slot = size_t{0u}; slot < parameter_count; slot++) {
-        auto index = _buffer_arguments[slot];
-        LUISA_ASSERT(index < args.size() && args[index].tag == ShaderDispatchCommand::Argument::Tag::BUFFER,
-                     "Direct-buffer Tile shader expects buffer arguments.");
-        auto &arg = args[index].buffer;
-        auto base = reinterpret_cast<const CUDABufferBase *>(arg.handle);
-        LUISA_ASSERT(!base->is_indirect(), "Dispatch buffers are not Tile tensor arguments.");
-        LUISA_ASSERT(arg.offset <= base->size_bytes() && arg.size <= base->size_bytes() - arg.offset,
-                     "Direct-buffer Tile argument range exceeds its resource.");
-        auto buffer = static_cast<const CUDABuffer *>(base);
-        auto binding = buffer->binding(arg.offset, arg.size);
-        // The generated CUDA kernel takes plain typed pointers. A nonzero view
-        // offset is folded into the raw device address by CUDABuffer::binding.
-        pointers[slot] = binding.handle;
         kernel_parameters[slot] = &pointers[slot];
     }
 

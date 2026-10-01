@@ -88,7 +88,8 @@ public:
 
     // -- Lifecycle --
 
-    /// Capture a CommandList into a CUDA graph via stream capture.
+    /// Build a dependency DAG from a CommandList. Plain CUDA compute and
+    /// direct-buffer Tile kernels preserve their respective launch ABIs.
     [[nodiscard]] virtual ResourceCreationInfo _create_graph(CommandList &&cmdlist) noexcept = 0;
     [[nodiscard]] CudaGraphInstance create_graph(CommandList &&cmdlist) {
         return CudaGraphInstance{this, _create_graph(std::move(cmdlist))};
@@ -138,6 +139,8 @@ public:
 
     // -- Individual node update (faster when few nodes change) --
     // Nodes indexed by position in the original CommandList.
+    // Tile kernel nodes require update(CommandList); the raw kernel-node
+    // update has no Tile buffer mapping and returns false for those nodes.
 
     [[nodiscard]] virtual bool update_kernel_node(
         GraphExecHandle exec, size_t node_index,

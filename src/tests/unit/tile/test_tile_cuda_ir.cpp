@@ -3,6 +3,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 #include "tile_xir_test_utils.h"
+#include "tile_llm_test_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include <vector>
 
 #include <luisa/core/platform.h>
@@ -342,6 +344,219 @@ void expect_rejected(const tile::Shader &shader, luisa::string_view reason) noex
     expect(shader.metadata().error.find(reason) != luisa::string::npos) << shader.metadata().error;
 }
 
+void row_operations(Device &device) {
+    using test::tile_llm::RowOp;
+    for (auto op : {RowOp::RMS_NORM, RowOp::LAYER_NORM, RowOp::SWIGLU, RowOp::ROPE, RowOp::MASKED_SOFTMAX, RowOp::GELU_RESIDUAL}) {
+        auto fixture = test::tile_llm::rows(op, 7, 32);
+        auto shader = tile::compile(device, fixture.kernel);
+        if (!check_native(shader, make_uint3(7u, 1u, 1u), 4u)) { continue; }
+        if (op == RowOp::RMS_NORM || op == RowOp::LAYER_NORM || op == RowOp::MASKED_SOFTMAX) {
+            expect(shader.metadata().source.find("ct::sum(") != luisa::string::npos);
+        }
+        if (op == RowOp::MASKED_SOFTMAX) { expect(shader.metadata().source.find("ct::reduce_max(") != luisa::string::npos); }
+        GuardedBuffer x{device, fixture.inputs[0].size()}, u{device, fixture.inputs[1].size()},
+            v{device, fixture.inputs[2].size()}, y{device, fixture.expected.size()};
+        for (auto i = 0u; i < x.count; i++) { x[i] = fixture.inputs[0][i]; }
+        for (auto i = 0u; i < u.count; i++) { u[i] = fixture.inputs[1][i]; }
+        for (auto i = 0u; i < v.count; i++) { v[i] = fixture.inputs[2][i]; }
+        y.poison();
+        auto original_x = x.host, original_u = u.host, original_v = v.host;
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << x.buffer.copy_from(luisa::span{x.host}) << u.buffer.copy_from(luisa::span{u.host})
+               << v.buffer.copy_from(luisa::span{v.host}) << y.buffer.copy_from(luisa::span{y.host})
+               << shader(x.view(), u.view(), v.view(), y.view()).dispatch()
+               << x.buffer.copy_to(luisa::span{x.host}) << u.buffer.copy_to(luisa::span{u.host})
+               << v.buffer.copy_to(luisa::span{v.host}) << y.buffer.copy_to(luisa::span{y.host}) << synchronize();
+        check_readonly(x, original_x);
+        check_readonly(u, original_u);
+        check_readonly(v, original_v);
+        y.check_guards();
+        for (auto i = 0u; i < y.count; i++) {
+            expect(std::isfinite(y[i]));
+            auto error = std::abs(static_cast<double>(y[i]) - fixture.expected[i]);
+            expect(error <= 2e-5 * (1.0 + std::abs(fixture.expected[i]))) << "op=" << static_cast<int>(op) << " index=" << i << " error=" << error;
+        }
+    }
+}
+
+void named_axis_broadcast(Device &device) {
+    using namespace tile;
+    auto kernel = tile_kernel("permuted_named_dimensions", [](TensorView<const float, 2> a, TensorView<float, 2> b) {
+                      auto m = axis("m", 4), n = axis("n", 8);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0, 0), shape(n, m)).load();
+                          auto total = reduce(x, shape(n, m), add);
+                          auto y = full<float>(shape(m, n), 2.0f) + x + cast<float>(iota(n));
+                          auto mapped = map<float>(shape(m, n), [&](const Nest &index) {
+                              auto value = y.at(index);
+                              return ite(index.index(m) < 2, value, Scalar<float>{-3.0f});
+                          });
+                          b(coord(0, 0), shape(m, n)).store(mapped + total);
+                      }
+                  }).capture(tensor_shape(8, 4), tensor_shape(4, 8));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 2u)) { return; }
+    expect(shader.metadata().source.find("ct::permute(") != luisa::string::npos);
+    expect(shader.metadata().source.find("ct::shape<>") != luisa::string::npos);
+    GuardedBuffer a{device, 32u}, b{device, 32u};
+    auto total = 0.0f;
+    for (auto i = 0u; i < a.count; i++) { a[i] = static_cast<float>(i) * .125f - 2.0f; total += a[i]; }
+    auto original = a.host;
+    b.poison();
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+           << shader(a.view(), b.view()).dispatch()
+           << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host}) << synchronize();
+    check_readonly(a, original);
+    b.check_guards();
+    for (auto m = 0u; m < 4u; m++) {
+        for (auto n = 0u; n < 8u; n++) {
+            auto expected = (m < 2u ? 2.0f + a[n * 4u + m] + static_cast<float>(n) : -3.0f) + total;
+            expect(bits(b[m * 8u + n]) == bits(expected)) << "m=" << m << " n=" << n;
+        }
+    }
+}
+
+struct WeightedFold {
+    template<typename T>
+    [[nodiscard]] static constexpr T identity() noexcept { return T{1}; }
+    template<typename A, typename B>
+    [[nodiscard]] auto operator()(const A &a, const B &b) const noexcept { return a * .5f + b; }
+};
+
+void ordered_reductions(Device &device) {
+    using namespace tile;
+    auto kernel = tile_kernel("ordered_non_associative_reducers", [](TensorView<const float, 2> a, TensorView<float, 2> b) {
+                      auto m = axis("m", 4), n = axis("n", 8);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0, 0), shape(m, n)).load();
+                          auto left = reduce(x, n, WeightedFold{}, reduction::fold_left);
+                          auto right = reduce(x, n, WeightedFold{}, reduction::fold_right);
+                          auto ordered = reduce(x, n, WeightedFold{}, reduction::ordered_tree);
+                          b(coord(0, 0), shape(m, n)).store(left + right * 16.0f + ordered * 256.0f);
+                      }
+                  }).capture(tensor_shape(4, 8), tensor_shape(4, 8));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 2u)) { return; }
+    expect(shader.metadata().source.find("ct::sum(") == luisa::string::npos);
+    expect(shader.metadata().source.find("-- > 0ll") != luisa::string::npos);
+    GuardedBuffer a{device, 32u}, b{device, 32u};
+    for (auto i = 0u; i < a.count; i++) { a[i] = static_cast<float>(i % 11u) * .125f; }
+    auto original = a.host;
+    b.poison();
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+           << shader(a.view(), b.view()).dispatch()
+           << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host}) << synchronize();
+    check_readonly(a, original);
+    b.check_guards();
+    for (auto m = 0u; m < 4u; m++) {
+        auto left = 1.0f, right = 1.0f;
+        for (auto n = 0u; n < 8u; n++) { left = left * .5f + a[m * 8u + n]; }
+        for (auto n = 8u; n-- > 0u;) { right = a[m * 8u + n] * .5f + right; }
+        auto expected = left + right * 16.0f + left * 256.0f;
+        for (auto n = 0u; n < 8u; n++) { expect(bits(b[m * 8u + n]) == bits(expected)) << "row=" << m; }
+    }
+}
+
+void elementary_math(Device &device) {
+    using namespace tile;
+    auto kernel = tile_kernel("explicit_fp32_math", [](TensorView<const float, 1> a, TensorView<float, 1> b) {
+                      auto n = axis("n", 16);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0), shape(n)).load();
+                          b(coord(0), shape(n)).store(abs(x));
+                          b(coord(16), shape(n)).store(tile::log(abs(x)));
+                          b(coord(32), shape(n)).store(sqrt(abs(x)));
+                          b(coord(48), shape(n)).store(exp(x));
+                          b(coord(64), shape(n)).store(tanh(x));
+                          b(coord(80), shape(n)).store(min(x, 0.25f));
+                          b(coord(96), shape(n)).store(max(x, -0.25f));
+                          b(coord(112), shape(n)).store(broadcast_to(reduce(x, n, minimum), shape(n)));
+                          b(coord(128), shape(n)).store(broadcast_to(reduce(x, n, maximum), shape(n)));
+                      }
+                  }).capture(tensor_shape(16), tensor_shape(144));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 2u)) { return; }
+    expect(shader.metadata().source.find("ct::reduce_min(") != luisa::string::npos);
+    GuardedBuffer a{device, 16u}, b{device, 144u};
+    std::array<float, 16u> values{0.0f, -0.0f, 0x1p-149f, -0x1p-149f, 0x1p-126f, -0x1p-126f,
+                                .125f, -.125f, 1.0f, -1.0f, 8.0f, -8.0f,
+                                std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                                std::numeric_limits<float>::quiet_NaN(), .25f};
+    for (auto i = 0u; i < a.count; i++) { a[i] = values[i]; }
+    auto original = a.host;
+    b.poison();
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+           << shader(a.view(), b.view()).dispatch()
+           << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host}) << synchronize();
+    check_readonly(a, original);
+    b.check_guards();
+    for (auto i = 0u; i < a.count; i++) {
+        auto x = static_cast<double>(a[i]);
+        std::array<double, 9u> expected{std::abs(x), std::log(std::abs(x)), std::sqrt(std::abs(x)), std::exp(x),
+                                      std::tanh(x), std::fmin(x, .25), std::fmax(x, -.25),
+                                      -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
+        for (auto op = 0u; op < expected.size(); op++) {
+            auto actual = b[op * 16u + i];
+            if (std::isnan(expected[op])) { expect(std::isnan(actual)) << "math op=" << op << " index=" << i; }
+            else if (std::isinf(expected[op])) { expect(actual == expected[op]) << "math op=" << op << " index=" << i; }
+            else if (op == 0u || op == 5u || op == 6u) { expect(bits(actual) == bits(static_cast<float>(expected[op]))) << "math op=" << op << " index=" << i; }
+            else {
+                expect(std::isfinite(actual));
+                auto error = std::abs(static_cast<double>(actual) - expected[op]);
+                expect(error <= 2e-6 * std::abs(expected[op]) + 1e-44) << "math op=" << op << " index=" << i << " error=" << error;
+            }
+        }
+    }
+}
+
+template<typename T>
+void typed_buffer_copy(Device &device) {
+    using namespace tile;
+    constexpr auto count = 19u;
+    auto kernel = tile_kernel("typed_views_and_negative_origin", [](TensorView<const T, 1> a, TensorView<T, 1> b) {
+                      auto n = axis("n", 32);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          b(coord(0), shape(n)).store(a.tile(coord(-3), shape(n)).load());
+                      }
+                  }).capture(tensor_shape(count), tensor_shape(count));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 2u)) { return; }
+    for (auto &&argument : shader.metadata().arguments) {
+        expect(argument.element == scalar_type_v<T>);
+        expect(argument.minimum_size_bytes == count * sizeof(T));
+    }
+    expect(shader.metadata().arguments[0].usage == Usage::READ);
+    expect(shader.metadata().arguments[1].usage == Usage::WRITE);
+    std::array<T, count + 2u * kPad> a{}, b{};
+    for (auto i = 0u; i < a.size(); i++) {
+        if constexpr (std::is_same_v<T, bool>) { a[i] = i % 3u == 0u; b[i] = true; }
+        else {
+            using U = std::make_unsigned_t<T>;
+            auto word = static_cast<U>(0x80b19d5e7f3c2a01ull ^ (static_cast<uint64_t>(i) * 0x1f45d78b9ull));
+            a[i] = std::bit_cast<T>(word);
+            b[i] = static_cast<T>(37);
+        }
+    }
+    auto original_a = a, original_b = b;
+    auto gpu_a = device.create_buffer<T>(a.size()), gpu_b = device.create_buffer<T>(b.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << gpu_a.copy_from(luisa::span{a}) << gpu_b.copy_from(luisa::span{b})
+           << shader(gpu_a.view(kPad, count), gpu_b.view(kPad, count)).dispatch()
+           << gpu_a.copy_to(luisa::span{a}) << gpu_b.copy_to(luisa::span{b}) << synchronize();
+    for (auto i = 0u; i < a.size(); i++) {
+        expect(a[i] == original_a[i]) << "readonly typed word=" << i;
+        auto expected = i < kPad || i >= kPad + count ? original_b[i] : i < kPad + 3u ? T{} : original_a[i - 3u];
+        expect(b[i] == expected) << "typed word=" << i;
+    }
+}
+
 void rejected_options(Device &device) {
     auto kernel = pointwise();
     tile::CompileOptions tile_options;
@@ -381,6 +596,19 @@ void rejected_shapes_and_constraints(Device &device) {
                            }
                        }).capture(tensor_shape(16), tensor_shape(16));
     expect_rejected(tile::compile(device, unsupported, {}, strict), "FP32");
+    auto gather = tile_kernel("lane_dependent_gather", [](TensorView<const float, 1> a, TensorView<float, 1> b) {
+                      auto n = axis("n", 16);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0), shape(n)).load();
+                          auto shifted = map<float>(shape(n), [&](const Nest &index) {
+                              Scalar<int64_t> coordinates[]{(index.index(n) + 1) % 16};
+                              return x.at(coordinates);
+                          });
+                          b(coord(0), shape(n)).store(shifted);
+                      }
+                  }).capture(tensor_shape(16), tensor_shape(16));
+    expect_rejected(tile::compile(device, gather, {}, strict), "lane-dependent gather");
 }
 
 }// namespace
@@ -447,6 +675,17 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ir_read_before_write_snapshot"_test = [&] { snapshot_ordering(device); };
     "tile_cuda_ir_negative_origin_bitwise_copy"_test = [&] { shifted_bitwise_copy(device); };
     "tile_cuda_ir_simultaneous_carry_swap"_test = [&] { swap_oracle(device); };
+    "tile_cuda_ir_llm_rows"_test = [&] { row_operations(device); };
+    "tile_cuda_ir_named_axis_broadcast"_test = [&] { named_axis_broadcast(device); };
+    "tile_cuda_ir_ordered_reductions"_test = [&] { ordered_reductions(device); };
+    "tile_cuda_ir_elementary_math"_test = [&] { elementary_math(device); };
+    "tile_cuda_ir_typed_buffer_views"_test = [&] {
+        typed_buffer_copy<bool>(device);
+        typed_buffer_copy<int32_t>(device);
+        typed_buffer_copy<uint32_t>(device);
+        typed_buffer_copy<int64_t>(device);
+        typed_buffer_copy<uint64_t>(device);
+    };
     "tile_cuda_ir_rejects_unsupported_options"_test = [&] { rejected_options(device); };
     "tile_cuda_ir_rejects_shapes_constraints_and_types"_test = [&] { rejected_shapes_and_constraints(device); };
     return 0;

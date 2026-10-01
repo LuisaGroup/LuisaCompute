@@ -55,6 +55,8 @@ public:
     // derived type is then safe; the graph capture code cannot dynamic_cast
     // because the core is built with RTTI disabled).
     [[nodiscard]] virtual bool is_native() const noexcept { return false; }
+    // Direct-buffer Tile kernels have their own parameter order and static grid.
+    [[nodiscard]] virtual bool is_tile() const noexcept { return false; }
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;
