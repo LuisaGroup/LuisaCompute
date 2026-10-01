@@ -73,6 +73,13 @@ if (CUDAToolkit_FOUND)
     if (TARGET luisa-compute-tile-bridge-tirx)
         target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-compute-tile-bridge-tirx)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_CUDA_TILE_TIRX=1)
+        # TIRx emits ordinary CUDA headers. The standalone NVRTC compiler does
+        # not inherit the host compiler's include search paths. Keep this local
+        # to native Tile compilation; ordinary AST/LLVM CUDA routes are unchanged.
+        list(GET CUDAToolkit_INCLUDE_DIRS 0 _luisa_cuda_tile_include)
+        file(TO_CMAKE_PATH "${_luisa_cuda_tile_include}" _luisa_cuda_tile_include)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE
+                "LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR=\"${_luisa_cuda_tile_include}\"")
     endif ()
 
     # software ray-tracing fallback (src/backends/common/rtx).  Guarded so that a

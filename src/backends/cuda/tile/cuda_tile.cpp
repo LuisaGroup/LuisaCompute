@@ -7,7 +7,6 @@
 #include <array>
 #include <climits>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <string_view>
 #include <utility>
@@ -15,6 +14,7 @@
 #include <luisa/core/binary_io.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/string.h>
@@ -155,8 +155,8 @@ TileLoadResult probe_tile_ptx(luisa::string_view entry,
 // otherwise load the module directly. The subsequent (patched) probe always
 // runs for real.
 [[nodiscard]] bool force_first_tile_probe_unsupported() noexcept {
-    auto value = std::getenv("LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX");
-    return value != nullptr && luisa::string_view{value} == "1";
+    auto value = luisa::get_environment_variable("LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX");
+    return value && luisa::string_view{*value} == "1";
 }
 
 }// namespace
@@ -332,6 +332,9 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         shader_metadata.max_register_count = std::clamp(option.max_registers, 0u, 255u);
         shader_metadata.block_size = block;
         for (auto &arg : metadata.arguments) {
+            // The argument validation above accepts only FP32 buffers. Keep
+            // the ordinary CUDA sidecar's type and usage arrays in lockstep.
+            shader_metadata.argument_types.emplace_back(Type::buffer(Type::of<float>())->description());
             shader_metadata.argument_usages.emplace_back(arg.usage);
         }
 
@@ -365,6 +368,11 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             luisa::vector<luisa::string> option_storage;
             option_storage.emplace_back(luisa::format("-arch=compute_{}", arch));
             option_storage.emplace_back("--std=c++17");
+            option_storage.emplace_back("--include-path=" LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR);
+            // CUDA 13 moved libcu++ into the toolkit's include/cccl directory.
+            // Older SDKs retain the include-root layout and ignore this extra
+            // search directory when it does not exist.
+            option_storage.emplace_back("--include-path=" LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR "/cccl");
             option_storage.emplace_back("-default-device");
             option_storage.emplace_back("-restrict");
             option_storage.emplace_back("-extra-device-vectorization");
@@ -381,7 +389,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             for (auto &s : option_storage) { nvrtc_options.emplace_back(s.c_str()); }
 
             luisa::filesystem::path src_dump_path;
-            auto dump_source = option.enable_debug_info || std::getenv("LUISA_DUMP_SOURCE") != nullptr;
+            auto dump_source = option.enable_debug_info || luisa::get_environment_variable("LUISA_DUMP_SOURCE").has_value();
             luisa::string src_filename;
             if (dump_source) {
                 luisa::span src_span{

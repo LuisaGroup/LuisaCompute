@@ -96,6 +96,15 @@ on_load(function(target)
           -- define mirrors the CMake `if (TARGET ...tirx)` wiring in
           -- src/backends/cuda/CMakeLists.txt.
           target:add("defines", "LUISA_CUDA_TILE_TIRX")
+          import("cuda_sdkdir", {rootdir = get_config("lc_scripts_path")})
+          import("detect.sdks.find_cuda")
+          local cuda = find_cuda(cuda_sdkdir())
+          local include_dirs = cuda and cuda.includedirs
+          local include_dir = type(include_dirs) == "table" and include_dirs[1] or include_dirs
+          assert(type(include_dir) == "string" and include_dir ~= "",
+                 "CUDA Tile TIRX requires the CUDA toolkit include directory")
+          include_dir = include_dir:gsub("\\", "/"):gsub('"', '\\"')
+          target:add("defines", 'LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR="' .. include_dir .. '"')
           -- cuda_tile.cpp includes the TIRx compiler header, which pulls in
           -- tvm-ffi headers that use throw.
           target:set("exceptions", "cxx")

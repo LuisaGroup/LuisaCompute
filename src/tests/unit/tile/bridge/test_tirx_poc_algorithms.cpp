@@ -141,7 +141,7 @@ void test_sobel_and_ordered_median(Runtime &runtime) {
                 auto weight_y = cast<float>(dy * ite(dx == 0, int64_t{2}, int64_t{1}));
                 auto gx = reduce(window * weight_x, shape(fy, fx), add);
                 auto gy = reduce(window * weight_y, shape(fy, fx), add);
-                auto ordered = sort(reshape(window, shape(tap)), tap);
+                auto ordered = luisa::compute::tile::sort(reshape(window, shape(tap)), tap);
                 auto middle = gather(ordered.values, full<int64_t>(IndexSpace{}, 4), tap);
                 auto destination = coord(nest.index(y), nest.index(x));
                 gradient_x(destination, shape(oy, ox)).store(gx);

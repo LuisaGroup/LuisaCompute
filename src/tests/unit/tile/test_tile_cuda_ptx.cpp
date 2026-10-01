@@ -554,6 +554,20 @@ public:
         auto iterator = entries.find(std::string{name});
         return iterator == entries.end() ? nullptr : &iterator->second;
     }
+    // Preserve valid sidecar syntax/cardinality while changing the buffer ABI.
+    // A cache hit must compare argument types, not only checksum and usage.
+    [[nodiscard]] bool corrupt_argument_type(luisa::string_view ptx_name) const noexcept {
+        auto iterator = entries.find(std::string{luisa::format("{}.metadata", ptx_name)});
+        if (iterator == entries.end()) { return false; }
+        auto &data = iterator->second;
+        luisa::string text{reinterpret_cast<const char *>(data.data()), data.size()};
+        auto marker = text.find("buffer<float>");
+        if (marker == luisa::string::npos) { return false; }
+        text.replace(marker, luisa::string_view{"buffer<float>"}.size(), "buffer<uint>");
+        auto first = reinterpret_cast<const std::byte *>(text.data());
+        data.assign(first, first + text.size());
+        return true;
+    }
     // Flips one hex digit of the stored CHECKSUM so the sidecar no longer
     // matches the PTX and the next compile must recompile.
     void corrupt_checksum(luisa::string_view ptx_name) const noexcept {
@@ -639,6 +653,7 @@ void check_cache_sidecar(const MemoryBinaryIO &io, luisa::string_view ptx_name) 
     expect(metadata_text.starts_with("// METADATA: ")) << metadata_text;
     expect(metadata_text.find("KIND TILE") != luisa::string::npos) << metadata_text;
     expect(metadata_text.find("CHECKSUM ") != luisa::string::npos) << metadata_text;
+    expect(metadata_text.find("ARGUMENT_TYPES 2 buffer<float> buffer<float> ") != luisa::string::npos) << metadata_text;
 }
 
 void test_tile_cache_round_trip(Device &, tile::CompileOptions options) {
@@ -687,6 +702,24 @@ void test_tile_cache_round_trip(Device &, tile::CompileOptions options) {
     expect(io.bytecode_read_count > reads_before_fourth);
     expect(io.bytecode_write_count == writes_before_fourth);
 
+    // A well-formed sidecar with a mismatched argument type must also miss
+    // the cache even though its source checksum and argument usages match.
+    auto changed_type = io.corrupt_argument_type(ptx_name);
+    expect(changed_type);
+    if (!changed_type) { return; }
+    DeviceWithIO type_mismatch(io);
+    auto writes_before_type_mismatch = io.bytecode_write_count;
+    auto type_compile = compile_cached(type_mismatch, options, fixture.kernel, "roundtrip_tile");
+    expect(static_cast<bool>(type_compile)) << type_compile.metadata().error;
+    if (!type_compile) { return; }
+    expect(io.bytecode_write_count > writes_before_type_mismatch);
+    check_cache_sidecar(io, ptx_name);
+    DeviceWithIO after_type_repair(io);
+    auto writes_after_type_repair = io.bytecode_write_count;
+    auto repaired_compile = compile_cached(after_type_repair, options, fixture.kernel, "roundtrip_tile");
+    expect(static_cast<bool>(repaired_compile)) << repaired_compile.metadata().error;
+    expect(io.bytecode_write_count == writes_after_type_repair);
+
     // Deleting the stored PTX also forces a fresh compile and a valid sidecar.
     io.entries.erase(std::string{ptx_name});
     DeviceWithIO fifth(io);
@@ -727,10 +760,11 @@ void test_tile_patch_retry(Device &, tile::CompileOptions options) {
     if (!stored_ptx) { return; }
     luisa::string stored_text{
         reinterpret_cast<const char *>(stored_ptx->data()), stored_ptx->size()};
-    auto version = stored_text.find(".version ");
+    constexpr luisa::string_view version_marker{".version "};
+    auto version = stored_text.find(version_marker);
     expect(version != luisa::string::npos) << stored_text;
     if (version != luisa::string::npos) {
-        auto suffix = luisa::string_view{stored_text}.substr(version + 8u);
+        auto suffix = luisa::string_view{stored_text}.substr(version + version_marker.size());
         auto version_end = 0ull;
         while (version_end < suffix.size() && isdigit(suffix[version_end])) { version_end++; }
         expect(version_end > 0u && version_end + 1u < suffix.size() && suffix[version_end] == '.');

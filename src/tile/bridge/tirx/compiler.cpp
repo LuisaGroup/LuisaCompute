@@ -22,6 +22,7 @@
 #include <luisa/core/stl/optional.h>
 
 #include "execution.h"
+#include "cuda_codegen.h"
 
 namespace luisa::compute::tile::bridge::tirx {
 
@@ -821,6 +822,7 @@ void finalize_device(tvm::IRModule &module) {
         module = tvm::WithAttr(std::move(module), "tirx.metal.precise_math", true);
     }
 
+    if (target->kind->name == "cuda") { initialize_native_cuda_codegen(); }
     auto builder_name = std::string{"target.build."} + target->kind->name.operator std::string();
     auto builder = tvm::ffi::Function::GetGlobalRequired(builder_name);
     return builder(std::move(module), target).cast<tvm::ffi::Module>();
@@ -919,7 +921,7 @@ void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&la
 
 }// namespace detail
 
-consteval bool supports_accelerate_math() noexcept {
+bool supports_accelerate_math() noexcept {
 #if defined(LUISA_TILE_HAS_ACCELERATE)
     return true;
 #else

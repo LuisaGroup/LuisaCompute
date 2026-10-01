@@ -6,6 +6,8 @@
 
 #include "ut/ut.hpp"
 
+#include <tvm/ffi/container/array.h>
+#include <tvm/ffi/error.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/string.h>
 
@@ -65,6 +67,20 @@ void test_cuda_elementwise_artifact() {
     auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
     expect(source.find("metal.cooperative_tensor") == luisa::string_view::npos);
     expect(source.find("cooperative_tensor") == luisa::string_view::npos);
+    // Native C++ codegen must supply complete headers without importing TVM's
+    // Python package. Unsupported tags remain a recoverable compilation error.
+    auto header_generator = tvm::ffi::Function::GetGlobal("tirx.intrinsics.cuda.header_generator");
+    expect(header_generator.has_value());
+    if (header_generator) {
+        auto header = (*header_generator)(tvm::ffi::Array<tvm::ffi::String>{"cuda", "math_constants"}).cast<tvm::ffi::String>();
+        auto text = std::string_view{header.data(), header.size()};
+        expect(text.find("cuda/std/cstdint") != std::string_view::npos);
+        expect(text.find("math_constants.h") != std::string_view::npos);
+        auto rejected = header_generator->CallExpected<tvm::ffi::String>(
+            tvm::ffi::Array<tvm::ffi::String>{"luisa_unknown_header_tag"});
+        expect(!rejected.is_ok());
+        if (!rejected.is_ok()) { expect(rejected.error().kind() == "ValueError"); }
+    }
 }
 
 void test_cuda_reduction_artifact() {
