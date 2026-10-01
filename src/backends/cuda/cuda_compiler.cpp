@@ -7,7 +7,60 @@
 #include "cuda_builtin_embedded.hpp"
 #include "cuda_compiler.h"
 
+#include <cerrno>
+#include <cstdio>
+#include <system_error>
+
+#ifdef LUISA_PLATFORM_WINDOWS
+#include <atomic>
+#include <chrono>
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+#endif
+
 namespace luisa::compute::cuda {
+
+namespace {
+
+[[nodiscard]] FILE *create_compiler_temp_file(std::error_code &error) {
+#ifdef LUISA_PLATFORM_WINDOWS
+    // The Windows CRT tmpfile() uses a narrow path. Preserve Unicode TEMP/TMP
+    // paths while retaining its binary, exclusive, delete-on-close semantics.
+    auto directory = luisa::filesystem::temp_directory_path(error);
+    if (error) { return nullptr; }
+    static std::atomic<uint64_t> sequence{0u};
+    auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    for (auto attempt = 0u; attempt < 128u; attempt++) {
+        auto name = luisa::format("luisa-cuda-{:x}-{:x}.tmp", stamp,
+                                 sequence.fetch_add(1u, std::memory_order_relaxed));
+        auto path = directory / name.c_str();
+        int descriptor = -1;
+        auto result = _wsopen_s(&descriptor, path.c_str(),
+                               _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY | _O_TEMPORARY,
+                               _SH_DENYNO, _S_IREAD | _S_IWRITE);
+        if (result == EEXIST) { continue; }
+        if (result != 0) {
+            error = std::error_code{result, std::generic_category()};
+            return nullptr;
+        }
+        // On success, fclose() owns descriptor cleanup, including file deletion.
+        if (auto file = _fdopen(descriptor, "w+b")) { return file; }
+        error = std::error_code{errno, std::generic_category()};
+        _close(descriptor);
+        return nullptr;
+    }
+    error = std::make_error_code(std::errc::file_exists);
+    return nullptr;
+#else
+    auto file = std::tmpfile();
+    if (file == nullptr) { error = std::error_code{errno, std::generic_category()}; }
+    return file;
+#endif
+}
+
+}// namespace
 
 [[nodiscard]] inline auto read_from_subprocess(reproc::process &p, size_t chunk_size = 4_k) noexcept {
     luisa::vector<std::byte> buffer;
@@ -38,9 +91,10 @@ namespace luisa::compute::cuda {
     for (auto o : options) { argv.emplace_back(o); }
     argv.emplace_back(nullptr);
 
-    auto temp_file = tmpfile();
+    std::error_code temp_file_error;
+    auto temp_file = create_compiler_temp_file(temp_file_error);
     LUISA_ASSERT(temp_file != nullptr,
-                 "Failed to create temp file for CUDA compiler.");
+                 "Failed to create temp file for CUDA compiler: {}.", temp_file_error.message());
 
     // setup the options
     reproc::options o;
