@@ -175,12 +175,13 @@ void pipeline_metadata(std::ostream &out, const workloads::Fixture &f) {
 template<typename T>
 [[nodiscard]] bool export_fixture(const luisa::filesystem::path &directory,
                                   const workloads::Options &o, const workloads::Fixture &f) {
-    for (size_t i = 0u; i < 3u; i++) {
+    for (size_t i = 0u; i < (f.input_ids ? 1u : 3u); i++) {
         vector<T> stored;
         stored.reserve(f.inputs[i].size());
         for (auto value : f.inputs[i]) { stored.emplace_back(T{value}); }
         if (!write_binary(directory / ("input" + std::to_string(i) + storage_suffix<T>()), stored)) { return false; }
     }
+    if (f.input_ids && !write_binary(directory / "input1.i64", *f.input_ids)) { return false; }
     if (!write_binary(directory / "expected.f64", f.expected) || !write_binary(directory / "per_element_bound.f64", f.bound)) { return false; }
     if (f.ranking && !write_binary(directory / "expected_indices.i64", f.expected_indices)) { return false; }
     if (!f.strict_bound.empty() &&
@@ -193,13 +194,16 @@ template<typename T>
     quoted(out, f.algorithm);
     pipeline_metadata(out, f);
     out << ",\"endianness\":\"little\",\"inputs\":[";
-    for (size_t i = 0; i < 3u; i++) {
+    for (size_t i = 0; i < (f.input_ids ? 1u : 3u); i++) {
         if (i != 0u) { out << ','; }
         out << "{\"name\":\"input" << i << "\",\"path\":\"input" << i << storage_suffix<T>() << "\",\"storage_dtype\":";
         quoted(out, storage_name<T>());
         out << ",\"shape\":";
         array(out, f.input_shapes[i]);
         out << '}';
+    }
+    if (f.input_ids) {
+        out << ",{\"name\":\"input1\",\"path\":\"input1.i64\",\"storage_dtype\":\"int64\",\"shape\":[" << f.input_ids->size() << "]}";
     }
     out << "],\"output\":{\"path\":\"output" << storage_suffix<T>() << "\",\"storage_dtype\":";
     quoted(out, storage_name<T>());
@@ -235,7 +239,9 @@ template<typename T>
     out << ",\"scan_policy\":";
     quoted(out, o.operation == "scan_ordered" ? "ordered_fold_left" : "unordered_tree");
     out << ",\"scan\":\"inclusive_sum\",\"descending\":true,"
-           "\"stable\":true,\"tie_break\":\"original_index_ascending\",\"accumulation\":\"float32\","
+           "\"stable\":true,\"tie_break\":\"original_index_ascending\",\"accumulation\":";
+    quoted(out, f.input_ids ? "none" : "float32");
+    out << ","
            "\"gelu_approximation\":\"tanh\",\"causal\":true,\"query_positions\":\"last_Q_in_K\","
            "\"attention_scale\":";
     auto scale = (o.operation == "attention" || o.operation == "attention_tensorcore") ? 1.0f / std::sqrt(static_cast<float>(o.dimensions[5])) : 1.0f;
@@ -245,6 +251,11 @@ template<typename T>
     quoted(out, o.operation == "gemv" ? "nonfused_products_unordered_tree_sum" :
                 fused_contraction    ? "mma_fused_reassociation_allowed" :
                                        "not_applicable");
+    if (f.input_ids) {
+        out << ",\"index_dtype\":\"int64\",\"index_bounds\":\"reject_invalid\",\"gather_axis\":0,\"value_preservation\":\"storage_bits\",\"index_view_offset_bytes\":" << 64u * sizeof(int64_t)
+            << ",\"index_pattern\":";
+        quoted(out, o.pattern == "adversarial" ? "repeated_boundary_rows" : "seeded_uniform_rows");
+    }
     if (o.operation == "bmm") { out << ",\"batch_layout\":\"contiguous_bmk_bkn_bmn\",\"batch_broadcast\":false"; }
     out << ",\"logical_view_offset_elements\":64,\"logical_view_offset_bytes\":" << 64u * sizeof(T)
         << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N complete identical workloads including every pipeline stage; same inputs/output/scratch allocations and hazard-DAG ordering. Independent pipeline stages may overlap across calls. R complete graph replays per timed sample, divided by N*R complete workloads; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract.\"}"
@@ -330,6 +341,7 @@ int run(int argc, char *argv[]) {
     if (argc < 13 || argc > 19 || (argc - 13) % 2 != 0) {
         std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1]\n";
         std::cerr << "BMM operation dimensions are B,M,N,K; tile is BM,BN,BK.\n";
+        std::cerr << "Embedding dimensions are V,D,T; tile is 1,feature_width,1, with true INT64 row IDs.\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
     }
     options.backend = argv[1];
@@ -466,6 +478,14 @@ int run(int argc, char *argv[]) {
         inputs[i] = device.create_buffer<T>(host_inputs[i].size());
         stream << inputs[i].copy_from(span{host_inputs[i]});
     }
+    vector<int64_t> host_input_ids;
+    Buffer<int64_t> input_ids;
+    if (fixture.input_ids) {
+        host_input_ids.assign(fixture.input_ids->size() + 2u * pad, index_guard);
+        std::copy(fixture.input_ids->begin(), fixture.input_ids->end(), host_input_ids.begin() + pad);
+        input_ids = device.create_buffer<int64_t>(host_input_ids.size());
+        stream << input_ids.copy_from(span{host_input_ids});
+    }
     vector<T> host_output(fixture.expected.size() + 2u * pad, T{guard});
     std::fill(host_output.begin() + pad, host_output.end() - pad, std::numeric_limits<T>::quiet_NaN());
     auto output = device.create_buffer<T>(host_output.size());
@@ -512,6 +532,9 @@ int run(int argc, char *argv[]) {
                                                    scratch_indices[write_slot].view(pad, fixture.scratch_elements)).dispatch();
                     }
                 }
+            } else if (fixture.input_ids) {
+                commands << shader(inputs[0].view(pad, fixture.inputs[0].size()),
+                                   input_ids.view(pad, fixture.input_ids->size()), output.view(pad, fixture.expected.size())).dispatch();
             } else if (fixture.ranking) {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), output.view(pad, fixture.expected.size()),
                                    indices.view(pad, fixture.expected_indices.size()))
@@ -545,6 +568,7 @@ int run(int argc, char *argv[]) {
     auto check = [&] {
         stream << output.copy_to(span{host_output}) << indices.copy_to(span{host_indices});
         for (size_t i = 0; i < 3u; i++) { stream << inputs[i].copy_to(span{host_inputs[i]}); }
+        if (fixture.input_ids) { stream << input_ids.copy_to(span{host_input_ids}); }
         if (fixture.scratch_elements != 0u) {
             for (auto slot = size_t{0u}; slot < 2u; slot++) {
                 stream << scratch_values[slot].copy_to(span{host_scratch_values[slot]})
@@ -561,6 +585,12 @@ int run(int argc, char *argv[]) {
                     errors += host_scratch_indices[slot][i] != scratch_index_guard;
                     errors += host_scratch_indices[slot][tail] != scratch_index_guard;
                 }
+            }
+        }
+        if (fixture.input_ids) {
+            for (size_t i = 0; i < host_input_ids.size(); i++) {
+                auto expected = i < pad || i >= host_input_ids.size() - pad ? index_guard : (*fixture.input_ids)[i - pad];
+                errors += host_input_ids[i] != expected;
             }
         }
         auto bits = [](T x) { return std::bit_cast<std::array<std::byte, sizeof(T)>>(x); };
@@ -589,7 +619,7 @@ int run(int argc, char *argv[]) {
                 max_error = std::max(max_error, error);
                 if (fixture.bound[j] > 0.0) { max_error_over_bound = std::max(max_error_over_bound, error / fixture.bound[j]); }
             }
-            if (fixture.ranking) { errors += bits(host_output[i]) != bits(T{static_cast<float>(fixture.expected[j])}); }
+            if (fixture.ranking || fixture.input_ids) { errors += bits(host_output[i]) != bits(T{static_cast<float>(fixture.expected[j])}); }
         }
         for (size_t i = 0; i < host_indices.size(); i++) {
             auto expected = fixture.ranking && i >= pad && i < host_indices.size() - pad ? fixture.expected_indices[i - pad] : index_guard;

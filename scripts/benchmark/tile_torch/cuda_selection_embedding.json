@@ -1,0 +1,635 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "argmax-1x1-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        1
+      ],
+      "tile": [
+        1,
+        1,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-1x1-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        1
+      ],
+      "tile": [
+        1,
+        1,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-1x1-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        1
+      ],
+      "tile": [
+        1,
+        1,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x33-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        33
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x33-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        33
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x33-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        33
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-17x65-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-17x65-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-17x65-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-128x1024-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-128x1024-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-128x1024-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-1x4096-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-1x4096-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-1x4096-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x8192-fp32",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x8192-fp16",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "argmax-4x8192-bf16",
+      "operation": "argmax",
+      "dimensions": [
+        4,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t1-bd64-adversarial-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        1
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t1-bd64-adversarial-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        1
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t1-bd64-adversarial-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        1
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d1024-t32-bd256-adversarial-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        1024,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d1024-t32-bd256-adversarial-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        1024,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d1024-t32-bd256-adversarial-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        1024,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t512-bd256-adversarial-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t512-bd256-adversarial-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t512-bd256-adversarial-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v17-d65-t37-bd32-adversarial-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        17,
+        65,
+        37
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v17-d65-t37-bd32-adversarial-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        17,
+        65,
+        37
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v17-d65-t37-bd32-adversarial-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        17,
+        65,
+        37
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "pattern": "adversarial",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t512-bd64-random-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "random",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t512-bd64-random-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "random",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d64-t512-bd64-random-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "pattern": "random",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t32-bd256-random-fp32",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "random",
+      "precision": "fp32",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t32-bd256-random-fp16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "random",
+      "precision": "fp16",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "embedding-v4096-d4096-t32-bd256-random-bf16",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        32
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "pattern": "random",
+      "precision": "bf16",
+      "seed": 20261001,
+      "fast_math": false
+    }
+  ]
+}

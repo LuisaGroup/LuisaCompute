@@ -5,7 +5,10 @@
 #include "tile_xir_test_utils.h"
 #include "tile_llm_test_utils.h"
 #include "tile_selection_test_utils.h"
+#include "tile_argmax_test_utils.h"
+#include "tile_embedding_test_utils.h"
 #include "tile_sort_pipeline_test_utils.h"
+#include "tile_workload_test_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -715,6 +718,90 @@ void expect_rejected(const tile::Shader &shader, luisa::string_view reason) noex
     expect(shader.metadata().error.find(reason) != luisa::string::npos) << shader.metadata().error;
 }
 
+template<typename T>
+void blocked_row_operations(Device &device, uint32_t block_rows, uint32_t rows = 17u, uint32_t width = 65u,
+                            bool scan_only = false) {
+    using namespace test::tile_workloads;
+    constexpr auto scalar_type = std::is_same_v<T, float> ? tile::ScalarType::FLOAT32 :
+                                 std::is_same_v<T, half> ? tile::ScalarType::FLOAT16 : tile::ScalarType::BFLOAT16;
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto bits_of = [](T value) noexcept { return std::bit_cast<Word>(value); };
+    auto guard = T{-719.5f};
+    for (auto op : {"scan", "reduce_sum", "reduce_max"}) {
+        if (scan_only && std::strcmp(op, "scan") != 0) { continue; }
+        Options options;
+        options.backend = "cuda";
+        options.lowering = "native";
+        options.operation = op;
+        options.precision = std::is_same_v<T, float> ? "fp32" : std::is_same_v<T, half> ? "fp16" : "bf16";
+        options.dimensions = {rows, width};
+        options.tile = {block_rows, std::bit_ceil(width), 1};
+        options.pattern = "cancellation";
+        options.seed = 20261001u;
+        auto fixture = make_fixture<T>(options);
+        expect(fixture.error.empty()) << fixture.error;
+        if (!fixture.error.empty() || !fixture.kernel) { return; }
+        auto shader = tile::compile(device, *fixture.kernel, {}, {.enable_fast_math = false});
+        auto programs = (rows + block_rows - 1u) / block_rows;
+        if (!check_native(shader, make_uint3(programs, 1u, 1u), 4u)) { return; }
+        expect(shader.metadata().arguments[0].element == scalar_type);
+        expect(shader.metadata().arguments[3].element == scalar_type);
+        expect(shader.metadata().arguments[0].minimum_size_bytes == rows * width * sizeof(T));
+        expect(shader.metadata().arguments[3].minimum_size_bytes == fixture.expected.size() * sizeof(T));
+        auto intrinsic = std::strcmp(op, "scan") == 0 ? "ct::partial_sum(" :
+                         std::strcmp(op, "reduce_sum") == 0 ? "ct::sum(" : "ct::reduce_max(";
+        expect(shader.metadata().source.find(intrinsic) != string::npos);
+        if (block_rows > 1u) { expect(shader.metadata().source.find("ct::store_masked(") != string::npos); }
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        for (auto generation = 0u; generation < 2u; generation++) {
+            options.pattern = generation == 0u ? "cancellation" : "random";
+            options.seed = 20261001u + generation;
+            auto data = make_fixture<T>(options);
+            expect(data.error.empty()) << data.error;
+            if (!data.error.empty()) { return; }
+            if (std::strcmp(op, "reduce_max") == 0) {
+                // A zero-filled column/row tail must never beat valid negatives.
+                for (auto &value : data.inputs[0]) { value = static_cast<float>(T{-std::abs(value) - .25f}); }
+                row_oracle(data, options);
+                // The selected value is exactly representable in T; retain the
+                // strict zero bound from the complete FP64 max oracle.
+            }
+            std::array<luisa::vector<T>, 3u> inputs;
+            std::array<Buffer<T>, 3u> buffers;
+            for (auto input = 0u; input < 3u; input++) {
+                inputs[input].assign(data.inputs[input].size() + 2u * kPad, guard);
+                for (auto i = size_t{0u}; i < data.inputs[input].size(); i++) { inputs[input][i + kPad] = T{data.inputs[input][i]}; }
+                buffers[input] = device.create_buffer<T>(inputs[input].size());
+                stream << buffers[input].copy_from(luisa::span{inputs[input]});
+            }
+            auto readonly = inputs;
+            luisa::vector<T> output(data.expected.size() + 2u * kPad, guard);
+            std::fill_n(output.begin() + kPad, data.expected.size(), T{std::numeric_limits<float>::quiet_NaN()});
+            auto gpu_output = device.create_buffer<T>(output.size());
+            stream << gpu_output.copy_from(luisa::span{output})
+                   << shader(buffers[0].view(kPad, data.inputs[0].size()), buffers[1].view(kPad, data.inputs[1].size()),
+                             buffers[2].view(kPad, data.inputs[2].size()), gpu_output.view(kPad, data.expected.size())).dispatch();
+            for (auto input = 0u; input < 3u; input++) { stream << buffers[input].copy_to(luisa::span{inputs[input]}); }
+            stream << gpu_output.copy_to(luisa::span{output}) << synchronize();
+            for (auto input = 0u; input < 3u; input++) {
+                for (auto i = size_t{0u}; i < inputs[input].size(); i++) {
+                    expect(bits_of(inputs[input][i]) == bits_of(readonly[input][i])) << op << " readonly=" << input << " i=" << i;
+                }
+            }
+            for (auto i = size_t{0u}; i < data.expected.size(); i++) {
+                auto actual = static_cast<float>(output[kPad + i]);
+                auto error = std::abs(static_cast<double>(actual) - data.expected[i]);
+                expect(std::isfinite(actual) && error <= data.bound[i])
+                    << op << " BR=" << block_rows << " i=" << i << " error=" << error << " bound=" << data.bound[i];
+            }
+            for (auto i = 0u; i < kPad; i++) {
+                expect(bits_of(output[i]) == bits_of(guard));
+                expect(bits_of(output[kPad + data.expected.size() + i]) == bits_of(guard));
+            }
+        }
+    }
+}
+
 void row_operations(Device &device, bool fast_norm = false) {
     using test::tile_llm::RowOp;
     for (auto op : {RowOp::RMS_NORM, RowOp::LAYER_NORM, RowOp::SWIGLU, RowOp::ROPE, RowOp::MASKED_SOFTMAX, RowOp::GELU_RESIDUAL}) {
@@ -1256,6 +1343,147 @@ void chunked_sort_pipeline(Device &device, int64_t columns, int64_t chunk, size_
     }
 }
 
+
+template<typename T>
+void embedding_rows(Device &device, uint32_t width, uint32_t tokens, uint32_t feature_tile) {
+    constexpr auto vocabulary = 7u;
+    auto kernel = luisa::test::tile_embedding::embedding_rows<T>(vocabulary, width, tokens, feature_tile);
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    auto shader = tile::compile(device, kernel, {}, ShaderOption{.enable_fast_math = false});
+    if (!check_native(shader, make_uint3(tokens, (width + feature_tile - 1u) / feature_tile, 1u), 3u)) { return; }
+    constexpr auto element = std::is_same_v<T, float> ? tile::ScalarType::FLOAT32 :
+                             std::is_same_v<T, half> ? tile::ScalarType::FLOAT16 : tile::ScalarType::BFLOAT16;
+    expect(shader.metadata().arguments[0].element == element);
+    expect(shader.metadata().arguments[1].element == tile::ScalarType::INT64);
+    expect(shader.metadata().arguments[2].element == element);
+    expect(shader.metadata().arguments[0].minimum_size_bytes == vocabulary * width * sizeof(T));
+    expect(shader.metadata().arguments[1].minimum_size_bytes == tokens * sizeof(int64_t));
+    expect(shader.metadata().arguments[2].minimum_size_bytes == tokens * width * sizeof(T));
+    expect(shader.metadata().source.find("ct::load_masked(") != luisa::string::npos);
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto word = [](T x) noexcept { return std::bit_cast<Word>(x); };
+    auto guard = T{-719.5f};
+    constexpr int64_t index_guard = std::numeric_limits<int64_t>::min() + 37;
+    luisa::vector<T> table(vocabulary * width + 2u * kPad, guard), output(tokens * width + 2u * kPad, guard);
+    luisa::vector<int64_t> ids(tokens + 2u * kPad, index_guard);
+    for (auto i = 0u; i < vocabulary * width; i++) {
+        auto value = static_cast<float>(static_cast<int32_t>(i % 47u) - 23) * 0.125f;
+        switch (i % 17u) {
+            case 0u: value = -0.0f; break;
+            case 1u: value = 0.0f; break;
+            case 2u: value = std::numeric_limits<float>::infinity(); break;
+            case 3u: value = -std::numeric_limits<float>::infinity(); break;
+            default: break;
+        }
+        table[kPad + i] = T{value};
+    }
+    for (auto i = 0u; i < tokens; i++) { ids[kPad + i] = i % 3u == 0u ? vocabulary - 1 : i % 3u == 1u ? 0 : vocabulary / 2; }
+    auto valid_ids = luisa::span<const int64_t>{ids.data() + kPad, tokens};
+    expect(luisa::test::tile_embedding::valid_row_indices(valid_ids, vocabulary));
+    for (auto invalid : {int64_t{-1}, int64_t{vocabulary}, int64_t{1} << 53u, std::numeric_limits<int64_t>::max()}) {
+        auto one = std::array{invalid};
+        expect(!luisa::test::tile_embedding::valid_row_indices(luisa::span<const int64_t>{one}, vocabulary));
+    }
+    auto readonly_table = table;
+    auto readonly_ids = ids;
+    auto gpu_table = device.create_buffer<T>(table.size()), gpu_output = device.create_buffer<T>(output.size());
+    auto gpu_ids = device.create_buffer<int64_t>(ids.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << gpu_table.copy_from(luisa::span{table}) << gpu_ids.copy_from(luisa::span{ids});
+    for (auto repeat = 0u; repeat < 2u; repeat++) {
+        std::fill(output.begin() + kPad, output.end() - kPad, T{std::numeric_limits<float>::quiet_NaN()});
+        stream << gpu_output.copy_from(luisa::span{output})
+               << shader(gpu_table.view(kPad, vocabulary * width), gpu_ids.view(kPad, tokens), gpu_output.view(kPad, tokens * width)).dispatch()
+               << gpu_table.copy_to(luisa::span{table}) << gpu_ids.copy_to(luisa::span{ids})
+               << gpu_output.copy_to(luisa::span{output}) << synchronize();
+        for (auto i = size_t{0u}; i < table.size(); i++) { expect(word(table[i]) == word(readonly_table[i])); }
+        for (auto i = size_t{0u}; i < ids.size(); i++) { expect(ids[i] == readonly_ids[i]); }
+        for (auto token = 0u; token < tokens; token++) {
+            for (auto col = 0u; col < width; col++) {
+                auto expected = readonly_table[kPad + static_cast<size_t>(readonly_ids[kPad + token]) * width + col];
+                expect(word(output[kPad + token * width + col]) == word(expected)) << "embedding token=" << token << " col=" << col;
+            }
+        }
+        for (auto i = 0u; i < kPad; i++) {
+            expect(word(output[i]) == word(guard)); expect(word(output[kPad + tokens * width + i]) == word(guard));
+        }
+    }
+}
+
+template<typename T>
+void stable_argmax(Device &device, uint32_t columns) {
+    constexpr auto rows = 8u;
+    auto kernel = luisa::test::tile_selection::stable_argmax<T>(rows, columns, std::bit_ceil(columns));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    auto shader = tile::compile(device, kernel, {}, ShaderOption{.enable_fast_math = false});
+    if (!check_native(shader, make_uint3(rows, 1u, 1u), 3u)) { return; }
+    constexpr auto scalar_type = std::is_same_v<T, float> ? tile::ScalarType::FLOAT32 :
+                                 std::is_same_v<T, half> ? tile::ScalarType::FLOAT16 : tile::ScalarType::BFLOAT16;
+    expect(shader.metadata().arguments[0].element == scalar_type);
+    expect(shader.metadata().arguments[1].element == scalar_type);
+    expect(shader.metadata().arguments[0].minimum_size_bytes == rows * columns * sizeof(T));
+    expect(shader.metadata().arguments[1].minimum_size_bytes == rows * sizeof(T));
+    expect(shader.metadata().arguments[2].element == tile::ScalarType::INT64);
+    expect(shader.metadata().arguments[2].minimum_size_bytes == rows * sizeof(int64_t));
+    expect(shader.metadata().source.find("ct::reduce_max(") != luisa::string::npos);
+    expect(shader.metadata().source.find("ct::reduce_min(") != luisa::string::npos);
+    expect(shader.metadata().source.find("for (long long") == luisa::string::npos);
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto word = [](T value) noexcept { return std::bit_cast<Word>(value); };
+    auto guard = T{-719.5f};
+    constexpr auto index_guard = std::numeric_limits<int64_t>::min() + 37;
+    luisa::vector<T> input(rows * columns + 2u * kPad, guard), output(rows + 2u * kPad, guard);
+    luisa::vector<int64_t> indices(rows + 2u * kPad, index_guard);
+    std::array<T, rows> expected_values{};
+    std::array<int64_t, rows> expected_indices{};
+    for (auto row = 0u; row < rows; row++) {
+        for (auto col = 0u; col < columns; col++) {
+            auto value = -3.0f;
+            switch (row) {
+                case 0u: value = col % 2u == 0u ? -0.0f : 0.0f; break;
+                case 1u: value = col % 2u == 0u ? 0.0f : -0.0f; break;
+                case 2u: value = -std::numeric_limits<float>::infinity(); break;
+                case 3u: value = std::numeric_limits<float>::infinity(); break;
+                case 4u: value = col == columns / 2u || col + 1u == columns ? 5.0f : -3.0f; break;
+                case 5u: value = col + 1u == columns ? 7.0f : -4.0f; break;
+                case 6u: value = -1.25f; break;
+                default: value = col == columns / 2u ? std::numeric_limits<float>::infinity() : -std::numeric_limits<float>::infinity(); break;
+            }
+            input[kPad + row * columns + col] = T{value};
+        }
+        auto winner = 0u;
+        for (auto col = 1u; col < columns; col++) {
+            if (static_cast<float>(input[kPad + row * columns + col]) > static_cast<float>(input[kPad + row * columns + winner])) { winner = col; }
+        }
+        expected_indices[row] = static_cast<int64_t>(winner);
+        expected_values[row] = input[kPad + row * columns + winner];
+    }
+    auto readonly = input;
+    auto gpu_input = device.create_buffer<T>(input.size()), gpu_output = device.create_buffer<T>(output.size());
+    auto gpu_indices = device.create_buffer<int64_t>(indices.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << gpu_input.copy_from(luisa::span{input});
+    // Poison outputs independently before two complete calls on the same input.
+    for (auto repeat = 0u; repeat < 2u; repeat++) {
+        std::fill_n(output.begin() + kPad, rows, T{std::numeric_limits<float>::quiet_NaN()});
+        std::fill_n(indices.begin() + kPad, rows, index_guard);
+        stream << gpu_output.copy_from(luisa::span{output}) << gpu_indices.copy_from(luisa::span{indices})
+               << shader(gpu_input.view(kPad, rows * columns), gpu_output.view(kPad, rows), gpu_indices.view(kPad, rows)).dispatch()
+               << gpu_input.copy_to(luisa::span{input}) << gpu_output.copy_to(luisa::span{output})
+               << gpu_indices.copy_to(luisa::span{indices}) << synchronize();
+        for (auto i = size_t{0u}; i < input.size(); i++) { expect(word(input[i]) == word(readonly[i])) << "argmax readonly N=" << columns << " at=" << i; }
+        for (auto row = 0u; row < rows; row++) {
+            expect(indices[kPad + row] == expected_indices[row]) << "argmax first index N=" << columns << " row=" << row;
+            expect(word(output[kPad + row]) == word(expected_values[row])) << "argmax original value bits N=" << columns << " row=" << row;
+        }
+        for (auto i = 0u; i < kPad; i++) {
+            expect(word(output[i]) == word(guard)); expect(word(output[kPad + rows + i]) == word(guard));
+            expect(indices[i] == index_guard); expect(indices[kPad + rows + i] == index_guard);
+        }
+    }
+}
 
 template<typename T>
 void repeated_extrema_topk(Device &device, uint32_t columns, uint32_t count) {
@@ -1862,6 +2090,10 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ir_elementary_math"_test = [&] { elementary_math(device); };
     "tile_cuda_ir_native_scan_and_sort"_test = [&] {
         native_scan_and_sort(device);
+        blocked_row_operations<float>(device, 1u);
+        blocked_row_operations<half>(device, 4u);
+        blocked_row_operations<tile::bfloat16>(device, 8u);
+        blocked_row_operations<float>(device, 8u, 3u, 1u, true);
         chunked_sort_pipeline<float>(device, 129, 256, 1u);
         chunked_sort_pipeline<float>(device, 257, 256, 2u);
         chunked_sort_pipeline<half>(device, 769, 256, 3u);
@@ -1876,6 +2108,16 @@ int main(int argc, char *argv[]) {
         repeated_extrema_topk<float>(device, 65u, 16u);
         repeated_extrema_topk<half>(device, 33u, 7u);
         repeated_extrema_topk<tile::bfloat16>(device, 33u, 7u);
+        for (auto width : {1u, 65u}) {
+            stable_argmax<float>(device, width);
+            stable_argmax<half>(device, width);
+            stable_argmax<tile::bfloat16>(device, width);
+        }
+        stable_argmax<float>(device, 33u);
+        embedding_rows<float>(device, 1u, 1u, 1u);
+        embedding_rows<float>(device, 65u, 37u, 32u);
+        embedding_rows<half>(device, 65u, 37u, 32u);
+        embedding_rows<tile::bfloat16>(device, 65u, 37u, 32u);
     };
     "tile_cuda_ir_integer_primitives"_test = [&] {
         for (auto width : {1u, 32u, 33u}) {

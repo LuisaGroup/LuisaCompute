@@ -26,8 +26,8 @@ import traceback
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 ROWS = {"rmsnorm", "layernorm", "softmax", "masked_softmax", "rope", "swiglu",
-        "gelu_residual", "reduce_sum", "reduce_max", "scan", "scan_ordered"}
-OPERATIONS = ROWS | {"gemm", "gemv", "bmm", "attention", "attention_tensorcore", "sort", "topk"}
+        "gelu_residual", "reduce_sum", "reduce_max", "argmax", "scan", "scan_ordered"}
+OPERATIONS = ROWS | {"gemm", "gemv", "bmm", "embedding", "attention", "attention_tensorcore", "sort", "topk"}
 HIDDEN = 0x08000000
 
 
@@ -123,7 +123,7 @@ def validate_case(row, default_seed):
     require(isinstance(tile, list) and len(tile) == 3 and
             all(type(v) is int and 0 < v <= 65536 for v in dims + tile), "invalid dimensions/tile")
     work_limit = 2**34 if op in {"gemm", "gemv", "bmm"} else 2**31 if op in {"attention", "attention_tensorcore"} else 2**28
-    require(math.prod(dims) <= work_limit, "case exceeds native fixture work bound")
+    require(op == "embedding" or math.prod(dims) <= work_limit, "case exceeds native fixture work bound")
     require(row.get("precision", "fp32") in {"fp32", "fp16", "bf16"}, "unsupported precision")
     require(op != "attention_tensorcore" or row.get("precision", "fp32") in {"fp16", "bf16"}, "attention_tensorcore requires FP16/BF16")
     require(row.get("pattern", "random") in {"random", "cancellation", "adversarial"}, "invalid input pattern")
@@ -131,10 +131,17 @@ def validate_case(row, default_seed):
     require(type(seed) is int and 0 <= seed < 2**64, "seed must be uint64")
     if op in ROWS:
         require(math.prod(dims) <= 2**24, "row input exceeds fixture allocation bound")
-        require(tile[0] == tile[2] == 1 and tile[1] <= 16384, "invalid row schedule")
+        blockable = op in {"scan", "reduce_sum", "reduce_max"}
+        require((tile[0] == 1 or (blockable and tile[0] in {4, 8})) and
+                tile[2] == 1 and tile[1] <= 16384, "invalid row schedule")
         require(op != "rope" or dims[1] % 2 == 0, "RoPE width must be even")
         require(tile[1] >= (dims[1] // 2 if op == "rope" else dims[1]), "row tile does not cover the logical width")
         require(op != "scan_ordered" or tile[1] <= 1024, "ordered reference scan is bounded to tile width 1024")
+    elif op == "embedding":
+        vocabulary, width, tokens = dims
+        require(max(vocabulary * width, tokens * width) <= 2**24, "embedding tensors exceed allocation bound")
+        require(tile[0] == tile[2] == 1 and tile[1] <= 16384, "invalid embedding schedule")
+        require(row.get("pattern", "random") in {"random", "adversarial"}, "embedding requires random/adversarial pattern")
     elif op == "bmm":
         b, m, n, k = dims
         require(max(b * m * k, b * k * n, b * m * n) <= 2**24, "BMM input/output exceeds fixture allocation bound")
@@ -205,9 +212,20 @@ def tensor_receipts(manifest_path, expected_case):
                      "stable_repeated_extrema" if ranking == "repeated_extrema" else
                      "padded_bitonic_full_sort" if expected_case["operation"] == "sort" else "padded_bitonic_full_sort_prefix")
         require(manifest.get("algorithm") == algorithm, "manifest realized ranking algorithm mismatch")
-    sizes = {"float32": 4, "float16": 2, "bfloat16": 2}
+    if expected_case["operation"] == "argmax":
+        require(manifest.get("algorithm") == "stable_first_index_argmax", "argmax algorithm mismatch")
+        require(manifest.get("indices", {}).get("storage_dtype") == "int64", "argmax requires int64 indices")
+    sizes = {"float32": 4, "float16": 2, "bfloat16": 2, "int64": 8}
     storage = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}[expected_case["precision"]]
-    require(all(entry["storage_dtype"] == storage for entry in manifest["inputs"]), "input storage disagrees with requested precision")
+    if expected_case["operation"] == "embedding":
+        vocabulary, width, tokens = expected_case["dimensions"]
+        require(manifest.get("algorithm") == "uniform_int64_row_gather", "embedding algorithm mismatch")
+        require([entry.get("name") for entry in manifest["inputs"]] == ["input0", "input1"] and
+                [entry.get("storage_dtype") for entry in manifest["inputs"]] == [storage, "int64"] and
+                [entry.get("shape") for entry in manifest["inputs"]] == [[vocabulary, width], [tokens]] and
+                manifest["output"].get("shape") == [tokens, width], "embedding mixed-input ABI mismatch")
+    else:
+        require(all(entry["storage_dtype"] == storage for entry in manifest["inputs"]), "input storage disagrees with requested precision")
     require(manifest["output"]["storage_dtype"] == storage, "output storage disagrees with requested precision")
     entries = [(entry["path"], entry["shape"], sizes[entry["storage_dtype"]]) for entry in manifest["inputs"]]
     output_shape = manifest["output"]["shape"]
@@ -475,7 +493,7 @@ def main(argv=None):
     require(smi is not None, "nvidia-smi is required for telemetry")
     sources = [ROOT / "src/tests/benchmark/benchmark_tile_workloads.cpp", ROOT / "src/tests/common/tile_workload_test_utils.h",
                ROOT / "src/tests/common/tile_llm_test_utils.h", ROOT / "src/tests/common/tile_rank_test_utils.h",
-               ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
+               ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_argmax_test_utils.h", ROOT / "src/tests/common/tile_embedding_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))

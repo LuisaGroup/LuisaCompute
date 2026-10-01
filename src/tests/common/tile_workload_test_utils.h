@@ -6,6 +6,8 @@
 #include "tile_llm_test_utils.h"
 #include "tile_rank_test_utils.h"
 #include "tile_selection_test_utils.h"
+#include "tile_argmax_test_utils.h"
+#include "tile_embedding_test_utils.h"
 #include "tile_sort_pipeline_test_utils.h"
 #include <luisa/tile/algorithms.h>
 #include <luisa/core/stl/optional.h>
@@ -36,6 +38,9 @@ struct Fixture {
     int64_t pipeline_chunk{0};
     std::array<vector<int64_t>, 3u> input_shapes;
     std::array<vector<float>, 3u> inputs;
+    // Embedding alone has a second, genuinely INT64 input. Other operators'
+    // three homogeneous input descriptors and ABI remain unchanged.
+    optional<vector<int64_t>> input_ids;
     vector<int64_t> output_shape;
     vector<double> expected, bound;
     vector<double> strict_bound, probability_rounding_bound;
@@ -86,7 +91,7 @@ struct Fixture {
 template<typename T>
 inline void build_rows(Fixture &f, const Options &o) {
     using namespace compute::tile;
-    auto rows = o.dimensions[0], width = o.dimensions[1], tile_width = o.tile[1];
+    auto rows = o.dimensions[0], width = o.dimensions[1], tile_width = o.tile[1], block_rows = o.tile[0];
     auto op = o.operation;
     auto norm = op == "rmsnorm" || op == "layernorm";
     auto reduction = op == "reduce_sum" || op == "reduce_max";
@@ -120,9 +125,11 @@ inline void build_rows(Fixture &f, const Options &o) {
                                                        TensorView<const T, 2> U,
                                                        TensorView<const T, 2> V,
                                                        TensorView<T, 2> Y) {
-        auto m = axis("m", 1), n = axis("n", tile_width);
-        for (auto &nest : parallel(shape(rows))) {
-            auto row = nest.index();
+        auto m = axis("m", block_rows), n = axis("n", tile_width);
+        for (auto &nest : parallel(shape(ceil_div(rows, block_rows)))) {
+            // Preserve the BR1 capture; explicit blocked schedules only change
+            // independent row coordinates, never the scan/reduction axis.
+            auto row = block_rows == 1 ? nest.index() : nest.index() * block_rows;
             auto x = cast<float>(X.tile(coord(row, 0), shape(m, n)).load());
             auto valid = iota(n) < width;
             if (op == "reduce_sum" || op == "reduce_max") {
@@ -233,7 +240,9 @@ template<typename T = float>
     auto rows = is_row(op);
     auto gemm = op == "gemm" || op == "gemv";
     auto bmm = op == "bmm";
-    auto rank = op == "sort" || op == "topk";
+    auto first_max = op == "argmax";
+    auto embedding = op == "embedding";
+    auto rank = op == "sort" || op == "topk" || first_max;
     auto tensorcore_attention = op == "attention_tensorcore";
     auto attention = op == "attention" || tensorcore_attention;
     auto chunked = o.ranking_algorithm == "chunked_bitonic_c256" || o.ranking_algorithm == "chunked_bitonic_c512";
@@ -248,14 +257,14 @@ template<typename T = float>
             return f;
         }
     }
-    if (!rows && !gemm && !bmm && !rank && !attention) {
+    if (!rows && !gemm && !bmm && !rank && !attention && !embedding) {
         f.error = "operation has no benchmark fixture";
         return f;
     }
-    auto count = rows ? 2u : attention ? 7u : bmm ? 4u : 3u;
+    auto count = rows || first_max ? 2u : attention ? 7u : bmm ? 4u : 3u;
     // The complete matrix FP64 oracle visits one product per B*M*N*K term.
     // This work limit is separate from each tensor's unchanged allocation cap.
-    auto work_limit = gemm || bmm ? (1ull << 34u) : attention ? (1ull << 31u) : (1ull << 28u);
+    auto work_limit = embedding ? (1ull << 48u) : gemm || bmm ? (1ull << 34u) : attention ? (1ull << 31u) : (1ull << 28u);
     if (o.dimensions.size() != count || !product_bounded(o.dimensions, work_limit)) {
         f.error = "invalid dimensions or fixture work bound exceeded";
         return f;
@@ -283,9 +292,11 @@ template<typename T = float>
     if (rows) {
         auto width = o.dimensions[1];
         auto logical_width = op == "rope" ? width / 2 : width;
-        if (o.tile[0] != 1 || o.tile[2] != 1 || o.tile[1] < logical_width || o.tile[1] > 16384 ||
+        auto independent_rows = op == "scan" || op == "reduce_sum" || op == "reduce_max";
+        auto valid_row_block = o.tile[0] == 1 || (independent_rows && (o.tile[0] == 4 || o.tile[0] == 8));
+        if (!valid_row_block || o.tile[2] != 1 || o.tile[1] < logical_width || o.tile[1] > 16384 ||
             (op == "rope" && width % 2 != 0) || (op == "scan_ordered" && o.tile[1] > 1024)) {
-            f.error = "row schedule requires tile=(1,padded_width,1); ordered scan width <=1024 and RoPE width even";
+            f.error = "row schedule requires BR1 (or BR4/8 for scan/sum/max), padded width and tile K=1; ordered scan width <=1024 and RoPE width even";
             return f;
         }
         build_rows<T>(f, o);
@@ -339,6 +350,47 @@ template<typename T = float>
         f.input_shapes = {vector<int64_t>{m, k}, {k, n}, {1}};
         f.output_shape = {m, n};
         f.algorithm = op == "gemv" ? "tile_gemv_product_tree_sum" : "tile_mma_typed_inputs_fp32_accumulator_reassociation";
+    } else if (embedding) {
+        auto vocabulary = o.dimensions[0], width = o.dimensions[1], tokens = o.dimensions[2];
+        if (std::any_of(o.dimensions.begin(), o.dimensions.end(), [](int64_t d) noexcept { return d > 65536; }) ||
+            o.tile[0] != 1 || o.tile[2] != 1 || o.tile[1] <= 0 || o.tile[1] > 16384 ||
+            !product_bounded(std::array{vocabulary, width}, 1ull << 24u) ||
+            !product_bounded(std::array{tokens, width}, 1ull << 24u) ||
+            (o.pattern != "random" && o.pattern != "adversarial")) {
+            f.error = "embedding requires V,D,T<=65536, tile=(1,BD<=16384,1), tensors<=2^24 and random/adversarial pattern";
+            return f;
+        }
+        if (o.backend == "cuda" && (width + o.tile[1] - 1) / o.tile[1] > 65535) {
+            f.error = "embedding feature launch grid exceeds CUDA limits";
+            return f;
+        }
+        f.input_ids.emplace(static_cast<size_t>(tokens));
+        uint64_t id_state = o.seed ^ 0x454d42454444494eull;
+        for (int64_t token = 0; token < tokens; token++) {
+            (*f.input_ids)[token] = o.pattern == "adversarial" ?
+                (token % 3 == 0 ? vocabulary - 1 : token % 3 == 1 ? int64_t{0} : vocabulary / 2) :
+                static_cast<int64_t>(random_bits(id_state) % static_cast<uint64_t>(vocabulary));
+        }
+        if (!tile_embedding::valid_row_indices(span<const int64_t>{*f.input_ids}, vocabulary)) {
+            f.error = "embedding input IDs must be exact INT64 values in [0,V)";
+            return f;
+        }
+        f.kernel = tile_embedding::embedding_rows<T>(vocabulary, width, tokens, o.tile[1]);
+        f.input_shapes = {vector<int64_t>{vocabulary, width}, {1}, {1}};
+        f.output_shape = {tokens, width};
+        f.algorithm = "uniform_int64_row_gather";
+    } else if (first_max) {
+        auto r = o.dimensions[0], n = o.dimensions[1], padded = o.tile[1];
+        if (o.tile[0] != 1 || o.tile[2] != 1 || padded < n || padded > 16384 ||
+            !product_bounded(o.dimensions, 1ull << 24u)) {
+            f.error = "argmax requires tile=(1,padded_width>=N,1), width<=16384 and bounded input allocation";
+            return f;
+        }
+        f.kernel = tile_selection::stable_argmax<T>(r, n, padded);
+        f.input_shapes = {vector<int64_t>{r, n}, {1}, {1}};
+        f.output_shape = {r, 1};
+        f.ranking = true;
+        f.algorithm = "stable_first_index_argmax";
     } else if (rank) {
         auto r = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
         auto padded = o.tile[1];
@@ -464,6 +516,10 @@ template<typename T = float>
                            (i % 17u == 0u ? 16.0f : i % 19u == 0u ? -16.0f :
                                                                     x * 0x1p-8f);
             }
+            if (embedding && input == 0u && o.pattern == "adversarial") {
+                if (i % 23u == 0u) { x = -0.0f; }
+                if (i % 23u == 1u) { x = 0.0f; }
+            }
             if (rows && input > 0u) {
                 if (op == "rmsnorm" || op == "layernorm") { x = input == 1u ? 1.0f + .2f * x : .1f * x; }
                 if (op == "rope") { x = input == 1u ? std::cos(x) : std::sin(x); }
@@ -515,6 +571,28 @@ template<typename T = float>
                     f.bound[c_offset + i * n + j] = sum_bound(k, absolute);
                 }
             }
+        }
+    } else if (embedding) {
+        auto width = o.dimensions[1], tokens = o.dimensions[2];
+        for (int64_t token = 0; token < tokens; token++) {
+            auto id = (*f.input_ids)[token];
+            for (int64_t column = 0; column < width; column++) {
+                auto output = token * width + column;
+                f.expected[output] = static_cast<double>(f.inputs[0][id * width + column]);
+                f.bound[output] = 0.0;
+            }
+        }
+    } else if (first_max) {
+        auto r = o.dimensions[0], n = o.dimensions[1];
+        f.expected_indices.resize(f.expected.size());
+        for (int64_t row = 0; row < r; row++) {
+            auto winner = int64_t{0};
+            for (int64_t col = 1; col < n; col++) {
+                if (f.inputs[0][row * n + col] > f.inputs[0][row * n + winner]) { winner = col; }
+            }
+            f.expected_indices[row] = winner;
+            f.expected[row] = f.inputs[0][row * n + winner];
+            f.bound[row] = 0.0;
         }
     } else if (rank) {
         auto r = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
@@ -580,7 +658,7 @@ template<typename T = float>
         }
     }
     if constexpr (!std::is_same_v<T, float>) {
-        if (!rank && op != "reduce_max") {
+        if (!rank && !embedding && op != "reduce_max") {
             // If float arithmetic error is <= e, one RNE storage conversion
             // adds <= u*(abs(reference)+e) + half the smallest subnormal.
             auto unit_roundoff = static_cast<double>(static_cast<float>(std::numeric_limits<T>::epsilon())) * .5;

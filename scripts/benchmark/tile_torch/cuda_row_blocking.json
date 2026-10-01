@@ -1,0 +1,1625 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "rowblock-scan-128x65-fp32-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-fp32-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-fp32-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-fp16-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-fp16-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-fp16-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-bf16-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-bf16-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x65-bf16-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x65-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-bf16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-bf16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-bf16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x65-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp32-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp32-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp32-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-fp16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-bf16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-bf16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x65-bf16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x65-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp32-br1",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp32-br4",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp32-br8",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br1",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br4",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br8",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-bf16-br1",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-bf16-br4",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-17x1024-bf16-br8",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-17x1024-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp32-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp32-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp32-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-bf16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-bf16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-bf16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-17x1024-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp32-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp32-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp32-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-bf16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-bf16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-bf16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        8,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-17x1024-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp32-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp32-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp32-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp16-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp16-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-fp16-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-bf16-br1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-bf16-br4",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-scan-128x8192-bf16-br8",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-scan-128x8192-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp32-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp32-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp32-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-fp16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-bf16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-bf16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_sum-128x8192-bf16-br8",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_sum-128x8192-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp32-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp32-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp32-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp32-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp32-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp32-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-fp16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-fp16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-bf16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-bf16-br1",
+      "rows_per_program": 1,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-bf16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        4,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-bf16-br1",
+      "rows_per_program": 4,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    },
+    {
+      "id": "rowblock-reduce_max-128x8192-bf16-br8",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        8,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false,
+      "baseline_case_id": "rowblock-reduce_max-128x8192-bf16-br1",
+      "rows_per_program": 8,
+      "selection_reason": "Explicit schedule comparison; same source-independent input/oracle construction, no measured winner."
+    }
+  ]
+}

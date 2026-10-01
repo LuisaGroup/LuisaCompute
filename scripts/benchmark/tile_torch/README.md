@@ -1479,3 +1479,27 @@ timeouts remain failures; they do not become unsupported capability results.
 
 The [core78 checkpoint](results/2026-10-01-core78-v2/README.md) records the
 earlier implementation, its full samples and remaining performance gaps.
+
+The [extended48 checkpoint](results/2026-10-01-extended48-v2/README.md) records
+BMM, larger matrices, strict/fast normalization and complete chunked sorting.
+It retains the sorting regressions and large-GEMM gaps as well as improvements.
+
+`cuda_selection_embedding.json` adds stable first-index argmax and embedding
+lookup with FP32/FP16/BF16 storage. Argmax dimensions are `[rows,width]`; each
+call returns the original value and an INT64 index, including exact tie order
+and signed-zero bits. Embedding dimensions are `[vocabulary,width,tokens]`,
+with a real INT64 token-ID buffer and a typed output. Each program loads one
+uniform row ID and one feature block. Invalid IDs are rejected before dispatch;
+this fixture does not implement arbitrary lane-dependent Tile gathers. Both
+operations use a complete exact selected-source oracle.
+
+`cuda_row_blocking.json` compares one, four and eight independent rows per
+program for inclusive tree scan, sum and max. `tile[0]` selects this explicit
+schedule; the default remains one row. Column and row tails stay masked, and
+the original arithmetic and numerical bounds are unchanged. Repeated schedules
+are comparisons for the same workload, not additional shape coverage.
+
+`cuda_gemm_schedules.json` compares four explicit tile shapes for FP16/BF16
+1024-cubed GEMM. A larger tile is not assumed to be faster. These three new
+inventories use the standard Torch contract and the same matrix command;
+argmax always requires first-index ties even under that contract.

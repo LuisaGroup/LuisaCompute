@@ -25,7 +25,7 @@ import time
 import traceback
 
 
-OPERATIONS = {"gemm", "gemv", "bmm", "softmax", "masked_softmax", "rmsnorm",
+OPERATIONS = {"gemm", "gemv", "bmm", "embedding", "softmax", "masked_softmax", "rmsnorm",
               "layernorm", "rope", "swiglu", "gelu_residual", "attention", "attention_tensorcore",
               "scan", "scan_ordered", "reduce_sum", "reduce_max", "argmax", "sort", "topk"}
 PRECISIONS = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
@@ -53,6 +53,9 @@ def expected_shapes(op, dims):
         m, n, k = dims
         require(op != "gemv" or n == 1, "GEMV requires N=1")
         return [(m, k), (k, n), (1,)], (m, n)
+    if op == "embedding":
+        vocabulary, width, tokens = dims
+        return [(vocabulary, width), (tokens,)], (tokens, width)
     if op == "bmm":
         b, m, n, k = dims
         return [(b, m, k), (b, k, n), (1,)], (b, m, n)
@@ -63,6 +66,8 @@ def expected_shapes(op, dims):
         r, n, k = dims
         return [(r, n), (1,), (1,)], (r, k)
     r, n = dims
+    if op == "argmax":
+        return [(r, n), (1,), (1,)], (r, 1)
     aux = (1 if op in {"rmsnorm", "layernorm"} else r, n // 2 if op == "rope" else n)
     return [(r, n), aux, aux], (r, 1 if op in {"reduce_sum", "reduce_max", "argmax"} else n)
 
@@ -90,6 +95,10 @@ def check_matrix_limits(op, dims, tile, backend=None):
 def check_semantics(manifest):
     op, semantics = manifest["operation"], manifest.get("semantics", {})
     constraints = {"accumulation": "float32"}
+    if op == "embedding":
+        constraints.update(accumulation="none", index_dtype="int64", index_bounds="reject_invalid",
+                           gather_axis=0, value_preservation="storage_bits")
+        require(semantics.get("index_pattern") in {"seeded_uniform_rows", "repeated_boundary_rows"}, "embedding index pattern missing")
     if op == "bmm":
         constraints.update(batch_layout="contiguous_bmk_bkn_bmn", batch_broadcast=False,
                            contraction="mma_fused_reassociation_allowed",
@@ -102,7 +111,7 @@ def check_semantics(manifest):
         constraints["mask"] = "column<=row%width" if op == "masked_softmax" else "none"
     if op in {"scan", "scan_ordered"}:
         constraints["scan"] = "inclusive_sum"
-    if op in {"sort", "topk"}:
+    if op in {"sort", "topk", "argmax"}:
         constraints.update(descending=True, stable=True, tie_break="original_index_ascending")
     if op in {"attention", "attention_tensorcore"}:
         constraints.update(causal=True, query_positions="last_Q_in_K")
@@ -133,9 +142,20 @@ def load_packet(path):
     dims = tuple(dimensions)
     op = manifest["operation"]
     require(len(dims) == (7 if op in {"attention", "attention_tensorcore"} else 4 if op == "bmm" else
-                         3 if op in {"gemm", "gemv", "sort", "topk"} else 2), "operation dimension arity mismatch")
+                         3 if op in {"gemm", "gemv", "sort", "topk", "embedding"} else 2), "operation dimension arity mismatch")
     if op in {"gemm", "gemv", "bmm"}:
         check_matrix_limits(op, dims, manifest.get("tile"), manifest.get("backend"))
+    if op == "embedding":
+        vocabulary, width, tokens = dims
+        require(max(vocabulary * width, tokens * width) <= 2**24, "embedding tensors exceed allocation bound")
+        schedule = manifest.get("tile")
+        require(isinstance(schedule, list) and len(schedule) == 3 and
+                all(type(x) is int and x > 0 for x in schedule) and schedule[0] == schedule[2] == 1 and
+                schedule[1] <= 16384, "invalid embedding schedule")
+        require(manifest.get("algorithm") == "uniform_int64_row_gather", "embedding algorithm mismatch")
+        require(manifest.get("pattern") in {"random", "adversarial"}, "embedding requires random/adversarial pattern")
+        if manifest.get("backend") == "cuda":
+            require((width + schedule[1] - 1) // schedule[1] <= 65535, "embedding launch grid exceeds CUDA limits")
     if op == "rope":
         require(dims[1] % 2 == 0, "RoPE requires an even width")
     if op in {"attention", "attention_tensorcore"}:
@@ -182,7 +202,15 @@ def load_packet(path):
             value = read(entry, "<f2" if storage_dtype == "float16" else "<f4", storage_dtype).astype("<f4")
         require(np.isfinite(value).all(), "nonfinite decoded input storage")
         return value
-    arrays = [read_input(entry) for entry in entries]
+    if op == "embedding":
+        require(len(entries) == 2 and entries[0].get("storage_dtype") == storage_dtype and
+                entries[1].get("storage_dtype") == "int64" and
+                [entry.get("shape") for entry in entries] == [[dims[0], dims[1]], [dims[2]]],
+                "embedding requires typed table and exact INT64 index input descriptors")
+        arrays = [read_input(entries[0]), read(entries[1], "<i8", "int64")]
+        require(((arrays[1] >= 0) & (arrays[1] < dims[0])).all(), "embedding input ID outside [0,V)")
+    else:
+        arrays = [read_input(entry) for entry in entries]
     output_shape = shape(manifest["output"]["shape"])
     input_shapes, required_output_shape = expected_shapes(op, dims)
     require([array.shape for array in arrays] == input_shapes and output_shape == required_output_shape,
@@ -192,6 +220,11 @@ def load_packet(path):
     expected = read(expected_entry, "<f8", "float64", tensor_shape=output_shape)
     bounds = read(expected_entry, "<f8", "float64", key="bound_path", tensor_shape=output_shape)
     require((bounds >= 0).all(), "negative oracle bound")
+    if op == "embedding":
+        require((bounds == 0).all(), "embedding must use exact zero-bound oracle")
+        selected = arrays[0][arrays[1]]
+        require(np.array_equal(selected.astype("<f8").view("<u8"), expected.view("<u8")),
+                "embedding complete selected-source oracle mismatch")
     strict_bounds = probability_bounds = None
     if op == "attention_tensorcore":
         require("strict_bound_path" in expected_entry and "probability_rounding_bound_path" in expected_entry,
@@ -236,15 +269,23 @@ def validate_output(packet, values, indices=None, *, ranking_contract="standard"
         flat = int(np.flatnonzero(failures)[0])
         raise ValueError(f"oracle mismatch: {result}; first index={flat}, "
                          f"actual={values.flat[flat]}, expected={expected.flat[flat]}, bound={bounds.flat[flat]}")
+    if packet["manifest"]["operation"] == "embedding":
+        source = packet.get("rounded_inputs", packet["inputs"])
+        require(source[1].dtype == np.dtype("int64"), "embedding IDs lost their INT64 dtype")
+        selected = source[0][source[1]]
+        require(np.array_equal(selected.astype("<f4").view("<u4"), values.astype("<f4").view("<u4")),
+                "embedding selected-source storage bits mismatch")
     if packet["indices"] is not None:
         require(indices is not None and indices.shape == packet["indices"].shape and
                 np.issubdtype(indices.dtype, np.integer), "missing/invalid index result")
+        if packet["manifest"]["operation"] == "argmax":
+            require(indices.dtype == np.dtype("int64"), "argmax indices must be int64")
         exact_indices = ranking_contract == "stable" or packet["manifest"]["operation"] == "argmax"
         if exact_indices:
             require(np.array_equal(indices, packet["indices"]), "index mismatch, including stable ties")
         width = packet["manifest"]["dimensions"][1]
         require(((indices >= 0) & (indices < width)).all(), "out-of-range index")
-        if packet["manifest"]["operation"] in {"sort", "topk"}:
+        if packet["manifest"]["operation"] in {"sort", "topk", "argmax"}:
             require(all(len(set(row.tolist())) == len(row) for row in indices), "duplicate selected index")
             source = packet["rounded_inputs"][0] if "rounded_inputs" in packet else packet["inputs"][0]
             selected = np.take_along_axis(source, indices, axis=-1)
@@ -253,6 +294,29 @@ def validate_output(packet, values, indices=None, *, ranking_contract="standard"
         result["exact_indices_and_ties"] = exact_indices
         result["index_contract"] = "exact stable ties" if exact_indices else "valid unique source indices; tied-index permutations allowed"
     return result
+
+
+def prepare_cpu_inputs(torch, packet, dtype):
+    """Keep embedding's index operand INT64; every other input keeps its old dtype."""
+    import numpy as np
+    cpu_inputs, restored_inputs = [], []
+    embedding = packet["manifest"]["operation"] == "embedding"
+    for index, original in enumerate(packet["inputs"]):
+        integer_input = embedding and index == 1
+        if integer_input:
+            require(original.dtype == np.dtype("int64"), "embedding ID input must be INT64 before Torch conversion")
+            cpu = torch.from_numpy(original.copy())
+            require(cpu.dtype == torch.int64, "Torch changed the INT64 index input")
+            restored = cpu.numpy()
+            require(np.array_equal(original, restored), "Torch conversion changed INT64 index bits")
+        else:
+            cpu = torch.from_numpy(original.copy()).to(dtype=dtype)
+            restored = cpu.float().numpy()
+            require(np.array_equal(original.view("<u4"), restored.view("<u4")),
+                    "Torch conversion changed exported storage bits")
+        cpu_inputs.append(cpu)
+        restored_inputs.append(restored)
+    return cpu_inputs, restored_inputs
 
 
 def make_program(torch, packet, tensors, ranking_contract="standard"):
@@ -288,7 +352,9 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
                     "sort": f"torch.sort, descending, stable={stable}",
                     "attention": f"functional SDPA, {attention_mask_description}, GQA",
                     "attention_tensorcore": f"default functional SDPA, {attention_mask_description}, GQA; evaluated against both strict and declared single-probability-narrowing contracts",
-                    "gemm": "functional mm", "gemv": "functional mm with N=1", "bmm": "functional bmm"}
+                    "gemm": "functional mm", "gemv": "functional mm with N=1", "bmm": "functional bmm",
+                    "argmax": "functional max(dim=-1, keepdim=True), value and first int64 index",
+                    "embedding": "functional index_select(table, dim=0, int64_ids); exact storage bits"}
 
     def cast(value):
         return value.to(dtype=x.dtype)
@@ -298,6 +364,8 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
             return torch.mm(x, u)
         elif op == "bmm":
             return torch.bmm(x, u)
+        elif op == "embedding":
+            return torch.index_select(x, 0, u)
         elif op == "softmax":
             return cast(torch.softmax(x.float(), dim=-1))
         elif op == "masked_softmax":
@@ -573,11 +641,7 @@ def main(argv=None):
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
         precision = packet["manifest"]["precision"]
         dtype = getattr(torch, PRECISIONS[precision])
-        cpu_inputs = [torch.from_numpy(array.copy()).to(dtype=dtype) for array in packet["inputs"]]
-        packet["rounded_inputs"] = [tensor.float().numpy() for tensor in cpu_inputs]
-        for original, restored in zip(packet["inputs"], packet["rounded_inputs"]):
-            require(np.array_equal(original.view("<u4"), restored.view("<u4")),
-                    "Torch conversion changed exported storage bits")
+        cpu_inputs, packet["rounded_inputs"] = prepare_cpu_inputs(torch, packet, dtype)
         tensors = [tensor.to(device="cuda") for tensor in cpu_inputs]
         eager, expression = make_program(torch, packet, tensors, args.ranking_contract)
         last = None
@@ -589,6 +653,8 @@ def main(argv=None):
                                             fp16_reduced_precision_reduction=False, bf16_reduced_precision_reduction=False),
                       allocation_policy="Functional return; allocations included in stream timing, graph capture pool reused on replay",
                       ranking_contract=args.ranking_contract)
+        if packet["manifest"]["operation"] == "embedding":
+            record["numerical_policy"].update(input_storage=[PRECISIONS[precision], "int64"], compute_precision="none; exact typed row copy")
         if packet["manifest"]["operation"] == "attention_tensorcore":
             record["precision_contract_evidence"] = dict(
                 acceptance_kind="predeclared_numerical_envelope", backend_precision_contract_verified=False,
@@ -609,7 +675,14 @@ def main(argv=None):
             positions = indices.cpu().numpy() if indices is not None else None
             validation = validate_output(packet, values, positions, ranking_contract=args.ranking_contract)
             for gpu, cpu in zip(tensors, cpu_inputs):
-                require(torch.equal(gpu.cpu(), cpu), "operator mutated input")
+                restored = gpu.cpu()
+                require(torch.equal(restored, cpu), "operator mutated input")
+                if packet["manifest"]["operation"] == "embedding":
+                    if cpu.dtype == torch.int64:
+                        require(np.array_equal(restored.numpy(), cpu.numpy()), "operator mutated INT64 indices")
+                    else:
+                        require(np.array_equal(restored.float().numpy().view("<u4"), cpu.float().numpy().view("<u4")),
+                                "operator mutated table storage bits")
             verify_packet(packet)
             return validation
 
