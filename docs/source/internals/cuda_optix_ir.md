@@ -681,3 +681,93 @@ three iterations, unlike the PTX/IR comparison above; their aggregate
 numbers must not be compared directly. Evidence is in
 `build-msvc-llvm/test-results/cutout-{v18-v19,ast-v19}-final/` and
 `build-msvc-llvm/test-results/procedural-v18-v19-final-abba-20260930-124733-476831/`.
+
+## October 1, 2026 checkpoint (LLVM cache v21)
+
+The following Cutout measurements are a new checkpoint, not a reinterpretation
+of the historical results above. They use **LLVM 22.1.8**, MSVC/CMake/Ninja,
+CUDA 13.4 and OptiX 9 on the RTX 4060 Laptop GPU. Both LLVM **22.1.8 and
+23.1.2** completed full builds and passed the callback comparator regressions,
+including differing GEP `inbounds`/`nuw`/`nusw` flags. The final LLVM 22 focused
+suite passed **32/32**. LLVM 23 also passed an earlier 32-case suite; its final
+suite had one ray-query timeout during recorded Modern Standby, followed by
+a passing standalone rerun in **5.69 s**. The failed log is retained. These
+API/correctness checks do not extend the performance measurements to LLVM 23.
+
+Cache v21 shares equivalent, capture-free hardware-result callback dispatch
+bodies within one stage. Per-query trace flags and IDs, general captured-state
+paths, and numerical bounds checks are preserved. The comparison checks
+function attributes and ABI, rejects unsupported metadata/identity features,
+and compares instruction flags along matching control-flow edges in addition
+to LLVM's structural comparator.
+
+Separate 1024-spp diagnostic renders prove one shared surface dispatch target
+on both routes. OptiX reports smaller any-hit bodies and whole modules;
+these counts are **compiler instructions, not SASS instructions**:
+
+| Compiler / module statistic | LLVM/PTX v20 → v21 | LLVM/OptiX IR v20 → v21 |
+|---|---:|---:|
+| Basic blocks | 19 → 11 | 17 → 10 |
+| Instructions | 60 → 39 (−35.0%) | 55 → 36 (−34.5%) |
+| Module bytes | 35,135 → 34,398 | 20,636 → 20,420 |
+
+The payload remains two words. Physical AH/IS allocation remains 64 registers
+with no stack or spills. Raygen is also unchanged: PTX uses 70 registers,
+96-byte continuation stack and 236-byte continuation spills; OptiX IR uses
+68 registers, 8-byte direct stack, 128-byte continuation stack and 232-byte
+continuation spills. These properties do not establish occupancy or a cause
+of any runtime difference.
+
+All timed runs use 4096 spp × three iterations, 64 spp per dispatch and no
+register cap. A run's warm throughput uses the median elapsed time of
+iterations 2/3; table entries are medians across processes. These application
+timings include AS updates, accumulation and stream completion. Cold total
+measures the separately logged RTX shader compilation interval. Processes
+start suspended, receive verified affinity `0x15400` (four distinct P cores),
+and use independent `copy2` runtimes and fresh shader caches, with OptiX disk caching
+disabled. Source/binary hashes and actual module formats are checked.
+
+Each v20/v21 comparison uses **two ABBA groups**, four processes per version.
+Both snapshots use the exact frozen v20 executable; only the CUDA backend DLL
+differs. The two output formats were measured in separate experiments:
+
+| Route | v20 / v21 spp/s | v21/v20 change | Per-group change | Cold RTX total v20 / v21, ms |
+|---|---:|---:|---:|---:|
+| LLVM/PTX | 904.69 / 904.08 | −0.07% | +0.63%, −0.79% | 274.31 / 266.86 |
+| LLVM/OptiX IR | 831.23 / 837.68 | +0.78% | +0.98%, +0.75% | 274.20 / 292.67 |
+
+PTX is effectively unchanged; the small IR improvement is comparable to its
+roughly 1% run variability. Warm-window graphics-clock medians match within
+each version comparison: 2325 MHz for PTX and 2280 MHz for IR. IR v21 still
+has 14 P3 samples and a transient 7001 MHz memory clock. No frequency correction
+is applied, and the instruction reduction is not a demonstrated large speedup.
+
+Two further comparisons each use **one ABBA group**, two processes per route,
+with one common current-v21 runtime and executable snapshot:
+
+| Comparison, first / second | Warm spp/s | Second/first change | Cold RTX total, ms | Warm graphics MHz |
+|---|---:|---:|---:|---:|
+| LLVM/PTX / LLVM/OptiX IR | 910.22 / 847.86 | −6.85% | 270.05 / 272.33 | 2340 / 2295 |
+| AST/NVRTC / LLVM/PTX | 906.03 / 902.12 | −0.43% | 1101.26 / 283.66 | 2310 / 2325 |
+
+In the direct-format comparison, IR reduces RTX LLVM generation from 92.05
+to 75.50 ms, but OptiX module creation rises from 157.90 to 180.47 ms. It does
+not reduce total compilation time. LLVM/PTX is near AST's rendering throughput
+in this single group while taking 25.8% of its total compilation time. Warm
+clock samples cover logged iterations 2/3 with utilization ≥80%; both direct
+comparisons remain in P0 at 8001 MHz memory. Their sample size and different
+graphics clocks preclude a general speed claim. OptiX IR remains opt-in.
+
+All **24 timed renders** pass the unchanged gallery, with exact PNG repeatability
+within each route/version. v20/v21 images are byte-identical within each format.
+Direct PTX/IR and AST/LLVM images differ slightly (RGB PSNR 69.49 and 66.47 dB,
+respectively; maximum channel difference 5/255, unchanged alpha); cross-route
+identity is not required. The four diagnostic renders also pass their gallery.
+
+Local evidence is retained in `.deps/oct01-cutout-v20-v21-{ptx,optixir}-abba/`,
+`.deps/oct01-cutout-v20-v21-codegen-proof/`,
+`build-msvc-llvm/test-results/oct01-v21-ptx-optixir-direct-abba-20261001-145507-168414/`
+and `.deps/oct01-cutout-ast-v21-ptx-abba/`. These ignored packets contain exact
+commands, hashes, cold/warm timings, clock samples and images. Correctness logs
+are `.deps/oct01-final-build-msvc-llvm{,23}-focused.log`,
+`.deps/oct01-rq21-focused23.log` and `.deps/oct01-rq21-timeout-recheck23.log`.

@@ -10,6 +10,7 @@ reductions
 validation
 checkpoints
 migration
+windows-cuda-simd
 ```
 
 ## Current conclusion
@@ -236,14 +237,14 @@ selection on held-out graphs and shapes. Physical K/reuse, launch resource
 limits, large-matrix scaling and direct XIR performance remain open.
 A lower model score or a small cohort win is not completion.
 
-The CUDA reference PTX route (see [Runtime integration](../../internals/tile/runtime.md))
-is implemented but not yet validated on an NVIDIA machine with a TIRx-enabled
-TVMx build; its CMake TIRx gate must be on. Host artifact tests assert the
-emitted CUDA source/PTX invariants and fail-closed options; `test_tile_cuda_ptx`
-runs elementwise, reduction, softmax and GEMM oracle checks (transposes,
-`allow_reassociation`, extrema) when built with the bridge and
-verifies the explicit no-bridge diagnostic otherwise. No CUDA performance
-numbers are claimed yet.
+The October 1 [Windows CUDA/SIMD checkpoint](windows-cuda-simd.md) adds
+NVIDIA execution and a 22-record strict-FP32 GEMM experiment through the
+native C++ TIRx/PTX route, experimental CUDA Tile IR, and XIR/SIMD. Native
+Tile IR has mixed results at 128³ and 512³; large OpenBLAS reference drift
+and different library submission overheads remain explicit. These bounded
+host-wall measurements do not establish general backend or library parity.
+See [Runtime integration](../../internals/tile/runtime.md) for route gates
+and fail-closed behavior.
 
 The [execution calculus](../../internals/tile/calculus.md) now separates primitive
 assumptions, order, reduction laws and typed mapping obligations. Its sibling

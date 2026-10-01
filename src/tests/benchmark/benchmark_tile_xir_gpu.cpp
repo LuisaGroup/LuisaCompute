@@ -1,8 +1,7 @@
-// TileIR -> XIR -> AST -> create_shader fallback benchmark on GPU backends
-// (dx/vk/cuda), host wall time with compilation/allocation/upload excluded.
-// Modeled on benchmark_tile_xir.cpp (simd/metal4), without the TIRx or
-// planner-policy special cases: the backend argument selects the runtime
-// device, so the DX/VK XIR->AST fallback path is measured on real hardware.
+// Tile runtime GEMM benchmark with an explicit native or TIRx lowering.
+// Host wall time excludes compilation/allocation/upload. Native selects each
+// backend's existing route; it does not imply CUDA XIR or a silent fallback.
+// CUDA accepts explicit TIRx or the opt-in CUDA Tile IR native route.
 #include "ut/ut.hpp"// boost.ut cfg used by test_device.h
 #include "test_device.h"
 #include "tile_xir_test_utils.h"
@@ -15,10 +14,11 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <limits>
-#include <random>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -64,10 +64,10 @@ void samples(const char *name, span<const double> v) {
 
 }// namespace
 
-// Usage: benchmark_tile_xir_gpu <backend> M N K tile-M tile-N tile-K [samples=10] [sample-ms=50] [warmup-ms=200] [variant=0]
+// Usage: benchmark_tile_xir_gpu <backend> M N K tile-M tile-N tile-K [samples=10] [sample-ms=50] [warmup-ms=200] [variant=0] [native|tirx=native]
 int main(int argc, char *argv[]) {
-    if (argc < 8 || argc > 12) {
-        std::cerr << "Usage: benchmark_tile_xir_gpu <backend> M N K tile-M tile-N tile-K [samples=10] [sample-ms=50] [warmup-ms=200] [variant=0]\n";
+    if (argc < 8 || argc > 13) {
+        std::cerr << "Usage: benchmark_tile_xir_gpu <backend> M N K tile-M tile-N tile-K [samples=10] [sample-ms=50] [warmup-ms=200] [variant=0] [native|tirx=native]\n";
         return 1;
     }
     test::tile_xir::Gemm cfg{positive(argv[2]), positive(argv[3]), positive(argv[4]), positive(argv[5]), positive(argv[6]), positive(argv[7])};
@@ -75,6 +75,10 @@ int main(int argc, char *argv[]) {
     auto target_ms = argc > 9 ? positive(argv[9]) : 50;
     auto warmup_ms = argc > 10 ? positive(argv[10]) : 200;
     auto variant = argc > 11 ? non_negative(argv[11]) : 0;// 0=f32, 1=f16 accumulator, 2=bf16 accumulator
+    auto lowering = argc > 12 ? luisa::string_view{argv[12]} : luisa::string_view{"native"};
+    LUISA_ASSERT(lowering == "native" || lowering == "tirx", "lowering must be native or tirx");
+    tile::CompileOptions compile_options;
+    compile_options.lowering = lowering == "tirx" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
     LUISA_ASSERT(cfg.m <= 16384 && cfg.n <= 16384 && cfg.k <= 16384 && cfg.bm <= 256 && cfg.bn <= 256 && cfg.bk <= 1024 &&
                      count <= 101 && target_ms <= 10000 && warmup_ms <= 60000 && variant >= 0 && variant <= 3,
                  "invalid shape/schedule/timing limits");
@@ -122,7 +126,7 @@ int main(int argc, char *argv[]) {
     }();
     auto capture_ms = elapsed(start);
     start = Clock::now();
-    auto shader = tile::compile(device, kernel);
+    auto shader = tile::compile(device, kernel, compile_options, {.enable_fast_math = false});
     auto compile_ms = elapsed(start);
     LUISA_ASSERT(shader, "{}", shader.metadata().error.c_str());
     auto host_a = values(cfg.m * cfg.k, 5), host_b = values(cfg.k * cfg.n, 11);
@@ -157,25 +161,32 @@ int main(int argc, char *argv[]) {
         stream.synchronize();
         auto before = Clock::now();
         stream << shader(a, b, c).dispatch() << synchronize();
-        latency.emplace_back(elapsed(before));
+        latency.emplace_back(1000.0 * elapsed(before));
     }
     luisa::sort(throughput.begin(), throughput.end());
     luisa::sort(latency.begin(), latency.end());
     stream << c.copy_to(span{output}) << synchronize();
-    // Sampled host verification keeps debug builds honest without a full
-    // host-side GEMM: every sampled element costs one K-length dot product.
-    std::mt19937_64 random{0x5eedu};
-    std::uniform_int_distribution<size_t> row{0u, static_cast<size_t>(cfg.m) - 1u}, col{0u, static_cast<size_t>(cfg.n) - 1u};
+    // Verify every output against an independent FP64 dot product. Readback
+    // and CPU validation remain outside both GPU timing series.
+    start = Clock::now();
     auto max_error = 0.0;
-    for (auto s = 0; s < 64; s++) {
-        auto i = row(random), j = col(random);
-        double expected = cfg.initial;
-        for (int64_t k = 0; k < cfg.k; k++) { expected += static_cast<double>(host_a[static_cast<size_t>(i) * cfg.k + k]) * host_b[static_cast<size_t>(k) * cfg.n + j]; }
-        max_error = std::max(max_error, std::abs(expected - output[i * cfg.n + j]));
+    auto non_finite_outputs = size_t{0};
+    for (auto i = int64_t{0}; i < cfg.m; i++) {
+        for (auto j = int64_t{0}; j < cfg.n; j++) {
+            auto actual = output[static_cast<size_t>(i) * cfg.n + j];
+            if (!std::isfinite(actual)) {
+                non_finite_outputs++;
+                continue;
+            }
+            double expected = cfg.initial;
+            for (auto k = int64_t{0}; k < cfg.k; k++) { expected += static_cast<double>(host_a[static_cast<size_t>(i) * cfg.k + k]) * host_b[static_cast<size_t>(k) * cfg.n + j]; }
+            max_error = std::max(max_error, std::abs(expected - actual));
+        }
     }
+    auto validation_ms = elapsed(start);
     auto median = [](span<const double> v) { return v[v.size() / 2]; };
     auto gflops = 2.0 * cfg.m * cfg.n * cfg.k / (median(span{throughput}) * 1e3);// µs → s, flops → GFLOPS
-    // Narrow accumulators round once at write-back, so their sampled error is
+    // Narrow accumulators round once at write-back, so their error is
     // bounded by storage precision rather than the FP32 oracle tolerance.
     auto tolerance = variant == 0 ? 1e-3 + 1e-3 * static_cast<double>(cfg.k) : 2e-2 + 2e-2 * static_cast<double>(cfg.k);
     std::cout << "{\"backend\":\"" << argv[1] << "\",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
@@ -189,7 +200,12 @@ int main(int argc, char *argv[]) {
     std::cout << ",\"throughput_p50_us\":" << median(span{throughput})
               << ",\"latency_p50_us\":" << median(span{latency})
               << ",\"gflops\":" << gflops << ",\"max_error\":" << max_error
+              << ",\"validated_elements\":" << output.size() << ",\"non_finite_outputs\":" << non_finite_outputs
+              << ",\"validation_ms\":" << validation_ms
+              << ",\"variant\":" << variant << ",\"fast_math\":false"
+              << ",\"lowering\":" << std::quoted(lowering)
+              << ",\"realization\":" << std::quoted(shader.metadata().realization)
               << ",\"dispatch\":" << shader.metadata().dispatch_size.x
               << ",\"block\":" << shader.block_size().x << "}\n";
-    return max_error <= tolerance ? 0 : 2;
+    return non_finite_outputs == 0u && max_error <= tolerance ? 0 : 2;
 }
