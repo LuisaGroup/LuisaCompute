@@ -145,9 +145,10 @@ template<scalar_cpp_type T, scalar_cpp_type I>
                          (lane / static_cast<int64_t>(span) % 2 == 0);
             auto other_before = (largest ? other_values > values : other_values < values) ||
                                 ((other_values == values) && (other_indices < indices));
-            auto self_before = (largest ? values > other_values : values < other_values) ||
-                               ((values == other_values) && (indices < other_indices));
-            auto take_other = ite(first, other_before, self_before);
+            // The supported value order excludes NaNs, and original indices
+            // stay unique through permutations. The two pair orders are then
+            // complements, including value ties and signed zero.
+            auto take_other = first == other_before;
             values = ite(take_other, other_values, values);
             indices = ite(take_other, other_indices, indices);
         }

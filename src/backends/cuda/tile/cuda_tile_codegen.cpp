@@ -15,6 +15,7 @@ using namespace tile;
 class Emitter {
 private:
     const Function &_function;
+    const bool _enable_fast_math;
     Artifact _artifact;
     luisa::unordered_map<const Value *, luisa::string> _values;
     luisa::unordered_map<const Value *, size_t> _buffers;
@@ -24,6 +25,62 @@ private:
     const IndexSpace *_map_space{nullptr};
     const Block *_map_body{nullptr};
     luisa::unordered_set<const Value *> _mapped_values;
+
+    // A conservative proof for scalar INDEX/int64 values only. The DSL uses
+    // scalar int64 results for arithmetic on loop INDEX arguments. All values
+    // are nonnegative and fit int64. Unknown/overflowing expressions keep
+    // masked pointer accesses; this analysis never changes their arithmetic.
+    struct IndexFacts {
+        uint64_t minimum;
+        uint64_t maximum;
+    };
+    luisa::unordered_map<const Value *, IndexFacts> _index_facts;
+
+    void _record_index_facts(const Operation &op) noexcept {
+        if (_map_space != nullptr || op.result_count() != 1u) { return; }
+        auto &&type = op.result(0u)->type();
+        if (type.kind() != TypeKind::INDEX &&
+            !(type.kind() == TypeKind::SCALAR && type.scalar_type() == ScalarType::INT64)) { return; }
+        constexpr auto kMax = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+        auto result = op.result(0u);
+        if (op.kind() == OperationKind::CONSTANT) {
+            if (auto attr = op.attribute("value")) {
+                if (auto x = luisa::get_if<int64_t>(&attr->value()); x != nullptr && *x >= 0) {
+                    auto value = static_cast<uint64_t>(*x);
+                    _index_facts.emplace(result, IndexFacts{value, value});
+                } else if (auto x = luisa::get_if<uint64_t>(&attr->value()); x != nullptr && *x <= kMax) {
+                    _index_facts.emplace(result, IndexFacts{*x, *x});
+                }
+            }
+            return;
+        }
+        if (op.kind() != OperationKind::ELEMENTWISE || op.operand_count() == 0u) { return; }
+        auto lhs = _index_facts.find(op.operand(0u));
+        if (lhs == _index_facts.end()) { return; }
+        if (op.elementwise_op() == ElementwiseOp::CAST && op.operand_count() == 1u) {
+            // Only INDEX/int64 values enter this table, so this cast cannot
+            // narrow an integer or reinterpret a floating-point operand.
+            _index_facts.emplace(result, lhs->second);
+            return;
+        }
+        if (op.operand_count() != 2u) { return; }
+        auto rhs = _index_facts.find(op.operand(1u));
+        if (rhs == _index_facts.end()) { return; }
+        auto a = lhs->second, b = rhs->second;
+        if (op.elementwise_op() == ElementwiseOp::ADD) {
+            if (a.maximum > kMax - b.maximum) { return; }
+            _index_facts.emplace(result, IndexFacts{a.minimum + b.minimum, a.maximum + b.maximum});
+        } else if (op.elementwise_op() == ElementwiseOp::MUL &&
+                   (a.minimum == a.maximum || b.minimum == b.maximum)) {
+            if (a.maximum != 0u && b.maximum > kMax / a.maximum) { return; }
+            _index_facts.emplace(result, IndexFacts{a.minimum * b.minimum, a.maximum * b.maximum});
+        } else if (op.elementwise_op() == ElementwiseOp::DIV &&
+                   b.minimum == b.maximum && b.minimum != 0u) {
+            // Nonnegative signed division is monotone truncation. No zero
+            // denominator or INT64_MIN / -1 can enter this proof domain.
+            _index_facts.emplace(result, IndexFacts{a.minimum / b.minimum, a.maximum / b.minimum});
+        }
+    }
 
     void _fail(const Operation *op, luisa::string_view message) noexcept {
         if (_artifact.error.empty()) {
@@ -212,6 +269,7 @@ private:
             _fail(&op, "narrow elementwise arithmetic rounding is not implemented (load/cast/select/MMA are supported)");
             return;
         }
+        auto fast_fp32 = _enable_fast_math && element == ScalarType::FLOAT32;
         luisa::string expression;
         luisa::string_view binary;
         switch (op.elementwise_op()) {
@@ -239,9 +297,17 @@ private:
                     luisa::format("ct::{}({}, {})", name, a, b);
                 break;
             }
-            case ElementwiseOp::EXP: expression = luisa::format("ct::exp({}, ct::round_full_t{{}})", a); break;
+            case ElementwiseOp::EXP:
+                expression = fast_fp32 ? luisa::format("ct::exp({}, ct::round_approximate_t{{}})", a) :
+                                         luisa::format("ct::exp({}, ct::round_full_t{{}})", a);
+                break;
             case ElementwiseOp::LOG: expression = luisa::format("ct::log({})", a); break;
-            case ElementwiseOp::SQRT: expression = luisa::format("ct::sqrt({}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", a); break;
+            case ElementwiseOp::SQRT:
+                expression = fast_fp32 ? luisa::format("ct::sqrt({}, ct::round_approximate_t{{}}, ct::round_subnormals_to_zero_t{{}})", a) :
+                                         luisa::format("ct::sqrt({}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", a);
+                break;
+            // The SDK approximate tanh exceeds the elementwise error budget
+            // for ordinary finite inputs. Keep full precision in both modes.
             case ElementwiseOp::TANH: expression = luisa::format("ct::tanh({}, ct::round_full_t{{}})", a); break;
             case ElementwiseOp::ABS: expression = luisa::format("ct::abs({})", a); break;
             case ElementwiseOp::SELECT: {
@@ -278,6 +344,9 @@ private:
                 auto unsigned_element = element == ScalarType::INT32 ? "unsigned" : "unsigned long long";
                 expression = luisa::format("ct::element_bitcast<{}>(ct::element_bitcast<{}>({}) + ct::element_bitcast<{}>({}))",
                                            _element(result_type), unsigned_element, a, unsigned_element, b);
+            } else if (fast_fp32 && !precise.empty()) {
+                auto rounding = op.elementwise_op() == ElementwiseOp::DIV ? "ct::round_approximate_t{}" : "ct::round_ties_to_even_t{}";
+                expression = luisa::format("ct::{}({}, {}, {}, ct::round_subnormals_to_zero_t{{}})", precise, a, b, rounding);
             } else {
                 expression = precise.empty() ? luisa::format("({} {} {})", a, binary, b) :
                                                luisa::format("ct::{}({}, {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", precise, a, b);
@@ -288,6 +357,23 @@ private:
             if (_mapped_values.contains(op.operand(i))) { _mapped_values.emplace(op.result(0u)); }
         }
     }
+    [[nodiscard]] bool _view_fully_in_bounds(const Operation &op, const IndexSpace &space,
+                                            const IndexSpace &view_space) const noexcept {
+        if (_map_space != nullptr || space.rank() == 0u || space.rank() != view_space.rank()) { return false; }
+        for (auto i = 0u; i < space.rank(); i++) {
+            if (_mapped_values.contains(op.operand(1u + i))) { return false; }
+            auto fact = _index_facts.find(op.operand(1u + i));
+            if (fact == _index_facts.end()) { return false; }
+            auto extent = view_space.axis(i).extent.constant_value();
+            auto tile = space.axis(i).extent.constant_value();
+            // Known facts are nonnegative and int64-representable. Avoid an
+            // origin + tile addition, and prove every lane of every invocation.
+            // Pointer Tiles need no origin divisibility or stronger alignment.
+            if (tile > extent || fact->second.maximum > extent - tile) { return false; }
+        }
+        return true;
+    }
+
     void _view(const Operation &op) noexcept {
         auto view = op.operand(0u);
         auto found = _buffers.find(view);
@@ -303,10 +389,14 @@ private:
         argument.read |= read;
         argument.written |= !read;
         auto prefix = luisa::format("mem{}", op.id());
+        // Keep the existing pointer Tile shape/layout. Elide masks only when
+        // the scalar index facts prove every lane in bounds; all partial tails,
+        // negative/unproved origins and custom out-of-bounds fills stay masked.
+        auto masked = op.bounds_mode() == BoundsMode::ZERO && !_view_fully_in_bounds(op, space, view_space);
         // Flattened iota is shaped identically to the logical load/store Tile.
         // Each coordinate is derived from the original named-axis order.
         _line(luisa::format("auto {}_lane = ct::iota<ct::tile<long long, {}>>();", prefix, _shape(space)));
-        if (op.bounds_mode() == BoundsMode::ZERO) {
+        if (masked) {
             _line(luisa::format("auto {}_zero = ct::full<ct::tile<long long, {}>>(0ll);", prefix, _shape(space)));
         }
         luisa::string offset = "0ll", mask = "true";
@@ -318,21 +408,21 @@ private:
             _line(luisa::format("auto {} = {} + ({}_lane / {}ll) % {}ll;", coord, _value(op.operand(1u + i)), prefix, trailing, n));
             auto extent = view_space.axis(i).extent.constant_value();
             mask = luisa::format("({} && ({} >= 0ll) && ({} < {}ll))", mask, coord, coord, extent);
-            auto safe_coord = op.bounds_mode() == BoundsMode::ZERO ?
+            auto safe_coord = masked ?
                                   luisa::format("ct::select(({} >= 0ll) && ({} < {}ll), {}, {}_zero)", coord, coord, extent, coord, prefix) :
                                   coord;
             offset = luisa::format("(({}) * {}ll + {})", offset, extent, safe_coord);
         }
         // Masked-out lanes use a valid in-buffer pointer, so arbitrary negative
         // origins do not form out-of-object addresses before the masked access.
-        if (op.bounds_mode() == BoundsMode::ZERO) {
+        if (masked) {
             _line(luisa::format("auto {}_mask = {};", prefix, mask));
             offset = luisa::format("ct::select({}_mask, {}, {}_zero)", prefix, offset, prefix);
         }
         _line(luisa::format("auto {}_ptr = {} + {};", prefix, _value(view), offset));
         if (read) {
             auto expression = luisa::format("ct::load({}_ptr)", prefix);
-            if (op.bounds_mode() == BoundsMode::ZERO) {
+            if (masked) {
                 auto fallback = op.operand_count() == space.rank() + 2u ? _value(op.operand(space.rank() + 1u)) :
                                                                           luisa::format("ct::element_cast<{}>(0)", _scalar(argument.element));
                 expression = luisa::format("ct::load_masked({}_ptr, {}_mask, {})", prefix, prefix, fallback);
@@ -340,7 +430,7 @@ private:
             _bind(op.result(0u), std::move(expression));
         } else {
             auto value = _value(op.operand(space.rank() + 1u));
-            _line(op.bounds_mode() == BoundsMode::ZERO ?
+            _line(masked ?
                       luisa::format("ct::store_masked({}_ptr, {}, {}_mask);", prefix, value, prefix) :
                       luisa::format("ct::store({}_ptr, {});", prefix, value));
         }
@@ -400,7 +490,7 @@ private:
             _fail(&op, "MMA input precision is not implemented; no implicit TF32/narrowing conversion is permitted");
             return;
         }
-        if (input != ScalarType::FLOAT32 && op.mma_policy().allow_reassociation) {
+        if (op.mma_policy().allow_reassociation) {
             auto expression = luisa::format("ct::mma({}, {}, {})", lhs, rhs, initial);
             if (squeezed) { expression = luisa::format("ct::reshape({}, {}{{}})", expression, _shape(c_full)); }
             _bind(op.result(0u), std::move(expression));
@@ -420,7 +510,16 @@ private:
         // Constant slice indices expose the small contraction to Tile IR before
         // physical layout selection. Preserve the exact ascending-K FMA chain.
         constexpr auto kMaxUnrolledContraction = 32u;
-        if (extent <= kMaxUnrolledContraction) {
+        constexpr auto kMaxExtendedContraction = 128u;
+        constexpr auto kMaxExtendedOutputElements = 4096u;
+        constexpr auto kMaxExtendedFmaOperations = 65536u;
+        // Keep the existing <=32 behavior. Bound both the accumulator and
+        // total expanded work; divide the budget to avoid product overflow.
+        auto output_elements = *c.static_volume();
+        auto extend = input == ScalarType::FLOAT32 && extent <= kMaxExtendedContraction &&
+                      output_elements != 0u && output_elements <= kMaxExtendedOutputElements &&
+                      extent <= kMaxExtendedFmaOperations / output_elements;
+        if (extent <= kMaxUnrolledContraction || extend) {
             for (auto k = uint32_t{0u}; k < extent; k++) {
                 emit_fma(luisa::format("{}u", k));
             }
@@ -776,6 +875,7 @@ private:
                     return;
                 }
                 _artifact.grid[i] = static_cast<uint32_t>(n);
+                _index_facts.emplace(body->argument(i), IndexFacts{0u, n - 1u});
                 _bind(body->argument(i), luisa::format("ct::element_cast<long long>(ct::bid().{})", axes[i]));
             }
             _inside_parallel = true;
@@ -800,6 +900,10 @@ private:
         for (auto i = 0u; i < domain.rank(); i++) {
             auto name = _name(body->argument(i));
             _values.emplace(body->argument(i), name);
+            if (_map_space == nullptr) {
+                auto n = domain.axis(i).extent.constant_value();
+                _index_facts.emplace(body->argument(i), IndexFacts{0u, n - 1u});
+            }
             if (op.kind() == OperationKind::REDUCE && op.reduction_policy() == ReductionPolicy::FOLD_RIGHT) {
                 _line(luisa::format("for (long long {} = {}ll; {}-- > 0ll;) {{", name, domain.axis(i).extent.constant_value(), name));
             } else {
@@ -829,6 +933,7 @@ private:
                 _fail(op, "effects outside the root PARALLEL cannot be replicated per grid program");
                 return;
             }
+            _record_index_facts(*op);
             switch (op->kind()) {
                 case OperationKind::CONSTANT: _constant(*op); break;
                 case OperationKind::ELEMENTWISE: _elementwise(*op); break;
@@ -860,7 +965,8 @@ private:
     }
 
 public:
-    explicit Emitter(const Function &function) noexcept : _function{function} {}
+    explicit Emitter(const Function &function, bool enable_fast_math) noexcept
+        : _function{function}, _enable_fast_math{enable_fast_math} {}
     [[nodiscard]] Artifact run() noexcept {
         auto module = _function.parent_module();
         if (module == nullptr) {
@@ -913,5 +1019,5 @@ public:
 };
 }// namespace
 
-Artifact generate(const tile::Function &function) noexcept { return Emitter{function}.run(); }
+Artifact generate(const tile::Function &function, bool enable_fast_math) noexcept { return Emitter{function, enable_fast_math}.run(); }
 }// namespace luisa::compute::cuda::native_tile

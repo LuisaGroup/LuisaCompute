@@ -35,6 +35,6 @@ struct Artifact {
 // native scans and rearrangements. MMA permits shared singleton batch axes.
 // Other lane-dependent gathers, nested maps and explicit layout constraints reject.
 // Buffer parameters are contiguous row-major views with static extents.
-[[nodiscard]] Artifact generate(const tile::Function &function) noexcept;
+[[nodiscard]] Artifact generate(const tile::Function &function, bool enable_fast_math = false) noexcept;
 
 }// namespace luisa::compute::cuda::native_tile

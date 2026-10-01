@@ -582,21 +582,19 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     if (option.max_registers != 0u) {
         return fail("CUDA Tile IR does not support an explicit max_registers constraint");
     }
-    if (option.enable_fast_math) {
-        return fail("CUDA Tile IR currently requires enable_fast_math=false");
-    }
     if (!option.name.empty()) {
         return fail("CUDA Tile IR does not support named shader archives");
     }
     if (!option.native_include.empty()) {
         return fail("CUDA Tile IR does not support native_include");
     }
-    auto artifact = native_tile::generate(kernel);
+    auto artifact = native_tile::generate(kernel, option.enable_fast_math);
     if (!artifact.ok()) { return fail(artifact.error); }
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
     metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1)";
+    if (option.enable_fast_math) { metadata.realization += "; elementwise-fp32-approx-ftz-v1"; }
     // enable_cache is a hint. This experimental route deliberately does not
     // consult/write the PTX cache, a user archive, or an in-memory binary cache.
     luisa::vector<Usage> usages;

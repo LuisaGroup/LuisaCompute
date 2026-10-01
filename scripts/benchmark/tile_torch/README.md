@@ -1243,6 +1243,15 @@ pass a JSON file with `schema: 1` and a `cases` array in the format printed by
 useful for an initial CUDA Tile IR comparison; `tirx` and optional `simd` remain
 separate routes. Each run requires a fresh output directory.
 
+`--cases scripts/benchmark/tile_torch/cuda_llm_primitives.json` selects the
+78-case CUDA tuning matrix: GEMM/GEMV, decode/prefill attention, normalization,
+activations, RoPE, reductions, scan, sort and Top-K, with FP32/FP16/BF16 and
+small, wider and non-aligned dimensions. It includes explicit schedule,
+fast-math and ranking-algorithm variants; 78 cases are not 78 distinct shapes.
+Use `--graph-batch 100 --samples 7 --sample-ms 100 --warmup-ms 500` for the
+adaptive graph protocol below. Availability and performance are measured by
+the runner, not guaranteed by inclusion in this inventory.
+
 `--precisions fp32,fp16,bf16` expands selected cases into separate precision
 variants; a case JSON can also set `precision` directly. Inputs and outputs use
 their actual declared storage dtype, including two-byte FP16/BF16 packets, and
@@ -1270,6 +1279,24 @@ the first replay and measured samples. Earlier phase2 results retain their
 original protocol: native warmed graph replay for that duration while Torch
 only replayed once after its stream warmup. Historical result files remain
 unchanged and should not be treated as having the new symmetric graph warmup.
+
+Graph timing protocol `adaptive_replay_span_v2` first records both CUDA events
+around the existing untimed first replay, then performs the configured graph
+warmup. Calibration starts at one whole graph replay and permits four measured
+attempts. If its event span is below 80% of `--sample-ms`, the next replay count
+is the ceiling of the measured count scaled to the target, bounded by 65,536
+replays and 10,000,000 logical operations per sample. The last measured count R
+is fixed for every formal sample, even when a cap or four attempts prevented
+reaching the target. Seven samples are retained without discarding outliers.
+
+Each formal sample now executes R complete graphs of N logical operations and
+normalizes both event and synchronized host spans by N*R. Results retain R,
+calibration attempts, target/caps, actual full spans, and the existing per-op
+fields. Native multi-stage workloads additionally count stage dispatches;
+Torch's N counts logical calls, not generated kernels. This targets 100 ms per
+sample by default and still allows submission gaps. Older phase3/candidate44
+records used one replay per sample and remain unchanged; compare protocols
+explicitly rather than treating their sample durations as equivalent.
 
 Every native route exports the same seeded inputs and FP64 oracle with
 per-element error bounds. Their file hashes must match before Torch reads the
@@ -1312,3 +1339,73 @@ The native conformance suite checks 32/64-bit signed and unsigned values,
 including overflow and values beyond exact FP32/FP64 integer representation.
 These conformance tests are separate from the floating-point workload matrix;
 they do not imply integer PyTorch performance measurements.
+
+Native CUDA MMA with `allow_reassociation=true` uses the CUDA Tile typed MMA
+operation for FP32 as well as FP16/BF16 inputs and FP32 accumulation. FP32
+inputs remain FP32; no TF32 conversion or reduced-precision permission is
+introduced. This delegates layout and contraction scheduling to the Tile
+compiler, without promising tensor-core instructions for FP32. The ordered
+policy retains ascending-K FP32 FMA with preserved subnormals. Its constant
+expansion is bounded by contraction length, output size and total expanded
+work; larger contractions retain the dynamic loop. Conformance covers typed
+precision boundaries, ordered results, and both sides of the expansion budget.
+
+
+### Optional repeated-extrema Top-K schedule
+
+`benchmark_tile_workloads` keeps full bitonic sorting plus prefix output as the
+ranking default. For `topk` only, append `--ranking-algorithm repeated_extrema`
+to explicitly select a serial sequence of FP32 maximum and INT32 minimum trees,
+one row per program. Two singleton loop carries hold the previous winner's
+FP32 value and INT32 original index. Each iteration considers valid elements
+strictly after that key in descending-value/ascending-index order; the initial
+key (+infinity, -1) includes real positive infinity. A point load retrieves the
+winner's original storage bits without a dynamic extraction from the whole
+register Tile. The input row remains loop-invariant. Input/output views must
+be disjoint, as allocated by the workload runner and unit tests; this helper
+does not provide in-place sorting. The same logical Top-K,
+stable original-index tie ordering, and FP16/BF16/FP32 storage contracts remain.
+NaNs are excluded and rejected before upload. The conformance test also checks
+signed-zero value bits, infinities, all-negative-infinity rows, masked tails
+and complete selection of all 33 values from a 64-wide padded Tile.
+This optional schedule is not an automatic dtype/shape tuner or a speed claim.
+
+A matrix JSON ranking case can set `"ranking_algorithm": "repeated_extrema"`;
+`"full_sort_prefix"` is the default. Use distinct IDs to compare both algorithms
+with identical dimensions, dtype, tile, seed and pattern, for example logical
+`[4,65,7]` with tile `[1,128,1]` or `[4,4096,16]` with tile `[1,4096,1]`.
+K7 needs no seven-wide native Tile: the repeated algorithm writes one value/index
+per iteration. The manifest and result record the requested algorithm, and the
+manifest labels the realization `stable_repeated_extrema`. Matrix validation
+checks that label and includes the helper source in build/provenance hashes.
+
+Torch still executes the same full logical `topk` expression over the entire
+input row: ordinary `torch.topk` for the standard tie contract, or stable sort
+plus prefix for `--ranking-contract stable`. Native's internal K iterations are
+one shader invocation, so a graph batch of N still means N complete Top-K
+operations, not N individual maxima. All stores and reductions are included in
+native graph and host timing. Keep cold compile costs, symmetric graph warmup,
+full output/index checks and the functional Torch versus preallocated native
+output distinction. Compare same-window baselines; O(K*N) work and dependent
+reductions do not guarantee an improvement over bitonic sorting.
+
+
+Native CUDA Tile accepts the existing public fourth `ShaderOption` argument:
+`tile::compile(device, kernel, {}, {.enable_fast_math = true})`. Its default
+remains strict. The workload executable exposes `--fast-math 0|1`; a matrix
+case can carry `"fast_math": true` (use distinct case IDs for strict/fast).
+The flag is recorded and checked in both manifest and native results. The
+input/oracle files, numerical acceptance bounds and Torch program are unchanged.
+Fast results must pass the same declared oracle; the flag does not enlarge it.
+
+The native policy `elementwise-fp32-approx-ftz-v1` only relaxes FP32 elementwise
+add/sub/mul (RNE plus FTZ), division/sqrt (approximate plus FTZ), and exp
+(approximate, with no FTZ guarantee). Tanh retains full precision because the
+SDK's approximate mode failed the unchanged elementwise error budget.
+MMA precision/order, reduction/scan
+ordering and native tree intrinsics, casts, comparisons and min/max keep their
+prior behavior. Elementwise operations inside ordered or custom reduction
+bodies follow the same explicit fast-math policy. It does not
+enable blanket compiler fast math, TF32, reciprocal rewrites or a fallback.
+Other routes receive their existing `ShaderOption` flag and may implement a
+different fast-math policy; compare realization metadata, not flag equality.

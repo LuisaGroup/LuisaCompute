@@ -5,8 +5,10 @@
 // define the independent Python comparison.
 #include "tile_llm_test_utils.h"
 #include "tile_rank_test_utils.h"
+#include "tile_selection_test_utils.h"
 #include <luisa/tile/algorithms.h>
 #include <luisa/core/stl/optional.h>
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -16,8 +18,10 @@ namespace luisa::test::tile_workloads {
 
 struct Options {
     string backend, lowering, operation, precision, pattern;
+    string ranking_algorithm{"full_sort_prefix"};
     vector<int64_t> dimensions;
     std::array<int64_t, 3u> tile{};
+    bool fast_math{false};
     uint64_t seed{0u};
     uint32_t samples{7u}, sample_ms{100u}, warmup_ms{500u}, graph_batch{0u};
 };
@@ -225,6 +229,11 @@ template<typename T = float>
     auto rank = op == "sort" || op == "topk";
     auto tensorcore_attention = op == "attention_tensorcore";
     auto attention = op == "attention" || tensorcore_attention;
+    if ((o.ranking_algorithm != "full_sort_prefix" && o.ranking_algorithm != "repeated_extrema") ||
+        (o.ranking_algorithm == "repeated_extrema" && op != "topk")) {
+        f.error = "ranking_algorithm must be full_sort_prefix, or repeated_extrema for topk";
+        return f;
+    }
     if constexpr (std::is_same_v<T, float>) {
         if (tensorcore_attention) {
             f.error = "attention_tensorcore requires FP16/BF16 storage";
@@ -297,18 +306,27 @@ template<typename T = float>
                 auto origin = coord(nest.index(), 0);
                 auto loaded = cast<float>(X.tile(origin, shape(local_row, column)).load());
                 auto finite = ite(iota(column) < n, loaded, -std::numeric_limits<float>::infinity());
-                auto ranked = compute::tile::sort(finite, column, true);
-                // Full sorting network followed by masked stores into logical K.
-                // This is explicitly full-sort-prefix, not a selection kernel.
+                // Keep the sorting network, but expose its needed prefix to
+                // native Tile IR before the store mask. Power-of-two padding
+                // also covers a logical K such as 7 without native K=7 Tiles.
+                auto ranked = op == "topk" ?
+                    compute::tile::topk(finite, column, std::bit_ceil(static_cast<uint64_t>(k)), true) :
+                    compute::tile::sort(finite, column, true);
+                // This remains full-sort-prefix, not a selection algorithm.
                 Values(origin, ranked.values.space()).store(cast<T>(ranked.values));
                 Indices(origin, ranked.indices.space()).store(ranked.indices);
             }
         });
-        f.kernel = definition.capture(tensor_shape(r, n), tensor_shape(r, k), tensor_shape(r, k));
+        if (o.ranking_algorithm == "repeated_extrema") {
+            f.kernel = tile_selection::repeated_extrema_topk<T>(r, n, k, padded);
+        } else {
+            f.kernel = definition.capture(tensor_shape(r, n), tensor_shape(r, k), tensor_shape(r, k));
+        }
         f.input_shapes = {vector<int64_t>{r, n}, {1}, {1}};
         f.output_shape = {r, k};
         f.ranking = true;
-        f.algorithm = op == "sort" ? "padded_bitonic_full_sort" : "padded_bitonic_full_sort_prefix";
+        f.algorithm = o.ranking_algorithm == "repeated_extrema" ? "stable_repeated_extrema" :
+                      op == "sort" ? "padded_bitonic_full_sort" : "padded_bitonic_full_sort_prefix";
     } else {
         auto &d = o.dimensions;
         if (d[1] % d[2] != 0 || d[4] < d[3] || o.tile[0] > 128 || o.tile[1] > 256 || o.tile[2] != 1 ||
@@ -396,6 +414,10 @@ template<typename T = float>
     // unquantized surrogate. Export/runtime convert back to identical bits.
     for (auto &input : f.inputs) {
         for (auto &value : input) { value = static_cast<float>(T{value}); }
+    }
+    if (rank && std::any_of(f.inputs[0].begin(), f.inputs[0].end(), [](float value) noexcept { return std::isnan(value); })) {
+        f.error = "ranking inputs must not contain NaNs";
+        return f;
     }
     f.expected.resize(volume(f.output_shape));
     f.bound.resize(f.expected.size());

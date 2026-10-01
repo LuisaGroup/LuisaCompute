@@ -4,6 +4,7 @@
 #include "test_device.h"
 #include "tile_xir_test_utils.h"
 #include "tile_llm_test_utils.h"
+#include "tile_selection_test_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <numeric>
 #include <type_traits>
 #include <vector>
 
@@ -116,7 +118,9 @@ void matrix_oracle(Device &device, bool transpose_a, bool transpose_b, bool reas
     auto kernel = matrix(transpose_a, transpose_b, reassociate, tile_k, terms);
     auto shader = tile::compile(device, kernel);
     if (!check_native(shader, make_uint3(2u, 3u, 1u), 3u)) { return; }
-    if (tile_k == 32u || tile_k == 64u) {
+    expect((shader.metadata().source.find("ct::mma(") != luisa::string::npos) == reassociate);
+    if (reassociate) { expect(shader.metadata().source.find("ct::fma(") == luisa::string::npos); }
+    if (!reassociate && (tile_k == 32u || tile_k == 64u || tile_k == 128u || tile_k == 256u)) {
         // Validate the bounded source transform as well as its numerical result.
         // At least one valid contribution follows the first contraction block.
         auto &&source = shader.metadata().source;
@@ -126,9 +130,9 @@ void matrix_oracle(Device &device, bool transpose_a, bool transpose_b, bool reas
             count++;
             position += call.size();
         }
-        expect(count == (tile_k == 32u ? 32u : 1u)) << "contraction BK=" << tile_k;
+        expect(count == (tile_k <= 128u ? tile_k : 1u)) << "contraction BK=" << tile_k;
         auto dynamic = source.find("for (unsigned mma") != luisa::string::npos;
-        expect(dynamic == (tile_k == 64u)) << "dynamic contraction BK=" << tile_k;
+        expect(dynamic == (tile_k > 128u)) << "dynamic contraction BK=" << tile_k;
     }
     auto &&arguments = shader.metadata().arguments;
     if (arguments.size() != 3u) { return; }
@@ -187,6 +191,206 @@ void matrix_oracle(Device &device, bool transpose_a, bool transpose_b, bool reas
                     << "full FP64 oracle m=" << m << " n=" << n << " flavor=" << flavor;
                 // MmaPolicy(false) retains ascending-K fused contraction order.
                 if (!reassociate) { expect(bits(actual) == bits(ordered)) << "ordered contraction m=" << m << " n=" << n << " flavor=" << flavor; }
+            }
+        }
+    }
+}
+
+// Same typed FP32 inputs for ordered and reassociated contractions. Exact
+// identities expose precision loss/FTZ, while the FMA witness uses the original
+// forward-error bound under reassociation instead of demanding the same bits.
+void fp32_mma_precision_boundaries(Device &device) {
+    using namespace tile;
+    constexpr auto extent = 16u;
+    for (auto reassociate : {false, true}) {
+        auto kernel = tile_kernel("typed_contraction_precision_boundaries", [=](TensorView<const float, 2> a,
+                                                                               TensorView<const float, 2> b,
+                                                                               TensorView<const float, 2> initial,
+                                                                               TensorView<float, 2> output) {
+                          auto m = axis("m", extent), n = axis("n", extent), k = axis("k", extent);
+                          for (auto &nest : parallel(shape(1))) {
+                              static_cast<void>(nest);
+                              auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                              auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                              auto seed = initial.tile(coord(0, 0), shape(m, n)).load();
+                              output(coord(0, 0), shape(m, n)).store(mma(lhs, rhs, seed, MmaPolicy{reassociate}));
+                          }
+                      }).capture(tensor_shape(extent, extent), tensor_shape(extent, extent),
+                                 tensor_shape(extent, extent), tensor_shape(extent, extent));
+        auto shader = tile::compile(device, kernel);
+        if (!check_native(shader, make_uint3(1u), 4u)) { continue; }
+        expect((shader.metadata().source.find("ct::mma(") != luisa::string::npos) == reassociate);
+        GuardedBuffer a{device, extent * extent}, b{device, extent * extent},
+            initial{device, extent * extent}, output{device, extent * extent};
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        for (auto flavor = 0u; flavor < 7u; flavor++) {
+            std::fill_n(a.host.begin() + kPad, a.count, 0.0f);
+            std::fill_n(b.host.begin() + kPad, b.count, 1.0f);
+            std::fill_n(initial.host.begin() + kPad, initial.count, flavor == 5u ? -1.0f : flavor == 3u ? 0x1p-145f : 0.0f);
+            for (auto m = 0u; m < extent; m++) {
+                switch (flavor) {
+                    case 0u: a[m * extent] = 1.0f + 0x1p-23f; break;// low FP32 mantissa bits must survive
+                    case 1u: a[m * extent] = 0x1p-146f; break;     // subnormal input, normal output
+                    case 2u: a[m * extent] = 0x1p-126f; break;     // normal input, subnormal output
+                    case 3u: break;                               // subnormal accumulator survives zero products
+                    case 4u:
+                        a[m * extent] = 0x1p20f;
+                        a[m * extent + 1u] = 1.0f;
+                        a[m * extent + 2u] = -0x1p20f;
+                        break;// exact cancellation in every permitted grouping
+                    case 5u: a[m * extent] = 1.0f + 0x1p-23f; break;// fused versus separately rounded product
+                    case 6u: a[m * extent] = 0x1p100f; break;       // wide exponent range without overflow
+                }
+            }
+            for (auto n = 0u; n < extent; n++) {
+                b[n] = flavor == 1u ? 0x1p24f : flavor == 2u ? .5f : flavor == 5u ? 1.0f - 0x1p-23f : flavor == 6u ? 0x1p-80f : 1.0f;
+            }
+            auto original_a = a.host, original_b = b.host, original_initial = initial.host;
+            output.poison();
+            stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+                   << initial.buffer.copy_from(luisa::span{initial.host}) << output.buffer.copy_from(luisa::span{output.host})
+                   << shader(a.view(), b.view(), initial.view(), output.view()).dispatch()
+                   << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host})
+                   << initial.buffer.copy_to(luisa::span{initial.host}) << output.buffer.copy_to(luisa::span{output.host}) << synchronize();
+            check_readonly(a, original_a);
+            check_readonly(b, original_b);
+            check_readonly(initial, original_initial);
+            output.check_guards();
+            constexpr auto operations = 2.0 * (extent + 1u), unit = 0x1p-24;
+            constexpr auto gamma = operations * unit / (1.0 - operations * unit);
+            for (auto m = 0u; m < extent; m++) {
+                for (auto n = 0u; n < extent; n++) {
+                    auto expected = static_cast<double>(initial[m * extent + n]);
+                    auto magnitude = std::abs(expected);
+                    auto ordered = initial[m * extent + n];
+                    for (auto k = 0u; k < extent; k++) {
+                        auto lhs = a[m * extent + k], rhs = b[k * extent + n];
+                        auto product = static_cast<double>(lhs) * static_cast<double>(rhs);
+                        expected += product;
+                        magnitude += std::abs(product);
+                        ordered = std::fma(lhs, rhs, ordered);
+                    }
+                    auto actual = output[m * extent + n];
+                    auto bound = magnitude * (gamma + 8.0 * (extent + 1u) * 0x1p-53);
+                    expect(std::isfinite(actual) && std::abs(static_cast<double>(actual) - expected) <= bound)
+                        << "reassociate=" << reassociate << " precision flavor=" << flavor << " m=" << m << " n=" << n;
+                    if (!reassociate) { expect(bits(actual) == bits(ordered)); }
+                    if (flavor != 5u) { expect(bits(actual) == bits(static_cast<float>(expected))) << "exact FP32 precision flavor=" << flavor; }
+                }
+            }
+        }
+    }
+}
+
+void large_accumulator_dynamic_contraction(Device &device) {
+    // 8192 output elements exceed the extended-unroll cap. K64 is otherwise
+    // eligible, so this checks the output-size guard independently of K256.
+    constexpr auto m = 128u, n = 64u, k = 64u;
+    using namespace tile;
+    auto kernel = tile_kernel("bounded_ordered_accumulator", [=](TensorView<const float, 2> a,
+                                                                TensorView<const float, 2> b,
+                                                                TensorView<float, 2> c) {
+                      auto rows = axis("m", m), columns = axis("n", n), terms = axis("k", k);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto lhs = a.tile(coord(0, 0), shape(rows, terms)).load();
+                          auto rhs = b.tile(coord(0, 0), shape(terms, columns)).load();
+                          c(coord(0, 0), shape(rows, columns)).store(
+                              mma(lhs, rhs, full<float>(shape(rows, columns), kInitial), MmaPolicy{false}));
+                      }
+                  }).capture(tensor_shape(m, k), tensor_shape(k, n), tensor_shape(m, n));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 3u)) { return; }
+    auto &&source = shader.metadata().source;
+    auto first_fma = source.find("ct::fma(");
+    expect(first_fma != luisa::string::npos);
+    if (first_fma != luisa::string::npos) { expect(source.find("ct::fma(", first_fma + 1u) == luisa::string::npos); }
+    expect(source.find("for (unsigned mma") != luisa::string::npos);
+    GuardedBuffer a{device, m * k}, b{device, k * n}, c{device, m * n};
+    for (auto i = 0u; i < a.count; i++) { a[i] = static_cast<float>(static_cast<int>(i % 17u) - 8) * .125f; }
+    for (auto i = 0u; i < b.count; i++) { b[i] = static_cast<float>(static_cast<int>(i % 13u) - 6) * .25f; }
+    auto original_a = a.host, original_b = b.host;
+    c.poison();
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host}) << c.buffer.copy_from(luisa::span{c.host})
+           << shader(a.view(), b.view(), c.view()).dispatch() << a.buffer.copy_to(luisa::span{a.host})
+           << b.buffer.copy_to(luisa::span{b.host}) << c.buffer.copy_to(luisa::span{c.host}) << synchronize();
+    check_readonly(a, original_a);
+    check_readonly(b, original_b);
+    c.check_guards();
+    for (auto row = 0u; row < m; row++) {
+        for (auto column = 0u; column < n; column++) {
+            auto ordered = kInitial;
+            auto exact = static_cast<double>(kInitial);
+            for (auto term = 0u; term < k; term++) {
+                auto lhs = original_a[kPad + row * k + term], rhs = original_b[kPad + term * n + column];
+                ordered = std::fma(lhs, rhs, ordered);
+                exact += static_cast<double>(lhs) * static_cast<double>(rhs);
+            }
+            auto actual = c[row * n + column];
+            expect(bits(actual) == bits(ordered));
+            // These dyadic products and their bounded sum are exactly FP32.
+            expect(static_cast<double>(actual) == exact);
+        }
+    }
+}
+
+// Exercise both sides of the total expanded-work budget with identical K.
+// The policy is explicit: an optimized reassociated MMA cannot hide this gate.
+void fma_operation_budget_boundary(Device &device) {
+    using namespace tile;
+    constexpr auto columns = 32u, terms = 128u;
+    for (auto rows : {16u, 32u}) {
+        auto kernel = tile_kernel("ordered_expansion_budget", [=](TensorView<const float, 2> a,
+                                                                  TensorView<const float, 2> b,
+                                                                  TensorView<float, 2> c) {
+                          auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                          for (auto &nest : parallel(shape(1))) {
+                              static_cast<void>(nest);
+                              auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                              auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                              c(coord(0, 0), shape(m, n)).store(
+                                  mma(lhs, rhs, full<float>(shape(m, n), kInitial), MmaPolicy{false}));
+                          }
+                      }).capture(tensor_shape(rows, terms), tensor_shape(terms, columns), tensor_shape(rows, columns));
+        auto shader = tile::compile(device, kernel);
+        if (!check_native(shader, make_uint3(1u), 3u)) { continue; }
+        auto &&source = shader.metadata().source;
+        auto count = size_t{0u}, position = size_t{0u};
+        constexpr luisa::string_view call = "ct::fma(";
+        while ((position = source.find(call, position)) != luisa::string::npos) {
+            count++;
+            position += call.size();
+        }
+        expect(source.find("ct::mma(") == luisa::string::npos);
+        expect(count == (rows == 16u ? terms : 1u)) << "total-FMA budget rows=" << rows;
+        expect((source.find("for (unsigned mma") != luisa::string::npos) == (rows == 32u));
+        GuardedBuffer a{device, rows * terms}, b{device, terms * columns}, c{device, rows * columns};
+        for (auto i = 0u; i < a.count; i++) { a[i] = static_cast<float>(static_cast<int>(i % 17u) - 8) * .125f; }
+        for (auto i = 0u; i < b.count; i++) { b[i] = static_cast<float>(static_cast<int>(i % 13u) - 6) * .25f; }
+        auto original_a = a.host, original_b = b.host;
+        c.poison();
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+               << c.buffer.copy_from(luisa::span{c.host}) << shader(a.view(), b.view(), c.view()).dispatch()
+               << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host})
+               << c.buffer.copy_to(luisa::span{c.host}) << synchronize();
+        check_readonly(a, original_a);
+        check_readonly(b, original_b);
+        c.check_guards();
+        for (auto m = 0u; m < rows; m++) {
+            for (auto n = 0u; n < columns; n++) {
+                auto ordered = kInitial;
+                auto exact = static_cast<double>(kInitial);
+                for (auto k = 0u; k < terms; k++) {
+                    auto lhs = a[m * terms + k], rhs = b[k * columns + n];
+                    ordered = std::fma(lhs, rhs, ordered);
+                    exact += static_cast<double>(lhs) * static_cast<double>(rhs);
+                }
+                auto actual = c[m * columns + n];
+                expect(bits(actual) == bits(ordered));
+                // The dyadic products and every partial sum are exactly FP32.
+                expect(static_cast<double>(actual) == exact);
             }
         }
     }
@@ -287,6 +491,7 @@ void shifted_bitwise_copy(Device &device) {
     auto kernel = shifted_copy();
     auto shader = tile::compile(device, kernel);
     if (!check_native(shader, make_uint3(2u, 3u, 1u), 2u)) { return; }
+    expect(shader.metadata().source.find("ct::load_masked(") != luisa::string::npos);
     GuardedBuffer a{device, kRows * kColumns}, c{device, kRows * kColumns};
     constexpr std::array patterns{0x00000000u, 0x80000000u, 0x00000001u, 0x80000001u,
                                  0x007fffffu, 0x00800000u, 0x7f800000u, 0xff800000u, 0x7fc12345u, 0x3f812345u};
@@ -305,6 +510,152 @@ void shifted_bitwise_copy(Device &device) {
             expect(bits(c[m * kColumns + n]) == expected) << "masked bitwise copy m=" << m << " n=" << n;
         }
     }
+}
+
+void proven_pointer_memory_bounds(Device &device) {
+    using namespace tile;
+    auto count_source = [](luisa::string_view source, luisa::string_view needle) noexcept {
+        auto count = size_t{0u}, position = size_t{0u};
+        while ((position = source.find(needle, position)) != luisa::string_view::npos) {
+            count++;
+            position += needle.size();
+        }
+        return count;
+    };
+    constexpr std::array patterns{0x00000000u, 0x80000000u, 0x00000001u, 0x80000001u,
+                                 0x007fffffu, 0x00800000u, 0x7f800000u, 0xff800000u, 0x7fc12345u, 0x3f812345u};
+    for (auto ragged : {false, true}) {
+        auto rows = ragged ? 31u : 32u, columns = ragged ? 29u : 32u;
+        auto kernel = tile_kernel("proven_pointer_copy_full_or_ragged", [](TensorView<const float, 2> a, TensorView<float, 2> c) {
+                          auto gm = axis("gm", 2), gn = axis("gn", 2), m = axis("m", 16), n = axis("n", 16);
+                          for (auto &nest : parallel(shape(gm, gn))) {
+                              auto origin = coord(nest.index(gm) * 16, nest.index(gn) * 16);
+                              c(origin, shape(m, n)).store(a.tile(origin, shape(m, n)).load());
+                          }
+                      }).capture(tensor_shape(rows, columns), tensor_shape(rows, columns));
+        auto shader = tile::compile(device, kernel);
+        if (!check_native(shader, make_uint3(2u, 2u, 1u), 2u)) { continue; }
+        auto &&source = shader.metadata().source;
+        expect(count_source(source, "ct::tensor_span{") == 0u);
+        expect(count_source(source, "ct::partition_view{") == 0u);
+        expect(count_source(source, "ct::load_masked(") == (ragged ? 1u : 0u));
+        expect(count_source(source, "ct::store_masked(") == (ragged ? 1u : 0u));
+        expect(count_source(source, "ct::load(") == (ragged ? 0u : 1u));
+        expect(count_source(source, "ct::store(") == (ragged ? 0u : 1u));
+        expect((source.find("ct::select(") != luisa::string::npos) == ragged);
+        // The view starts 52 bytes into its allocation. Mask elision must
+        // not strengthen the runtime pointer-alignment contract.
+        GuardedBuffer a{device, rows * columns}, c{device, rows * columns};
+        for (auto i = 0u; i < a.count; i++) { a[i] = std::bit_cast<float>(patterns[i % patterns.size()]); }
+        auto original = a.host;
+        c.poison();
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.buffer.copy_from(luisa::span{a.host}) << c.buffer.copy_from(luisa::span{c.host})
+               << shader(a.view(), c.view()).dispatch() << a.buffer.copy_to(luisa::span{a.host})
+               << c.buffer.copy_to(luisa::span{c.host}) << synchronize();
+        check_readonly(a, original);
+        c.check_guards();
+        for (auto i = 0u; i < c.count; i++) {
+            expect(bits(c[i]) == bits(original[kPad + i])) << "pointer copy ragged=" << ragged << " element=" << i;
+        }
+    }
+
+    auto kernel = tile_kernel("conservative_memory_fallbacks", [](TensorView<const float, 1> a, TensorView<float, 1> c,
+                                                                 TensorView<float, 1> touched) {
+                      auto n = axis("n", 16);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto domain = shape(n);
+                          auto positive_unaligned = a.tile(coord(1), domain).load();
+                          c(coord(0), domain).store(positive_unaligned);
+                          touched(coord(1), domain).store(positive_unaligned);
+                          c(coord(16), domain).store(a.tile(coord(32), domain).load());
+                          touched(coord(32), domain).store(full<float>(domain, 123.0f));
+                          c(coord(32), domain).store(a.tile(coord(16), domain).load(1.25f));
+                          c(coord(48), domain).store(a.tile(coord(16), domain).load(-0.0f));
+                          auto unknown_origin = cast<int64_t>(a.tile(coord(0), shape(1)).load().at(coord(0)));
+                          c(coord(64), domain).store(a.tile(coord(unknown_origin), domain).load());
+                      }
+                  }).capture(tensor_shape(17), tensor_shape(80), tensor_shape(17));
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(1u), 3u)) { return; }
+    auto &&source = shader.metadata().source;
+    // A positive non-tile-aligned origin can still be proved fully in bounds.
+    // Only the out-of-bounds/custom-tail/unproved accesses retain masks.
+    expect(count_source(source, "ct::load_masked(") == 4u);
+    expect(count_source(source, "ct::store_masked(") == 1u);
+    expect(count_source(source, "ct::load(") == 2u);
+    expect(count_source(source, "ct::store(") == 6u);
+    expect(count_source(source, "ct::tensor_span{") == 0u);
+    expect(count_source(source, "ct::partition_view{") == 0u);
+    GuardedBuffer a{device, 17u}, c{device, 80u}, touched{device, 17u};
+    for (auto i = 1u; i < a.count; i++) { a[i] = std::bit_cast<float>(patterns[(i - 1u) % patterns.size()]); }
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto origin : {1u, 32u}) {
+        a[0] = static_cast<float>(origin);
+        auto original = a.host;
+        c.poison();
+        for (auto i = 0u; i < touched.count; i++) { touched[i] = -100.0f - static_cast<float>(i); }
+        auto previous_touched = touched.host;
+        stream << a.buffer.copy_from(luisa::span{a.host}) << c.buffer.copy_from(luisa::span{c.host})
+               << touched.buffer.copy_from(luisa::span{touched.host})
+               << shader(a.view(), c.view(), touched.view()).dispatch()
+               << a.buffer.copy_to(luisa::span{a.host}) << c.buffer.copy_to(luisa::span{c.host})
+               << touched.buffer.copy_to(luisa::span{touched.host}) << synchronize();
+        check_readonly(a, original);
+        c.check_guards();
+        touched.check_guards();
+        // In particular, the wholly out-of-bounds store may not write element0.
+        expect(bits(touched[0]) == bits(previous_touched[kPad]));
+        for (auto i = 0u; i < 16u; i++) {
+            expect(bits(touched[i + 1u]) == bits(original[kPad + i + 1u]));
+            expect(bits(c[i]) == bits(original[kPad + i + 1u]));
+            expect(bits(c[16u + i]) == 0u);
+            expect(bits(c[32u + i]) == (i == 0u ? bits(original[kPad + 16u]) : bits(1.25f)));
+            expect(bits(c[48u + i]) == (i == 0u ? bits(original[kPad + 16u]) : 0x80000000u));
+            expect(bits(c[64u + i]) == (origin == 1u ? bits(original[kPad + i + 1u]) : 0u));
+        }
+    }
+
+    // The DIV interval must be safe for every head and every column. H6
+    // includes fully out-of-range source heads; width5 has a partial tail.
+    constexpr std::array divided_shapes{std::array{4u, 8u}, std::array{6u, 8u}, std::array{4u, 5u}};
+    for (auto dimensions : divided_shapes) {
+        auto heads = dimensions[0], width = dimensions[1];
+        auto kernel = tile_kernel("divided_head_pointer_bounds", [=](TensorView<const float, 2> a, TensorView<float, 2> c) {
+                          auto h = axis("h", 1), n = axis("n", 8);
+                          for (auto &nest : parallel(shape(heads))) {
+                              auto head = nest.index();
+                              c(coord(head, 0), shape(h, n)).store(a.tile(coord(head / 2, 0), shape(h, n)).load());
+                          }
+                      }).capture(tensor_shape(2, width), tensor_shape(heads, 8));
+        auto shader = tile::compile(device, kernel);
+        if (!check_native(shader, make_uint3(heads, 1u, 1u), 2u)) { continue; }
+        auto &&source = shader.metadata().source;
+        auto fully_in_bounds = heads == 4u && width == 8u;
+        expect(count_source(source, "ct::load(") == (fully_in_bounds ? 1u : 0u));
+        expect(count_source(source, "ct::load_masked(") == (fully_in_bounds ? 0u : 1u));
+        expect(count_source(source, "ct::store(") == 1u);
+        expect(count_source(source, "ct::store_masked(") == 0u);
+        expect(count_source(source, "ct::partition_view{") == 0u);
+        GuardedBuffer a{device, 2u * width}, c{device, heads * 8u};
+        for (auto i = 0u; i < a.count; i++) { a[i] = std::bit_cast<float>(patterns[i % patterns.size()]); }
+        auto original = a.host;
+        c.poison();
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.buffer.copy_from(luisa::span{a.host}) << c.buffer.copy_from(luisa::span{c.host})
+               << shader(a.view(), c.view()).dispatch() << a.buffer.copy_to(luisa::span{a.host})
+               << c.buffer.copy_to(luisa::span{c.host}) << synchronize();
+        check_readonly(a, original);
+        c.check_guards();
+        for (auto head = 0u; head < heads; head++) {
+            for (auto column = 0u; column < 8u; column++) {
+                auto expected = head / 2u < 2u && column < width ? bits(original[kPad + head / 2u * width + column]) : 0u;
+                expect(bits(c[head * 8u + column]) == expected) << "divided head=" << head << " width=" << width << " column=" << column;
+            }
+        }
+    }
+
 }
 
 [[nodiscard]] tile::Kernel swap_kernel() {
@@ -725,6 +1076,112 @@ void native_scan_and_sort(Device &device) {
     for (auto i = 0u; i < kPad; i++) { expect(indices[i] == -731ll); expect(indices[kPad + 16u + i] == -731ll); }
 }
 
+template<typename T>
+void repeated_extrema_topk(Device &device, uint32_t columns, uint32_t count) {
+    constexpr auto rows = 4u;
+    auto kernel = luisa::test::tile_selection::repeated_extrema_topk<T>(rows, columns, count, std::bit_ceil(columns));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    // ValueHandle assignments must create exactly two singleton loop carries,
+    // not a row-sized active mask or a one-time host-only SSA reassignment.
+    const tile::Operation *serial = nullptr;
+    for (auto root : kernel.function().body().block(0u)->operations()) {
+        if (root->kind() != tile::OperationKind::PARALLEL) { continue; }
+        for (auto operation : root->region(0u)->block(0u)->operations()) {
+            if (operation->kind() == tile::OperationKind::SERIAL) { serial = operation; }
+        }
+    }
+    expect(serial != nullptr);
+    if (serial == nullptr) { return; }
+    expect(serial->operand_count() == 2u);
+    expect(serial->result_count() == 2u);
+    auto body = serial->region(0u)->block(0u);
+    expect(body->argument_count() == 3u);
+    if (serial->operand_count() != 2u || serial->result_count() != 2u || body->argument_count() != 3u) { return; }
+    auto singleton = [](const tile::Type &type) noexcept {
+        auto space = type.index_space();
+        return type.is_tile() && space != nullptr && space->static_volume() == 1u;
+    };
+    auto yield = body->operation(body->operation_count() - 1u);
+    expect(yield->kind() == tile::OperationKind::YIELD);
+    expect(yield->operand_count() == 2u);
+    auto float_carries = 0u, index_carries = 0u, point_loads = 0u;
+    for (auto i = 0u; i < 2u; i++) {
+        auto carry = body->argument(i + 1u);
+        expect(singleton(carry->type()));
+        float_carries += carry->type().scalar_type() == tile::ScalarType::FLOAT32;
+        index_carries += carry->type().scalar_type() == tile::ScalarType::INT32;
+        auto used = false;
+        for (auto operation : body->operations()) {
+            for (auto j = 0u; j < operation->operand_count(); j++) { used |= operation->operand(j) == carry; }
+        }
+        expect(used);
+        if (yield->operand_count() == 2u) { expect(yield->operand(i)->type() == carry->type()); }
+    }
+    expect(float_carries == 1u && index_carries == 1u);
+    for (auto operation : body->operations()) {
+        if (operation->kind() == tile::OperationKind::VIEW_LOAD) {
+            point_loads++;
+            expect(operation->result_count() == 1u);
+            if (operation->result_count() == 1u) { expect(singleton(operation->result(0u)->type())); }
+        }
+        if (operation->kind() == tile::OperationKind::TILE_EXTRACT) {
+            expect(singleton(operation->operand(0u)->type()));
+        }
+    }
+    expect(point_loads == 1u);
+    auto shader = tile::compile(device, kernel);
+    if (!check_native(shader, make_uint3(rows, 1u, 1u), 3u)) { return; }
+    expect(shader.metadata().source.find("ct::reduce_max(") != luisa::string::npos);
+    expect(shader.metadata().source.find("ct::reduce_min(") != luisa::string::npos);
+    expect(shader.metadata().source.find("for (long long") != luisa::string::npos);
+    expect(shader.metadata().source.find("ct::cat(") == luisa::string::npos);
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto word = [](T value) noexcept { return std::bit_cast<Word>(value); };
+    auto guard = T{-719.5f};
+    auto index_guard = std::numeric_limits<int64_t>::min() + 37;
+    luisa::vector<T> input(rows * columns + 2u * kPad, guard), output(rows * count + 2u * kPad, guard);
+    luisa::vector<int64_t> indices(rows * count + 2u * kPad, index_guard);
+    const std::array mixed{std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                           5.0f, 5.0f, -0.0f, 0.0f, .25f, -.25f};
+    for (auto i = 0u; i < columns; i++) {
+        input[kPad + i] = T{mixed[i % mixed.size()]};
+        input[kPad + columns + i] = T{i % 2u == 0u ? -0.0f : 0.0f};
+        input[kPad + 2u * columns + i] = T{-std::numeric_limits<float>::infinity()};
+        input[kPad + 3u * columns + i] = T{2.5f};
+    }
+    auto original = input;
+    auto gpu_input = device.create_buffer<T>(input.size()), gpu_output = device.create_buffer<T>(output.size());
+    auto gpu_indices = device.create_buffer<int64_t>(indices.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << gpu_input.copy_from(luisa::span{input}) << gpu_output.copy_from(luisa::span{output})
+           << gpu_indices.copy_from(luisa::span{indices})
+           << shader(gpu_input.view(kPad, rows * columns), gpu_output.view(kPad, rows * count), gpu_indices.view(kPad, rows * count)).dispatch()
+           << gpu_input.copy_to(luisa::span{input}) << gpu_output.copy_to(luisa::span{output})
+           << gpu_indices.copy_to(luisa::span{indices}) << synchronize();
+    for (auto i = 0u; i < input.size(); i++) { expect(word(input[i]) == word(original[i])) << "readonly topk word=" << i; }
+    for (auto i = 0u; i < kPad; i++) {
+        expect(word(output[i]) == word(guard));
+        expect(word(output[output.size() - 1u - i]) == word(guard));
+        expect(indices[i] == index_guard);
+        expect(indices[indices.size() - 1u - i] == index_guard);
+    }
+    luisa::vector<int64_t> order(columns);
+    for (auto row = 0u; row < rows; row++) {
+        std::iota(order.begin(), order.end(), int64_t{0});
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) {
+            auto x = static_cast<float>(original[kPad + row * columns + a]);
+            auto y = static_cast<float>(original[kPad + row * columns + b]);
+            return x == y ? a < b : x > y;
+        });
+        for (auto rank = 0u; rank < count; rank++) {
+            auto p = kPad + row * count + rank;
+            expect(indices[p] == order[rank]) << "stable topk row=" << row << " rank=" << rank;
+            expect(word(output[p]) == word(original[kPad + row * columns + order[rank]])) << "exact topk row=" << row << " rank=" << rank;
+        }
+    }
+}
+
 void native_attention(Device &device) {
     for (auto queries : {1ll, 3ll}) {
         auto fixture = test::tile_llm::attention(2, 4, 2, queries, 5, 8, 4, 2, 4);
@@ -751,20 +1208,22 @@ void native_attention(Device &device) {
     }
 }
 
-void interleaved_singleton_mma(Device &device) {
+void interleaved_singleton_mma(Device &device, bool reassociate) {
     using namespace tile;
-    auto kernel = tile_kernel("interleaved_common_singletons", [](TensorView<const float, 4> a, TensorView<const float, 4> b, TensorView<float, 4> c) {
+    auto kernel = tile_kernel("interleaved_common_singletons", [=](TensorView<const float, 4> a, TensorView<const float, 4> b, TensorView<float, 4> c) {
                       auto x = axis("x", 1), y = axis("y", 1), m = axis("m", 4), n = axis("n", 8), k = axis("k", 4);
                       for (auto &nest : parallel(shape(1))) {
                           static_cast<void>(nest);
                           auto lhs = a.tile(coord(0, 0, 0, 0), shape(k, x, m, y)).load();
                           auto rhs = b.tile(coord(0, 0, 0, 0), shape(y, n, x, k)).load();
-                          auto result = mma(lhs, rhs, full<float>(shape(x, m, y, n), .25f), MmaPolicy{false});
+                          auto result = mma(lhs, rhs, full<float>(shape(x, m, y, n), .25f), MmaPolicy{reassociate});
                           c(coord(0, 0, 0, 0), shape(x, m, y, n)).store(result);
                       }
                   }).capture(tensor_shape(4, 1, 4, 1), tensor_shape(1, 8, 1, 4), tensor_shape(1, 4, 1, 8));
     auto shader = tile::compile(device, kernel);
     if (!check_native(shader, make_uint3(1u), 3u)) { return; }
+    expect((shader.metadata().source.find("ct::mma(") != luisa::string::npos) == reassociate);
+    // These dyadic products and all intermediate sums are exact in FP32.
     GuardedBuffer a{device, 16u}, b{device, 32u}, c{device, 32u};
     for (auto i = 0u; i < a.count; i++) { a[i] = static_cast<float>(i) * .125f; }
     for (auto i = 0u; i < b.count; i++) { b[i] = static_cast<float>(i % 11u) * .25f; }
@@ -834,6 +1293,112 @@ void narrow_storage_and_mma(Device &device) {
     }
 }
 
+// The public ShaderOption selects a bounded FP32 elementwise policy. The
+// default source, native tree intrinsics, MMA, casts and NaN min/max stay
+// strict; ordered/custom reduction bodies honor the elementwise policy.
+void explicit_fast_math(Device &device) {
+    using namespace tile;
+    constexpr auto count = 32u, operations = 10u;
+    auto kernel = tile_kernel("explicit_fast_math_policy", [=](TensorView<const float, 1> a,
+                                                             TensorView<const float, 1> b,
+                                                             TensorView<float, 1> output) {
+                      auto n = axis("n", count);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0), shape(n)).load();
+                          auto y = b.tile(coord(0), shape(n)).load();
+                          output(coord(0), shape(n)).store(x + y);
+                          output(coord(count), shape(n)).store(x - y);
+                          output(coord(2u * count), shape(n)).store(x * y);
+                          output(coord(3u * count), shape(n)).store(x / y);
+                          output(coord(4u * count), shape(n)).store(sqrt(abs(x)));
+                          output(coord(5u * count), shape(n)).store(exp(x));
+                          output(coord(6u * count), shape(n)).store(tanh(x));
+                          output(coord(7u * count), shape(n)).store(min(x, 0.25f));
+                          output(coord(8u * count), shape(n)).store(max(x, -0.25f));
+                          output(coord(9u * count), shape(n)).store(x);
+                      }
+                  }).capture(tensor_shape(count), tensor_shape(count), tensor_shape(count * operations));
+    auto defaults = tile::compile(device, kernel);
+    auto strict = tile::compile(device, kernel, {}, {.enable_fast_math = false});
+    auto fast = tile::compile(device, kernel, {}, {.enable_fast_math = true});
+    if (!check_native(defaults, make_uint3(1u), 3u) ||
+        !check_native(strict, make_uint3(1u), 3u) ||
+        !check_native(fast, make_uint3(1u), 3u)) { return; }
+    expect(defaults.metadata().source == strict.metadata().source);
+    expect(defaults.metadata().source.find("round_approximate_t") == string::npos);
+    expect(defaults.metadata().source.find("round_subnormals_to_zero_t") == string::npos);
+    expect(fast.metadata().source.find("ct::round_approximate_t{}") != string::npos);
+    expect(fast.metadata().source.find("ct::round_subnormals_to_zero_t{}") != string::npos);
+    expect(fast.metadata().realization.find("elementwise-fp32-approx-ftz-v1") != string::npos);
+
+    GuardedBuffer a{device, count}, b{device, count}, output{device, count * operations};
+    for (auto i = 0u; i < 16u; i++) {
+        a[i] = (static_cast<float>(i) - 7.25f) * 0.375f;
+        b[i] = (static_cast<float>(i) + 0.375f) * (i % 2u == 0u ? 0.25f : -0.25f);
+    }
+    constexpr auto inf = std::numeric_limits<float>::infinity();
+    constexpr auto nan = std::numeric_limits<float>::quiet_NaN();
+    std::array<float, 16u> special_a{0.0f, -0.0f, 0x1p-149f, -0x1p-149f,
+                                    0x1p-126f, -0x1p-126f, inf, -inf,
+                                    nan, 1.0f, -1.0f, 0.0f, -0.0f,
+                                    0x1p-126f, -0x1p-126f, 1.0f};
+    std::array<float, 16u> special_b{2.0f, 2.0f, 2.0f, 2.0f,
+                                    0.5f, 0.5f, 2.0f, 2.0f,
+                                    2.0f, 0.0f, -0.0f, 0.0f, -0.0f,
+                                    2.0f, 2.0f, 0x1p127f};
+    for (auto i = 0u; i < 16u; i++) { a[i + 16u] = special_a[i]; b[i + 16u] = special_b[i]; }
+    auto original_a = a.host, original_b = b.host;
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto flush = [](float x) noexcept {
+        return std::fpclassify(x) == FP_SUBNORMAL ? std::copysign(0.0f, x) : x;
+    };
+    for (auto use_fast : {false, true}) {
+        auto &shader = use_fast ? fast : strict;
+        output.poison();
+        stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+               << output.buffer.copy_from(luisa::span{output.host})
+               << shader(a.view(), b.view(), output.view()).dispatch()
+               << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host})
+               << output.buffer.copy_to(luisa::span{output.host}) << synchronize();
+        check_readonly(a, original_a);
+        check_readonly(b, original_b);
+        output.check_guards();
+        for (auto i = 0u; i < count; i++) {
+            auto x = static_cast<double>(use_fast ? flush(a[i]) : a[i]);
+            auto y = static_cast<double>(use_fast ? flush(b[i]) : b[i]);
+            std::array<double, operations> expected{x + y, x - y, x * y, x / y, std::sqrt(std::abs(x)),
+                                                    std::exp(static_cast<double>(a[i])), std::tanh(static_cast<double>(a[i])),
+                                                    std::fmin(static_cast<double>(a[i]), .25), std::fmax(static_cast<double>(a[i]), -.25), a[i]};
+            for (auto op = 0u; op < operations; op++) {
+                auto actual = output[op * count + i];
+                if (op == 9u) { expect(bits(actual) == bits(a[i])) << "copy index=" << i; continue; }
+                auto rounded = static_cast<float>(expected[op]);
+                if (use_fast && op <= 4u) { rounded = flush(rounded); }
+                if (std::isnan(rounded)) { expect(std::isnan(actual)) << "fast=" << use_fast << " op=" << op << " index=" << i; }
+                else if (std::isinf(rounded)) { expect(actual == rounded) << "fast=" << use_fast << " op=" << op << " index=" << i; }
+                else if (op <= 2u || op == 7u || op == 8u || rounded == 0.0f) {
+                    expect(bits(actual) == bits(rounded)) << "fast=" << use_fast << " op=" << op << " index=" << i;
+                } else {
+                    auto error = std::abs(static_cast<double>(actual) - expected[op]);
+                    expect(std::isfinite(actual) && error <= 2e-6 * std::abs(expected[op]) + 1e-44)
+                        << "fast=" << use_fast << " op=" << op << " index=" << i << " error=" << error;
+                }
+            }
+        }
+    }
+    // This kernel has integer address arithmetic and MMA only. Selecting fast
+    // elementwise math must not change its generated FMA order/policy at all.
+    auto contraction = matrix(false, false, false);
+    auto strict_mma = tile::compile(device, contraction);
+    auto fast_mma = tile::compile(device, contraction, {}, {.enable_fast_math = true});
+    if (check_native(strict_mma, make_uint3(2u, 3u, 1u), 3u) &&
+        check_native(fast_mma, make_uint3(2u, 3u, 1u), 3u)) {
+        expect(strict_mma.metadata().source == fast_mma.metadata().source);
+    }
+}
+
+
 void rejected_options(Device &device) {
     auto kernel = pointwise();
     tile::CompileOptions tile_options;
@@ -843,9 +1408,6 @@ void rejected_options(Device &device) {
     option.max_registers = 64u;
     expect_rejected(tile::compile(device, kernel, {}, option), "register");
     option.max_registers = 0u;
-    option.enable_fast_math = true;
-    expect_rejected(tile::compile(device, kernel, {}, option), "fast_math");
-    option.enable_fast_math = false;
     option.compile_only = true;
     expect_rejected(tile::compile(device, kernel, {}, option), "compile-only");
     option.compile_only = false;
@@ -973,26 +1535,38 @@ int main(int argc, char *argv[]) {
         for (auto ta : {false, true}) {
             for (auto tb : {false, true}) { matrix_oracle(device, ta, tb, true); }
         }
+        fp32_mma_precision_boundaries(device);
     };
     "tile_cuda_ir_ordered_contraction"_test = [&] { matrix_oracle(device, false, false, false); };
     "tile_cuda_ir_fma_unroll_boundary"_test = [&] {
-        for (auto tile_k : {32u, 64u}) {
+        for (auto tile_k : {32u, 64u, 128u, 256u}) {
             for (auto transpose_a : {false, true}) {
                 for (auto transpose_b : {false, true}) {
                     matrix_oracle(device, transpose_a, transpose_b, false, tile_k, tile_k + 3u);
                 }
             }
         }
+        large_accumulator_dynamic_contraction(device);
+        fma_operation_budget_boundary(device);
     };
     "tile_cuda_ir_pointwise_exact_alias"_test = [&] { pointwise_alias(device); };
     "tile_cuda_ir_read_before_write_snapshot"_test = [&] { snapshot_ordering(device); };
     "tile_cuda_ir_negative_origin_bitwise_copy"_test = [&] { shifted_bitwise_copy(device); };
+    "tile_cuda_ir_proven_pointer_memory_bounds"_test = [&] { proven_pointer_memory_bounds(device); };
     "tile_cuda_ir_simultaneous_carry_swap"_test = [&] { swap_oracle(device); };
     "tile_cuda_ir_llm_rows"_test = [&] { row_operations(device); };
     "tile_cuda_ir_named_axis_broadcast"_test = [&] { named_axis_broadcast(device); };
     "tile_cuda_ir_ordered_reductions"_test = [&] { ordered_reductions(device); };
     "tile_cuda_ir_elementary_math"_test = [&] { elementary_math(device); };
     "tile_cuda_ir_native_scan_and_sort"_test = [&] { native_scan_and_sort(device); };
+    "tile_cuda_ir_repeated_extrema_topk"_test = [&] {
+        repeated_extrema_topk<float>(device, 1u, 1u);
+        repeated_extrema_topk<float>(device, 33u, 7u);
+        repeated_extrema_topk<float>(device, 33u, 33u);
+        repeated_extrema_topk<float>(device, 65u, 16u);
+        repeated_extrema_topk<half>(device, 33u, 7u);
+        repeated_extrema_topk<tile::bfloat16>(device, 33u, 7u);
+    };
     "tile_cuda_ir_integer_primitives"_test = [&] {
         for (auto width : {1u, 32u, 33u}) {
             integer_primitives<int32_t>(device, width);
@@ -1002,7 +1576,9 @@ int main(int argc, char *argv[]) {
         }
     };
     "tile_cuda_ir_attention_rank4"_test = [&] { native_attention(device); };
-    "tile_cuda_ir_interleaved_singleton_mma"_test = [&] { interleaved_singleton_mma(device); };
+    "tile_cuda_ir_interleaved_singleton_mma"_test = [&] {
+        for (auto reassociate : {false, true}) { interleaved_singleton_mma(device, reassociate); }
+    };
     "tile_cuda_ir_narrow_storage_and_mma"_test = [&] { narrow_storage_and_mma<half>(device); narrow_storage_and_mma<tile::bfloat16>(device); };
     "tile_cuda_ir_typed_buffer_views"_test = [&] {
         typed_buffer_copy<bool>(device);
@@ -1011,6 +1587,7 @@ int main(int argc, char *argv[]) {
         typed_buffer_copy<int64_t>(device);
         typed_buffer_copy<uint64_t>(device);
     };
+    "tile_cuda_ir_explicit_fast_math"_test = [&] { explicit_fast_math(device); };
     "tile_cuda_ir_rejects_unsupported_options"_test = [&] { rejected_options(device); };
     "tile_cuda_ir_rejects_shapes_constraints_and_types"_test = [&] { rejected_shapes_and_constraints(device); };
     return 0;

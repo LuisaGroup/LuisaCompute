@@ -349,7 +349,7 @@ def time_stream(torch, invoke, samples, sample_ms, warmup_ms):
                 scope="Python/framework dispatch, functional allocations, operator execution and final synchronization")
 
 
-def time_graph(torch, invoke, batch, samples, warmup_ms):
+def time_graph(torch, invoke, batch, samples, sample_ms, warmup_ms):
     graph = torch.cuda.CUDAGraph()
     side = torch.cuda.Stream()
     side.wait_stream(torch.cuda.current_stream())
@@ -364,8 +364,19 @@ def time_graph(torch, invoke, batch, samples, warmup_ms):
             invoke()
     torch.cuda.synchronize()
     capture_ms = (time.perf_counter_ns() - start) / 1e6
+    # Materialize the lazy events on the existing untimed first replay. Reuse
+    # the pair for calibration and every sample; retain all measured samples.
+    priming_start = time.perf_counter_ns()
+    begin, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    begin.record()
     graph.replay()
-    torch.cuda.synchronize()
+    end.record()
+    end.synchronize()
+    prime_event_ms = begin.elapsed_time(end)
+    priming_wall_ms = (time.perf_counter_ns() - priming_start) / 1e6
+    require(math.isfinite(prime_event_ms) and prime_event_ms > 0.0 and
+            math.isfinite(priming_wall_ms) and priming_wall_ms > 0.0,
+            "invalid CUDA graph event span or host wall")
     warmup_start = time.perf_counter_ns()
     warmup_replays = 0
     while (time.perf_counter_ns() - warmup_start) / 1e6 < warmup_ms:
@@ -373,23 +384,52 @@ def time_graph(torch, invoke, batch, samples, warmup_ms):
         torch.cuda.synchronize()
         warmup_replays += 1
     warmup_actual_ms = (time.perf_counter_ns() - warmup_start) / 1e6
-    begin, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    event, wall = [], []
-    for _ in range(samples):
+
+    def timed_replays(count):
         torch.cuda.synchronize()
         start = time.perf_counter_ns()
         begin.record()
-        graph.replay()
+        for _ in range(count):
+            graph.replay()
         end.record()
         end.synchronize()
-        wall.append((time.perf_counter_ns() - start) / 1000 / batch)
-        event.append(begin.elapsed_time(end) * 1000 / batch)
+        host_ms = (time.perf_counter_ns() - start) / 1e6
+        event_ms = begin.elapsed_time(end)
+        require(math.isfinite(event_ms) and event_ms > 0.0 and
+                math.isfinite(host_ms) and host_ms > 0.0,
+                "invalid CUDA graph event span or host wall")
+        return event_ms, host_ms
+
+    operation_cap = 10_000_000
+    replay_cap = min(65536, operation_cap // batch)
+    replays = 1
+    calibration = []
+    for attempt in range(4):
+        event_ms, host_ms = timed_replays(replays)
+        calibration.append(dict(replays=replays, event_span_ms=event_ms, host_wall_ms=host_ms))
+        if event_ms >= 0.8 * sample_ms or replays == replay_cap or attempt == 3:
+            break
+        replays = min(replay_cap, max(replays + 1, math.ceil(replays * sample_ms / event_ms)))
+    operations = batch * replays
+    event_span, host_span = [], []
+    for _ in range(samples):
+        event_ms, host_ms = timed_replays(replays)
+        event_span.append(event_ms)
+        host_span.append(host_ms)
     return dict(batch=batch, capture_ms=capture_ms, warmup_target_ms=warmup_ms,
                 warmup_actual_ms=warmup_actual_ms, warmup_replays=warmup_replays,
-                warmup_scope="Synchronized graph replays after capture and the first replay; excluded from capture cost and timing samples",
-                event_us_per_operation=stats(event),
-                host_wall_us_per_operation=stats(wall),
-                scope="Two CUDA events around one graph replay containing N sequential calls on one capture stream; only final output retained; event span divided by N",
+                warmup_scope="Synchronized replays after the first replay primes both events; capture, priming, calibration and samples excluded",
+                event_priming_protocol="untimed_first_replay_before_warmup_v1",
+                event_priming_replays=1, event_priming_wall_ms=priming_wall_ms,
+                prime_event_ms=prime_event_ms, graph_protocol="adaptive_replay_span_v2",
+                replays_per_sample=replays, operations_per_sample=operations,
+                sample_target_ms=sample_ms, replay_cap=replay_cap, operation_cap=operation_cap,
+                calibration=calibration,
+                calibration_target_reached=calibration[-1]["event_span_ms"] >= 0.8 * sample_ms,
+                event_span_ms=stats(event_span), host_span_ms=stats(host_span),
+                event_us_per_operation=stats([value * 1000 / operations for value in event_span]),
+                host_wall_us_per_operation=stats([value * 1000 / operations for value in host_span]),
+                scope="Two CUDA events around R whole graph replays, each containing N sequential calls on one capture stream; only final output retained; event and host spans divided by N*R; submission gaps can remain",
                 allocation_policy="Normal functional returns, capture-aware memory pool reuse, no forced copy or N-output retention",
                 capture_stream=int(side.cuda_stream),
                 internal_inductor_cudagraphs=False)
@@ -587,7 +627,7 @@ def main(argv=None):
             save()
             record["compiled_stream"] = time_stream(torch, invoke_compiled, args.samples, args.sample_ms, args.warmup_ms)
             if args.graph_batch:
-                record["compiled_graph"] = time_graph(torch, invoke_compiled, args.graph_batch, args.samples, args.warmup_ms)
+                record["compiled_graph"] = time_graph(torch, invoke_compiled, args.graph_batch, args.samples, args.sample_ms, args.warmup_ms)
             record["compiled_correctness_after"] = check()
             record["compiled_outputs"] = save_outputs("compiled")
             record["compiler_evidence"] = compiler_evidence(torch, cache)
@@ -598,7 +638,7 @@ def main(argv=None):
                 record["eager_correctness_before"] = check()
                 record["eager_stream"] = time_stream(torch, invoke_eager, args.samples, args.sample_ms, args.warmup_ms)
                 if args.graph_batch:
-                    record["eager_graph"] = time_graph(torch, invoke_eager, args.graph_batch, args.samples, args.warmup_ms)
+                    record["eager_graph"] = time_graph(torch, invoke_eager, args.graph_batch, args.samples, args.sample_ms, args.warmup_ms)
                 record["eager_correctness_after"] = check()
                 record["eager_outputs"] = save_outputs("eager")
         record.update(status="passed", phase="complete")

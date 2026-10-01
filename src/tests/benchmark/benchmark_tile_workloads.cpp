@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -108,7 +109,11 @@ void identity(std::ostream &out, const workloads::Options &o) {
     array(out, o.dimensions);
     out << ",\"tile\":";
     array(out, o.tile);
-    out << ",\"fast_math\":false,\"graph_batch\":" << o.graph_batch;
+    if (o.operation == "sort" || o.operation == "topk") {
+        out << ",\"ranking_algorithm\":";
+        quoted(out, o.ranking_algorithm);
+    }
+    out << ",\"fast_math\":" << (o.fast_math ? "true" : "false") << ",\"graph_batch\":" << o.graph_batch;
 }
 
 [[nodiscard]] int finish(const workloads::Options &o, const luisa::filesystem::path &directory,
@@ -225,7 +230,7 @@ template<typename T>
                 o.operation == "gemm" || (o.operation == "attention" || o.operation == "attention_tensorcore") ? "mma_fused_reassociation_allowed" :
                                                                                                                  "not_applicable");
     out << ",\"logical_view_offset_elements\":64,\"logical_view_offset_bytes\":" << 64u * sizeof(T)
-        << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N repeated identical dispatches, same inputs and output allocation, ordered WAW; one graph replay per timed sample. Functional Torch output allocation is a separate contract.\"}"
+        << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N repeated identical dispatches, same inputs and output allocation, ordered WAW; R complete graph replays per timed sample; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract.\"}"
            ",\"validation\":{\"reference\":\"host_fp64\",\"bound\":\"per_element_bound.f64\","
            "\"require_finite\":true,\"output_guard_elements\":128,\"readonly_inputs_checked\":true}}\n";
     return write_text(directory / "manifest.json", out.str());
@@ -305,8 +310,8 @@ public:
 template<typename T>
 int run(int argc, char *argv[]) {
     workloads::Options options;
-    if (argc != 13 && argc != 15) {
-        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N]\n";
+    if (argc < 13 || argc > 19 || (argc - 13) % 2 != 0) {
+        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|repeated_extrema] [--fast-math 0|1]\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
     }
     options.backend = argv[1];
@@ -325,9 +330,27 @@ int run(int argc, char *argv[]) {
         !integer(argv[11], warmup_ms) || warmup_ms < 1u || warmup_ms > 60000u) {
         return finish(options, {}, "failed", "invalid operation arguments, dimensions, schedule or timing limits", 1);
     }
-    if (argc == 15) {
-        if (string_view{argv[13]} != "--graph-batch" || !integer(argv[14], graph_batch) || graph_batch == 0u || graph_batch > 100000u) {
-            return finish(options, {}, "failed", "invalid --graph-batch", 1);
+    auto graph_seen = false, ranking_seen = false, fast_seen = false;
+    for (auto i = 13; i < argc; i += 2) {
+        auto flag = string_view{argv[i]};
+        if (flag == "--graph-batch" && !graph_seen) {
+            graph_seen = true;
+            if (!integer(argv[i + 1], graph_batch) || graph_batch == 0u || graph_batch > 100000u) {
+                return finish(options, {}, "failed", "invalid --graph-batch", 1);
+            }
+        } else if (flag == "--ranking-algorithm" && !ranking_seen) {
+            ranking_seen = true;
+            options.ranking_algorithm = argv[i + 1];
+            if (options.ranking_algorithm != "full_sort_prefix" && options.ranking_algorithm != "repeated_extrema") {
+                return finish(options, {}, "failed", "invalid --ranking-algorithm", 1);
+            }
+        } else if (flag == "--fast-math" && !fast_seen) {
+            fast_seen = true;
+            auto value = string_view{argv[i + 1]};
+            if (value != "0" && value != "1") { return finish(options, {}, "failed", "invalid --fast-math", 1); }
+            options.fast_math = value == "1";
+        } else {
+            return finish(options, {}, "failed", "unknown or duplicate optional argument", 1);
         }
     }
     std::copy(schedule.begin(), schedule.end(), options.tile.begin());
@@ -368,12 +391,20 @@ int run(int argc, char *argv[]) {
     tile::CompileOptions compile_options;
     compile_options.lowering = options.lowering == "tirx" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
     start = Clock::now();
-    auto shader = tile::compile(device, *fixture.kernel, compile_options, {.enable_fast_math = false});
+    auto shader = tile::compile(device, *fixture.kernel, compile_options, {.enable_fast_math = options.fast_math});
     auto compile_ms = elapsed(start);
     if (!shader.metadata().source.empty() && !write_text(directory / "source.txt", std::string{shader.metadata().source.data(), shader.metadata().source.size()})) {
         return finish(options, directory, "failed", "source export failed", 1, compile_ms);
     }
-    if (!shader) { return finish(options, directory, "unsupported", shader.metadata().error, 3, compile_ms, shader.metadata().realization); }
+    if (!shader) {
+        auto error = string_view{shader.metadata().error};
+        auto compiler_failure = error.starts_with("CUDA Tile IR NVRTC failed (") ||
+                                error.starts_with("CUDA Tile IR tileiras failed (") ||
+                                error.starts_with("CUDA Tile IR NVRTC could not start:") ||
+                                error.starts_with("CUDA Tile IR tileiras could not start:");
+        return finish(options, directory, compiler_failure ? "compiler_failure" : "unsupported", error,
+                      compiler_failure ? 1 : 3, compile_ms, shader.metadata().realization);
+    }
     if (options.backend == "cuda" && options.lowering == "native" && !shader.metadata().realization.starts_with("CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin")) {
         return finish(options, directory, "failed", "requested native Tile IR realization was not produced", 1, compile_ms, shader.metadata().realization);
     }
@@ -499,7 +530,17 @@ int run(int argc, char *argv[]) {
         }
     }
     if (!check()) { return finish(options, directory, "failed", "warm full-output/guard/input/index oracle failed", 2, compile_ms, shader.metadata().realization); }
-    double graph_build_ms = 0.0;
+    double graph_build_ms = 0.0, graph_prime_event_ms = 0.0, graph_prime_host_ms = 0.0;
+    double graph_warmup_actual_ms = 0.0;
+    uint64_t graph_replays = 0u, graph_replay_cap = 0u, graph_warmup_replays = 0u;
+    constexpr uint64_t graph_operation_cap = 10000000u;
+    struct GraphSample {
+        uint64_t replays{};
+        double event_ms{-1.0}, host_ms{-1.0};
+    };
+    vector<GraphSample> graph_calibration;
+    vector<double> graph_event_span_ms, graph_host_span_ms;
+    bool graph_calibration_target_reached = false;
     if (options.graph_batch != 0u) {
         if (options.backend != "cuda") { return finish(options, directory, "unsupported", "graph measurement requires CUDA", 3, compile_ms, shader.metadata().realization); }
         auto ext = device.extension<CudaGraphExt>();
@@ -510,28 +551,74 @@ int run(int argc, char *argv[]) {
         auto executable = ext->instantiate(graph.handle().handle);
         if (!executable.handle().valid()) { return finish(options, directory, "unsupported", "actual Tile graph instantiation rejected", 3, compile_ms, shader.metadata().realization); }
         graph_build_ms = elapsed(start);
-        ext->launch(executable.handle().handle, stream.handle());
-        stream.synchronize();
+        auto measure_graph = [&](uint64_t replay_count) {
+            stream.synchronize();
+            auto before = Clock::now();
+            GraphSample sample{.replays = replay_count};
+            if (!events.record(true)) { return sample; }
+            for (auto replay = uint64_t{0u}; replay < replay_count; replay++) {
+                // Launch the complete captured operation batch, including every
+                // stage when the fixture is a multi-kernel pipeline.
+                ext->launch(executable.handle().handle, stream.handle());
+            }
+            if (!events.record(false)) {
+                stream.synchronize();
+                return sample;
+            }
+            stream.synchronize();
+            sample.host_ms = elapsed(before);
+            sample.event_ms = events.milliseconds();
+            return sample;
+        };
+        auto valid_graph_sample = [](const GraphSample &sample) noexcept {
+            return std::isfinite(sample.event_ms) && sample.event_ms > 0.0 &&
+                   std::isfinite(sample.host_ms) && sample.host_ms > 0.0;
+        };
+        // Reuse the existing first untimed replay to prime this exact event
+        // pair before warmup. No official sample is discarded or filtered.
+        auto prime = measure_graph(1u);
+        if (!valid_graph_sample(prime)) {
+            return finish(options, directory, "failed", "graph event priming failed or produced a nonpositive/nonfinite span", 1);
+        }
+        graph_prime_event_ms = prime.event_ms;
+        graph_prime_host_ms = prime.host_ms;
         if (!check()) { return finish(options, directory, "failed", "cold graph oracle failed", 2, compile_ms, shader.metadata().realization); }
         start = Clock::now();
         while (elapsed(start) < options.warmup_ms) {
             ext->launch(executable.handle().handle, stream.handle());
             stream.synchronize();
+            graph_warmup_replays++;
         }
-        for (uint32_t i = 0; i < options.samples; i++) {
-            stream.synchronize();
-            auto before = Clock::now();
-            if (!events.record(true)) { return finish(options, directory, "failed", events.error, 1); }
-            ext->launch(executable.handle().handle, stream.handle());
-            if (!events.record(false)) {
-                stream.synchronize();
-                return finish(options, directory, "failed", events.error, 1);
+        graph_warmup_actual_ms = elapsed(start);
+        // Caps count complete logical operations, not driver graph nodes.
+        // The same graph and final actually calibrated replay count are used
+        // for every official sample; reaching the target is reported, not assumed.
+        graph_replay_cap = std::min<uint64_t>(65536u, graph_operation_cap / options.graph_batch);
+        graph_replays = 1u;
+        for (auto attempt = 0u; attempt < 4u; attempt++) {
+            auto sample = measure_graph(graph_replays);
+            if (!valid_graph_sample(sample)) {
+                return finish(options, directory, "failed", "graph calibration failed or produced a nonpositive/nonfinite span", 1);
             }
-            stream.synchronize();
-            graph_host.emplace_back(1000.0 * elapsed(before) / options.graph_batch);
-            auto device_ms = events.milliseconds();
-            if (device_ms < 0.0) { return finish(options, directory, "failed", events.error, 1); }
-            graph_device.emplace_back(1000.0 * device_ms / options.graph_batch);
+            graph_calibration.emplace_back(sample);
+            graph_calibration_target_reached = sample.event_ms >= 0.8 * options.sample_ms;
+            if (graph_calibration_target_reached || graph_replays == graph_replay_cap || attempt == 3u) { break; }
+            auto estimate = std::ceil(static_cast<double>(graph_replays) * options.sample_ms / sample.event_ms);
+            // Clamp in floating point before casting; a very short valid event
+            // span must not cause an out-of-range integer conversion.
+            auto bounded = std::min(estimate, static_cast<double>(graph_replay_cap));
+            graph_replays = std::max(graph_replays + 1u, static_cast<uint64_t>(bounded));
+        }
+        auto operations = graph_replays * options.graph_batch;
+        for (uint32_t i = 0; i < options.samples; i++) {
+            auto sample = measure_graph(graph_replays);
+            if (!valid_graph_sample(sample)) {
+                return finish(options, directory, "failed", "graph sample failed or produced a nonpositive/nonfinite span", 1);
+            }
+            graph_host_span_ms.emplace_back(sample.host_ms);
+            graph_event_span_ms.emplace_back(sample.event_ms);
+            graph_host.emplace_back(1000.0 * sample.host_ms / operations);
+            graph_device.emplace_back(1000.0 * sample.event_ms / operations);
         }
         if (!check()) { return finish(options, directory, "failed", "warm graph oracle failed", 2, compile_ms, shader.metadata().realization); }
     }
@@ -551,7 +638,7 @@ int run(int argc, char *argv[]) {
     quoted(out, shader.metadata().realization);
     out << ",\"timing_scope\":\"C++ command construction, submission, execution and final synchronization\","
            "\"device_timing_scope\":\"CUDA event stream span after command construction; may include host submission starvation; not isolated kernel time\","
-           "\"graph_timing_scope\":\"one replay of N ordered same-output dispatches; CUDA event stream span / N and instrumented synchronized host wall / N\","
+           "\"graph_timing_scope\":\"R complete graph replays per sample; event stream span and synchronized host wall divided by graph_batch*R; complete-operation throughput, may include host submission starvation\","
            "\"fixture_ms\":"
         << fixture_ms << ",\"runtime_ms\":" << runtime_ms << ",\"compile_ms\":" << compile_ms
         << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_ms\":" << cold_ms << ",\"warmup_actual_ms\":" << warmup_actual_ms
@@ -564,7 +651,30 @@ int run(int argc, char *argv[]) {
     array(out, device_span);
     out << ",\"event_instrumented_host_wall_us\":";
     array(out, instrumented_host);
-    out << ",\"graph_build_ms\":" << graph_build_ms << ",\"graph_host_wall_us_per_op\":";
+    out << ",\"graph_build_ms\":" << graph_build_ms
+        << ",\"graph_protocol\":\"adaptive_replay_span_v2\",\"graph_replays_per_sample\":" << graph_replays
+        << ",\"graph_operations_per_sample\":" << graph_replays * options.graph_batch
+        << ",\"graph_sample_target_ms\":" << options.sample_ms
+        << ",\"graph_replay_cap\":" << graph_replay_cap
+        << ",\"graph_operation_cap\":" << graph_operation_cap
+        << ",\"graph_calibration_target_reached\":" << (graph_calibration_target_reached ? "true" : "false")
+        << ",\"graph_prime_event_ms\":" << graph_prime_event_ms
+        << ",\"graph_prime_host_ms\":" << graph_prime_host_ms
+        << ",\"graph_warmup_replays\":" << graph_warmup_replays
+        << ",\"graph_warmup_actual_ms\":" << graph_warmup_actual_ms
+        << ",\"graph_calibration\":[";
+    for (size_t i = 0u; i < graph_calibration.size(); i++) {
+        auto &&sample = graph_calibration[i];
+        if (i != 0u) { out << ','; }
+        out << "{\"replays\":" << sample.replays << ",\"event_span_ms\":" << sample.event_ms
+            << ",\"host_wall_ms\":" << sample.host_ms << '}';
+    }
+    out << "],\"graph_event_span_ms\":";
+    array(out, graph_event_span_ms);
+    out << ",\"graph_host_span_ms\":";
+    array(out, graph_host_span_ms);
+    out << ",\"graph_stage_dispatches_per_sample\":" << graph_replays * options.graph_batch;
+    out << ",\"graph_host_wall_us_per_op\":";
     array(out, graph_host);
     out << ",\"graph_event_stream_span_us_per_op\":";
     array(out, graph_device);

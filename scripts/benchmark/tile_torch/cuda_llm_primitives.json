@@ -1,0 +1,1468 @@
+{
+  "schema": 1,
+  "description": "CUDA Tile and torch.compile LLM/primitives inventory: 78 case variants across 16 operation names, 36 operation/shape contracts and 51 operation/shape/dtype contracts. Math policies, ranking algorithms and schedules are separate variants, not independent workloads.",
+  "contracts": [
+    "Use the same exported inputs, FP64 oracle and per-element bounds for native and torch.compile. Explicit fast_math does not relax the oracle.",
+    "Group dtype, math policy, ranking algorithm and tile schedule separately. All pairings must also match shape, seed and input pattern.",
+    "attention keeps FP32 probabilities; attention_tensorcore uses the declared narrow-probability common envelope and retains the secondary strict validation result.",
+    "Native sort/topk preserve original-index ties. The standard Torch baseline allows tie permutations while checking sorted values, source indices and uniqueness; stable Torch is a separate contract.",
+    "scan is inclusive unordered_tree, not ordered fold-left. repeated_extrema Top-K uses disjoint read-only input/output allocations, as provided by the harness.",
+    "For graph performance use adaptive_replay_span_v2 on both implementations and retain all samples, replay counts, calibration and actual spans. Compare to older timing protocols separately.",
+    "Compilation, correctness failures and timeouts are retained and excluded from runtime ratios. This inventory declares no performance result."
+  ],
+  "cases": [
+    {
+      "id": "wide-rmsnorm-1x8192-random-fp32",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-rmsnorm-1x8192-random-fp32-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-rmsnorm-1x8192-random-bf16-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-rmsnorm-1x8192-random-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-layernorm-16x4096-adversarial-fp32",
+      "operation": "layernorm",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-layernorm-16x4096-adversarial-fp32-fast",
+      "operation": "layernorm",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": true
+    },
+    {
+      "id": "wide-softmax-128x1024-random-fp32-fast",
+      "operation": "softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-softmax-128x1024-random-fp32",
+      "operation": "softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-masked_softmax-4x8192-adversarial-fp32",
+      "operation": "masked_softmax",
+      "dimensions": [
+        4,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-masked_softmax-4x8192-adversarial-fp32-fast",
+      "operation": "masked_softmax",
+      "dimensions": [
+        4,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": true
+    },
+    {
+      "id": "wide-swiglu-128x4096-random-bf16-fast",
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-swiglu-128x4096-random-bf16",
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-gelu_residual-4x1024-adversarial-fp32",
+      "operation": "gelu_residual",
+      "dimensions": [
+        4,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-gelu_residual-4x1024-adversarial-fp32-fast",
+      "operation": "gelu_residual",
+      "dimensions": [
+        4,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": true
+    },
+    {
+      "id": "wide-attention-1x4x1x1x1024x128x128-random-fp32-fast",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-attention-1x4x1x1x1024x128x128-random-fp32",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x1x1024x128x128-random-bf16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x1x1024x128x128-random-bf16-fast",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x128x256x64x64-random-fp16-fast",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        128,
+        256,
+        64,
+        64
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x128x256x64x64-random-fp16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        128,
+        256,
+        64,
+        64
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-gemm-512x512x512-random-fp32-tile32x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow512-gemm-512x512x512-fp16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow512-gemm-512x512x512-bf16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow512-gemm-512x512x512-fp16-tile64x64x64",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        64,
+        64,
+        64
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow512-gemm-512x512x512-bf16-tile64x64x64",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        64,
+        64,
+        64
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase4-gemm-512x512x512-fp32-tile32x32x128",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        32,
+        32,
+        128
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-topk-128x1024x7-adversarial-fp32",
+      "operation": "topk",
+      "dimensions": [
+        128,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-topk-128x1024x7-adversarial-fp32-extrema",
+      "operation": "topk",
+      "dimensions": [
+        128,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "repeated_extrema"
+    },
+    {
+      "id": "wide-topk-128x1024x7-adversarial-fp16-extrema",
+      "operation": "topk",
+      "dimensions": [
+        128,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "repeated_extrema"
+    },
+    {
+      "id": "wide-topk-128x1024x7-adversarial-fp16",
+      "operation": "topk",
+      "dimensions": [
+        128,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-topk-4x4096x16-adversarial-bf16",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        4096,
+        16
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-topk-4x4096x16-adversarial-bf16-extrema",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        4096,
+        16
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "repeated_extrema"
+    },
+    {
+      "id": "wide-sort-16x1024x1024-adversarial-fp32",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-sort-16x1024x1024-adversarial-bf16",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-sort-1x4096x4096-adversarial-fp16",
+      "operation": "sort",
+      "dimensions": [
+        1,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "phase3-gemv-1024x1x8192-random-bf16-tile1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        1024,
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-attention-1x4x1x128x256x64x64-random-fp32",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        128,
+        256,
+        64,
+        64
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-attention-1x4x1x128x256x64x64-random-fp32-fast",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        128,
+        256,
+        64,
+        64
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "decode-bq1-wide-attention-1x4x1x1x1024x128x128-random-fp32-fast",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "decode-bq1-wide-attention-1x4x1x1x1024x128x128-random-fp32",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "decode-bq1-wide-attention_tensorcore-1x4x1x1x1024x128x128-random-fp16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "decode-bq1-wide-attention_tensorcore-1x4x1x1x1024x128x128-random-fp16-fast",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "decode-bq1-wide-attention_tensorcore-1x4x1x1x1024x128x128-random-bf16-fast",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "decode-bq1-wide-attention_tensorcore-1x4x1x1x1024x128x128-random-bf16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-rope-16x8192-random-fp32",
+      "operation": "rope",
+      "dimensions": [
+        16,
+        8192
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-rope-16x8192-random-fp16",
+      "operation": "rope",
+      "dimensions": [
+        16,
+        8192
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-reduce_sum-16x4096-cancellation-fp32",
+      "operation": "reduce_sum",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "wide-reduce_sum-16x4096-cancellation-fp32-fast",
+      "operation": "reduce_sum",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": true
+    },
+    {
+      "id": "wide-reduce_sum-16x4096-cancellation-bf16",
+      "operation": "reduce_sum",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "wide-reduce_max-1x8192-adversarial-fp32",
+      "operation": "reduce_max",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-reduce_max-1x8192-adversarial-fp16",
+      "operation": "reduce_max",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-scan-128x1024-cancellation-fp32",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "wide-scan-128x1024-cancellation-fp16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "wide-scan-1x4096-cancellation-bf16",
+      "operation": "scan",
+      "dimensions": [
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-rmsnorm-17x65-random-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-rmsnorm-17x65-random-bf16-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v2-layernorm-4x257-adversarial-fp16",
+      "operation": "layernorm",
+      "dimensions": [
+        4,
+        257
+      ],
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "v2-softmax-16x127-random-fp32",
+      "operation": "softmax",
+      "dimensions": [
+        16,
+        127
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v2-masked_softmax-4x65-adversarial-bf16",
+      "operation": "masked_softmax",
+      "dimensions": [
+        4,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "v2-rope-17x130-random-fp16",
+      "operation": "rope",
+      "dimensions": [
+        17,
+        130
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v2-swiglu-17x129-random-fp32",
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        129
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v2-gelu_residual-4x257-adversarial-bf16",
+      "operation": "gelu_residual",
+      "dimensions": [
+        4,
+        257
+      ],
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-gemm-31x37x19-cancellation-fp32-tile16x16x8",
+      "operation": "gemm",
+      "dimensions": [
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "wide-gemm-127x257x65-random-fp16",
+      "operation": "gemm",
+      "dimensions": [
+        127,
+        257,
+        65
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-gemm-127x257x65-random-bf16",
+      "operation": "gemm",
+      "dimensions": [
+        127,
+        257,
+        65
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-gemv-37x1x129-random-fp32-tile1x1x256",
+      "operation": "gemv",
+      "dimensions": [
+        37,
+        1,
+        129
+      ],
+      "tile": [
+        1,
+        1,
+        256
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-gemv-37x1x129-random-fp16-tile1x1x256",
+      "operation": "gemv",
+      "dimensions": [
+        37,
+        1,
+        129
+      ],
+      "tile": [
+        1,
+        1,
+        256
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-attention-1x4x2x3x17x16x16-random-fp32",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        3,
+        17,
+        16,
+        16
+      ],
+      "tile": [
+        4,
+        8,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-attention_tensorcore-1x4x2x3x17x16x16-random-bf16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        2,
+        3,
+        17,
+        16,
+        16
+      ],
+      "tile": [
+        4,
+        8,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-topk-4x65x7-adversarial-fp32",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        65,
+        7
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "phase3-topk-4x65x7-adversarial-fp32-extrema",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        65,
+        7
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "repeated_extrema"
+    },
+    {
+      "id": "phase3-sort-2x33x33-adversarial-bf16",
+      "operation": "sort",
+      "dimensions": [
+        2,
+        33,
+        33
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x1x1024x128x128-random-fp16",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-attention_tensorcore-1x4x1x1x1024x128x128-random-fp16-fast",
+      "operation": "attention_tensorcore",
+      "dimensions": [
+        1,
+        4,
+        1,
+        1,
+        1024,
+        128,
+        128
+      ],
+      "tile": [
+        16,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "wide-layernorm-16x4096-adversarial-bf16",
+      "operation": "layernorm",
+      "dimensions": [
+        16,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "wide-softmax-128x1024-random-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "wide-swiglu-128x4096-random-fp32",
+      "operation": "swiglu",
+      "dimensions": [
+        128,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "phase3-gemv-1024x1x4096-random-fp32-tile1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        1024,
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

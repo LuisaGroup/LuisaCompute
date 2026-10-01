@@ -112,6 +112,11 @@ def validate_case(row, default_seed):
     require(isinstance(row, dict) and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,159}", row.get("id", "")), "invalid case id")
     require(row.get("operation") in OPERATIONS, f"unknown operation in {row['id']}")
     op = row["operation"]
+    require(type(row.get("fast_math", False)) is bool, "fast_math must be boolean")
+    ranking = row.get("ranking_algorithm", "full_sort_prefix")
+    require(ranking in {"full_sort_prefix", "repeated_extrema"}, "unknown ranking algorithm")
+    require("ranking_algorithm" not in row or op in {"sort", "topk"}, "ranking_algorithm is only applicable to ranking")
+    require(ranking != "repeated_extrema" or op == "topk", "repeated_extrema requires topk")
     dims, tile = row.get("dimensions"), row.get("tile")
     require(isinstance(dims, list) and len(dims) == (2 if op in ROWS else 7 if op in {"attention", "attention_tensorcore"} else 3), "wrong dimension count")
     require(isinstance(tile, list) and len(tile) == 3 and
@@ -144,7 +149,8 @@ def validate_case(row, default_seed):
         require(max(m * k, k * n, m * n) <= 2**24, "GEMM input/output exceeds fixture allocation bound")
         require(tile[0] <= 128 and tile[1] <= 128 and tile[2] <= (1024 if op == "gemv" else 256) and
                 (op != "gemv" or dims[1] == 1), "invalid GEMM/GEMV schedule")
-    return {**row, "seed": seed, "precision": row.get("precision", "fp32"), "pattern": row.get("pattern", "random")}
+    return {**row, "seed": seed, "precision": row.get("precision", "fp32"), "pattern": row.get("pattern", "random"),
+            **({"ranking_algorithm": ranking} if op in {"sort", "topk"} else {})}
 
 
 def selected_cases(args):
@@ -177,7 +183,14 @@ def tensor_receipts(manifest_path, expected_case):
     manifest = read_json(manifest_path)
     for key in ("operation", "dimensions", "tile", "precision", "seed", "pattern"):
         require(manifest.get(key) == expected_case[key], f"manifest {key} disagrees with requested case")
+    require(manifest.get("fast_math", False) is expected_case.get("fast_math", False), "manifest fast_math mismatch")
     require(manifest.get("schema") == 1 and manifest.get("endianness") == "little", "unsupported manifest ABI")
+    if expected_case["operation"] in {"sort", "topk"}:
+        ranking = expected_case.get("ranking_algorithm", "full_sort_prefix")
+        require(manifest.get("ranking_algorithm", "full_sort_prefix") == ranking, "manifest ranking algorithm mismatch")
+        algorithm = ("stable_repeated_extrema" if ranking == "repeated_extrema" else
+                     "padded_bitonic_full_sort" if expected_case["operation"] == "sort" else "padded_bitonic_full_sort_prefix")
+        require(manifest.get("algorithm") == algorithm, "manifest realized ranking algorithm mismatch")
     sizes = {"float32": 4, "float16": 2, "bfloat16": 2}
     storage = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}[expected_case["precision"]]
     require(all(entry["storage_dtype"] == storage for entry in manifest["inputs"]), "input storage disagrees with requested precision")
@@ -250,10 +263,22 @@ def native_result(process, path, row, args, route):
     require(result.get("schema") == 1, "native result schema mismatch")
     for key in ("operation", "dimensions", "tile", "precision", "seed", "pattern"):
         require(result.get(key) == row[key], f"native result {key} mismatch")
+    if row["operation"] in {"sort", "topk"}:
+        require(result.get("ranking_algorithm", "full_sort_prefix") == row.get("ranking_algorithm", "full_sort_prefix"),
+                "native result ranking algorithm mismatch")
+    require(result.get("fast_math", False) is row.get("fast_math", False), "native result fast_math mismatch")
     expected_backend, expected_lowering = ("simd", "native") if route == "simd" else ("cuda", route)
     require(result.get("backend") == expected_backend and result.get("lowering") == expected_lowering, "native route mismatch")
+    if result["status"] == "compiler_failure":
+        require(process["returncode"] == 1 and result.get("reason"), "invalid compiler failure status")
+        return dict(status="failed", failure_kind="compiler_failure", process=process, result=result, result_path=str(path))
     if result["status"] == "unsupported":
         require(process["returncode"] == 3 and result.get("reason"), "invalid unsupported status")
+        # Older binaries classified all rejected shaders as unsupported. Preserve
+        # their raw packet but normalize actual tool-process failures as failures.
+        if result["reason"].startswith(("CUDA Tile IR NVRTC failed (", "CUDA Tile IR tileiras failed (",
+                                       "CUDA Tile IR NVRTC could not start:", "CUDA Tile IR tileiras could not start:")):
+            return dict(status="failed", failure_kind="compiler_failure", process=process, result=result, result_path=str(path))
     else:
         require(result["status"] == "passed" and process["returncode"] == 0, "native execution or correctness failed")
         check = result["correctness"]
@@ -384,6 +409,7 @@ def main(argv=None):
     require(smi is not None, "nvidia-smi is required for telemetry")
     sources = [ROOT / "src/tests/benchmark/benchmark_tile_workloads.cpp", ROOT / "src/tests/common/tile_workload_test_utils.h",
                ROOT / "src/tests/common/tile_llm_test_utils.h", ROOT / "src/tests/common/tile_rank_test_utils.h",
+               ROOT / "src/tests/common/tile_selection_test_utils.h",
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
@@ -430,6 +456,10 @@ def main(argv=None):
                     command = [executable, backend, lowering, definition["operation"], definition["precision"],
                                ",".join(map(str, definition["dimensions"])), ",".join(map(str, definition["tile"])),
                                definition["seed"], definition["pattern"], args.samples, args.sample_ms, args.warmup_ms, export]
+                    if definition.get("fast_math", False):
+                        command += ["--fast-math", "1"]
+                    if definition.get("ranking_algorithm", "full_sort_prefix") != "full_sort_prefix":
+                        command += ["--ranking-algorithm", definition["ranking_algorithm"]]
                     if args.graph_batch and route != "simd":
                         command += ["--graph-batch", args.graph_batch]
                     child_environment = {**environment, **({"LUISA_CUDA_TILE_IR": "1"} if route == "native" else {})}
