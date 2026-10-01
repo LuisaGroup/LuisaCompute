@@ -566,9 +566,10 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     }
     // Detect assignment to cooperative vector element: v[i] = x → v.Set(x, i)
     auto lhs_access = state->lhs()->tag() == Expression::Tag::ACCESS ?
-                          static_cast<AccessExpr const *>(state->lhs()) : nullptr;
+                          static_cast<AccessExpr const *>(state->lhs()) :
+                          nullptr;
     bool lhs_is_coopvec_element = lhs_access &&
-        lhs_access->range()->type()->is_cooperative_vector();
+                                  lhs_access->range()->type()->is_cooperative_vector();
     if (lhs_is_coopvec_element) {
         // Generate: range.Set(rhs, index)
         lhs_access->range()->accept(*this);
@@ -577,6 +578,34 @@ void StringStateVisitor::visit(const AssignStmt *state) {
         str << ',';
         lhs_access->index()->accept(*this);
         str << ");\n";
+        return;
+    }
+    // DXC can miscompile `m[col] = floatN(...)` (and later mat-vec products) when
+    // columns share components. Store each element instead of a vector write.
+    bool lhs_is_matrix_column = lhs_access &&
+                                lhs_access->range()->type()->is_matrix() &&
+                                state->rhs()->type() &&
+                                state->rhs()->type()->is_vector();
+    if (lhs_is_matrix_column) {
+        auto dim = lhs_access->range()->type()->dimension();
+        auto tmp = util->GetNewTempVarName();
+        util->GetTypeName(*state->rhs()->type(), str, Usage::READ);
+        str << ' ' << tmp << ";\n"sv;
+        str << tmp << '=';
+        state->rhs()->accept(*this);
+        str << ";\n"sv;
+        static constexpr char xyzw[] = "xyzw";
+        for (auto i = 0u; i < dim; i++) {
+            accessCount++;
+            lhs_access->range()->accept(*this);
+            accessCount--;
+            str << '[';
+            lhs_access->index()->accept(*this);
+            str << "]["sv;
+            vstd::to_string(i, str);
+            str << "]="sv;
+            str << tmp << '.' << xyzw[i] << ";\n"sv;
+        }
         return;
     }
     auto rhs_is_shared = is_shared(state->rhs());
@@ -693,7 +722,6 @@ void StringStateVisitor::VisitFunction(
     }
     func.body()->accept(*this);
 }
-
 
 StringStateVisitor::Scope::Scope(StringStateVisitor *self)
     : self(self) {

@@ -57,9 +57,9 @@ float4x4 _float4x4(float3x4 v){return float4x4(v[0].xyz,0,v[1].xyz,0,v[2].xyz,0,
 float2x2 _float2x2(float m00,float m01,float m10,float m11){return float2x2(m00,m01,m10,m11);}
 float3x4 _float3x3(float m00,float m01,float m02,float m10,float m11,float m12,float m20,float m21,float m22){return float3x4(m00,m01,m02,0,m10,m11,m12,0,m20,m21,m22,0);}
 float4x4 _float4x4(float m00,float m01,float m02,float m03,float m10,float m11,float m12,float m13,float m20,float m21,float m22,float m23,float m30,float m31,float m32,float m33){return float4x4(m00,m01,m02,m03,m10,m11,m12,m13,m20,m21,m22,m23,m30,m31,m32,m33);}
-float2x2 _float2x2(float2 c0,float2 c1){return float2x2(c0,c1);}
-float3x4 _float3x3(float3 c0,float3 c1,float3 c2){return float3x4(float4(c0,0),float4(c1,0),float4(c2,0));}
-float4x4 _float4x4(float4 c0,float4 c1,float4 c2,float4 c3){return float4x4(c0,c1,c2,c3);}
+float2x2 _float2x2(float2 c0,float2 c1){float2x2 r;r[0][0]=c0.x;r[0][1]=c0.y;r[1][0]=c1.x;r[1][1]=c1.y;return r;}
+float3x4 _float3x3(float3 c0,float3 c1,float3 c2){float3x4 r=0;r[0][0]=c0.x;r[0][1]=c0.y;r[0][2]=c0.z;r[1][0]=c1.x;r[1][1]=c1.y;r[1][2]=c1.z;r[2][0]=c2.x;r[2][1]=c2.y;r[2][2]=c2.z;return r;}
+float4x4 _float4x4(float4 c0,float4 c1,float4 c2,float4 c3){float4x4 r;r[0][0]=c0.x;r[0][1]=c0.y;r[0][2]=c0.z;r[0][3]=c0.w;r[1][0]=c1.x;r[1][1]=c1.y;r[1][2]=c1.z;r[1][3]=c1.w;r[2][0]=c2.x;r[2][1]=c2.y;r[2][2]=c2.z;r[2][3]=c2.w;r[3][0]=c3.x;r[3][1]=c3.y;r[3][2]=c3.z;r[3][3]=c3.w;return r;}
 float2x2 _transpose(float2x2 m){return transpose(m);}
 float3x4 _transpose(float3x4 m){
 float4x3 mm=transpose(m);
@@ -69,12 +69,12 @@ float4x4 _transpose(float4x4 m){return transpose(m);}
 float4x4 _Mul(float4x4 a,float4x4 b){return mul(b,a);}
 float3x4 _Mul(float3x4 a,float3x4 b){return mul(b,float4x4(a,0,0,0,0));}
 float2x2 _Mul(float2x2 a,float2x2 b){return mul(b,a);}
-float4 _Mul(float4x4 b,float4 a){return mul(a,b);}
-float3 _Mul(float3x4 b,float3 a){return mul(a,b).xyz;}
-float2 _Mul(float2x2 b,float2 a){return mul(a,b);}
-float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
-float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
-float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
+float4 _Mul(float4x4 b,float4 a){return a.x*b[0]+a.y*b[1]+a.z*b[2]+a.w*b[3];}
+float3 _Mul(float3x4 b,float3 a){return (a.x*b[0]+a.y*b[1]+a.z*b[2]).xyz;}
+float2 _Mul(float2x2 b,float2 a){return a.x*b[0]+a.y*b[1];}
+float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return a.x*b[0]+a.y*b[1]+a.z*b[2]+a.w*b[3];}
+float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return (a.x*b[0]+a.y*b[1]+a.z*b[2]).xyz;}
+float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return a.x*b[0]+a.y*b[1];}
 struct _wbool3 {bool3 v; bool a;};
 struct _wfloat3 {float3 v; float a;};
 struct _wfloat16_t3 {float16_t3 v; float16_t a;};
@@ -141,11 +141,11 @@ uint InstanceContributionToHitGroupIndex:24;
 uint Flags:8;
 uint2 accelStructPtr;
 };
-float2x2 _outer_product(float2 a,float2 b){return float2x2(a*b.x,a*b.y);}
-float3x4 _outer_product(float3 a,float3 b){return float3x4(float4(a*b.x,0),float4(a*b.y,0),float4(a*b.z,0));}
-float4x4 _outer_product(float4 a,float4 b){return float4x4(a*b.x,a*b.y,a*b.z,a*b.w);}
-float2x2 _mat_comp_mul(float2x2 a,float2x2 b){return float2x2(a[0]*b[0],a[1]*b[1]);}
-float3x4 _mat_comp_mul(float3x4 a,float3x4 b){return float3x4(float4(a[0].xyz*b[0].xyz,0),float4(a[1].xyz*b[1].xyz,0),float4(a[2].xyz*b[2].xyz,0));}
-float4x4 _mat_comp_mul(float4x4 a,float4x4 b){return float4x4(a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]);}
+float2x2 _outer_product(float2 a,float2 b){return _float2x2(a*b.x,a*b.y);}
+float3x4 _outer_product(float3 a,float3 b){return _float3x3(a*b.x,a*b.y,a*b.z);}
+float4x4 _outer_product(float4 a,float4 b){return _float4x4(a*b.x,a*b.y,a*b.z,a*b.w);}
+float2x2 _mat_comp_mul(float2x2 a,float2x2 b){return _float2x2(a[0]*b[0],a[1]*b[1]);}
+float3x4 _mat_comp_mul(float3x4 a,float3x4 b){return _float3x3(a[0].xyz*b[0].xyz,a[1].xyz*b[1].xyz,a[2].xyz*b[2].xyz);}
+float4x4 _mat_comp_mul(float4x4 a,float4x4 b){return _float4x4(a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]);}
 #define _zero(type) ((type)0)
 #define _one(type) ((type)1)
