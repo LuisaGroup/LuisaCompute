@@ -4,6 +4,8 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/comment.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/translators/xir_interchange.h>
@@ -508,6 +510,23 @@ void check_cloned_frontier_graph(RestructureCFGMutationMode mode, bool dynamic_g
         oracle.stores.emplace_back(oracle.value);
         expect(expected == luisa::optional{oracle}) << "cloned frontier oracle input=" << argument;
     });
+    auto transport_count = 0u;
+    for (auto *block : f->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (!inst->isa<AllocaInst>()) { continue; }
+            auto *comment = inst->find_metadata<CommentMD>();
+            if (comment == nullptr ||
+                comment->comment() != "value transported across a cloned region boundary") {
+                continue;
+            }
+            ++transport_count;
+            auto *spill = inst->find_metadata<Reg2MemSpillMD>();
+            expect(spill != nullptr && spill->kind() == Reg2MemSpillKind::CROSS_BLOCK)
+                << "cloned-region SSA transport must be promotable by the final mem2reg boundary";
+        }
+    }
+    expect(transport_count != 0u)
+        << "cloned frontier fixture must exercise cross-region SSA transport";
 }
 
 void check_cloned_merge_graph(RestructureCFGMutationMode mode) {

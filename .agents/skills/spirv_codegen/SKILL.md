@@ -145,8 +145,11 @@ codegen representation. Do not add a final blanket Phi elimination. Native
 traffic on the generated module or on `spirv-opt`.
 
 Every temporary slot created by generic `reg2mem` carries
-`Reg2MemSpillMD` with `PHI` or `CROSS_BLOCK` provenance. Preserve this typed
-metadata through instruction cloning, SROA splitting, and XIR text/bitcode
+`Reg2MemSpillMD` with `PHI` or `CROSS_BLOCK` provenance. The SSA transport slots
+created by `restructure_cfg` across cloned-region boundaries also carry
+`CROSS_BLOCK`: their diagnostic comments must not pin them in memory after the
+final `mem2reg`. Preserve this typed metadata through instruction cloning,
+SROA splitting, and XIR text/bitcode
 round-trips; names and comments are diagnostic only. Ordinary final
 legalization recovers SSA immediately after restructuring. Pre-autodiff
 legalization is the intentional exception: autodiff requires Phi-free IR, so
@@ -246,9 +249,13 @@ Current rules:
   reference argument may remain a Function pointer;
 - a shared alloca is Workgroup storage and must be specialized;
 - indirect-dispatch buffer arguments are always specialized;
-- used buffer and bindless resource formals are specialized into the call site;
-- a writable acceleration structure is specialized;
-- a texture used for both read and write is specialized;
+- a resource formal with a proven unique kernel-resource origin may remain
+  outlined; emission recovers the descriptor binding and omits that formal
+  from the SPIR-V function ABI;
+- otherwise, used buffer and bindless resource formals are specialized into
+  the call site;
+- without a unique kernel-resource origin, a writable acceleration structure
+  or a texture used for both read and write is specialized;
 - a genuinely unused resource formal need not force specialization.
 
 Legalization is fixed-point because inlining one layer can expose a pointer at
@@ -257,8 +264,9 @@ and all selected sites before mutating any function. Ordinary switches that do
 not block a selected inline remain native switches.
 
 Do not solve callable ABI failures by enabling `VariablePointers` globally.
-Descriptor-backed buffer/bindless arguments are specialized, and only safe
-opaque/resource modes remain as callable parameters.
+Descriptor-backed buffer/bindless arguments either resolve to proven global
+bindings or are specialized; they do not become storage-buffer pointer
+parameters. Only safe opaque/resource modes remain as callable parameters.
 
 ## Structured control flow and Phi
 
@@ -638,12 +646,19 @@ When `ShaderOption::enable_fast_math` is false, every emitted floating
 multiply/add/subtract that represents a source arithmetic operation must carry
 `NoContraction`. This includes the component instructions used to expand
 matrix arithmetic, the instructions used to expand floating reductions, and
-native dot, matrix multiply, and outer-product instructions, not only
-scalar/vector `OpFMul`, `OpFAdd`, and `OpFSub`. `LENGTH_SQUARED` also lowers
-to `OpDot` and needs the same decoration. Decorating only a final
+native matrix multiply and outer-product instructions, not only scalar/vector
+`OpFMul`, `OpFAdd`, and `OpFSub`. Decorating only a final
 `OpCompositeConstruct` is invalid and does not protect its component
-operations. Keep a rounding-sensitive runtime check and exact SPIR-V
-decoration count for ordinary, reduction, and matrix multiply/add paths.
+operations.
+
+Precise `DOT` and the dot product inside vector `LENGTH`, `LENGTH_SQUARED`,
+and `NORMALIZE` use explicit scalar products followed by ordered additions.
+Each operation uses the input element type (including half and double) and
+has `NoContraction`. A decorated `OpDot` still permits more accurate internal
+evaluation and does not require each product to round separately. Fast math
+continues to emit native `OpDot`. Keep rounding-sensitive runtime checks and
+exact instruction/decoration counts; do not relax the precise numeric oracle
+to accept the fused result.
 
 When fast math contracts a multiply/add pair, select the multiply exactly once
 and share that plan with instruction scheduling and FMA emission. An add may

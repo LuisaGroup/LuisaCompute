@@ -3091,7 +3091,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         (static_cast<uint64_t>(option.enable_scalarizer) << 3u);
     auto block_size = kernel.block_size();
     uint64_t data[] = {
-        luisa::hash_value("luisa-vk-xir-spv-cache-v14"sv),
+        luisa::hash_value("luisa-vk-xir-spv-cache-v15"sv),
         kernel.hash(),
         kernel.body()->hash(),
         luisa::hash_value(block_size),

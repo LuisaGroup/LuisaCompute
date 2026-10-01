@@ -1726,9 +1726,9 @@ struct ScopedSourceDump {
         return probe_failure(
             "nested callable subview fixture did not start with two callables");
     }
-    if (normalized_xir.find("callable ") != std::string::npos) {
+    if (count_substring(normalized_xir, "callable ") != 2u) {
         return probe_failure(
-            "mandatory legalization retained a resource callable");
+            "mandatory legalization did not retain the two uniquely rooted resource callables");
     }
     if (any_hlsl_dump_exists()) {
         return probe_failure(
@@ -1741,9 +1741,18 @@ struct ScopedSourceDump {
             dumps.size()));
     }
     auto disassembly = read_text_file(dumps.front());
-    if (count_spirv_opcode(disassembly, "FunctionCall") != 0u) {
+    // Each resource formal resolves to the same kernel buffer root at
+    // every call site. Outlined functions must use the descriptor globals,
+    // without passing a StorageBuffer pointer through their function ABI.
+    if (count_spirv_opcode(disassembly, "FunctionCall") != 2u ||
+        count_spirv_opcode(disassembly, "FunctionParameter") != 0u) {
         return probe_failure(
-            "resource callable specialization left an OpFunctionCall");
+            "uniquely rooted resource callables have an unexpected SPIR-V function ABI");
+    }
+    if (disassembly.find("VariablePointers") != std::string::npos ||
+        disassembly.find("SPV_KHR_variable_pointers") != std::string::npos) {
+        return probe_failure(
+            "outlined resource callables must not require variable pointers");
     }
     return 0;
 }
@@ -2448,7 +2457,14 @@ OpName %8 "Fma"
             auto i = dispatch_x();
             UInt step = 0u;
             UInt value = in.read(i);
-            $while (step < count.read(i)) {
+            // This fixture tests complete SSA recovery. Build a comment-free
+            // guard: $while attaches source metadata to its guard temporary,
+            // whose storage mem2reg deliberately retains when optimization is
+            // disabled. Annotated storage has separate preservation tests.
+            luisa::compute::detail::LoopStmtBuilder{} % [&] {
+                luisa::compute::detail::IfStmtBuilder{!(step < count.read(i))} % [] {
+                    luisa::compute::detail::FunctionBuilder::current()->break_();
+                };
                 value = value * 3u + step + i;
                 step += 1u;
             };
@@ -5363,19 +5379,19 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
             << "non-contraction regression should emit exactly one native SPIR-V dump";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            expect(count_spirv_opcode(disassembly, "FMul") == 2u)
-                << "ordinary and reduction multiplications must remain OpFMul";
-            expect(count_spirv_opcode(disassembly, "FAdd") == 4u)
-                << "ordinary, reduction, and matrix additions must remain OpFAdd";
+            expect(count_spirv_opcode(disassembly, "FMul") == 6u)
+                << "ordinary, reduction, and dot-component multiplications must remain OpFMul";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 6u)
+                << "ordinary, reduction, dot-component, and matrix additions must remain OpFAdd";
             expect(count_spirv_opcode(
                        disassembly, "MatrixTimesScalar") == 1u)
                 << "matrix scaling must remain one OpMatrixTimesScalar";
-            expect(count_spirv_opcode(disassembly, "Dot") == 2u)
-                << "dot and length_squared must remain two OpDot instructions";
+            expect(count_spirv_opcode(disassembly, "Dot") == 0u)
+                << "precise dot and length_squared must round explicit products before adding";
             expect(count_spirv_extended_instruction(disassembly, "Fma") == 0u)
                 << "non-fast-math SPIR-V must not contain a fused Fma instruction";
-            expect(count_substring(disassembly, "NoContraction") == 9u)
-                << "all ordinary, reduction, dot, and matrix multiply/add results must carry NoContraction";
+            expect(count_substring(disassembly, "NoContraction") == 13u)
+                << "all ordinary, reduction, dot-component, and matrix multiply/add results must carry NoContraction";
         }
     };
 
@@ -7208,8 +7224,12 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
                 << "vector normalize must lower to native SPIR-V, not GLSL.std.450";
             expect(count_spirv_extended_instruction(disassembly, "Length") == 0u)
                 << "vector length must lower to native SPIR-V, not GLSL.std.450";
-            expect(count_spirv_opcode(disassembly, "Dot") == 2u)
-                << "normalize and length must each emit one OpDot";
+            expect(count_spirv_opcode(disassembly, "Dot") == 0u)
+                << "precise normalize and length must round explicit products before adding";
+            expect(count_spirv_opcode(disassembly, "FMul") == 8u)
+                << "the two precise float4 norms must each round four scalar products";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 6u)
+                << "the two precise float4 norms must each sum with three ordered additions";
             expect(count_spirv_opcode(disassembly, "VectorTimesScalar") == 1u)
                 << "normalize must scale the vector by the reciprocal length";
             expect(count_spirv_opcode(disassembly, "FDiv") == 1u)

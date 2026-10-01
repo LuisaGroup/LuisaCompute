@@ -23,6 +23,7 @@
 #include <luisa/xir/instructions/raster_discard.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -6596,6 +6597,8 @@ void complete_reentry_clone_cycle(
         if (external_uses.empty()) { continue; }
         transport.set_insertion_point(def->body_block()->instructions().head_sentinel());
         auto *slot = transport.alloca_local(value->type());
+        slot->create_metadata<Reg2MemSpillMD>()->set_kind(
+            Reg2MemSpillKind::CROSS_BLOCK);
         slot->add_comment("value transported across a cloned region boundary");
         transport.set_insertion_point(value);
         transport.store(slot, value);

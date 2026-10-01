@@ -230,6 +230,28 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         return arithmetic;
     };
+    auto emit_dot = [&](spv::Id lhs, spv::Id rhs,
+                        const Type *vector_type) noexcept -> spv::Id {
+        auto scalar_type = _convert_type(vector_type->element(), Usage::READ);
+        if (_enable_fast_math) {
+            return _builder.createBinOp(spv::Op::OpDot, scalar_type, lhs, rhs);
+        }
+        // OpDot may evaluate its internal products and sum at higher precision
+        // even when decorated NoContraction. Explicit operations preserve each
+        // declared-width product's rounding before the ordered additions.
+        auto product = [&](uint32_t i) noexcept {
+            auto a = _builder.createCompositeExtract(lhs, scalar_type, i);
+            auto b = _builder.createCompositeExtract(rhs, scalar_type, i);
+            return mark_no_contraction(
+                _builder.createBinOp(spv::Op::OpFMul, scalar_type, a, b));
+        };
+        auto sum = product(0u);
+        for (auto i = 1u; i < vector_type->dimension(); ++i) {
+            sum = mark_no_contraction(_builder.createBinOp(
+                spv::Op::OpFAdd, scalar_type, sum, product(i)));
+        }
+        return sum;
+    };
     auto operand_matching_result_type = [&](size_t i) noexcept -> spv::Id {
         auto value = operand(i);
         auto operand_type = inst->operand(i)->type();
@@ -1276,7 +1298,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Cross, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::DOT:
-            id = mark_no_contraction(binary(spv::Op::OpDot));
+            id = emit_dot(operand(0), operand(1), inst->operand(0)->type());
             break;
         case xir::ArithmeticOp::LENGTH: {
             // Lower to native SPIR-V: sqrt(dot(v, v)). The native form lets
@@ -1285,8 +1307,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             // GLSL.std.450 ExtInst would block.
             auto a = operand(0);
             if (inst->operand(0)->type()->is_vector()) {
-                auto dot = mark_no_contraction(
-                    _builder.createBinOp(spv::Op::OpDot, type, a, a));
+                auto dot = emit_dot(a, a, inst->operand(0)->type());
                 id = make_glsl_call(GLSLstd450Sqrt, type, {dot});
             } else {
                 id = glsl(GLSLstd450Length, a);
@@ -1295,8 +1316,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::LENGTH_SQUARED: {
             auto a = operand(0);
-            id = mark_no_contraction(
-                _builder.createBinOp(spv::Op::OpDot, type, a, a));
+            id = emit_dot(a, a, inst->operand(0)->type());
             break;
         }
         case xir::ArithmeticOp::NORMALIZE: {
@@ -1304,8 +1324,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             if (t->is_vector()) {
                 auto scalar_type = _builder.getScalarTypeId(type);
-                auto dot = mark_no_contraction(
-                    _builder.createBinOp(spv::Op::OpDot, scalar_type, a, a));
+                auto dot = emit_dot(a, a, t);
                 auto len = make_glsl_call(GLSLstd450Sqrt, scalar_type, {dot});
                 auto one = make_float_scalar_constant(elem, 1.0);
                 auto rcp = _builder.createBinOp(
