@@ -35,7 +35,6 @@ private:
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
-    bool _graph_compatible{true};
     // Indexed by device buffer slot; each value indexes the original host
     // ShaderDispatchCommand argument (see DeviceArtifact::buffer_arguments).
     luisa::vector<uint32_t> _buffer_arguments;
@@ -63,7 +62,13 @@ public:
                    luisa::vector<uint32_t> buffer_arguments,
                    luisa::vector<Usage> argument_usages) noexcept;
     ~CUDAShaderTile() noexcept override;
-    [[nodiscard]] bool is_graph_compatible() const noexcept override { return _graph_compatible; }
+    [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
+    [[nodiscard]] bool is_tile() const noexcept override { return true; }
+    [[nodiscard]] size_t parameter_count() const noexcept { return _buffer_arguments.size(); }
+    // Shared by live launches and graph construction. Output is in device ABI
+    // order, with BufferView offsets folded into plain device pointers.
+    [[nodiscard]] bool encode_buffer_pointers(luisa::span<const Argument> arguments,
+                                              luisa::span<CUdeviceptr> pointers) const noexcept;
     [[nodiscard]] void *handle() const noexcept override { return _function; }
     [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
     [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }

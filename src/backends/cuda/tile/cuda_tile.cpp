@@ -40,7 +40,7 @@ namespace {
 
 // The ABI marker participates in cache identity. Bump it whenever the
 // generated-kernel or launch ABI changes so stale PTX files are never reused.
-constexpr auto cuda_tile_direct_buffer_abi = "cuda-tile-direct-buffers-v1";
+constexpr auto cuda_tile_direct_buffer_abi = "cuda-tile-direct-buffers-v2-typed";
 
 [[nodiscard]] bool end_with_ptx(luisa::string_view name) noexcept {
     return name.ends_with(".ptx") || name.ends_with(".PTX");
@@ -205,9 +205,12 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         auto root = kernel.body().block(0u);
         for (auto &arg : root->arguments()) {
             auto volume = arg->type().index_space()->static_volume();
-            if (arg->type().scalar_type() != tile::ScalarType::FLOAT32 || !volume || *volume == 0u ||
-                *volume > INT32_MAX || *volume > SIZE_MAX / sizeof(float)) {
-                return fail("CUDA TIRx Runtime currently requires nonempty, static, int32-addressable FP32 buffers");
+            auto element = arg->type().scalar_type();
+            auto element_bytes = tile::scalar_type_size(element);
+            auto supported = element == tile::ScalarType::FLOAT32 || element == tile::ScalarType::FLOAT16 ||
+                             element == tile::ScalarType::BFLOAT16 || element == tile::ScalarType::INT64;
+            if (!supported || !volume || *volume == 0u || *volume > INT32_MAX || *volume > SIZE_MAX / element_bytes) {
+                return fail("CUDA TIRx Runtime requires nonempty, static, int32-addressable FP32/FP16/BF16/INT64 buffers");
             }
             auto usage = Usage::NONE;
             for (auto use : arg->use_list()) {
@@ -223,7 +226,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 }
             }
             metadata.arguments.emplace_back(
-                tile::KernelArgument{tile::ScalarType::FLOAT32, *volume * sizeof(float), usage});
+                tile::KernelArgument{element, *volume * element_bytes, usage});
         }
 
         int max_threads = 0;
@@ -334,9 +337,17 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         shader_metadata.max_register_count = std::clamp(option.max_registers, 0u, 255u);
         shader_metadata.block_size = block;
         for (auto &arg : metadata.arguments) {
-            // The argument validation above accepts only FP32 buffers. Keep
-            // the ordinary CUDA sidecar's type and usage arrays in lockstep.
-            shader_metadata.argument_types.emplace_back(Type::buffer(Type::of<float>())->description());
+            // Preserve the public storage ABI in the shared CUDA sidecar.
+            // BF16 uses its two-byte storage wrapper, not an FP32 stand-in.
+            const Type *element = nullptr;
+            switch (arg.element) {
+                case tile::ScalarType::FLOAT32: element = Type::of<float>(); break;
+                case tile::ScalarType::FLOAT16: element = Type::of<half>(); break;
+                case tile::ScalarType::BFLOAT16: element = Type::of<tile::bfloat16>(); break;
+                case tile::ScalarType::INT64: element = Type::of<int64_t>(); break;
+                default: return fail("Unsupported CUDA TIRx sidecar argument type");
+            }
+            shader_metadata.argument_types.emplace_back(Type::buffer(element)->description());
             shader_metadata.argument_usages.emplace_back(arg.usage);
         }
 
@@ -585,7 +596,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
-    metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; FP32; direct-buffer ABI; block=(1,1,1)";
+    metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1)";
     // enable_cache is a hint. This experimental route deliberately does not
     // consult/write the PTX cache, a user archive, or an in-memory binary cache.
     luisa::vector<Usage> usages;
@@ -596,7 +607,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             return fail("CUDA Tile IR argument size exceeds the host Runtime ABI");
         }
         auto usage = argument.read ? (argument.written ? Usage::READ_WRITE : Usage::READ) :
-                                    (argument.written ? Usage::WRITE : Usage::NONE);
+                                     (argument.written ? Usage::WRITE : Usage::NONE);
         metadata.arguments.emplace_back(tile::KernelArgument{
             argument.element, static_cast<size_t>(argument.minimum_size_bytes), usage});
         usages.emplace_back(usage);
@@ -617,11 +628,11 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         if (status != CUDA_SUCCESS) {
             auto cleanup = cuModuleUnload(module);
             metadata.error = luisa::format("CUDA Tile IR entry lookup failed (CUDA {}, module cleanup {})",
-                                          static_cast<int>(status), static_cast<int>(cleanup));
+                                           static_cast<int>(status), static_cast<int>(cleanup));
             return nullptr;
         }
         return new_with_allocator<CUDAShaderTile>(module, function, std::move(artifact.entry),
-                                                artifact.grid, std::move(bindings), std::move(usages));
+                                                  artifact.grid, std::move(bindings), std::move(usages));
     });
     if (shader == nullptr) { return ShaderCreationInfo::make_invalid(); }
     ShaderCreationInfo info{};

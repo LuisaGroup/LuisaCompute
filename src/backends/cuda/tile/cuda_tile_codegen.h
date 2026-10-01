@@ -27,7 +27,13 @@ struct Artifact {
 
 // A deliberately bounded, source-producing emitter. Unsupported IR is an
 // error, never a fallback to kernel-name recognition, SIMT, or reduced FP32.
-// This first runtime slice accepts FP32 buffers and integer/bool/FP32 values.
+// Buffers and values support bool, i32/u32/i64/u64, and strict FP32, with
+// explicit FP16/BF16 storage/conversion/MMA. Pure maps,
+// named-axis broadcasts and closed unordered add/min/max reducers use native
+// Tiles; ordered/custom reductions retain their scalar contribution order.
+// Closed unordered prefix sums and proven bitonic partner permutations use
+// native scans and rearrangements. MMA permits shared singleton batch axes.
+// Other lane-dependent gathers, nested maps and explicit layout constraints reject.
 // Buffer parameters are contiguous row-major views with static extents.
 [[nodiscard]] Artifact generate(const tile::Function &function) noexcept;
 

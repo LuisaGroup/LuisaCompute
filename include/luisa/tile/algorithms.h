@@ -3,6 +3,7 @@
 // Portable Tile algorithms. These compose the core value/nest operations;
 // they are not additional TileIR primitives or target-specific scope kinds.
 #include <luisa/tile/dsl.h>
+#include <bit>
 
 namespace luisa::compute::tile {
 
@@ -92,16 +93,110 @@ struct RankedTile {
     Tile<int64_t> indices;
 };
 
+// Every output includes its own element. The policy is part of the IR: a
+// backend may implement an unordered sum with a parallel scan, while ordered
+// policies keep their declared contribution order.
+template<scalar_cpp_type T>
+[[nodiscard]] Tile<T> inclusive_sum(const Tile<T> &value, Axis dimension,
+                                    ReductionPolicy policy = reduction::unordered_tree) noexcept {
+    auto index = value.space().axis_index(dimension.dimension());
+    if (!index || !dimension.extent().is_constant() ||
+        dimension.extent().constant_value() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+        value.space().axis(*index).extent != dimension.extent()) {
+        detail::capture_error("inclusive_sum requires a source dimension with matching static extent");
+        return {};
+    }
+    auto candidate = axis("prefix", dimension.extent().constant_value());
+    return map<T>(value.space(), [&](const Nest &nest) {
+        auto accumulator = Scalar<T>{T{}};
+        for (auto &part : nest.reduce(shape(candidate), policy)) {
+            auto coordinate = part.index(candidate);
+            auto element = value.at(detail::projected_coordinates(value.space(), part, dimension.dimension(), coordinate));
+            accumulator += ite(coordinate <= nest.index(dimension), element, T{});
+        }
+        return accumulator;
+    });
+}
+
+namespace detail {
+
+// A sorting network over a power-of-two axis. The total order is lexicographic
+// (value, original index), so ties preserve both index order and value bits.
+// Each stage is a pure coordinate permutation plus independent comparisons;
+// targets can lower the permutation without a data-dependent register gather.
+template<scalar_cpp_type T, scalar_cpp_type I>
+[[nodiscard]] RankedTile<T> bitonic_sort_indexed(const Tile<T> &value, Axis dimension, bool largest) noexcept {
+    auto extent = dimension.extent().constant_value();
+    auto values = value;
+    auto indices = cast<I>(iota(dimension)) + zeros<I>(value.space());
+    auto lane = iota(dimension);
+    for (auto span = uint64_t{2u}; span <= extent;) {
+        for (auto stride = span / 2u; stride != 0u; stride /= 2u) {
+            auto partner = [&](const Nest &nest) {
+                auto i = nest.index(dimension);
+                auto distance = static_cast<int64_t>(stride);
+                auto group = 2 * distance;
+                auto j = i / group * group + (i + distance) % group;
+                return projected_coordinates(value.space(), nest, dimension.dimension(), j);
+            };
+            auto other_values = reindex(values, value.space(), partner);
+            auto other_indices = reindex(indices, value.space(), partner);
+            auto first = (lane / static_cast<int64_t>(stride) % 2 == 0) ==
+                         (lane / static_cast<int64_t>(span) % 2 == 0);
+            auto other_before = (largest ? other_values > values : other_values < values) ||
+                                ((other_values == values) && (other_indices < indices));
+            auto self_before = (largest ? values > other_values : values < other_values) ||
+                               ((values == other_values) && (indices < other_indices));
+            auto take_other = ite(first, other_before, self_before);
+            values = ite(take_other, other_values, values);
+            indices = ite(take_other, other_indices, indices);
+        }
+        if (span == extent) { break; }
+        span *= 2u;
+    }
+    return {std::move(values), cast<int64_t>(indices)};
+}
+
+template<scalar_cpp_type T>
+[[nodiscard]] RankedTile<T> bitonic_sort(const Tile<T> &value, Axis dimension, bool largest) noexcept {
+    // Only the carried original indices are narrowed. Coordinates retain their
+    // existing type and shape, including the native permutation recognizer.
+    // The public result always has int64 indices, including small Tiles.
+    if (dimension.extent().constant_value() <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+        return bitonic_sort_indexed<T, int32_t>(value, dimension, largest);
+    }
+    return bitonic_sort_indexed<T, int64_t>(value, dimension, largest);
+}
+
+}// namespace detail
+
 // Stable total order on finite values; ties use the original index. This
-// quadratic reference composition is deliberately not a claim of a tuned
-// sorting network. Specialized library implementations can replace it later.
+// uses a bitonic network for power-of-two axes, and retains a general quadratic
+// composition for other extents. Selecting a prefix never changes tie order.
 template<scalar_cpp_type T>
 [[nodiscard]] RankedTile<T> topk(const Tile<T> &value, Axis dimension, uint64_t count, bool largest = true) noexcept {
     auto source_axis = value.space().axis_index(dimension.dimension());
     if (!source_axis || !dimension.extent().is_constant() ||
+        dimension.extent().constant_value() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
         value.space().axis(*source_axis).extent != dimension.extent() || count > dimension.extent().constant_value()) {
         detail::capture_error("topk requires a source dimension and k no greater than its extent");
         return {};
+    }
+    auto extent = dimension.extent().constant_value();
+    if (std::has_single_bit(extent)) {
+        auto sorted = detail::bitonic_sort(value, dimension, largest);
+        if (count == extent) { return sorted; }
+        auto rank_axis = axis("rank", count);
+        IndexSpace output;
+        for (auto &&axis : value.space().axes()) {
+            auto replacement = axis.dimension == dimension.dimension();
+            static_cast<void>(output.add(replacement ? rank_axis.dimension() : axis.dimension,
+                                         replacement ? rank_axis.extent() : axis.extent));
+        }
+        auto coordinates = [&](const Nest &nest) {
+            return detail::projected_coordinates(value.space(), nest, dimension.dimension(), nest.index(rank_axis));
+        };
+        return {reindex(sorted.values, output, coordinates), reindex(sorted.indices, output, coordinates)};
     }
     auto candidate = axis("candidate", dimension.extent().constant_value());
     auto ranks = map<int64_t>(value.space(), [&](const Nest &nest) {
@@ -133,7 +228,16 @@ template<scalar_cpp_type T>
         }
         return index;
     });
-    return {gather(value, selected, dimension), std::move(selected)};
+    // Keep the ranked axis at its original position. General gather builds a
+    // broadcast union of dimensions and may place a replaced interior axis
+    // after the other source axes, which differs from the indices' layout.
+    auto values = map<T>(output, [&](const Nest &nest) {
+        auto index = selected.at(nest);
+        auto coordinates = detail::projected_coordinates(value.space(), nest, dimension.dimension(), index);
+        auto in_bounds = (index >= 0) && (index < dimension.extent().constant_value());
+        return ite(in_bounds, value.at(coordinates), T{});
+    });
+    return {std::move(values), std::move(selected)};
 }
 
 template<scalar_cpp_type T>

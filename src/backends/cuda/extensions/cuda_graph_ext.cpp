@@ -4,6 +4,7 @@
 #include "../cuda_buffer.h"
 #include "../cuda_bindless_array.h"
 #include "../cuda_shader.h"
+#include "../cuda_shader_tile.h"
 #include "../cuda_error.h"
 #include <cuda.h>
 #include <algorithm>
@@ -251,6 +252,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             luisa::unordered_map<uint64_t, DagResource> bindless_states;
             luisa::vector<uint32_t> deps;
             luisa::vector<CUgraphNode> dep_nodes;
+            luisa::vector<uint32_t> tile_nodes;
             bool ok{true};
 
             GraphDagVisitor(CUgraph graph, CUcontext ctx,
@@ -452,7 +454,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                 if (!ok) { return; }
                 auto *shader = reinterpret_cast<const CUDAShader *>(dispatch->handle());
                 if (shader == nullptr ||
-                    !shader->is_native() ||
+                    (!shader->is_native() && !shader->is_tile()) ||
                     !shader->is_graph_compatible() ||
                     shader->requires_printing() ||
                     shader->bound_argument_count() != 0u ||
@@ -466,6 +468,19 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                         "ordinary launch semantics.");
                     ok = false;
                     return;
+                }
+                auto *tile_shader = shader->is_tile() ? static_cast<const CUDAShaderTile *>(shader) : nullptr;
+                std::array<CUdeviceptr, 31u> tile_pointers{};
+                std::array<void *, 31u> tile_parameters{};
+                if (tile_shader != nullptr) {
+                    auto count = tile_shader->parameter_count();
+                    if (count > tile_pointers.size() ||
+                        !tile_shader->encode_buffer_pointers(dispatch->arguments(), {tile_pointers.data(), count})) {
+                        LUISA_WARNING_WITH_LOCATION("CudaGraphExt: invalid direct-buffer Tile arguments.");
+                        ok = false;
+                        return;
+                    }
+                    for (auto i = size_t{0u}; i < count; i++) { tile_parameters[i] = &tile_pointers[i]; }
                 }
                 auto dispatch_size = dispatch->dispatch_size();
                 if (any(dispatch_size == make_uint3(0u))) [[unlikely]] {
@@ -536,7 +551,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                 }
 
                 luisa::vector<std::byte> argument_buffer;
-                if (!pack_kernel_arguments(dispatch, shader, argument_buffer)) {
+                if (tile_shader == nullptr && !pack_kernel_arguments(dispatch, shader, argument_buffer)) {
                     ok = false;
                     return;
                 }
@@ -544,6 +559,10 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                 auto block_size = shader->block_size();
                 // The launch configuration _launch computes for this dispatch.
                 auto blocks = (dispatch_size + block_size - 1u) / block_size;
+                if (tile_shader != nullptr) {
+                    auto grid = tile_shader->grid();
+                    blocks = make_uint3(grid[0], grid[1], grid[2]);
+                }
                 // The kernel takes the packed Params struct by value, so the
                 // single kernelParams entry must point AT the packed buffer
                 // (exactly like the ordinary launch path's `&arguments`,
@@ -558,7 +577,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                 params.blockDimZ = block_size.z;
                 params.sharedMemBytes = 0u;
                 void *kernel_params[1] = {static_cast<void *>(argument_buffer.data())};
-                params.kernelParams = kernel_params;
+                params.kernelParams = tile_shader == nullptr ? kernel_params : tile_parameters.data();
                 params.extra = nullptr;
                 CUgraphNode node = nullptr;
                 auto dependencies = finish_deps(self);
@@ -570,6 +589,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                     ok = false;
                     return;
                 }
+                if (tile_shader != nullptr) { tile_nodes.emplace_back(self); }
                 nodes.push_back(node);
             }
         };
@@ -593,7 +613,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             // The node list is the creation order of the node-producing
             // commands, which is deterministic and matches the order the
             // update_* node APIs expect.
-            _graph_data[graph_handle] = GraphData{std::move(nodes), std::move(host_allocs), std::move(host_copies)};
+            _graph_data[graph_handle] = GraphData{std::move(nodes), std::move(host_allocs), std::move(host_copies), std::move(visitor.tile_nodes)};
         }
 
         return {graph_handle, graph};
@@ -634,9 +654,10 @@ ResourceCreationInfo CudaGraphExtImpl::_instantiate(GraphHandle graph, Instantia
                 _exec_data.emplace(exec_handle,
                                    ExecData{graph,
                                             git->second.host_allocations,
-                                            git->second.host_copies});
+                                            git->second.host_copies,
+                                            git->second.tile_nodes});
             } else {
-                _exec_data.emplace(exec_handle, ExecData{graph, {}, {}});
+                _exec_data.emplace(exec_handle, ExecData{graph, {}, {}, {}});
             }
         }
         return {exec_handle, exec};
@@ -720,6 +741,7 @@ bool CudaGraphExtImpl::update(GraphExecHandle exec, CommandList &&cmdlist) noexc
                         // pointers); the new graph's state takes over.
                         exec_it->second.host_allocations = std::move(new_graph_it->second.host_allocations);
                         exec_it->second.host_copies = std::move(new_graph_it->second.host_copies);
+                        exec_it->second.tile_nodes = std::move(new_graph_it->second.tile_nodes);
                     } else {
                         updated = false;
                     }
@@ -738,6 +760,13 @@ bool CudaGraphExtImpl::update_kernel_node(GraphExecHandle exec, size_t node_inde
     if (exec == invalid_handle) { return false; }
     return _device->with_handle([&] {
         std::scoped_lock lock{_mutex};
+        if (auto it = _exec_data.find(exec); it != _exec_data.end() &&
+            std::find(it->second.tile_nodes.begin(), it->second.tile_nodes.end(), node_index) != it->second.tile_nodes.end()) {
+            // This legacy API passes opaque Arguments rather than a typed Tile
+            // invocation. Rebuild via update(CommandList) to retain ABI order,
+            // static launch dimensions, views, and dependency validation.
+            return false;
+        }
         auto *node = _get_node(exec, node_index);
         if (!node) { return false; }
 

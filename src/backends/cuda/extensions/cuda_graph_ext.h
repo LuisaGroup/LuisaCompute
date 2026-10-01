@@ -39,12 +39,14 @@ class CudaGraphExtImpl final : public CudaGraphExt {
         luisa::vector<CUgraphNode> nodes;
         luisa::vector<luisa::shared_ptr<PinnedHostBlock>> host_allocations;
         luisa::vector<CudaGraphHostCopyData> host_copies;
+        luisa::vector<uint32_t> tile_nodes;
     };
 
     struct ExecData {
         uint64_t graph_handle;
         luisa::vector<luisa::shared_ptr<PinnedHostBlock>> host_allocations;
         luisa::vector<CudaGraphHostCopyData> host_copies;
+        luisa::vector<uint32_t> tile_nodes;
     };
 
     mutable spin_mutex _mutex;

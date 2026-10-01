@@ -1,6 +1,8 @@
 #include "cuda_tile_codegen.h"
 
+#include <algorithm>
 #include <bit>
+#include <cmath>
 #include <limits>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -19,6 +21,9 @@ private:
     uint32_t _indent{1u};
     bool _inside_parallel{false};
     uint32_t _parallel_count{0u};
+    const IndexSpace *_map_space{nullptr};
+    const Block *_map_body{nullptr};
+    luisa::unordered_set<const Value *> _mapped_values;
 
     void _fail(const Operation *op, luisa::string_view message) noexcept {
         if (_artifact.error.empty()) {
@@ -52,8 +57,8 @@ private:
         }
     }
     [[nodiscard]] bool _space(const IndexSpace &space, bool tile, const Operation *op) noexcept {
-        if (space.rank() == 0u || space.rank() > 3u) {
-            _fail(op, "only rank 1..3 spaces are supported");
+        if (!tile && space.rank() == 0u) {
+            _fail(op, "buffer views and loop domains must have at least one dimension");
             return false;
         }
         uint64_t volume = 1u;
@@ -69,6 +74,10 @@ private:
                 return false;
             }
             volume *= n;
+            if (tile && volume > (1ull << 24u)) {
+                _fail(op, "native CUDA Tile shapes cannot exceed 2^24 elements");
+                return false;
+            }
         }
         return true;
     }
@@ -82,13 +91,12 @@ private:
     }
     [[nodiscard]] bool _type(const Type &type, const Operation *op) noexcept {
         if (type.kind() == TypeKind::INDEX) { return true; }
-        if (type.scalar_type() == ScalarType::FLOAT16 || type.scalar_type() == ScalarType::BFLOAT16 ||
-            type.scalar_type() == ScalarType::FLOAT64) {
-            _fail(op, "this native runtime slice supports only FP32 floating-point values");
+        if (type.scalar_type() == ScalarType::FLOAT64) {
+            _fail(op, "this native runtime slice supports FP32 arithmetic and explicit FP16/BF16 storage/conversion/MMA");
             return false;
         }
         if ((type.kind() != TypeKind::SCALAR && !type.is_tile()) || _scalar(type.scalar_type()).empty()) {
-            _fail(op, "unsupported value type (only index, bool, i32/u32/i64/u64, and f32 scalars/Tiles)");
+            _fail(op, "unsupported value type (index, bool, i32/u32/i64/u64, f16/bf16/f32 scalars/Tiles)");
             return false;
         }
         return !type.is_tile() || _space(*type.index_space(), true, op);
@@ -101,19 +109,63 @@ private:
         _line(luisa::format("auto {} = {};", name, expression));
         _values.emplace(value, std::move(name));
     }
-    // Native trailing-axis broadcasting is not the Tile IR's named-axis rule.
-    // Restrict Tile operands to exactly the result space; scalar broadcasting
-    // is supported. MMA below has its own explicit named-axis permutation.
-    [[nodiscard]] bool _elementwise_shape(const Operation &op) noexcept {
-        auto &&result = op.result(0u)->type();
-        for (auto i = 0u; i < op.operand_count(); i++) {
-            auto &&operand = op.operand(i)->type();
-            if (operand.is_tile() && (!result.is_tile() || *operand.index_space() != *result.index_space())) {
-                _fail(&op, "elementwise named-axis broadcasting/permutation is not implemented; use equal spaces or scalar operands");
-                return false;
+    [[nodiscard]] static luisa::string _shape(luisa::span<const uint64_t> extents) noexcept {
+        luisa::string result = "ct::shape<";
+        for (auto i = 0u; i < extents.size(); i++) {
+            if (i != 0u) { result += ", "; }
+            result += luisa::format("{}", extents[i]);
+        }
+        return result + ">";
+    }
+    [[nodiscard]] static luisa::string _permute(luisa::string expression, luisa::span<const uint32_t> order) noexcept {
+        auto identity = true;
+        for (auto i = 0u; i < order.size(); i++) { identity &= order[i] == i; }
+        if (identity) { return expression; }
+        luisa::string mapping = "ct::dimension_map<";
+        for (auto i = 0u; i < order.size(); i++) {
+            if (i != 0u) { mapping += ", "; }
+            mapping += luisa::format("{}", order[i]);
+        }
+        return luisa::format("ct::permute({}, {}>{{}})", expression, mapping);
+    }
+    // Put source axes into destination order before adding singleton axes.
+    // CUDA's positional broadcast can then realize the IR's named-axis rule.
+    [[nodiscard]] luisa::string _align(luisa::string expression, const IndexSpace &source,
+                                       const IndexSpace &destination, const Operation &op) noexcept {
+        luisa::vector<uint32_t> order;
+        luisa::vector<uint64_t> extents;
+        for (auto &&axis : destination.axes()) {
+            auto index = source.axis_index(axis.dimension);
+            if (index) {
+                auto extent = source.axis(*index).extent.constant_value();
+                if (extent != 1u && extent != axis.extent.constant_value()) {
+                    _fail(&op, "named-axis broadcast has incompatible extents");
+                    return "invalid_broadcast";
+                }
+                order.emplace_back(static_cast<uint32_t>(*index));
+                extents.emplace_back(extent);
+            } else {
+                extents.emplace_back(1u);
             }
         }
-        return true;
+        if (order.size() != source.rank()) {
+            _fail(&op, "named-axis broadcast would discard a source dimension");
+            return "invalid_broadcast";
+        }
+        expression = _permute(std::move(expression), order);
+        return luisa::format("ct::broadcast(ct::reshape({}, {}{{}}), {}{{}})",
+                             expression, _shape(extents), _shape(destination));
+    }
+    [[nodiscard]] luisa::string _elementwise_value(const Value *value, const Type &result, const Operation &op) noexcept {
+        auto expression = _value(value);
+        if (result.is_tile() && value->type().is_tile()) {
+            return _align(std::move(expression), *value->type().index_space(), *result.index_space(), op);
+        }
+        return expression;
+    }
+    [[nodiscard]] luisa::string _map_broadcast(luisa::string expression) noexcept {
+        return _map_space == nullptr ? expression :
+               luisa::format("ct::broadcast({}, {}{{}})", expression, _shape(*_map_space));
     }
     void _constant(const Operation &op) noexcept {
         if (op.result_count() != 1u) {
@@ -146,11 +198,16 @@ private:
         _bind(op.result(0u), type.is_tile() ? luisa::format("ct::full<ct::tile<{}, {}>>({})", _element(type), _shape(*type.index_space()), scalar) : scalar);
     }
     void _elementwise(const Operation &op) noexcept {
-        if (!_elementwise_shape(op)) { return; }
-        auto a = _value(op.operand(0u));
-        auto b = op.operand_count() > 1u ? _value(op.operand(1u)) : luisa::string{};
+        auto &&result_type = op.result(0u)->type();
+        auto a = _elementwise_value(op.operand(0u), result_type, op);
+        auto b = op.operand_count() > 1u ? _elementwise_value(op.operand(1u), result_type, op) : luisa::string{};
         auto element = op.result(0u)->type().scalar_type();
-        if ((element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16) &&
+        auto narrow = element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16;
+        for (auto i = 0u; i < op.operand_count(); i++) {
+            auto type = op.operand(i)->type().scalar_type();
+            narrow |= type == ScalarType::FLOAT16 || type == ScalarType::BFLOAT16;
+        }
+        if (narrow &&
             op.elementwise_op() != ElementwiseOp::CAST && op.elementwise_op() != ElementwiseOp::SELECT) {
             _fail(&op, "narrow elementwise arithmetic rounding is not implemented (load/cast/select/MMA are supported)");
             return;
@@ -174,14 +231,26 @@ private:
             case ElementwiseOp::NEG: expression = luisa::format("(-{})", a); break;
             case ElementwiseOp::LOGICAL_NOT: expression = luisa::format("(!{})", a); break;
             case ElementwiseOp::CAST: expression = luisa::format("ct::element_cast<{}>({})", _element(op.result(0u)->type()), a); break;
+            case ElementwiseOp::MIN:
+            case ElementwiseOp::MAX: {
+                auto name = op.elementwise_op() == ElementwiseOp::MIN ? "min" : "max";
+                expression = element == ScalarType::FLOAT32 ?
+                    luisa::format("ct::{}({}, {}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", name, a, b) :
+                    luisa::format("ct::{}({}, {})", name, a, b);
+                break;
+            }
+            case ElementwiseOp::EXP: expression = luisa::format("ct::exp({}, ct::round_full_t{{}})", a); break;
+            case ElementwiseOp::LOG: expression = luisa::format("ct::log({})", a); break;
+            case ElementwiseOp::SQRT: expression = luisa::format("ct::sqrt({}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", a); break;
+            case ElementwiseOp::TANH: expression = luisa::format("ct::tanh({}, ct::round_full_t{{}})", a); break;
+            case ElementwiseOp::ABS: expression = luisa::format("ct::abs({})", a); break;
             case ElementwiseOp::SELECT: {
-                auto &&result_type = op.result(0u)->type();
                 auto branch = [&](const Value *value) noexcept {
-                    auto expression = _value(value);
+                    auto expression = _elementwise_value(value, result_type, op);
                     if (result_type.is_tile() && !value->type().is_tile()) {
                         expression = luisa::format("ct::full<ct::tile<{}, {}>>({})", _element(result_type), _shape(*result_type.index_space()), expression);
                     }
-                    return expression;
+                    return _map_broadcast(std::move(expression));
                 };
                 // Unlike arithmetic operators, ct::select deduces one exact
                 // type for both branches. Broadcast scalar branches explicitly.
@@ -201,10 +270,23 @@ private:
                     default: break;
                 }
             }
-            expression = precise.empty() ? luisa::format("({} {} {})", a, binary, b) :
-                                           luisa::format("ct::{}({}, {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", precise, a, b);
+            if (op.elementwise_op() == ElementwiseOp::ADD &&
+                (element == ScalarType::INT32 || element == ScalarType::INT64)) {
+                // CUDA Tile signed addition permits overflow UB. Keep Luisa's
+                // fixed-width addition in the unsigned domain, including the
+                // scalar fallback used by ordered reductions and scans.
+                auto unsigned_element = element == ScalarType::INT32 ? "unsigned" : "unsigned long long";
+                expression = luisa::format("ct::element_bitcast<{}>(ct::element_bitcast<{}>({}) + ct::element_bitcast<{}>({}))",
+                                           _element(result_type), unsigned_element, a, unsigned_element, b);
+            } else {
+                expression = precise.empty() ? luisa::format("({} {} {})", a, binary, b) :
+                                               luisa::format("ct::{}({}, {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", precise, a, b);
+            }
         }
         _bind(op.result(0u), luisa::format("ct::element_cast<{}>({})", _element(op.result(0u)->type()), expression));
+        for (auto i = 0u; i < op.operand_count(); i++) {
+            if (_mapped_values.contains(op.operand(i))) { _mapped_values.emplace(op.result(0u)); }
+        }
     }
     void _view(const Operation &op) noexcept {
         auto view = op.operand(0u);
@@ -267,12 +349,25 @@ private:
         auto &&a_type = op.operand(0u)->type();
         auto &&b_type = op.operand(1u)->type();
         auto &&c_type = op.operand(2u)->type();
-        auto &&a = *a_type.index_space();
-        auto &&b = *b_type.index_space();
-        auto &&c = *c_type.index_space();
+        auto &&a_full = *a_type.index_space();
+        auto &&b_full = *b_type.index_space();
+        auto &&c_full = *c_type.index_space();
+        auto squeeze = [&](const IndexSpace &source) noexcept {
+            IndexSpace result;
+            for (auto &&axis : source.axes()) {
+                if (a_full.contains(axis.dimension) && b_full.contains(axis.dimension) && c_full.contains(axis.dimension)) {
+                    if (axis.extent.constant_value() != 1u) { _fail(&op, "MMA only supports singleton shared batch dimensions"); }
+                } else {
+                    static_cast<void>(result.add(axis.dimension, axis.extent));
+                }
+            }
+            return result;
+        };
+        auto a = squeeze(a_full), b = squeeze(b_full), c = squeeze(c_full);
+        if (!_artifact.error.empty()) { return; }
         if (a.rank() != 2u || b.rank() != 2u || c.rank() != 2u || a_type.scalar_type() != b_type.scalar_type() ||
             c_type.scalar_type() != ScalarType::FLOAT32) {
-            _fail(&op, "MMA requires rank-2 matrices, equal input element types, and an FP32 accumulator");
+            _fail(&op, "MMA requires rank-2 matrices after removing singleton batches, equal input element types, and an FP32 accumulator");
             return;
         }
         auto m = c.axis(0u).dimension, n = c.axis(1u).dimension;
@@ -291,6 +386,13 @@ private:
             return;
         }
         auto lhs = _value(op.operand(0u)), rhs = _value(op.operand(1u));
+        auto squeezed = c.rank() != c_full.rank();
+        auto initial = _value(op.operand(2u));
+        if (squeezed) {
+            lhs = luisa::format("ct::reshape({}, {}{{}})", lhs, _shape(a));
+            rhs = luisa::format("ct::reshape({}, {}{{}})", rhs, _shape(b));
+            initial = luisa::format("ct::reshape({}, {}{{}})", initial, _shape(c));
+        }
         if (*ai != 0u) { lhs = luisa::format("ct::transpose({})", lhs); }
         if (*bi != 1u) { rhs = luisa::format("ct::transpose({})", rhs); }
         auto input = a_type.scalar_type();
@@ -299,20 +401,354 @@ private:
             return;
         }
         if (input != ScalarType::FLOAT32 && op.mma_policy().allow_reassociation) {
-            _bind(op.result(0u), luisa::format("ct::mma({}, {}, {})", lhs, rhs, _value(op.operand(2u))));
+            auto expression = luisa::format("ct::mma({}, {}, {})", lhs, rhs, initial);
+            if (squeezed) { expression = luisa::format("ct::reshape({}, {}{{}})", expression, _shape(c_full)); }
+            _bind(op.result(0u), std::move(expression));
             return;
         }
         auto prefix = luisa::format("mma{}", op.id());
         _line(luisa::format("auto {}_a = ct::element_cast<float>({});", prefix, lhs));
         _line(luisa::format("auto {}_b = ct::element_cast<float>({});", prefix, rhs));
-        _bind(op.result(0u), _value(op.operand(2u)));
-        auto acc = _value(op.result(0u));
-        _line(luisa::format("for (unsigned {}_k = 0u; {}_k < {}ull; ++{}_k) {{", prefix, prefix, a.axis(ak).extent.constant_value(), prefix));
-        _indent++;
-        _line(luisa::format("{} = ct::fma(ct::extract({}_a, ct::shape<{}, 1>{{}}, 0u, {}_k), ct::extract({}_b, ct::shape<1, {}>{{}}, {}_k, 0u), {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}});",
-                            acc, prefix, c.axis(0u).extent.constant_value(), prefix, prefix, c.axis(1u).extent.constant_value(), prefix, acc));
-        _indent--;
-        _line("}");
+        auto acc = squeezed ? luisa::format("{}_acc", prefix) : _name(op.result(0u));
+        if (squeezed) { _line(luisa::format("auto {} = {};", acc, initial)); }
+        else { _bind(op.result(0u), std::move(initial)); }
+        auto emit_fma = [&](luisa::string_view index) noexcept {
+            _line(luisa::format("{} = ct::fma(ct::extract({}_a, ct::shape<{}, 1>{{}}, 0u, {}), ct::extract({}_b, ct::shape<1, {}>{{}}, {}, 0u), {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}});",
+                                acc, prefix, c.axis(0u).extent.constant_value(), index, prefix, c.axis(1u).extent.constant_value(), index, acc));
+        };
+        auto extent = a.axis(ak).extent.constant_value();
+        // Constant slice indices expose the small contraction to Tile IR before
+        // physical layout selection. Preserve the exact ascending-K FMA chain.
+        constexpr auto kMaxUnrolledContraction = 32u;
+        if (extent <= kMaxUnrolledContraction) {
+            for (auto k = uint32_t{0u}; k < extent; k++) {
+                emit_fma(luisa::format("{}u", k));
+            }
+        } else {
+            _line(luisa::format("for (unsigned {}_k = 0u; {}_k < {}ull; ++{}_k) {{", prefix, prefix, extent, prefix));
+            _indent++;
+            emit_fma(luisa::format("{}_k", prefix));
+            _indent--;
+            _line("}");
+        }
+        if (squeezed) { _bind(op.result(0u), luisa::format("ct::reshape({}, {}{{}})", acc, _shape(c_full))); }
+    }
+    [[nodiscard]] static const Value *_index_value(const Value *value) noexcept {
+        for (;;) {
+            auto operation = value->defining_operation();
+            if (operation == nullptr || operation->kind() != OperationKind::ELEMENTWISE ||
+                operation->elementwise_op() != ElementwiseOp::CAST) { return value; }
+            auto integer64 = [](const Type &type) noexcept {
+                return type.kind() == TypeKind::INDEX || type == Type::scalar(ScalarType::INT64);
+            };
+            if (!integer64(value->type()) || !integer64(operation->operand(0u)->type())) { return value; }
+            value = operation->operand(0u);
+        }
+    }
+    [[nodiscard]] static const Operation *_index_operation(const Value *value, ElementwiseOp opcode) noexcept {
+        value = _index_value(value);
+        auto operation = value->defining_operation();
+        if (value->type().kind() != TypeKind::INDEX && value->type() != Type::scalar(ScalarType::INT64)) { return nullptr; }
+        return operation != nullptr && operation->kind() == OperationKind::ELEMENTWISE &&
+                       operation->elementwise_op() == opcode && operation->operand_count() == 2u ?
+                   operation : nullptr;
+    }
+    [[nodiscard]] static luisa::optional<int64_t> _index_constant(const Value *value) noexcept {
+        value = _index_value(value);
+        auto operation = value->defining_operation();
+        auto attribute = operation != nullptr && operation->kind() == OperationKind::CONSTANT ? operation->attribute("value") : nullptr;
+        if (attribute != nullptr) {
+            if (auto integer = luisa::get_if<int64_t>(&attribute->value())) { return *integer; }
+            if (auto integer = luisa::get_if<uint64_t>(&attribute->value()); integer != nullptr && *integer <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return static_cast<int64_t>(*integer);
+            }
+        }
+        return {};
+    }
+    // Prove i/(2*s)*(2*s) + (i+s)%(2*s) == i xor s over the
+    // nonnegative map coordinate range. No data-dependent index is accepted.
+    [[nodiscard]] static luisa::optional<uint64_t> _xor_stride(const Value *value, const Value *coordinate, uint64_t extent) noexcept {
+        auto add = _index_operation(value, ElementwiseOp::ADD);
+        if (add == nullptr) { return {}; }
+        for (auto side = 0u; side < 2u; side++) {
+            auto product = _index_operation(add->operand(side), ElementwiseOp::MUL);
+            auto remainder = _index_operation(add->operand(1u - side), ElementwiseOp::MOD);
+            if (product == nullptr || remainder == nullptr) { continue; }
+            auto group = _index_constant(remainder->operand(1u));
+            auto shifted = _index_operation(remainder->operand(0u), ElementwiseOp::ADD);
+            if (!group || *group < 2 || static_cast<uint64_t>(*group) > extent ||
+                !std::has_single_bit(static_cast<uint64_t>(*group)) || shifted == nullptr) { continue; }
+            auto stride = *group / 2;
+            auto matching_shift = false;
+            for (auto term = 0u; term < 2u; term++) {
+                matching_shift |= _index_value(shifted->operand(term)) == coordinate &&
+                                  _index_constant(shifted->operand(1u - term)) == stride;
+            }
+            if (!matching_shift) { continue; }
+            for (auto term = 0u; term < 2u; term++) {
+                auto quotient = _index_operation(product->operand(term), ElementwiseOp::DIV);
+                if (quotient != nullptr && _index_value(quotient->operand(0u)) == coordinate &&
+                    _index_constant(quotient->operand(1u)) == *group && _index_constant(product->operand(1u - term)) == *group) {
+                    return static_cast<uint64_t>(stride);
+                }
+            }
+        }
+        return {};
+    }
+    [[nodiscard]] luisa::string _xor_permute(luisa::string expression, const IndexSpace &space,
+                                              uint32_t axis, uint64_t stride, const Operation &op) noexcept {
+        uint64_t prefix = 1u, suffix = 1u;
+        for (auto i = 0u; i < axis; i++) { prefix *= space.axis(i).extent.constant_value(); }
+        for (auto i = axis + 1u; i < space.rank(); i++) { suffix *= space.axis(i).extent.constant_value(); }
+        auto groups = prefix * (space.axis(axis).extent.constant_value() / (2u * stride));
+        auto inner = stride * suffix;
+        auto name = luisa::format("permute{}_{}", op.id(), axis);
+        _line(luisa::format("auto {} = ct::reshape({}, ct::shape<{}, 2, {}>{{}});", name, expression, groups, inner));
+        auto high = luisa::format("ct::extract({}, ct::shape<{}, 1, {}>{{}}, 0u, 1u, 0u)", name, groups, inner);
+        auto low = luisa::format("ct::extract({}, ct::shape<{}, 1, {}>{{}}, 0u, 0u, 0u)", name, groups, inner);
+        return luisa::format("ct::reshape(ct::cat({}, {}, ct::integral_constant<1>{{}}), {}{{}})", high, low, _shape(space));
+    }
+    void _tile_extract(const Operation &op) noexcept {
+        auto &&source = *op.operand(0u)->type().index_space();
+        auto source_expression = _value(op.operand(0u));
+        luisa::vector<uint64_t> extents(source.rank(), 1u);
+        luisa::vector<int32_t> source_axes(_map_space ? _map_space->rank() : 0u, -1);
+        luisa::string indices;
+        for (auto i = 0u; i < source.rank(); i++) {
+            auto coordinate = op.operand(1u + i);
+            auto mapped = false;
+            if (_map_body != nullptr) {
+                for (auto j = 0u; j < _map_body->argument_count(); j++) {
+                    auto source_extent = source.axis(i).extent.constant_value();
+                    auto target_extent = _map_space->axis(j).extent.constant_value();
+                    auto direct = _index_value(coordinate) == _map_body->argument(j);
+                    auto stride = source_extent == target_extent ? _xor_stride(coordinate, _map_body->argument(j), source_extent) : luisa::optional<uint64_t>{};
+                    if (direct || stride) {
+                        if (source_axes[j] >= 0 || source_extent < target_extent) {
+                            _fail(&op, "map extraction requires independent coordinates within source extents");
+                            return;
+                        }
+                        if (stride) { source_expression = _xor_permute(std::move(source_expression), source, i, *stride, op); }
+                        source_axes[j] = static_cast<int32_t>(i);
+                        extents[i] = target_extent;
+                        indices += ", 0ull";
+                        mapped = true;
+                        break;
+                    }
+                }
+            }
+            if (!mapped) {
+                if (_mapped_values.contains(coordinate)) {
+                    _fail(&op, "lane-dependent gather indices require a native gather realization");
+                    return;
+                }
+                indices += luisa::format(", static_cast<unsigned long long>({})", _value(coordinate));
+            }
+        }
+        auto expression = luisa::format("ct::extract({}, {}{{}}{})", source_expression, _shape(extents), indices);
+        if (_map_space != nullptr) {
+            luisa::vector<uint32_t> order;
+            luisa::vector<uint64_t> mapped_extents;
+            for (auto index : source_axes) {
+                mapped_extents.emplace_back(index < 0 ? 1u : extents[static_cast<size_t>(index)]);
+                if (index >= 0) { order.emplace_back(static_cast<uint32_t>(index)); }
+            }
+            for (auto i = 0u; i < source.rank(); i++) {
+                if (std::find(order.begin(), order.end(), i) == order.end()) { order.emplace_back(i); }
+            }
+            expression = _permute(std::move(expression), order);
+            expression = luisa::format("ct::broadcast(ct::reshape({}, {}{{}}), {}{{}})",
+                                       expression, _shape(mapped_extents), _shape(*_map_space));
+            _mapped_values.emplace(op.result(0u));
+        } else {
+            expression = luisa::format("static_cast<{}>(ct::reshape({}, ct::shape<>{{}}))", _element(op.result(0u)->type()), expression);
+        }
+        _bind(op.result(0u), std::move(expression));
+    }
+    void _tile_map(const Operation &op) noexcept {
+        if (_map_space != nullptr) {
+            _fail(&op, "nested Tile maps require explicit coordinate composition");
+            return;
+        }
+        auto &&space = *op.domain();
+        auto body = op.region(0u)->block(0u);
+        _map_space = &space;
+        _map_body = body;
+        if (space.rank() != 0u) {
+            auto lane = luisa::format("map{}_lane", op.id());
+            _line(luisa::format("auto {} = ct::iota<ct::tile<long long, {}>>();", lane, _shape(space)));
+            auto trailing = *space.static_volume();
+            for (auto i = 0u; i < space.rank(); i++) {
+                auto extent = space.axis(i).extent.constant_value();
+                trailing /= extent;
+                _bind(body->argument(i), luisa::format("({} / {}ll) % {}ll", lane, trailing, extent));
+                _mapped_values.emplace(body->argument(i));
+            }
+        }
+        _bind(op.result(0u), luisa::format("ct::full<ct::tile<{}, {}>>(0)", _element(op.result(0u)->type()), _shape(space)));
+        luisa::string result[]{_value(op.result(0u))};
+        _block(*body, result);
+        _map_space = nullptr;
+        _map_body = nullptr;
+    }
+    [[nodiscard]] static bool _tree_scalar(const Type &type) noexcept {
+        if (type.kind() != TypeKind::SCALAR) { return false; }
+        auto element = type.scalar_type();
+        return element == ScalarType::FLOAT32 || element == ScalarType::INT32 || element == ScalarType::UINT32 ||
+               element == ScalarType::INT64 || element == ScalarType::UINT64;
+    }
+    [[nodiscard]] static bool _tree_identity(const Value *value, ElementwiseOp opcode) noexcept {
+        if (!_tree_scalar(value->type())) { return false; }
+        auto operation = value->defining_operation();
+        auto attribute = operation != nullptr && operation->kind() == OperationKind::CONSTANT ? operation->attribute("value") : nullptr;
+        if (attribute == nullptr) { return false; }
+        auto element = value->type().scalar_type();
+        if (element == ScalarType::FLOAT32) {
+            auto number = luisa::get_if<double>(&attribute->value());
+            if (number == nullptr) { return false; }
+            if (opcode == ElementwiseOp::ADD) { return *number == 0.0 && !std::signbit(*number); }
+            return (opcode == ElementwiseOp::MIN || opcode == ElementwiseOp::MAX) &&
+                   std::isinf(*number) && std::signbit(*number) == (opcode == ElementwiseOp::MAX);
+        }
+        if (element == ScalarType::INT32 || element == ScalarType::INT64) {
+            auto number = luisa::get_if<int64_t>(&attribute->value());
+            if (number == nullptr) { return false; }
+            if (opcode == ElementwiseOp::ADD) { return *number == 0; }
+            if (opcode == ElementwiseOp::MIN) {
+                return *number == (element == ScalarType::INT32 ? std::numeric_limits<int32_t>::max() : std::numeric_limits<int64_t>::max());
+            }
+            return opcode == ElementwiseOp::MAX &&
+                   *number == (element == ScalarType::INT32 ? std::numeric_limits<int32_t>::lowest() : std::numeric_limits<int64_t>::lowest());
+        }
+        auto number = luisa::get_if<uint64_t>(&attribute->value());
+        if (number == nullptr) { return false; }
+        if (opcode == ElementwiseOp::ADD || opcode == ElementwiseOp::MAX) { return *number == 0u; }
+        return opcode == ElementwiseOp::MIN &&
+               *number == (element == ScalarType::UINT32 ? std::numeric_limits<uint32_t>::max() : std::numeric_limits<uint64_t>::max());
+    }
+    // A prefix scan is a closed sum whose contribution at k is selected by
+    // k <= output_coordinate. Tree permission is required; fold policies keep
+    // their scalar sequence even when their current inputs happen to agree.
+    [[nodiscard]] bool _scan_tree(const Operation &op) noexcept {
+        if (_map_space == nullptr || op.reduction_policy() != ReductionPolicy::UNORDERED_TREE ||
+            op.domain()->rank() != 1u || op.operand_count() != 1u ||
+            !_tree_scalar(op.result(0u)->type()) || !_tree_identity(op.operand(0u), ElementwiseOp::ADD)) { return false; }
+        auto body = op.region(0u)->block(0u);
+        if (body->operations().empty() || body->operations().back()->kind() != OperationKind::YIELD) { return false; }
+        auto yield = body->operations().back();
+        auto merge = yield->operand_count() == 1u ? yield->operand(0u)->defining_operation() : nullptr;
+        if (merge == nullptr || merge->kind() != OperationKind::ELEMENTWISE || merge->elementwise_op() != ElementwiseOp::ADD) { return false; }
+        auto carry = body->argument(1u);
+        auto term = merge->operand(0u) == carry ? merge->operand(1u) : merge->operand(1u) == carry ? merge->operand(0u) : nullptr;
+        auto select = term != nullptr ? term->defining_operation() : nullptr;
+        if (select == nullptr || select->kind() != OperationKind::ELEMENTWISE || select->elementwise_op() != ElementwiseOp::SELECT ||
+            !_tree_identity(select->operand(2u), ElementwiseOp::ADD)) { return false; }
+        auto predicate = select->operand(0u)->defining_operation();
+        auto extract = select->operand(1u)->defining_operation();
+        if (predicate == nullptr || predicate->kind() != OperationKind::ELEMENTWISE || predicate->elementwise_op() != ElementwiseOp::LE ||
+            predicate->operand(0u) != body->argument(0u) || extract == nullptr || extract->kind() != OperationKind::TILE_EXTRACT) { return false; }
+        auto &&source = *extract->operand(0u)->type().index_space();
+        if (source.rank() != _map_space->rank()) { return false; }
+        luisa::optional<uint32_t> scan_axis;
+        for (auto i = 0u; i < source.rank(); i++) {
+            auto mapped = _map_space->axis_index(source.axis(i).dimension);
+            if (!mapped || source.axis(i).extent != _map_space->axis(*mapped).extent) { return false; }
+            auto coordinate = extract->operand(i + 1u);
+            if (coordinate == body->argument(0u)) {
+                if (scan_axis || source.axis(i).extent != op.domain()->axis(0u).extent ||
+                    predicate->operand(1u) != _map_body->argument(*mapped)) { return false; }
+                scan_axis = i;
+            } else if (coordinate != _map_body->argument(*mapped)) { return false; }
+        }
+        if (!scan_axis) { return false; }
+        auto padding = select->operand(2u)->defining_operation();
+        for (auto operation : body->operations()) {
+            if (operation != yield && operation != merge && operation != select && operation != predicate && operation != extract && operation != padding) { return false; }
+            if (operation->execution_scope_constraint() || operation->resource_class_constraint() || operation->memory_layout()) { return false; }
+        }
+        auto element = op.result(0u)->type().scalar_type();
+        auto signed_integer = element == ScalarType::INT32 || element == ScalarType::INT64;
+        auto expression = _value(extract->operand(0u));
+        if (signed_integer) {
+            expression = luisa::format("ct::element_bitcast<{}>({})", element == ScalarType::INT32 ? "unsigned" : "unsigned long long", expression);
+        }
+        expression = element == ScalarType::FLOAT32 ?
+            luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}}, ct::scan_forward_t{{}})", expression, *scan_axis) :
+            luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::scan_forward_t{{}})", expression, *scan_axis);
+        if (signed_integer) { expression = luisa::format("ct::element_bitcast<{}>({})", _element(op.result(0u)->type()), expression); }
+        expression = _align(std::move(expression), source, *_map_space, op);
+        // Float +0 has a signed-zero effect; the matched integer zero is exact.
+        if (element == ScalarType::FLOAT32) {
+            expression = luisa::format("ct::add({}, {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", _value(op.operand(0u)), expression);
+        }
+        _bind(op.result(0u), expression);
+        _mapped_values.emplace(op.result(0u));
+        return true;
+    }
+    // Prove a closed one-state reducer over an already materialized Tile.
+    // Only an unordered tree with its declared identity uses a native tree;
+    // every other region retains the ordered scalar contribution sequence.
+    [[nodiscard]] bool _reduction_tree(const Operation &op) noexcept {
+        if (_map_space == nullptr || op.reduction_policy() != ReductionPolicy::UNORDERED_TREE ||
+            op.operand_count() != 1u || !_tree_scalar(op.result(0u)->type())) { return false; }
+        auto body = op.region(0u)->block(0u);
+        luisa::vector<const Operation *> operations;
+        for (auto operation : body->operations()) { operations.emplace_back(operation); }
+        if (operations.size() != 3u || operations[0u]->kind() != OperationKind::TILE_EXTRACT ||
+            operations[1u]->kind() != OperationKind::ELEMENTWISE || operations[2u]->kind() != OperationKind::YIELD) { return false; }
+        auto extract = operations[0u], merge = operations[1u], yield = operations[2u];
+        for (auto operation : operations) {
+            if (operation->execution_scope_constraint() || operation->resource_class_constraint() || operation->memory_layout()) { return false; }
+        }
+        auto carry = body->argument(op.domain()->rank());
+        if (merge->operand_count() != 2u || yield->operand_count() != 1u || yield->operand(0u) != merge->result(0u) ||
+            !((merge->operand(0u) == carry && merge->operand(1u) == extract->result(0u)) ||
+              (merge->operand(1u) == carry && merge->operand(0u) == extract->result(0u)))) { return false; }
+        auto opcode = merge->elementwise_op();
+        if (!_tree_identity(op.operand(0u), opcode)) { return false; }
+        auto &&source = *extract->operand(0u)->type().index_space();
+        luisa::vector<uint32_t> axes;
+        IndexSpace remaining;
+        for (auto i = 0u; i < source.rank(); i++) {
+            auto index = extract->operand(i + 1u);
+            auto reduced = op.domain()->axis_index(source.axis(i).dimension);
+            if (reduced) {
+                if (index != body->argument(*reduced) || source.axis(i).extent != op.domain()->axis(*reduced).extent) { return false; }
+                axes.emplace_back(i);
+            } else {
+                auto mapped = _map_space->axis_index(source.axis(i).dimension);
+                if (!mapped || index != _map_body->argument(*mapped) || source.axis(i).extent != _map_space->axis(*mapped).extent) { return false; }
+                static_cast<void>(remaining.add(source.axis(i).dimension, source.axis(i).extent));
+            }
+        }
+        if (axes.size() != op.domain()->rank()) { return false; }
+        auto element = op.result(0u)->type().scalar_type();
+        auto signed_sum = opcode == ElementwiseOp::ADD && (element == ScalarType::INT32 || element == ScalarType::INT64);
+        auto expression = _value(extract->operand(0u));
+        if (signed_sum) {
+            expression = luisa::format("ct::element_bitcast<{}>({})", element == ScalarType::INT32 ? "unsigned" : "unsigned long long", expression);
+        }
+        for (auto axis : axes) {
+            if (element == ScalarType::FLOAT32) {
+                expression = opcode == ElementwiseOp::ADD ?
+                    luisa::format("ct::sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", expression, axis) :
+                    luisa::format("ct::reduce_{}({}, ct::integral_constant<{}>{{}}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", opcode == ElementwiseOp::MIN ? "min" : "max", expression, axis);
+            } else {
+                auto name = opcode == ElementwiseOp::ADD ? "sum" : opcode == ElementwiseOp::MIN ? "reduce_min" : "reduce_max";
+                expression = luisa::format("ct::{}({}, ct::integral_constant<{}>{{}})", name, expression, axis);
+            }
+        }
+        if (signed_sum) { expression = luisa::format("ct::element_bitcast<{}>({})", _element(op.result(0u)->type()), expression); }
+        expression = luisa::format("ct::reshape({}, {}{{}})", expression, _shape(remaining));
+        expression = _align(std::move(expression), remaining, *_map_space, op);
+        if (element == ScalarType::FLOAT32) {
+            auto name = opcode == ElementwiseOp::ADD ? "add" : opcode == ElementwiseOp::MIN ? "min" : "max";
+            auto policy = opcode == ElementwiseOp::ADD ? "ct::round_ties_to_even_t{}" : "ct::suppress_nan_t{}";
+            expression = luisa::format("ct::{}({}, {}, {}, ct::preserve_subnormals_t{{}})", name, _value(op.operand(0u)), expression, policy);
+        }
+        _bind(op.result(0u), expression);
+        _mapped_values.emplace(op.result(0u));
+        return true;
     }
     void _structured(const Operation &op) noexcept {
         auto parallel = op.kind() == OperationKind::PARALLEL;
@@ -322,7 +758,12 @@ private:
             return;
         }
         auto body = op.region(0u)->block(0u);
+        if (op.kind() == OperationKind::REDUCE && (_scan_tree(op) || _reduction_tree(op))) { return; }
         if (parallel) {
+            if (domain.rank() > 3u) {
+                _fail(&op, "native CUDA launch grids support only rank 1..3");
+                return;
+            }
             if (_inside_parallel || ++_parallel_count != 1u || op.parent_block() != _function.body().block(0u)) {
                 _fail(&op, "exactly one root PARALLEL is supported; nested/multiple grids need separate launches");
                 return;
@@ -342,20 +783,28 @@ private:
             _inside_parallel = false;
             return;
         }
-        if (!_inside_parallel) {
+        if (!_inside_parallel && _map_space == nullptr) {
             _fail(&op, "ordered loops outside the root PARALLEL are unsupported");
             return;
         }
         luisa::vector<luisa::string> carries;
         for (auto i = 0u; i < op.result_count(); i++) {
-            _bind(op.result(i), _value(op.operand(i)));
+            _bind(op.result(i), _map_broadcast(_value(op.operand(i))));
             carries.emplace_back(_value(op.result(i)));
             _values.emplace(body->argument(domain.rank() + i), carries.back());
+            if (_map_space != nullptr) {
+                _mapped_values.emplace(op.result(i));
+                _mapped_values.emplace(body->argument(domain.rank() + i));
+            }
         }
         for (auto i = 0u; i < domain.rank(); i++) {
             auto name = _name(body->argument(i));
             _values.emplace(body->argument(i), name);
-            _line(luisa::format("for (long long {} = 0ll; {} < {}ll; ++{}) {{", name, name, domain.axis(i).extent.constant_value(), name));
+            if (op.kind() == OperationKind::REDUCE && op.reduction_policy() == ReductionPolicy::FOLD_RIGHT) {
+                _line(luisa::format("for (long long {} = {}ll; {}-- > 0ll;) {{", name, domain.axis(i).extent.constant_value(), name));
+            } else {
+                _line(luisa::format("for (long long {} = 0ll; {} < {}ll; ++{}) {{", name, name, domain.axis(i).extent.constant_value(), name));
+            }
             _indent++;
         }
         _block(*body, carries);
@@ -375,18 +824,22 @@ private:
                 if (!_type(op->result(i)->type(), op)) { return; }
             }
             if (!_inside_parallel && op->kind() != OperationKind::PARALLEL && op->kind() != OperationKind::CONSTANT &&
-                op->kind() != OperationKind::ELEMENTWISE && op->kind() != OperationKind::YIELD) {
+                op->kind() != OperationKind::ELEMENTWISE && op->kind() != OperationKind::TILE_MAP &&
+                op->kind() != OperationKind::YIELD && _map_space == nullptr) {
                 _fail(op, "effects outside the root PARALLEL cannot be replicated per grid program");
                 return;
             }
             switch (op->kind()) {
                 case OperationKind::CONSTANT: _constant(*op); break;
                 case OperationKind::ELEMENTWISE: _elementwise(*op); break;
+                case OperationKind::TILE_MAP: _tile_map(*op); break;
+                case OperationKind::TILE_EXTRACT: _tile_extract(*op); break;
                 case OperationKind::VIEW_LOAD:
                 case OperationKind::VIEW_STORE: _view(*op); break;
                 case OperationKind::MMA: _mma(*op); break;
                 case OperationKind::PARALLEL:
                 case OperationKind::SERIAL:
+                case OperationKind::REDUCE:
                 case OperationKind::PIPELINE: _structured(*op); break;
                 case OperationKind::STAGE: _line("// Stage boundary; ordered execution is a valid non-overlapped schedule."); break;
                 case OperationKind::YIELD:
@@ -395,7 +848,7 @@ private:
                         return;
                     }
                     for (auto i = 0u; i < carries.size(); i++) {
-                        _line(luisa::format("auto yield{}_{} = {};", op->id(), i, _value(op->operand(i))));
+                        _line(luisa::format("auto yield{}_{} = {};", op->id(), i, _map_broadcast(_value(op->operand(i)))));
                     }
                     for (auto i = 0u; i < carries.size(); i++) {
                         _line(luisa::format("{} = yield{}_{};", carries[i], op->id(), i));
@@ -429,8 +882,12 @@ public:
         for (auto i = 0u; i < body->argument_count() && _artifact.error.empty(); i++) {
             auto arg = body->argument(i);
             auto &&type = arg->type();
-            if (!type.is_view() || type.scalar_type() != ScalarType::FLOAT32 || !_space(*type.index_space(), false, nullptr)) {
-                _fail(nullptr, "kernel parameters must be statically sized contiguous FP32 buffer views");
+            auto element = type.scalar_type();
+            auto supported_element = element == ScalarType::BOOL || element == ScalarType::INT32 || element == ScalarType::UINT32 ||
+                                     element == ScalarType::INT64 || element == ScalarType::UINT64 || element == ScalarType::FLOAT32 ||
+                                     element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16;
+            if (!type.is_view() || !supported_element || !_space(*type.index_space(), false, nullptr)) {
+                _fail(nullptr, "kernel parameters must be statically sized contiguous bool/integer/FP32/FP16/BF16 buffer views");
                 break;
             }
             auto volume = *type.index_space()->static_volume();
