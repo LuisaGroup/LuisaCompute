@@ -324,8 +324,8 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 20 shares opposite differences through fast-math norm consumers.
-static constexpr uint64_t cuda_llvm_cache_revision = 20u;
+// Revision 21 shares equivalent zero-capture hardware ray-query callbacks.
+static constexpr uint64_t cuda_llvm_cache_revision = 21u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -889,7 +889,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v20{}", expected_metadata.checksum, extension) :
+                   luisa::format("kernel_{:016x}.llvm-v21{}", expected_metadata.checksum, extension) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&

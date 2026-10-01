@@ -916,6 +916,66 @@ struct Options {
     return correct;
 }
 
+[[nodiscard]] bool run_zero_capture_filter_queries(Device &device, Stream &stream, const Mesh &mesh) {
+    constexpr auto ray_count = 17u;
+    Kernel1D kernel = [](AccelVar scene, BufferUInt4 hits, BufferFloat4 distances) noexcept {
+        auto lane = dispatch_id().x;
+        Float x = lane.cast<float>() * (1.0f / 32.0f) - 0.25f;
+        auto ray = make_ray(make_float3(x, 0.0f, 1.0f),
+                            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 4.0f);
+        for (auto query = 0u; query < 4u; query++) {
+            // The host loop records two equivalent callbacks followed by two
+            // callbacks with a different literal. Nothing is captured in XIR.
+            auto wanted_instance = query < 2u ? 0u : 1u;
+            auto filter = [wanted_instance](auto &candidate) noexcept {
+                auto h = candidate.hit();
+                $if (h.inst == wanted_instance) { candidate.commit(); };
+            };
+            auto hit = (query & 1u) != 0u ? scene.traverse_any(ray, {}).on_surface_candidate(filter).trace() :
+                                          scene.traverse(ray, {}).on_surface_candidate(filter).trace();
+            auto index = lane * 4u + query;
+            hits.write(index, make_uint4(hit->hit_type, hit->inst, hit->prim, query));
+            distances.write(index, make_float4(hit->bary, hit->committed_ray_t, x));
+        }
+    };
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false});
+    auto scene = device.create_accel();
+    scene.emplace_back(mesh, translation(make_float3(0.0f, 0.0f, 0.25f)), 0xffu, false);
+    scene.emplace_back(mesh, make_float4x4(1.0f), 0xffu, false);
+    auto hits = device.create_buffer<uint4>(ray_count * 4u);
+    auto distances = device.create_buffer<float4>(ray_count * 4u);
+    luisa::vector<uint4> host_hits(hits.size());
+    luisa::vector<float4> host_distances(distances.size());
+    stream << scene.build()
+           << shader(scene, hits, distances).dispatch(ray_count)
+           << hits.copy_to(luisa::span{host_hits})
+           << distances.copy_to(luisa::span{host_distances})
+           << synchronize();
+    auto correct = true;
+    for (auto lane = 0u; lane < ray_count; lane++) {
+        for (auto query = 0u; query < 4u; query++) {
+            auto index = lane * 4u + query;
+            auto h = host_hits[index];
+            auto d = host_distances[index];
+            auto wanted_instance = query < 2u ? 0u : 1u;
+            auto expected_x = static_cast<float>(lane) / 32.0f - 0.25f;
+            auto valid = h.x == static_cast<uint>(HitType::Surface) && h.y == wanted_instance &&
+                         h.z == 0u && h.w == query &&
+                         std::abs(d.x - (0.25f + expected_x * 0.25f)) <= 1e-5f &&
+                         std::abs(d.y - 0.5f) <= 1e-5f &&
+                         std::abs(d.z - (wanted_instance == 0u ? 0.75f : 1.0f)) <= 1e-5f &&
+                         d.w == expected_x;
+            if (!valid) {
+                LUISA_WARNING("Zero-capture filter mismatch: lane={}, query={}, hit=({}, {}, {}), bary/t=({}, {}, {}).",
+                              lane, query, h.x, h.y, h.z, d.x, d.y, d.z);
+                correct = false;
+            }
+        }
+    }
+    expect(correct) << "shared zero-capture callbacks preserve closest/any queries and distinct filter constants";
+    return correct;
+}
+
 [[nodiscard]] bool run_surface_filter_queries(Device &device, Stream &stream, const Mesh &mesh) {
     constexpr auto ray_count = 68u;
     Kernel1D kernel = [](AccelVar scene, UInt opaque_mask, BufferUInt4 hits,
@@ -1022,7 +1082,8 @@ struct Options {
         expect(correct) << "surface filtering preserves closest/any hits, opaque traversal and captured writes";
         if (!correct) { return false; }
     }
-    return run_surface_filter_termination(device, stream, mesh);
+    return run_surface_filter_termination(device, stream, mesh) &&
+           run_zero_capture_filter_queries(device, stream, mesh);
 }
 
 [[nodiscard]] bool run(Device &device, const Options &options) {

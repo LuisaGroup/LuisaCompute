@@ -4,6 +4,7 @@
 
 #include "../optix_api.h"
 #include "cuda_codegen_llvm_impl.h"
+#include "cuda_ray_query_callback_sharing.h"
 
 namespace luisa::compute::cuda {
 
@@ -682,13 +683,26 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
         if (hardware_result_count != 0u) {
             auto general = llvm::BasicBlock::Create(_llvm_context, "general.query", function);
             auto select_filter = b.CreateSwitch(id, general, hardware_result_count);
+            RayQueryCallbackSharing shared_filters{function};
             for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
                 auto &&pipeline = _ray_query_pipelines[i];
                 if (!pipeline.hardware_result) { continue; }
-                auto filter = llvm::BasicBlock::Create(_llvm_context, "surface.filter." + std::to_string(i), function);
-                select_filter->addCase(b.getInt32(i), filter);
-                b.SetInsertPoint(filter);
-                if (procedural && ray_query_handler_is_empty(pipeline.inst->on_procedural_function())) {
+                auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
+                auto callee = callback == nullptr ? nullptr : _get_or_declare_llvm_function(callback);
+                // With no captures the complete dispatch body uses only fresh
+                // query state and this launch's implicit OptiX state. Keep the
+                // procedural empty-handler shortcut outside the sharing table.
+                auto empty_procedural = procedural && ray_query_handler_is_empty(callback);
+                auto shareable_body = pipeline.hardware_result && !empty_procedural &&
+                                      pipeline.captures.empty() &&
+                                      pipeline.context_type->getNumElements() == context_capture_offset;
+                auto target = shared_filters.get_or_create(callee, shareable_body,
+                                                            pipeline.inst->captured_argument_count(),
+                                                            "surface.filter." + std::to_string(i));
+                select_filter->addCase(b.getInt32(i), target.block);
+                if (!target.created) { continue; }
+                b.SetInsertPoint(target.block);
+                if (empty_procedural) {
                     b.CreateBr(exit);
                     continue;
                 }
@@ -701,7 +715,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                 _store_ray_query_field(b, local_query, llvm_ray_query_type_ray_index, _call_optix_get_world_space_ray(b));
                 auto query_arg = local_query->getAddressSpace() == 0u ? static_cast<llvm::Value *>(local_query) :
                                                                         b.CreateAddrSpaceCast(local_query, b.getPtrTy());
-                auto callback = procedural ? pipeline.inst->on_procedural_function() : pipeline.inst->on_surface_function();
                 emit_callback(pipeline, callback, query_arg);
                 auto accepted = _load_ray_query_field(b, local_query, llvm_ray_query_type_committed_index);
                 if (procedural) {
@@ -725,6 +738,10 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
                     _call_optix_ignore_intersection(b);
                     b.CreateRetVoid();
                 }
+            }
+            if (shared_filters.shared_count() != 0u) {
+                LUISA_VERBOSE("CUDA LLVM ray query: shared {} zero-capture {} callback dispatch targets.",
+                              shared_filters.shared_count(), procedural ? "procedural" : "surface");
             }
             b.SetInsertPoint(general);
             if (hardware_result_count == _ray_query_pipelines.size()) {
