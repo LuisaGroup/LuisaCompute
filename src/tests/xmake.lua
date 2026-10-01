@@ -304,8 +304,11 @@ test_proj("benchmark_tile_xir_gpu", "benchmark/benchmark_tile_xir_gpu.cpp", fals
 end)
 test_proj("benchmark_tile_workloads", "benchmark/benchmark_tile_workloads.cpp", false, function()
     add_deps("lc-tile")
-    -- CUDA event timing is available in the CMake CUDA build. Other builds
-    -- retain explicitly labeled synchronized host-wall measurements.
+    -- CUDA timing needs the CMake driver-linked build; otherwise CUDA
+    -- measurement reports unsupported. SIMD retains host-wall timing.
+end)
+test_proj("test_tile_primitives", "unit/tile/test_tile_primitives.cpp", false, function()
+    add_deps("lc-tile")
 end)
 for _, standard in ipairs({20, 23}) do
     test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()

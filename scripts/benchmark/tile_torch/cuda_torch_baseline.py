@@ -10,6 +10,7 @@ GPU execution is explicit; this script never builds or changes system settings.
 from __future__ import annotations
 
 import argparse
+import ast
 from datetime import datetime
 import hashlib
 import importlib.metadata
@@ -25,8 +26,8 @@ import traceback
 
 
 OPERATIONS = {"gemm", "gemv", "bmm", "softmax", "masked_softmax", "rmsnorm",
-              "layernorm", "rope", "swiglu", "gelu_residual", "attention",
-              "scan", "reduce_sum", "reduce_max", "argmax", "sort", "topk"}
+              "layernorm", "rope", "swiglu", "gelu_residual", "attention", "attention_tensorcore",
+              "scan", "scan_ordered", "reduce_sum", "reduce_max", "argmax", "sort", "topk"}
 PRECISIONS = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
 
 
@@ -55,7 +56,7 @@ def expected_shapes(op, dims):
     if op == "bmm":
         b, m, n, k = dims
         return [(b, m, k), (b, k, n), (1,)], (b, m, n)
-    if op == "attention":
+    if op in {"attention", "attention_tensorcore"}:
         b, h, kh, q, k, d, dv = dims
         return [(b, h, q, d), (b, kh, k, d), (b, kh, k, dv)], (b, h, q, dv)
     if op in {"sort", "topk"}:
@@ -74,11 +75,11 @@ def check_semantics(manifest):
     if op in {"softmax", "masked_softmax"}:
         constraints["softmax_axis"] = -1
         constraints["mask"] = "column<=row%width" if op == "masked_softmax" else "none"
-    if op == "scan":
+    if op in {"scan", "scan_ordered"}:
         constraints["scan"] = "inclusive_sum"
     if op in {"sort", "topk"}:
         constraints.update(descending=True, stable=True, tie_break="original_index_ascending")
-    if op == "attention":
+    if op in {"attention", "attention_tensorcore"}:
         constraints.update(causal=True, query_positions="last_Q_in_K")
         require(math.isfinite(semantics.get("attention_scale", float("nan"))) and semantics["attention_scale"] > 0,
                 "missing/invalid attention scale")
@@ -106,14 +107,23 @@ def load_packet(path):
             all(type(x) is int and 0 < x <= 65536 for x in dimensions), "invalid operation dimensions")
     dims = tuple(dimensions)
     op = manifest["operation"]
-    require(len(dims) == (7 if op == "attention" else 4 if op == "bmm" else
+    require(len(dims) == (7 if op in {"attention", "attention_tensorcore"} else 4 if op == "bmm" else
                          3 if op in {"gemm", "gemv", "sort", "topk"} else 2), "operation dimension arity mismatch")
     if op == "rope":
         require(dims[1] % 2 == 0, "RoPE requires an even width")
-    if op == "attention":
+    if op in {"attention", "attention_tensorcore"}:
         require(dims[1] % dims[2] == 0 and dims[4] >= dims[3], "invalid attention GQA or causal dimensions")
     if op in {"sort", "topk"}:
         require(dims[2] <= dims[1] and (op != "sort" or dims[2] == dims[1]), "invalid ranking K")
+    if op == "attention_tensorcore":
+        require(manifest["precision"] in {"fp16", "bf16"}, "attention_tensorcore requires FP16/BF16")
+        contract = manifest.get("precision_contract", {})
+        require(contract.get("name") == "attention_single_narrow_probability_v1" and
+                contract.get("stage") == "unnormalized_probability_before_pv_per_kv_block" and
+                contract.get("rounding") == "rne", "missing/unsupported precision contract")
+        require(contract.get("u_T") == (2**-11 if manifest["precision"] == "fp16" else 2**-8) and
+                contract.get("eta_T") == (2**-24 if manifest["precision"] == "fp16" else 2**-133) and
+                contract.get("u32") == 2**-24, "incorrect precision contract constants")
     receipts = {str(path): digest(path)}
 
     def read(entry, dtype, expected_dtype, key="path", tensor_shape=None):
@@ -130,23 +140,42 @@ def load_packet(path):
     entries = manifest["inputs"]
     require(isinstance(entries, list) and entries, "missing input tensors")
     require([entry["name"] for entry in entries] == [f"input{i}" for i in range(len(entries))], "input order/name mismatch")
-    arrays = [read(entry, "<f4", "float32") for entry in entries]
+    storage_dtype = PRECISIONS[manifest["precision"]]
+    def read_input(entry):
+        if storage_dtype == "bfloat16":
+            bits = read(entry, "<u2", storage_dtype)
+            value = (bits.astype("<u4") << 16).view("<f4")
+        else:
+            value = read(entry, "<f2" if storage_dtype == "float16" else "<f4", storage_dtype).astype("<f4")
+        require(np.isfinite(value).all(), "nonfinite decoded input storage")
+        return value
+    arrays = [read_input(entry) for entry in entries]
     output_shape = shape(manifest["output"]["shape"])
     input_shapes, required_output_shape = expected_shapes(op, dims)
     require([array.shape for array in arrays] == input_shapes and output_shape == required_output_shape,
             "exported tensor shapes differ from the operation contract")
-    require(manifest["output"].get("storage_dtype") == "float32", "output export must use float32 storage")
+    require(manifest["output"].get("storage_dtype") == storage_dtype, "output storage must match declared precision")
     expected_entry = manifest.get("expected", {"path": "expected.f64", "bound_path": "per_element_bound.f64", "storage_dtype": "float64"})
     expected = read(expected_entry, "<f8", "float64", tensor_shape=output_shape)
     bounds = read(expected_entry, "<f8", "float64", key="bound_path", tensor_shape=output_shape)
     require((bounds >= 0).all(), "negative oracle bound")
+    strict_bounds = probability_bounds = None
+    if op == "attention_tensorcore":
+        require("strict_bound_path" in expected_entry and "probability_rounding_bound_path" in expected_entry,
+                "missing strict/probability oracle bounds")
+        strict_bounds = read(expected_entry, "<f8", "float64", key="strict_bound_path", tensor_shape=output_shape)
+        probability_bounds = read(expected_entry, "<f8", "float64", key="probability_rounding_bound_path", tensor_shape=output_shape)
+        require((strict_bounds >= 0).all() and (probability_bounds >= 0).all(), "negative secondary oracle bound")
+        composed = strict_bounds + (1 + contract["u_T"]) * probability_bounds
+        require(np.allclose(bounds, composed, rtol=4*np.finfo(np.float64).eps, atol=0), "primary bound composition mismatch")
     indices = None
     if op in {"sort", "topk", "argmax"}:
         require("indices" in manifest, "missing index oracle")
         indices = read(manifest["indices"], "<i8", "int64", key="expected_path")
         require(indices.shape == expected.shape, "value/index oracle shape mismatch")
     return dict(path=path, manifest=manifest, inputs=arrays, expected=expected,
-                bounds=bounds, indices=indices, receipts=receipts)
+                bounds=bounds, strict_bounds=strict_bounds, probability_bounds=probability_bounds,
+                indices=indices, receipts=receipts)
 
 
 def verify_packet(packet):
@@ -164,6 +193,12 @@ def validate_output(packet, values, indices=None, *, ranking_contract="standard"
                   max_abs_error=float(difference.max(initial=0)),
                   max_allowed_bound=float(bounds.max(initial=0)),
                   oracle="complete exported FP64 reference and per-element bound; no tolerance override")
+    strict_bounds = packet.get("strict_bounds")
+    if strict_bounds is not None:
+        ratios = np.divide(difference, strict_bounds, out=np.zeros_like(difference), where=strict_bounds > 0)
+        result["strict_correctness"] = dict(primary_acceptance=False,
+            failed_elements=int((difference > strict_bounds).sum()), max_error_over_bound=float(ratios.max(initial=0)),
+            zero_bound_mismatches=int(((strict_bounds == 0) & (difference != 0)).sum()))
     if failures.any():
         flat = int(np.flatnonzero(failures)[0])
         raise ValueError(f"oracle mismatch: {result}; first index={flat}, "
@@ -200,7 +235,7 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
     scale = None
     if op == "masked_softmax":
         mask = torch.arange(dims[1], device="cuda")[None, :] <= torch.arange(dims[0], device="cuda")[:, None] % dims[1]
-    elif op == "attention":
+    elif op in {"attention", "attention_tensorcore"}:
         import numpy as np
         b, h, kh, q, k, d, dv = dims
         mask = torch.arange(k, device="cuda")[None, :] <= torch.arange(q, device="cuda")[:, None] + k - q
@@ -209,6 +244,7 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
     descriptions = {"topk": "stable descending sort then prefix" if stable else "torch.topk, descending sorted values, tie permutations allowed",
                     "sort": f"torch.sort, descending, stable={stable}",
                     "attention": "functional SDPA, explicit bottom-right causal mask, GQA",
+                    "attention_tensorcore": "default functional SDPA, explicit bottom-right causal mask/GQA; evaluated against both strict and declared single-probability-narrowing contracts",
                     "gemm": "functional mm", "gemv": "functional mm with N=1", "bmm": "functional bmm"}
 
     def cast(value):
@@ -235,9 +271,9 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
             return cast(torch.nn.functional.silu(x.float()) * u.float())
         elif op == "gelu_residual":
             return cast(torch.nn.functional.gelu(x.float(), approximate="tanh") + u.float())
-        elif op == "attention":
+        elif op in {"attention", "attention_tensorcore"}:
             return torch.nn.functional.scaled_dot_product_attention(x, u, v, attn_mask=mask, scale=scale, enable_gqa=dims[1] != dims[2])
-        elif op == "scan":
+        elif op in {"scan", "scan_ordered"}:
             return cast(torch.cumsum(x, dim=-1, dtype=torch.float32))
         elif op == "reduce_sum":
             return cast(torch.sum(x, dim=-1, keepdim=True, dtype=torch.float32))
@@ -303,7 +339,7 @@ def time_stream(torch, invoke, samples, sample_ms, warmup_ms):
                 scope="Python/framework dispatch, functional allocations, operator execution and final synchronization")
 
 
-def time_graph(torch, invoke, batch, samples):
+def time_graph(torch, invoke, batch, samples, warmup_ms):
     graph = torch.cuda.CUDAGraph()
     side = torch.cuda.Stream()
     side.wait_stream(torch.cuda.current_stream())
@@ -320,6 +356,13 @@ def time_graph(torch, invoke, batch, samples):
     capture_ms = (time.perf_counter_ns() - start) / 1e6
     graph.replay()
     torch.cuda.synchronize()
+    warmup_start = time.perf_counter_ns()
+    warmup_replays = 0
+    while (time.perf_counter_ns() - warmup_start) / 1e6 < warmup_ms:
+        graph.replay()
+        torch.cuda.synchronize()
+        warmup_replays += 1
+    warmup_actual_ms = (time.perf_counter_ns() - warmup_start) / 1e6
     begin, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     event, wall = [], []
     for _ in range(samples):
@@ -331,12 +374,28 @@ def time_graph(torch, invoke, batch, samples):
         end.synchronize()
         wall.append((time.perf_counter_ns() - start) / 1000 / batch)
         event.append(begin.elapsed_time(end) * 1000 / batch)
-    return dict(batch=batch, capture_ms=capture_ms, event_us_per_operation=stats(event),
+    return dict(batch=batch, capture_ms=capture_ms, warmup_target_ms=warmup_ms,
+                warmup_actual_ms=warmup_actual_ms, warmup_replays=warmup_replays,
+                warmup_scope="Synchronized graph replays after capture and the first replay; excluded from capture cost and timing samples",
+                event_us_per_operation=stats(event),
                 host_wall_us_per_operation=stats(wall),
                 scope="Two CUDA events around one graph replay containing N sequential calls on one capture stream; only final output retained; event span divided by N",
                 allocation_policy="Normal functional returns, capture-aware memory pool reuse, no forced copy or N-output retention",
                 capture_stream=int(side.cuda_stream),
                 internal_inductor_cudagraphs=False)
+
+
+def generated_calls(source):
+    """Extract real call names; comments/graph-fragment strings are not calls."""
+    def qualified(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            prefix = qualified(node.value)
+            return f"{prefix}.{node.attr}" if prefix else None
+        return None
+    return {name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)
+            if (name := qualified(node.func)) is not None}
 
 
 def compiler_evidence(torch, directory):
@@ -353,9 +412,10 @@ def compiler_evidence(torch, directory):
                 text = file.read_text(encoding="utf-8", errors="replace")
                 if "cuda" in text:
                     cuda_markers.append(str(file))
-                if "extern_kernels." in text or "torch.ops.aten." in text:
+                calls = generated_calls(text)
+                if any(call.startswith(("extern_kernels.", "torch.ops.aten.")) for call in calls):
                     external_calls.append(str(file))
-                if "async_compile.triton" in text:
+                if "async_compile.triton" in calls:
                     triton_calls.append(str(file))
     require(cuda_markers, "missing generated Inductor CUDA wrapper evidence")
     return dict(backend="inductor", fullgraph=True, suppress_errors=False, counters=counts,
@@ -432,17 +492,24 @@ def main(argv=None):
         dtype = getattr(torch, PRECISIONS[precision])
         cpu_inputs = [torch.from_numpy(array.copy()).to(dtype=dtype) for array in packet["inputs"]]
         packet["rounded_inputs"] = [tensor.float().numpy() for tensor in cpu_inputs]
+        for original, restored in zip(packet["inputs"], packet["rounded_inputs"]):
+            require(np.array_equal(original.view("<u4"), restored.view("<u4")),
+                    "Torch conversion changed exported storage bits")
         tensors = [tensor.to(device="cuda") for tensor in cpu_inputs]
         eager, expression = make_program(torch, packet, tensors, args.ranking_contract)
         last = None
         record.update(device=str(torch.cuda.get_device_properties(0)), torch_version=torch.__version__,
                       torch_git_version=torch.version.git_version, torch_cuda_version=torch.version.cuda,
                       torch_config=torch.__config__.show(), expression=expression,
-                      numerical_policy=dict(input_storage="float32", compute_precision=precision,
+                      numerical_policy=dict(input_storage=PRECISIONS[precision], output_storage=PRECISIONS[precision], compute_precision="float32 accumulation",
                                             matmul_fp32_precision=torch.backends.cuda.matmul.fp32_precision,
                                             fp16_reduced_precision_reduction=False, bf16_reduced_precision_reduction=False),
                       allocation_policy="Functional return; allocations included in stream timing, graph capture pool reused on replay",
                       ranking_contract=args.ranking_contract)
+        if packet["manifest"]["operation"] == "attention_tensorcore":
+            record["precision_contract_evidence"] = dict(
+                acceptance_kind="predeclared_numerical_envelope", backend_precision_contract_verified=False,
+                limitation="Automatic SDPA call evidence does not establish one probability narrowing, FP32 intermediates, or absence of FTZ")
         modes = dict(torch._inductor.list_mode_options(args.mode))
         if args.graph_batch:
             modes["triton.cudagraphs"] = False
@@ -466,9 +533,15 @@ def main(argv=None):
         def save_outputs(label):
             output, indices = last if isinstance(last, tuple) else (last, None)
             files = []
-            values_path = output_dir / f"{label}-output.f32"
-            output.detach().float().cpu().numpy().astype("<f4").tofile(values_path)
-            files.append(dict(path=str(values_path), sha256=digest(values_path), storage_dtype="float32"))
+            precision = packet["manifest"]["precision"]
+            extension = {"fp32": "f32", "fp16": "f16", "bf16": "bf16"}[precision]
+            values_path = output_dir / f"{label}-output.{extension}"
+            cpu_output = output.detach().cpu().contiguous()
+            if precision == "bf16":
+                cpu_output.view(torch.uint16).numpy().astype("<u2").tofile(values_path)
+            else:
+                cpu_output.numpy().astype("<f2" if precision == "fp16" else "<f4").tofile(values_path)
+            files.append(dict(path=str(values_path), sha256=digest(values_path), storage_dtype=PRECISIONS[precision]))
             if indices is not None:
                 indices_path = output_dir / f"{label}-indices.i64"
                 indices.cpu().numpy().astype("<i8").tofile(indices_path)
@@ -495,12 +568,16 @@ def main(argv=None):
             torch.cuda.synchronize()
             record["cold_compile_first_call_ms"] = (time.perf_counter_ns() - start) / 1e6
             record["cold_scope"] = "torch.compile creation, first full-graph compile and one execution; device initialization and upload excluded"
+            record["phase"] = "correctness_before"
+            record["compiler_evidence"] = compiler_evidence(torch, cache)
+            record["compiled_outputs_before"] = save_outputs("compiled-first")
+            save()
             record["compiled_correctness_before"] = check()
             record["phase"] = "warm_compiled"
             save()
             record["compiled_stream"] = time_stream(torch, invoke_compiled, args.samples, args.sample_ms, args.warmup_ms)
             if args.graph_batch:
-                record["compiled_graph"] = time_graph(torch, invoke_compiled, args.graph_batch, args.samples)
+                record["compiled_graph"] = time_graph(torch, invoke_compiled, args.graph_batch, args.samples, args.warmup_ms)
             record["compiled_correctness_after"] = check()
             record["compiled_outputs"] = save_outputs("compiled")
             record["compiler_evidence"] = compiler_evidence(torch, cache)
@@ -511,7 +588,7 @@ def main(argv=None):
                 record["eager_correctness_before"] = check()
                 record["eager_stream"] = time_stream(torch, invoke_eager, args.samples, args.sample_ms, args.warmup_ms)
                 if args.graph_batch:
-                    record["eager_graph"] = time_graph(torch, invoke_eager, args.graph_batch, args.samples)
+                    record["eager_graph"] = time_graph(torch, invoke_eager, args.graph_batch, args.samples, args.warmup_ms)
                 record["eager_correctness_after"] = check()
                 record["eager_outputs"] = save_outputs("eager")
         record.update(status="passed", phase="complete")

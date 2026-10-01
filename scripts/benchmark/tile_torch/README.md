@@ -1214,3 +1214,101 @@ The exact profile string and generated objective are checked and preserved by
 `repeat.py` for frozen replay. See the
 [service-policy experiment](results/m1-max-20260905-service-policy-validation/notes.md)
 for the calibration data, limitations and predeclared held-out protocol.
+
+## Windows CUDA Tile and torch.compile matrix
+
+`cuda_matrix.py` runs the actual `benchmark_tile_workloads` executable and
+`cuda_torch_baseline.py` serially. Build the executable first, then supply the
+completed-build JSON marker and the Python executable containing CUDA PyTorch
+and Triton. The runner does not build or install dependencies. Choose an
+affinity mask for the machine; the runner verifies its CPU topology and applies
+the mask to each owned child before its primary thread starts. Timeouts close a
+Windows job that owns that child and its descendants.
+
+```powershell
+python scripts/benchmark/tile_torch/cuda_matrix.py --suite smoke --list-cases
+python scripts/benchmark/tile_torch/cuda_matrix.py `
+  --build-dir build-msvc-llvm --build-marker <completed-build.json> `
+  --torch-python <torch-environment/python.exe> --output <new-output-directory> `
+  --affinity-mask <machine-specific-mask> --threads 4 --routes native,tirx `
+  --path-prefix <CUDA-bin-directory> --path-prefix <TVM-DLL-directory>
+```
+
+The smoke suite has 17 FP32 cases covering row operators, reductions, inclusive
+tree scan, ranking, GEMM/GEMV and attention, including tails and adversarial
+inputs. `--suite broad` adds decode/prefill widths 512–8192 and bounded ranking
+and attention cases. `--cases id1,id2` selects exact built-in IDs; alternatively,
+pass a JSON file with `schema: 1` and a `cases` array in the format printed by
+`--list-cases`. Repeat `--case-filter` to select ID globs. `--routes native` is
+useful for an initial CUDA Tile IR comparison; `tirx` and optional `simd` remain
+separate routes. Each run requires a fresh output directory.
+
+`--precisions fp32,fp16,bf16` expands selected cases into separate precision
+variants; a case JSON can also set `precision` directly. Inputs and outputs use
+their actual declared storage dtype, including two-byte FP16/BF16 packets, and
+each precision has its own exported FP64 oracle and bound. Ranking uses a
+power-of-two padded input tile while storing only the requested logical output.
+The optional JSON operation `scan_ordered` retains the sequential fold-left
+reference; `scan` permits tree reassociation. The manifest records this policy,
+so results with different contribution-order contracts should not be pooled.
+Historical output directories are never rewritten when these algorithms change.
+
+Defaults are seven 100 ms stream samples after 500 ms warmup, graph batches of
+32, full-graph Inductor `max-autotune` and one compilation worker. Native compile
+time and Torch's compile-plus-first-call time are separate cold measurements.
+Synchronized host wall, native CUDA event stream spans and graph event spans
+are recorded separately; event spans can include scheduling or submission gaps.
+Native graphs reuse a preallocated output with write dependencies. Torch uses
+normal functional returns and its capture memory pool. These are observable
+allocation differences, so the runner does not infer isolated kernel speedups.
+
+Starting with the 2026-10-01 phase3 measurements, both native and Torch graphs
+receive a separate synchronized replay warmup for the configured `--warmup-ms`
+before graph samples. Torch records `warmup_target_ms`, `warmup_actual_ms` and
+`warmup_replays` inside each compiled/eager graph result; this excludes capture,
+the first replay and measured samples. Earlier phase2 results retain their
+original protocol: native warmed graph replay for that duration while Torch
+only replayed once after its stream warmup. Historical result files remain
+unchanged and should not be treated as having the new symmetric graph warmup.
+
+Every native route exports the same seeded inputs and FP64 oracle with
+per-element error bounds. Their file hashes must match before Torch reads the
+packet. Unsupported native cases still run Torch when a complete packet exists.
+The default ranking comparison uses ordinary Torch sort/topk, allowing tied
+indices to differ while checking values, source correspondence and uniqueness;
+`--ranking-contract stable` instead requires the native stable-index contract.
+`--eager` adds a clearly separate eager baseline. No result is implied by the
+presence of an operation in the suite.
+
+Results checkpoint after every child and case, retaining stdout/stderr, raw
+samples, input hashes, executable/source/library hashes, build marker, affinity
+readback and `nvidia-smi` telemetry. Exit 0 means all requested cases passed;
+exit 3 means completed with explicit unsupported routes; exit 1 means failure.
+
+`test_tile_primitives host` checks capture and reduction-policy preservation
+without a device. `test_tile_primitives simd native` and
+`test_tile_primitives cuda tirx` exercise those runtime routes; for
+`test_tile_primitives cuda native`, set `LUISA_CUDA_TILE_IR=1`. The six test
+groups cover stable sorting/prefix selection, signed-zero bit preservation,
+interior axes, guarded buffer views, sequential scan bitwise order and a
+separate tree-scan FP64 error bound. Direct native top-k with a seven-element
+Tile result may report its explicit power-of-two limitation; the padded
+benchmark stores a logical seven-element prefix from a full sorted Tile.
+
+`attention` retains FP32 probabilities and PV accumulation. The separate
+`attention_tensorcore` operation accepts FP16/BF16 and explicitly rounds the
+unnormalized probabilities to that storage type before PV MMA, while retaining
+the FP32 denominator and accumulator. Its packet exports both the original
+strict bound and a predeclared probability-rounding allowance weighted by
+absolute V values; both implementations use the same primary bound. Strict
+failures remain visible in a separate result field. Automatic PyTorch SDPA is
+recorded through generated-call evidence; passing this common numerical
+envelope does not prove identical internal arithmetic. Failed first-call
+validation retains the actual typed outputs and compiler evidence.
+
+Native CUDA integer sum/scan uses unsigned arithmetic for signed inputs to
+preserve fixed-width wrapping, with signed comparisons retained for min/max.
+The native conformance suite checks 32/64-bit signed and unsigned values,
+including overflow and values beyond exact FP32/FP64 integer representation.
+These conformance tests are separate from the floating-point workload matrix;
+they do not imply integer PyTorch performance measurements.

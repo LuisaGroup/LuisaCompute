@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <tvm/ffi/function.h>
+#include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/ir/attrs.h>
 #include <tvm/ir/function.h>
 #include <tvm/s_tir/transform.h>
@@ -83,6 +84,73 @@ public:
     FunctionMap functions,
     tvm::DictAttrs attributes,
     tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Array<tvm::GlobalInfo>> global_infos);
+
+// Keep large reference-realized permutation chains as loops in CUDA source.
+// Each snapshot is still an SSA definition; only NVRTC's unroll heuristic changes.
+class CudaPermutationCost final : public tvm::tirx::StmtVisitor {
+private:
+    static constexpr auto kMinStages = 8u;
+    static constexpr auto kElementBudget = uint64_t{2048u};
+    uint32_t _stages{0u};
+    uint64_t _elements{0u};
+
+protected:
+    void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        auto load = store->value.as<tvm::tirx::BufferLoadNode>();
+        if (load == nullptr || store->predicate || load->predicate ||
+            store->buffer.scope() != "local" || load->buffer.scope() != "local" ||
+            store->buffer.same_as(load->buffer) ||
+            !tvm::ffi::StructuralEqual{}(store->buffer->shape, load->buffer->shape) ||
+            tvm::ffi::StructuralEqual{}(store->indices, load->indices)) { return; }
+        auto elements = uint64_t{1u};
+        for (auto &&dimension : store->buffer->shape) {
+            auto extent = dimension.as<tvm::IntImmNode>();
+            if (extent == nullptr || extent->value <= 0) { return; }
+            auto size = static_cast<uint64_t>(extent->value);
+            // Saturate both multiplication and addition at the decision budget.
+            elements = size > kElementBudget / elements ? kElementBudget : elements * size;
+        }
+        _stages = std::min(_stages + 1u, kMinStages);
+        _elements += std::min(elements, kElementBudget - _elements);
+    }
+
+public:
+    [[nodiscard]] bool exceeds_budget() const noexcept {
+        return _stages >= kMinStages && _elements >= kElementBudget;
+    }
+};
+
+class CudaElementUnrollLimiter final : public tvm::tirx::StmtMutator {
+private:
+    [[nodiscard]] tvm::tirx::Stmt _axes(tvm::tirx::Stmt statement, int64_t rank) {
+        if (rank <= 0) { return statement; }
+        auto loop = statement.as<tvm::tirx::For>();
+        if (!loop || loop.value()->kind != tvm::tirx::ForKind::kSerial ||
+            loop.value()->thread_binding) { return statement; }
+        auto result = loop.value();
+        if (rank > 1) { result.CopyOnWrite()->body = _axes(result->body, rank - 1); }
+        // Respect explicit user/compiler unroll choices. The rank limits this
+        // walk to element axes; nested reductions and MMA K loops are untouched.
+        if (!result->annotations.count("pragma_unroll") && !result->annotations.count("disable_unroll")) {
+            result.CopyOnWrite()->annotations.Set("disable_unroll", tvm::IntImm::Bool(true));
+        }
+        return result;
+    }
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto result = StmtMutator::VisitStmt_(loop);
+        auto annotation = loop->annotations.Get(independent_elements_annotation);
+        auto rank = annotation ? annotation.value().as<tvm::IntImmNode>() : nullptr;
+        return rank == nullptr || rank->value <= 0 ? result : _axes(std::move(result), rank->value);
+    }
+};
+
+[[nodiscard]] tvm::tirx::Stmt limit_cuda_permutation_unrolling(tvm::tirx::Stmt body) {
+    CudaPermutationCost cost;
+    cost(body);
+    return cost.exceeds_budget() ? CudaElementUnrollLimiter{}(std::move(body)) : body;
+}
 
 class ExecutionMapper final : public DiagnosticStmtMutator {
 
@@ -607,6 +675,9 @@ public:
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
                                                         target->kind->name == "metal" && cooperative_matrix && options.planner.enabled && options.planner.map_gpu_cooperative_programs);
         if (diagnostic.failed()) { return module; }
+        if (target->kind->name == "cuda") {
+            mapped.CopyOnWrite()->body = limit_cuda_permutation_unrolling(mapped->body);
+        }
         mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs, diagnostic}(mapped->body);
         if (diagnostic.failed()) { return module; }
         functions.Set(global, std::move(mapped));

@@ -132,13 +132,42 @@ void identity(std::ostream &out, const workloads::Options &o) {
     return code;
 }
 
+template<typename T>
+[[nodiscard]] constexpr string_view storage_name() {
+    if constexpr (std::is_same_v<T, half>) {
+        return "float16";
+    } else if constexpr (std::is_same_v<T, tile::bfloat16>) {
+        return "bfloat16";
+    } else {
+        return "float32";
+    }
+}
+
+template<typename T>
+[[nodiscard]] constexpr const char *storage_suffix() {
+    if constexpr (std::is_same_v<T, half>) {
+        return ".f16";
+    } else if constexpr (std::is_same_v<T, tile::bfloat16>) {
+        return ".bf16";
+    } else {
+        return ".f32";
+    }
+}
+
+template<typename T>
 [[nodiscard]] bool export_fixture(const luisa::filesystem::path &directory,
                                   const workloads::Options &o, const workloads::Fixture &f) {
     for (size_t i = 0u; i < 3u; i++) {
-        if (!write_binary(directory / ("input" + std::to_string(i) + ".f32"), f.inputs[i])) { return false; }
+        vector<T> stored;
+        stored.reserve(f.inputs[i].size());
+        for (auto value : f.inputs[i]) { stored.emplace_back(T{value}); }
+        if (!write_binary(directory / ("input" + std::to_string(i) + storage_suffix<T>()), stored)) { return false; }
     }
     if (!write_binary(directory / "expected.f64", f.expected) || !write_binary(directory / "per_element_bound.f64", f.bound)) { return false; }
     if (f.ranking && !write_binary(directory / "expected_indices.i64", f.expected_indices)) { return false; }
+    if (!f.strict_bound.empty() &&
+        (!write_binary(directory / "strict_bound.f64", f.strict_bound) ||
+         !write_binary(directory / "probability_rounding_bound.f64", f.probability_rounding_bound))) { return false; }
     std::ostringstream out;
     out << std::setprecision(17) << '{';
     identity(out, o);
@@ -147,30 +176,58 @@ void identity(std::ostream &out, const workloads::Options &o) {
     out << ",\"endianness\":\"little\",\"inputs\":[";
     for (size_t i = 0; i < 3u; i++) {
         if (i != 0u) { out << ','; }
-        out << "{\"name\":\"input" << i << "\",\"path\":\"input" << i << ".f32\",\"storage_dtype\":\"float32\",\"shape\":";
+        out << "{\"name\":\"input" << i << "\",\"path\":\"input" << i << storage_suffix<T>() << "\",\"storage_dtype\":";
+        quoted(out, storage_name<T>());
+        out << ",\"shape\":";
         array(out, f.input_shapes[i]);
         out << '}';
     }
-    out << "],\"output\":{\"path\":\"output.f32\",\"storage_dtype\":\"float32\",\"shape\":";
+    out << "],\"output\":{\"path\":\"output" << storage_suffix<T>() << "\",\"storage_dtype\":";
+    quoted(out, storage_name<T>());
+    out << ",\"shape\":";
     array(out, f.output_shape);
-    out << "},\"expected\":{\"path\":\"expected.f64\",\"bound_path\":\"per_element_bound.f64\",\"storage_dtype\":\"float64\"}";
+    out << "},\"expected\":{\"path\":\"expected.f64\",\"bound_path\":\"per_element_bound.f64\",\"storage_dtype\":\"float64\"";
+    if (!f.strict_bound.empty()) {
+        out << ",\"strict_bound_path\":\"strict_bound.f64\",\"probability_rounding_bound_path\":\"probability_rounding_bound.f64\"";
+    }
+    out << '}';
     if (f.ranking) {
         out << ",\"indices\":{\"path\":\"output_indices.i64\",\"expected_path\":\"expected_indices.i64\",\"storage_dtype\":\"int64\",\"shape\":";
         array(out, f.output_shape);
         out << '}';
     }
+    if (!f.strict_bound.empty()) {
+        auto unit = static_cast<double>(static_cast<float>(std::numeric_limits<T>::epsilon())) * .5;
+        auto eta = static_cast<double>(static_cast<float>(std::numeric_limits<T>::denorm_min()));
+        out << ",\"precision_contract\":{\"name\":\"attention_single_narrow_probability_v1\",\"acceptance_kind\":\"predeclared_numerical_envelope\","
+               "\"stage\":\"unnormalized_probability_before_pv_per_kv_block\",\"rounding\":\"rne\","
+               "\"fp32_base_envelope\":\"5e-5*(1+abs(reference))\","
+               "\"probability_bound_formula\":\"((1+gamma_n)/(1-gamma_n))*(u_T*max_abs_V_j+eta_T/2*sum_abs_V_j)\","
+               "\"gamma_formula\":\"n*u32/(1-n*u32), n=2*valid_keys+2\","
+               "\"primary_bound_formula\":\"strict_bound+(1+u_T)*probability_rounding_bound\","
+               "\"valid_keys\":\"K-Q+q+1\",\"u32\":"
+            << 0x1p-24
+            << ",\"u_T\":" << unit << ",\"eta_T\":" << eta
+            << ",\"requirements\":\"One probability narrowing, FP32 scores/accumulation, positive normalization; unspecified extra narrowing or FTZ is not covered\"}";
+    }
     out << ",\"semantics\":{\"epsilon\":" << static_cast<double>(1e-5f)
         << ",\"affine\":true,\"rope_pairing\":\"half_split\",\"softmax_axis\":-1,\"mask\":";
     quoted(out, o.operation == "masked_softmax" ? "column<=row%width" : "none");
+    out << ",\"scan_policy\":";
+    quoted(out, o.operation == "scan_ordered" ? "ordered_fold_left" : "unordered_tree");
     out << ",\"scan\":\"inclusive_sum\",\"descending\":true,"
            "\"stable\":true,\"tie_break\":\"original_index_ascending\",\"accumulation\":\"float32\","
            "\"gelu_approximation\":\"tanh\",\"causal\":true,\"query_positions\":\"last_Q_in_K\","
            "\"attention_scale\":";
-    auto scale = o.operation == "attention" ? 1.0f / std::sqrt(static_cast<float>(o.dimensions[5])) : 1.0f;
-    out << static_cast<double>(scale)
+    auto scale = (o.operation == "attention" || o.operation == "attention_tensorcore") ? 1.0f / std::sqrt(static_cast<float>(o.dimensions[5])) : 1.0f;
+    out << static_cast<double>(scale) << ",\"input_quantization\":\"round_to_nearest_even_before_fp64_oracle\",\"output_rounding\":\"round_to_nearest_even\",\"contraction\":";
+    quoted(out, o.operation == "gemv"                                                                          ? "nonfused_products_unordered_tree_sum" :
+                o.operation == "gemm" || (o.operation == "attention" || o.operation == "attention_tensorcore") ? "mma_fused_reassociation_allowed" :
+                                                                                                                 "not_applicable");
+    out << ",\"logical_view_offset_elements\":64,\"logical_view_offset_bytes\":" << 64u * sizeof(T)
         << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N repeated identical dispatches, same inputs and output allocation, ordered WAW; one graph replay per timed sample. Functional Torch output allocation is a separate contract.\"}"
            ",\"validation\":{\"reference\":\"host_fp64\",\"bound\":\"per_element_bound.f64\","
-           "\"require_finite\":true,\"output_guard_elements\":34,\"readonly_inputs_checked\":true}}\n";
+           "\"require_finite\":true,\"output_guard_elements\":128,\"readonly_inputs_checked\":true}}\n";
     return write_text(directory / "manifest.json", out.str());
 }
 
@@ -245,10 +302,11 @@ public:
 
 }// namespace
 
-int main(int argc, char *argv[]) {
+template<typename T>
+int run(int argc, char *argv[]) {
     workloads::Options options;
     if (argc != 13 && argc != 15) {
-        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation fp32 dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N]\n";
+        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N]\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
     }
     options.backend = argv[1];
@@ -282,13 +340,12 @@ int main(int argc, char *argv[]) {
     if (!luisa::filesystem::create_directory(directory, filesystem_error) || filesystem_error) {
         return finish(options, {}, "failed", "export_dir must be a new directory under an existing parent", 1);
     }
-    if (options.precision != "fp32") { return finish(options, directory, "unsupported", "this fixture currently implements explicit FP32 only", 3); }
     log_level_error();
     auto start = Clock::now();
-    auto fixture = workloads::make_fixture(options);
+    auto fixture = workloads::make_fixture<T>(options);
     auto fixture_ms = elapsed(start);
     if (!fixture.error.empty()) { return finish(options, directory, "unsupported", fixture.error, 3); }
-    if (!export_fixture(directory, options, fixture)) { return finish(options, directory, "failed", "input/oracle export failed", 1); }
+    if (!export_fixture<T>(directory, options, fixture)) { return finish(options, directory, "failed", "input/oracle export failed", 1); }
     if (!fixture.kernel || !fixture.kernel->valid()) {
         string diagnostics;
         if (fixture.kernel) {
@@ -326,21 +383,21 @@ int main(int argc, char *argv[]) {
     }
     CudaTiming events{device, stream, options.backend == "cuda"};
     if (options.backend == "cuda" && !events.enabled) { return finish(options, directory, "unsupported", events.error, 3, compile_ms, shader.metadata().realization); }
-    constexpr size_t pad = 17u;
+    constexpr size_t pad = 64u;
     constexpr float guard = -719.5f;
     constexpr int64_t index_guard = std::numeric_limits<int64_t>::min() + 37;
-    std::array<vector<float>, 3u> host_inputs;
-    std::array<Buffer<float>, 3u> inputs;
+    std::array<vector<T>, 3u> host_inputs;
+    std::array<Buffer<T>, 3u> inputs;
     start = Clock::now();
     for (size_t i = 0; i < 3u; i++) {
-        host_inputs[i].assign(fixture.inputs[i].size() + 2u * pad, guard);
-        std::copy(fixture.inputs[i].begin(), fixture.inputs[i].end(), host_inputs[i].begin() + pad);
-        inputs[i] = device.create_buffer<float>(host_inputs[i].size());
+        host_inputs[i].assign(fixture.inputs[i].size() + 2u * pad, T{guard});
+        for (size_t j = 0; j < fixture.inputs[i].size(); j++) { host_inputs[i][j + pad] = T{fixture.inputs[i][j]}; }
+        inputs[i] = device.create_buffer<T>(host_inputs[i].size());
         stream << inputs[i].copy_from(span{host_inputs[i]});
     }
-    vector<float> host_output(fixture.expected.size() + 2u * pad, guard);
-    std::fill(host_output.begin() + pad, host_output.end() - pad, std::numeric_limits<float>::quiet_NaN());
-    auto output = device.create_buffer<float>(host_output.size());
+    vector<T> host_output(fixture.expected.size() + 2u * pad, T{guard});
+    std::fill(host_output.begin() + pad, host_output.end() - pad, std::numeric_limits<T>::quiet_NaN());
+    auto output = device.create_buffer<T>(host_output.size());
     vector<int64_t> host_indices((fixture.ranking ? fixture.expected_indices.size() : 1u) + 2u * pad, index_guard);
     auto indices = device.create_buffer<int64_t>(host_indices.size());
     stream << output.copy_from(span{host_output}) << indices.copy_from(span{host_indices}) << synchronize();
@@ -376,32 +433,39 @@ int main(int argc, char *argv[]) {
         return instrumented && device_ms < 0.0 ? -1.0 : host_ms;
     };
     double max_error = 0.0, max_error_over_bound = 0.0;
-    uint64_t checks = 0u, errors = 0u;
+    uint64_t checks = 0u, errors = 0u, strict_errors = 0u;
+    double strict_max_error_over_bound = 0.0;
     auto check = [&] {
         stream << output.copy_to(span{host_output}) << indices.copy_to(span{host_indices});
         for (size_t i = 0; i < 3u; i++) { stream << inputs[i].copy_to(span{host_inputs[i]}); }
         stream << synchronize();
-        auto bits = [](float x) { return std::bit_cast<uint32_t>(x); };
+        auto bits = [](T x) { return std::bit_cast<std::array<std::byte, sizeof(T)>>(x); };
         for (size_t i = 0; i < 3u; i++) {
             for (size_t j = 0; j < host_inputs[i].size(); j++) {
-                auto expected = j < pad || j >= host_inputs[i].size() - pad ? guard : fixture.inputs[i][j - pad];
+                auto expected = T{j < pad || j >= host_inputs[i].size() - pad ? guard : fixture.inputs[i][j - pad]};
                 errors += bits(host_inputs[i][j]) != bits(expected);
             }
         }
         for (size_t i = 0; i < host_output.size(); i++) {
             if (i < pad || i >= host_output.size() - pad) {
-                errors += bits(host_output[i]) != bits(guard);
+                errors += bits(host_output[i]) != bits(T{guard});
                 continue;
             }
             auto j = i - pad;
-            auto error = std::abs(static_cast<double>(host_output[i]) - fixture.expected[j]);
-            auto finite = std::isfinite(host_output[i]);
+            auto error = std::abs(static_cast<double>(static_cast<float>(host_output[i])) - fixture.expected[j]);
+            auto finite = std::isfinite(static_cast<float>(host_output[i]));
             errors += !finite || error > fixture.bound[j];
+            if (!fixture.strict_bound.empty()) {
+                strict_errors += !finite || error > fixture.strict_bound[j];
+                if (finite && fixture.strict_bound[j] > 0.0) {
+                    strict_max_error_over_bound = std::max(strict_max_error_over_bound, error / fixture.strict_bound[j]);
+                }
+            }
             if (finite) {
                 max_error = std::max(max_error, error);
                 if (fixture.bound[j] > 0.0) { max_error_over_bound = std::max(max_error_over_bound, error / fixture.bound[j]); }
             }
-            if (fixture.ranking) { errors += bits(host_output[i]) != bits(static_cast<float>(fixture.expected[j])); }
+            if (fixture.ranking) { errors += bits(host_output[i]) != bits(T{static_cast<float>(fixture.expected[j])}); }
         }
         for (size_t i = 0; i < host_indices.size(); i++) {
             auto expected = fixture.ranking && i >= pad && i < host_indices.size() - pad ? fixture.expected_indices[i - pad] : index_guard;
@@ -471,8 +535,8 @@ int main(int argc, char *argv[]) {
         }
         if (!check()) { return finish(options, directory, "failed", "warm graph oracle failed", 2, compile_ms, shader.metadata().realization); }
     }
-    vector<float> final_output(host_output.begin() + pad, host_output.end() - pad);
-    if (!write_binary(directory / "output.f32", final_output)) { return finish(options, directory, "failed", "output export failed", 1); }
+    vector<T> final_output(host_output.begin() + pad, host_output.end() - pad);
+    if (!write_binary(directory / (std::string{"output"} + storage_suffix<T>()), final_output)) { return finish(options, directory, "failed", "output export failed", 1); }
     if (fixture.ranking) {
         vector<int64_t> final_indices(host_indices.begin() + pad, host_indices.end() - pad);
         if (!write_binary(directory / "output_indices.i64", final_indices)) { return finish(options, directory, "failed", "index export failed", 1); }
@@ -480,6 +544,9 @@ int main(int argc, char *argv[]) {
     std::ostringstream out;
     out << std::setprecision(17) << '{';
     identity(out, options);
+    if (!fixture.strict_bound.empty()) {
+        out << ",\"precision_contract\":\"attention_single_narrow_probability_v1\"";
+    }
     out << ",\"status\":\"passed\",\"realization\":";
     quoted(out, shader.metadata().realization);
     out << ",\"timing_scope\":\"C++ command construction, submission, execution and final synchronization\","
@@ -503,11 +570,29 @@ int main(int argc, char *argv[]) {
     array(out, graph_device);
     out << ",\"correctness\":{\"checks\":" << checks << ",\"elements_per_check\":" << fixture.expected.size()
         << ",\"errors\":" << errors << ",\"max_abs_error\":" << max_error << ",\"max_error_over_bound\":" << max_error_over_bound
-        << ",\"inputs_unchanged\":true,\"guards_unchanged\":true,\"all_outputs_finite\":true}}\n";
+        << ",\"inputs_unchanged\":true,\"guards_unchanged\":true,\"all_outputs_finite\":true}";
+    if (!fixture.strict_bound.empty()) {
+        out << ",\"strict_correctness\":{\"primary_acceptance\":false,\"checks\":" << checks
+            << ",\"failed_element_checks\":" << strict_errors << ",\"max_error_over_bound\":" << strict_max_error_over_bound << '}';
+    }
+    out << "}\n";
     if (!write_text(directory / "results.json", out.str())) {
         std::cerr << "Cannot write results.json\n";
         return 1;
     }
     std::cout << out.str();
     return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc > 4) {
+        auto precision = string_view{argv[4]};
+        if (precision == "fp16") { return run<half>(argc, argv); }
+        if (precision == "bf16") { return run<tile::bfloat16>(argc, argv); }
+        if (precision != "fp32") {
+            std::cerr << "Unsupported precision: expected fp32, fp16 or bf16\n";
+            return 3;
+        }
+    }
+    return run<float>(argc, argv);
 }

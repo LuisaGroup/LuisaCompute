@@ -775,6 +775,8 @@ luisa_compute_add_test(benchmark_tile_xir_gpu benchmark/benchmark_tile_xir_gpu.c
 target_link_libraries(benchmark_tile_xir_gpu PRIVATE luisa::tile-xir)
 luisa_compute_add_test(benchmark_tile_workloads benchmark/benchmark_tile_workloads.cpp)
 target_link_libraries(benchmark_tile_workloads PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_primitives unit/tile/test_tile_primitives.cpp LABELS "unit;unit_tile" ARGS host)
+target_link_libraries(test_tile_primitives PRIVATE luisa-compute-tile)
 if (TARGET CUDA::cuda_driver AND TARGET luisa-compute-backend-cuda)
     target_compile_definitions(benchmark_tile_workloads PRIVATE LUISA_TILE_BENCH_CUDA_EVENTS=1)
     target_link_libraries(benchmark_tile_workloads PRIVATE CUDA::cuda_driver)

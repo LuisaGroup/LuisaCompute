@@ -28,6 +28,7 @@ struct Fixture {
     std::array<vector<float>, 3u> inputs;
     vector<int64_t> output_shape;
     vector<double> expected, bound;
+    vector<double> strict_bound, probability_rounding_bound;
     vector<int64_t> expected_indices;
     string error, algorithm;
     bool ranking{false};
@@ -69,9 +70,10 @@ struct Fixture {
 [[nodiscard]] inline bool is_row(string_view op) noexcept {
     return op == "rmsnorm" || op == "layernorm" || op == "softmax" || op == "masked_softmax" ||
            op == "rope" || op == "swiglu" || op == "gelu_residual" || op == "reduce_sum" ||
-           op == "reduce_max" || op == "scan";
+           op == "reduce_max" || op == "scan" || op == "scan_ordered";
 }
 
+template<typename T>
 inline void build_rows(Fixture &f, const Options &o) {
     using namespace compute::tile;
     auto rows = o.dimensions[0], width = o.dimensions[1], tile_width = o.tile[1];
@@ -80,42 +82,46 @@ inline void build_rows(Fixture &f, const Options &o) {
     auto reduction = op == "reduce_sum" || op == "reduce_max";
     f.input_shapes = {vector<int64_t>{rows, width}, {norm ? 1 : rows, op == "rope" ? width / 2 : width}, {norm ? 1 : rows, op == "rope" ? width / 2 : width}};
     f.output_shape = {rows, reduction ? 1 : width};
-    f.algorithm = op == "scan" ? "quadratic_reference_inclusive_scan" : "whole_row_tile";
+    f.algorithm = op == "scan" ? "inclusive_sum_unordered_tree" : op == "scan_ordered" ? "quadratic_reference_ordered_inclusive_scan" :
+                                                                                         "whole_row_tile_fp32_compute";
     if (op == "rope") {
         // A physical pair axis makes a padded half-width Tile safe: stores
         // cannot overlap the other half when the logical half has a tail.
-        auto definition = tile_kernel("workload_rope", [=](TensorView<const float, 3> X,
-                                                           TensorView<const float, 3> C,
-                                                           TensorView<const float, 3> S,
-                                                           TensorView<float, 3> Y) {
+        auto definition = tile_kernel("workload_rope", [=](TensorView<const T, 3> X,
+                                                           TensorView<const T, 3> C,
+                                                           TensorView<const T, 3> S,
+                                                           TensorView<T, 3> Y) {
             auto m = axis("m", 1), pair = axis("pair", 1), n = axis("n", tile_width);
             for (auto &nest : parallel(shape(rows))) {
                 auto r = nest.index();
-                auto x = X.tile(coord(r, 0, 0), shape(m, pair, n)).load();
-                auto y = X.tile(coord(r, 1, 0), shape(m, pair, n)).load();
-                auto c = C.tile(coord(r, 0, 0), shape(m, pair, n)).load();
-                auto s = S.tile(coord(r, 0, 0), shape(m, pair, n)).load();
-                Y(coord(r, 0, 0), shape(m, pair, n)).store(x * c - y * s);
-                Y(coord(r, 1, 0), shape(m, pair, n)).store(x * s + y * c);
+                auto x = cast<float>(X.tile(coord(r, 0, 0), shape(m, pair, n)).load());
+                auto y = cast<float>(X.tile(coord(r, 1, 0), shape(m, pair, n)).load());
+                auto c = cast<float>(C.tile(coord(r, 0, 0), shape(m, pair, n)).load());
+                auto s = cast<float>(S.tile(coord(r, 0, 0), shape(m, pair, n)).load());
+                Y(coord(r, 0, 0), shape(m, pair, n)).store(cast<T>(x * c - y * s));
+                Y(coord(r, 1, 0), shape(m, pair, n)).store(cast<T>(x * s + y * c));
             }
         });
         f.kernel = definition.capture(tensor_shape(rows, 2, width / 2), tensor_shape(rows, 1, width / 2),
                                       tensor_shape(rows, 1, width / 2), tensor_shape(rows, 2, width / 2));
         return;
     }
-    auto definition = tile_kernel("workload_rows", [=](TensorView<const float, 2> X,
-                                                       TensorView<const float, 2> U,
-                                                       TensorView<const float, 2> V,
-                                                       TensorView<float, 2> Y) {
+    auto definition = tile_kernel("workload_rows", [=](TensorView<const T, 2> X,
+                                                       TensorView<const T, 2> U,
+                                                       TensorView<const T, 2> V,
+                                                       TensorView<T, 2> Y) {
         auto m = axis("m", 1), n = axis("n", tile_width);
         for (auto &nest : parallel(shape(rows))) {
             auto row = nest.index();
-            auto x = X.tile(coord(row, 0), shape(m, n)).load();
+            auto x = cast<float>(X.tile(coord(row, 0), shape(m, n)).load());
             auto valid = iota(n) < width;
             if (op == "reduce_sum" || op == "reduce_max") {
                 auto result = op == "reduce_sum" ? reduce(x, n, add) : reduce(ite(valid, x, -std::numeric_limits<float>::infinity()), n, maximum);
-                Y(coord(row, 0), shape(m, axis("out", 1))).store(result);
+                Y(coord(row, 0), shape(m, axis("out", 1))).store(cast<T>(result));
             } else if (op == "scan") {
+                auto result = inclusive_sum(x, n, reduction::unordered_tree);
+                Y(coord(row, 0), shape(m, n)).store(cast<T>(result));
+            } else if (op == "scan_ordered") {
                 auto k = axis("prefix", tile_width);
                 auto result = map<float>(shape(m, n), [&](const Nest &item) {
                     auto sum = Scalar<float>{0.0f};
@@ -125,26 +131,26 @@ inline void build_rows(Fixture &f, const Options &o) {
                     }
                     return sum;
                 });
-                Y(coord(row, 0), shape(m, n)).store(result);
+                Y(coord(row, 0), shape(m, n)).store(cast<T>(result));
             } else {
                 auto result = x;
                 if (op == "rmsnorm" || op == "layernorm") {
                     auto centered = op == "layernorm" ? x - reduce(x, n, add) / static_cast<float>(width) : x;
                     auto square = ite(valid, centered * centered, 0.0f);
                     auto variance = reduce(square, n, add) / static_cast<float>(width);
-                    result = centered / sqrt(variance + 1e-5f) * U.tile(coord(0, 0), shape(m, n)).load();
-                    if (op == "layernorm") { result += V.tile(coord(0, 0), shape(m, n)).load(); }
+                    result = centered / sqrt(variance + 1e-5f) * cast<float>(U.tile(coord(0, 0), shape(m, n)).load());
+                    if (op == "layernorm") { result += cast<float>(V.tile(coord(0, 0), shape(m, n)).load()); }
                 } else if (op == "swiglu") {
-                    result = x / (1.0f + exp(-x)) * U.tile(coord(row, 0), shape(m, n)).load();
+                    result = x / (1.0f + exp(-x)) * cast<float>(U.tile(coord(row, 0), shape(m, n)).load());
                 } else if (op == "gelu_residual") {
-                    result = 0.5f * x * (1.0f + tanh(0.7978845608f * (x + 0.044715f * x * x * x))) + U.tile(coord(row, 0), shape(m, n)).load();
+                    result = 0.5f * x * (1.0f + tanh(0.7978845608f * (x + 0.044715f * x * x * x))) + cast<float>(U.tile(coord(row, 0), shape(m, n)).load());
                 } else {
                     auto mask = op == "masked_softmax" ? valid && (iota(n) <= row % width) : valid;
                     auto score = ite(mask, x, -1e30f);
                     auto exponential = ite(mask, exp(score - reduce(score, n, maximum)), 0.0f);
                     result = exponential / reduce(exponential, n, add);
                 }
-                Y(coord(row, 0), shape(m, n)).store(result);
+                Y(coord(row, 0), shape(m, n)).store(cast<T>(result));
             }
         }
     });
@@ -194,7 +200,7 @@ inline void row_oracle(Fixture &f, const Options &o) {
                 auto left = static_cast<double>(x[base + col % (width / 2)]);
                 auto right = static_cast<double>(x[base + col % (width / 2) + width / 2]);
                 value = col < width / 2 ? left * u[j] - right * v[j] : left * v[j] + right * u[j];
-            } else if (o.operation == "scan") {
+            } else if (o.operation == "scan" || o.operation == "scan_ordered") {
                 prefix += value;
                 prefix_absolute += std::abs(value);
                 f.expected[i] = prefix;
@@ -209,6 +215,7 @@ inline void row_oracle(Fixture &f, const Options &o) {
     }
 }
 
+template<typename T = float>
 [[nodiscard]] inline Fixture make_fixture(const Options &o) {
     using namespace compute::tile;
     Fixture f;
@@ -216,7 +223,14 @@ inline void row_oracle(Fixture &f, const Options &o) {
     auto rows = is_row(op);
     auto gemm = op == "gemm" || op == "gemv";
     auto rank = op == "sort" || op == "topk";
-    auto attention = op == "attention";
+    auto tensorcore_attention = op == "attention_tensorcore";
+    auto attention = op == "attention" || tensorcore_attention;
+    if constexpr (std::is_same_v<T, float>) {
+        if (tensorcore_attention) {
+            f.error = "attention_tensorcore requires FP16/BF16 storage";
+            return f;
+        }
+    }
     if (!rows && !gemm && !rank && !attention) {
         f.error = "operation has no benchmark fixture";
         return f;
@@ -231,20 +245,20 @@ inline void row_oracle(Fixture &f, const Options &o) {
         auto width = o.dimensions[1];
         auto logical_width = op == "rope" ? width / 2 : width;
         if (o.tile[0] != 1 || o.tile[2] != 1 || o.tile[1] < logical_width || o.tile[1] > 16384 ||
-            (op == "rope" && width % 2 != 0) || (op == "scan" && o.tile[1] > 1024)) {
-            f.error = "row schedule requires tile=(1,padded_width,1); scan width <=1024 and RoPE width even";
+            (op == "rope" && width % 2 != 0) || (op == "scan_ordered" && o.tile[1] > 1024)) {
+            f.error = "row schedule requires tile=(1,padded_width,1); ordered scan width <=1024 and RoPE width even";
             return f;
         }
-        build_rows(f, o);
+        build_rows<T>(f, o);
     } else if (gemm) {
         auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        if ((op == "gemv" && n != 1) || o.tile[0] > 128 || o.tile[1] > 128 || o.tile[2] > 256) {
+        if ((op == "gemv" && n != 1) || o.tile[0] > 128 || o.tile[1] > 128 || o.tile[2] > (op == "gemv" ? 1024 : 256)) {
             f.error = "GEMV requires N=1; GEMM tile exceeds benchmark limits";
             return f;
         }
         auto bm = o.tile[0], bn = o.tile[1], bk = o.tile[2];
-        auto definition = tile_kernel("workload_gemm", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
-                                                           TensorView<const float, 1> Unused, TensorView<float, 2> C) {
+        auto definition = tile_kernel("workload_gemm", [=](TensorView<const T, 2> A, TensorView<const T, 2> B,
+                                                           TensorView<const T, 1> Unused, TensorView<T, 2> C) {
             static_cast<void>(Unused);
             auto im = axis("m", bm), jn = axis("n", bn), kk = axis("k", bk);
             auto gm = axis("gm", ceil_div(m, bm)), gn = axis("gn", ceil_div(n, bn));
@@ -254,28 +268,47 @@ inline void row_oracle(Fixture &f, const Options &o) {
                 for (auto &step : nest.pipeline(shape(ceil_div(k, bk)), {.window = 2u, .interval = 1u})) {
                     auto a = A.tile(coord(mi, step.index() * bk), shape(im, kk)).load();
                     auto b = B.tile(coord(step.index() * bk, nj), shape(kk, jn)).load();
-                    acc = mma(a, b, acc);
+                    if (op == "gemv") {
+                        acc += reduce(cast<float>(a) * cast<float>(b), kk, add);
+                    } else {
+                        acc = mma(a, b, acc, {.allow_reassociation = true});
+                    }
                 }
-                C(coord(mi, nj), shape(im, jn)).store(acc);
+                C(coord(mi, nj), shape(im, jn)).store(cast<T>(acc));
             }
         });
         f.kernel = definition.capture(tensor_shape(m, k), tensor_shape(k, n), tensor_shape(1), tensor_shape(m, n));
         f.input_shapes = {vector<int64_t>{m, k}, {k, n}, {1}};
         f.output_shape = {m, n};
-        f.algorithm = "tile_mma_fp32";
+        f.algorithm = op == "gemv" ? "tile_gemv_product_tree_sum" : "tile_mma_typed_inputs_fp32_accumulator_reassociation";
     } else if (rank) {
         auto r = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        if (k > n || n > 1024 || r * n * n > (1ll << 26) || (op == "sort" && k != n) ||
-            o.tile[0] != 1 || o.tile[1] != n || o.tile[2] != 1) {
-            f.error = "quadratic ranking requires N<=1024, K<=N (sort K=N), tile=(1,N,1), work<=2^26";
+        auto padded = o.tile[1];
+        if (k > n || n > 16384 || (op == "sort" && k != n) || o.tile[0] != 1 || o.tile[2] != 1 ||
+            padded < n || padded > 16384 || !std::has_single_bit(static_cast<uint64_t>(padded))) {
+            f.error = "ranking requires K<=N (sort K=N), tile=(1,power_of_two>=N,1), padded width<=16384";
             return f;
         }
-        auto ranking = tile_rank::rows(op == "sort" ? tile_rank::Operation::SORT : tile_rank::Operation::TOPK, r, n, k, true);
-        f.kernel = std::move(ranking.kernel);
+        auto definition = tile_kernel("workload_padded_ranking", [=](TensorView<const T, 2> X,
+                                                                     TensorView<T, 2> Values,
+                                                                     TensorView<int64_t, 2> Indices) {
+            auto local_row = axis("row", 1), column = axis("column", padded);
+            for (auto &nest : parallel(shape(r))) {
+                auto origin = coord(nest.index(), 0);
+                auto loaded = cast<float>(X.tile(origin, shape(local_row, column)).load());
+                auto finite = ite(iota(column) < n, loaded, -std::numeric_limits<float>::infinity());
+                auto ranked = compute::tile::sort(finite, column, true);
+                // Full sorting network followed by masked stores into logical K.
+                // This is explicitly full-sort-prefix, not a selection kernel.
+                Values(origin, ranked.values.space()).store(cast<T>(ranked.values));
+                Indices(origin, ranked.indices.space()).store(ranked.indices);
+            }
+        });
+        f.kernel = definition.capture(tensor_shape(r, n), tensor_shape(r, k), tensor_shape(r, k));
         f.input_shapes = {vector<int64_t>{r, n}, {1}, {1}};
         f.output_shape = {r, k};
         f.ranking = true;
-        f.algorithm = "quadratic_reference_stable_descending_rank";
+        f.algorithm = op == "sort" ? "padded_bitonic_full_sort" : "padded_bitonic_full_sort_prefix";
     } else {
         auto &d = o.dimensions;
         if (d[1] % d[2] != 0 || d[4] < d[3] || o.tile[0] > 128 || o.tile[1] > 256 || o.tile[2] != 1 ||
@@ -283,11 +316,49 @@ inline void row_oracle(Fixture &f, const Options &o) {
             f.error = "attention requires Hq divisible by Hkv, K>=Q, tile=(BQ,BK,1), bounded oracle work";
             return f;
         }
-        auto fixture = tile_llm::attention(d[0], d[1], d[2], d[3], d[4], d[5], d[6], o.tile[0], o.tile[1]);
-        f.kernel = std::move(fixture.kernel);
-        for (size_t i = 0u; i < 3u; i++) { f.input_shapes[i] = std::move(fixture.shapes[i]); }
-        f.output_shape = std::move(fixture.shapes[3]);
-        f.algorithm = "causal_online_softmax_gqa";
+        auto batches = d[0], heads = d[1], kv_heads = d[2], queries = d[3], keys = d[4], channels = d[5], value_channels = d[6];
+        auto bq = o.tile[0], bk = o.tile[1];
+        auto scale = 1.0f / std::sqrt(static_cast<float>(channels));
+        auto definition = tile_kernel("workload_attention", [=](TensorView<const T, 4> Q, TensorView<const T, 4> K,
+                                                                TensorView<const T, 4> V, TensorView<T, 4> O) {
+            auto batch = axis("batch", batches), head = axis("head", heads), query_block = axis("query_block", ceil_div(queries, bq));
+            auto b = axis("b", 1), h = axis("h", 1), m = axis("m", bq), n = axis("n", bk);
+            auto channel = axis("d", channels), dv = axis("dv", value_channels);
+            for (auto &nest : parallel(shape(batch, head, query_block))) {
+                auto b0 = nest.index(batch), h0 = nest.index(head), q0 = nest.index(query_block) * bq;
+                auto kh = h0 / (heads / kv_heads);
+                auto query = Q.tile(coord(b0, h0, q0, 0), shape(b, h, m, channel)).load();
+                auto row_max = full<float>(shape(b, h, m), -1e30f);
+                auto row_sum = zeros<float>(shape(b, h, m));
+                auto acc = zeros<float>(shape(b, h, m, dv));
+                for (auto &step : nest.pipeline(shape(ceil_div(keys, bk)), {.window = 2u, .interval = 1u})) {
+                    auto k0 = step.index() * bk;
+                    auto key = K.tile(coord(b0, kh, k0, 0), shape(b, h, n, channel)).load();
+                    auto stored_value = V.tile(coord(b0, kh, k0, 0), shape(b, h, n, dv)).load();
+                    auto score = mma(query, key, zeros<float>(shape(b, h, m, n)), {.allow_reassociation = true}) * scale;
+                    auto valid = (iota(n) + k0 < keys) && (iota(n) + k0 <= iota(m) + q0 + keys - queries);
+                    auto masked = ite(valid, score, -1e30f);
+                    auto next_max = max(row_max, reduce(masked, n, maximum));
+                    auto alpha = exp(row_max - next_max);
+                    auto probability = ite(valid, exp(masked - next_max), 0.0f);
+                    row_sum = row_sum * alpha + reduce(probability, n, add);
+                    if (tensorcore_attention) {
+                        // Explicit numerical contract: only the PV contribution
+                        // is narrowed; the denominator and accumulator stay FP32.
+                        acc = mma(cast<T>(probability), stored_value, acc * alpha, {.allow_reassociation = true});
+                    } else {
+                        acc = mma(probability, cast<float>(stored_value), acc * alpha, {.allow_reassociation = true});
+                    }
+                    row_max = next_max;
+                }
+                O(coord(b0, h0, q0, 0), shape(b, h, m, dv)).store(cast<T>(acc / row_sum));
+            }
+        });
+        f.input_shapes = {vector<int64_t>{batches, heads, queries, channels}, {batches, kv_heads, keys, channels}, {batches, kv_heads, keys, value_channels}};
+        f.output_shape = {batches, heads, queries, value_channels};
+        f.kernel = definition.capture(tensor_shape(batches, heads, queries, channels), tensor_shape(batches, kv_heads, keys, channels),
+                                      tensor_shape(batches, kv_heads, keys, value_channels), tensor_shape(batches, heads, queries, value_channels));
+        f.algorithm = tensorcore_attention ? "causal_online_softmax_gqa_narrow_pv" : "causal_online_softmax_gqa";
     }
     for (auto &shape : f.input_shapes) {
         if (!product_bounded(shape, 1ull << 24u)) {
@@ -314,18 +385,25 @@ inline void row_oracle(Fixture &f, const Options &o) {
             data[i] = x;
         }
     }
+    if (gemm && o.pattern == "cancellation") {
+        auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
+        for (int64_t t = 0; t + 1 < k; t += 2) {
+            for (int64_t i = 0; i < m; i++) { f.inputs[0][i * k + t + 1] = f.inputs[0][i * k + t]; }
+            for (int64_t j = 0; j < n; j++) { f.inputs[1][(t + 1) * n + j] = -f.inputs[1][t * n + j] * (1.0f - 0x1p-20f); }
+        }
+    }
+    // These float vectors hold exact decoded storage values, never an
+    // unquantized surrogate. Export/runtime convert back to identical bits.
+    for (auto &input : f.inputs) {
+        for (auto &value : input) { value = static_cast<float>(T{value}); }
+    }
     f.expected.resize(volume(f.output_shape));
     f.bound.resize(f.expected.size());
+    if (tensorcore_attention) { f.probability_rounding_bound.resize(f.expected.size()); }
     if (rows) {
         row_oracle(f, o);
     } else if (gemm) {
         auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        if (o.pattern == "cancellation") {
-            for (int64_t t = 0; t + 1 < k; t += 2) {
-                for (int64_t i = 0; i < m; i++) { f.inputs[0][i * k + t + 1] = f.inputs[0][i * k + t]; }
-                for (int64_t j = 0; j < n; j++) { f.inputs[1][(t + 1) * n + j] = -f.inputs[1][t * n + j] * (1.0f - 0x1p-20f); }
-            }
-        }
         for (int64_t i = 0; i < m; i++) {
             for (int64_t j = 0; j < n; j++) {
                 double value = 0.0, absolute = 0.0;
@@ -379,9 +457,44 @@ inline void row_oracle(Fixture &f, const Options &o) {
                         auto index = ((b * d[1] + h) * d[3] + q) * d[6] + c;
                         f.expected[index] = value;
                         f.bound[index] = 5e-5 + 5e-5 * std::abs(value);
+                        if (tensorcore_attention) {
+                            double maximum_value = 0.0, absolute_sum = 0.0;
+                            for (size_t k = 0; k < scores.size(); k++) {
+                                auto magnitude = std::abs(static_cast<double>(f.inputs[2][((b * d[2] + kh) * d[4] + k) * d[6] + c]));
+                                maximum_value = std::max(maximum_value, magnitude);
+                                absolute_sum += magnitude;
+                            }
+                            auto unit = static_cast<double>(static_cast<float>(std::numeric_limits<T>::epsilon())) * .5;
+                            auto eta = static_cast<double>(static_cast<float>(std::numeric_limits<T>::denorm_min()));
+                            auto count = 2.0 * static_cast<double>(scores.size()) + 2.0;
+                            auto gamma = count * 0x1p-24 / (1.0 - count * 0x1p-24);
+                            auto amplification = (1.0 + gamma) / (1.0 - gamma);
+                            // One RNE probability narrowing, positive online
+                            // normalization, <=K rescalings and <=K sum stages.
+                            // max|V| bounds cancellation independently of |Y|.
+                            f.probability_rounding_bound[index] = amplification * (unit * maximum_value + .5 * eta * absolute_sum);
+                        }
                     }
                 }
             }
+        }
+    }
+    if constexpr (!std::is_same_v<T, float>) {
+        if (!rank && op != "reduce_max") {
+            // If float arithmetic error is <= e, one RNE storage conversion
+            // adds <= u*(abs(reference)+e) + half the smallest subnormal.
+            auto unit_roundoff = static_cast<double>(static_cast<float>(std::numeric_limits<T>::epsilon())) * .5;
+            auto subnormal = static_cast<double>(static_cast<float>(std::numeric_limits<T>::denorm_min())) * .5;
+            for (size_t i = 0; i < f.bound.size(); i++) {
+                f.bound[i] += unit_roundoff * (std::abs(f.expected[i]) + f.bound[i]) + subnormal;
+            }
+        }
+    }
+    if (tensorcore_attention) {
+        f.strict_bound = f.bound;
+        auto output_unit = static_cast<double>(static_cast<float>(std::numeric_limits<T>::epsilon())) * .5;
+        for (size_t i = 0; i < f.bound.size(); i++) {
+            f.bound[i] += (1.0 + output_unit) * f.probability_rounding_bound[i];
         }
     }
     return f;

@@ -16,6 +16,7 @@
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/dsl.h>
+#include <luisa/tile/algorithms.h>
 
 #include <array>
 #include <cstdint>
@@ -115,6 +116,7 @@ void test_cuda_reduction_artifact() {
     // REDUCE is realized by the reference left fold, never a Metal-only
     // subgroup/cooperative reduction planner.
     auto source = luisa::string_view{result.artifact.source.data(), result.artifact.source.size()};
+    expect(source.find("#pragma unroll 1") == luisa::string_view::npos);
     expect(source.find("simdgroup") == luisa::string_view::npos);
     expect(source.find("metal.") == luisa::string_view::npos);
 }
@@ -156,6 +158,7 @@ void test_cuda_matmul_artifact() {
     expect(!artifact.source.empty());
     expect(artifact.requires_metal4 == false);
     auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    expect(source.find("#pragma unroll 1") == luisa::string_view::npos);
     // Semantic MMA stays reference-expanded for CUDA: no cooperative tensor,
     // WMMA/mma.sync, MPP fragment or Metal scope may leak into the artifact.
     expect(source.find("cooperative_tensor") == luisa::string_view::npos);
@@ -297,6 +300,41 @@ void test_cuda_ragged_reordered_gemm_artifact() {
     expect(source.find("fragment") == luisa::string_view::npos);
 }
 
+void test_cuda_permutation_unroll_budget() {
+    // The same portable sort covers both sides of the structural budget. This
+    // test stops at CUDA source generation; runtime primitives retain the full
+    // numerical/guard tests through NVRTC and the actual CUDA backend.
+    for (auto width : {int64_t{8}, int64_t{32}, int64_t{128}}) {
+        auto definition = tile_kernel("cuda_tirx_permutation_budget", [=](TensorView<const float, 2> input,
+                                                                          TensorView<float, 2> values,
+                                                                          TensorView<int64_t, 2> indices) {
+            auto row = axis("row", 4), column = axis("column", width);
+            for (auto &nest : parallel(shape(1))) {
+                static_cast<void>(nest);
+                auto value = input.tile(coord(0, 0), shape(row, column)).load();
+                auto ranked = luisa::compute::tile::sort(value, column);
+                values(coord(0, 0), ranked.values.space()).store(ranked.values);
+                indices(coord(0, 0), ranked.indices.space()).store(ranked.indices);
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(4, width), tensor_shape(4, width), tensor_shape(4, width));
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto native = lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { return; }
+        CompileOptions options;
+        options.target = cuda_target();
+        options.noalias = true;
+        auto result = compile_device(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(result)) << result.error;
+        if (!result) { return; }
+        expect(result.artifact.format == DeviceArtifact::Format::CUDA_SOURCE);
+        auto guarded = result.artifact.source.find("#pragma unroll 1") != luisa::string::npos;
+        expect(guarded == (width >= 32)) << "permutation width=" << width;
+    }
+}
+
 void test_cuda_fail_closed_options() {
     constexpr int64_t n = 64;
     auto definition = tile_kernel("cuda_tirx_fail_closed", [](TensorView<const float, 1> input,
@@ -352,5 +390,6 @@ int main(int argc, char *argv[]) {
     "tile_tirx_cuda_nvptx_elementwise_artifact"_test = test_cuda_nvptx_elementwise_artifact;
     "tile_tirx_cuda_nvptx_reduction_artifact_warp_aligned"_test = test_cuda_nvptx_reduction_artifact_warp_aligned;
     "tile_tirx_cuda_ragged_reordered_gemm_artifact"_test = test_cuda_ragged_reordered_gemm_artifact;
+    "tile_tirx_cuda_permutation_unroll_budget"_test = test_cuda_permutation_unroll_budget;
     "tile_tirx_cuda_fail_closed_options"_test = test_cuda_fail_closed_options;
 }
