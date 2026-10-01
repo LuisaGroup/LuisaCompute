@@ -233,18 +233,28 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
     v = tensors[2] if len(tensors) > 2 else None
     mask = None
     scale = None
+    is_causal = False
+    attention_mask_description = None
     if op == "masked_softmax":
         mask = torch.arange(dims[1], device="cuda")[None, :] <= torch.arange(dims[0], device="cuda")[:, None] % dims[1]
     elif op in {"attention", "attention_tensorcore"}:
         import numpy as np
         b, h, kh, q, k, d, dv = dims
-        mask = torch.arange(k, device="cuda")[None, :] <= torch.arange(q, device="cuda")[:, None] + k - q
+        if q == 1:
+            # Last-Q positions: the single query can see every supplied key.
+            attention_mask_description = "no mask (single last-position query), is_causal=False"
+        elif q == k:
+            is_causal = True
+            attention_mask_description = "no explicit mask, is_causal=True (square causal attention)"
+        else:
+            mask = torch.arange(k, device="cuda")[None, :] <= torch.arange(q, device="cuda")[:, None] + k - q
+            attention_mask_description = "explicit bottom-right causal mask, is_causal=False"
         scale = float(semantics.get("attention_scale", np.float32(1) / np.sqrt(np.float32(d))))
     stable = ranking_contract == "stable"
     descriptions = {"topk": "stable descending sort then prefix" if stable else "torch.topk, descending sorted values, tie permutations allowed",
                     "sort": f"torch.sort, descending, stable={stable}",
-                    "attention": "functional SDPA, explicit bottom-right causal mask, GQA",
-                    "attention_tensorcore": "default functional SDPA, explicit bottom-right causal mask/GQA; evaluated against both strict and declared single-probability-narrowing contracts",
+                    "attention": f"functional SDPA, {attention_mask_description}, GQA",
+                    "attention_tensorcore": f"default functional SDPA, {attention_mask_description}, GQA; evaluated against both strict and declared single-probability-narrowing contracts",
                     "gemm": "functional mm", "gemv": "functional mm with N=1", "bmm": "functional bmm"}
 
     def cast(value):
@@ -272,7 +282,7 @@ def make_program(torch, packet, tensors, ranking_contract="standard"):
         elif op == "gelu_residual":
             return cast(torch.nn.functional.gelu(x.float(), approximate="tanh") + u.float())
         elif op in {"attention", "attention_tensorcore"}:
-            return torch.nn.functional.scaled_dot_product_attention(x, u, v, attn_mask=mask, scale=scale, enable_gqa=dims[1] != dims[2])
+            return torch.nn.functional.scaled_dot_product_attention(x, u, v, attn_mask=mask, is_causal=is_causal, scale=scale, enable_gqa=dims[1] != dims[2])
         elif op in {"scan", "scan_ordered"}:
             return cast(torch.cumsum(x, dim=-1, dtype=torch.float32))
         elif op == "reduce_sum":

@@ -154,6 +154,13 @@ if (CUDAToolkit_FOUND)
                     "LUISA_CUDA_TILE_IR_INCLUDE_DIR=\"${_luisa_cuda_tile_ir_include}\"")
             set_target_properties(luisa-cuda-tile-compiler PROPERTIES OUTPUT_NAME "luisa_cuda_tile_compiler")
             if (WIN32)
+                # Large Tile expressions exceed the default 1 MiB NVRTC process stack.
+                # Reserve more address space without increasing the initial commit.
+                if (MINGW)
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE "LINKER:--stack,16777216")
+                else ()
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE "LINKER:/STACK:16777216")
+                endif ()
                 target_link_libraries(luisa-cuda-tile-compiler PRIVATE Ws2_32 ntdll)
                 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
                     target_link_options(luisa-cuda-tile-compiler PRIVATE

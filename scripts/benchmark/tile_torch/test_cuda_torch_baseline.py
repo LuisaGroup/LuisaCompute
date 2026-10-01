@@ -2,14 +2,51 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 import numpy as np
 
-from cuda_torch_baseline import generated_calls, expected_shapes, load_packet, validate_output, verify_packet
+from cuda_torch_baseline import generated_calls, expected_shapes, load_packet, make_program, validate_output, verify_packet
 
 
 class CudaTorchPacketTests(unittest.TestCase):
+    def test_attention_avoids_redundant_masks_with_identical_last_q_semantics(self):
+        for operation in ("attention", "attention_tensorcore"):
+            for q, k in ((1, 1), (1, 65), (17, 17), (3, 17)):
+                with self.subTest(operation=operation, q=q, k=k):
+                    arange_calls = []
+
+                    def arange(n, **kwargs):
+                        arange_calls.append(n)
+                        return np.arange(n)
+
+                    fake_torch = SimpleNamespace(arange=arange, nn=SimpleNamespace(functional=SimpleNamespace(
+                        scaled_dot_product_attention=lambda *args, **kwargs: (args, kwargs))))
+                    packet = dict(manifest=dict(operation=operation, dimensions=[1, 4, 2, q, k, 16, 16],
+                                                semantics=dict(attention_scale=0.25)))
+                    tensors = [object(), object(), object()]
+                    invoke, description = make_program(fake_torch, packet, tensors)
+                    args, kwargs = invoke()
+                    self.assertEqual(args, tuple(tensors))
+                    self.assertTrue(kwargs["enable_gqa"])
+                    self.assertEqual(kwargs["scale"], 0.25)
+                    reference = np.arange(k)[None, :] <= np.arange(q)[:, None] + k - q
+                    if q == 1:
+                        self.assertIsNone(kwargs["attn_mask"])
+                        self.assertFalse(kwargs["is_causal"])
+                        effective = np.ones((q, k), dtype=bool)
+                    elif q == k:
+                        self.assertIsNone(kwargs["attn_mask"])
+                        self.assertTrue(kwargs["is_causal"])
+                        effective = np.arange(k)[None, :] <= np.arange(q)[:, None]
+                    else:
+                        self.assertFalse(kwargs["is_causal"])
+                        effective = kwargs["attn_mask"]
+                    np.testing.assert_array_equal(effective, reference)
+                    self.assertEqual(arange_calls, [] if q == 1 or q == k else [k, q])
+                    self.assertIn("is_causal=" + str(kwargs["is_causal"]), description)
+
     def fixture(self, directory, ranking=False):
         if ranking:
             operation, dimensions = "topk", [1, 3, 2]
