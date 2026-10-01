@@ -8,8 +8,9 @@ development machines without the pinned TVMx tree only build the fail-closed
 non-TIRX variant; that is expected and is not a signal that the CUDA Tile work is
 stubbed.
 
-This page is an executable recipe, not a claim that it has been run on this
-machine. Update it if the pinned commits or commands change.
+The TVMx steps below are a build recipe. The independent native Tile IR section
+records its own validation checkpoint. Update this page if pinned commits or
+commands change.
 
 ## 1. TVMx checkout/build (CUDA codegen)
 
@@ -105,3 +106,59 @@ compile and clears it for the cold-cache compile.
   tile XIR bridge is always compiled into `lc-tile` and the CUDA backend/test
   define `LUISA_CUDA_TILE_TIRX` / `LUISA_TEST_TILE_CUDA_TIRX` exactly like the
   CMake TIRX bridge wiring.
+
+## 6. Experimental native CUDA Tile IR
+
+On a CUDA device, `Lowering::NATIVE` with the exact environment setting
+`LUISA_CUDA_TILE_IR=1` selects a separate route:
+
+```text
+Luisa TileIR -> CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin
+```
+
+```cpp
+auto shader = tile::compile(device, kernel,
+    {.lowering = tile::Lowering::NATIVE}, {.enable_fast_math = false});
+// Check shader; metadata().error reports unsupported programs or missing tools.
+```
+
+CMake builds the `luisa-cuda-tile-compiler` target, producing
+`luisa_cuda_tile_compiler[.exe]`, when CUDA 13.4 or newer, `cuda_tile.h`, and
+`tileiras` from the selected toolkit are available on Windows or Linux. Keep
+the helper beside the runtime binaries. This route does not require TVMx;
+`Lowering::TIRX` continues to use its independent PTX route regardless of the
+native opt-in. xmake currently builds the native route as explicitly unavailable.
+
+The initial scope is static, contiguous FP32 buffers of rank 1–3, one root
+`parallel`, supported elementwise operations, ordered serial/pipeline loops,
+and rank-two FP32 MMA. Logical Tile extents must be powers of two; buffer
+extents may be ragged and use masked loads/stores. Bool and 32/64-bit integer
+intermediate values are supported. FP32 MMA uses ascending-K, elementwise FMA
+with ties-to-even rounding and preserved subnormals, without input narrowing.
+Unsupported types, operations and explicit execution/layout constraints fail
+with a diagnostic.
+
+There is no cache on this experimental route: `enable_cache` is accepted as a
+hint, but every compile invokes the tools again. Named archives, compile-only,
+`native_include`, fast math, and nonzero `threads_per_group` or `max_registers`
+are rejected. The generated CUDA Tile source and realization string remain
+available in shader metadata.
+
+With CUDA and tests enabled in the selected CMake build, use these PowerShell
+commands after configuration:
+
+```powershell
+cmake --build build
+$env:LUISA_CUDA_TILE_IR = "1"
+./build/bin/test_tile_cuda_ir.exe cuda --require-native
+Remove-Item Env:LUISA_CUDA_TILE_IR
+./build/bin/test_tile_cuda_ir.exe cuda --expect-disabled
+```
+
+For a build without the helper, set the variable to `1` and use
+`cuda --expect-unavailable` to check the capability diagnostic; that is not a
+positive runtime test. On 2026-10-01, the native runtime suite passed all eight
+cases and 53,096 assertions on Windows with CUDA 13.4 and an RTX 4060 Laptop GPU.
+The suite covers full FP64 GEMM oracles, transposes and tails, ordered FMA,
+BufferView offsets and guards, alias/snapshot behavior, negative origins,
+special-value copies, simultaneous loop carries, and rejected options.

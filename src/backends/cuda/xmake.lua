@@ -68,6 +68,10 @@ on_load(function(target)
     local src_path = os.scriptdir()
     local exclude_files = {}
     exclude_files["cuda_nvrtc_compiler.cpp"] = true
+    -- The CUDA 13.4 native Tile compiler is a CMake-gated optional executable.
+    -- Without LUISA_CUDA_TILE_IR_ENABLED, xmake keeps an explicit unavailable
+    -- diagnostic and never links nvrtcGetTileIR into the ordinary backend.
+    exclude_files["cuda_tile_ir_compiler.cpp"] = true
     exclude_files["cuda_builtin_embedded.cpp"] = true
     exclude_files["cuda_devrt_embedded.cpp"] = true
     exclude_files["cuda_texture_compression.cpp"] = true

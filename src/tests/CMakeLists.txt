@@ -1537,6 +1537,15 @@ endif ()
       endif ()
       add_dependencies(test_tile_cuda_ptx luisa-compute-backend-cuda)
       add_dependencies(test_tile_cuda_ptx luisa-cuda-nvrtc-standalone-compiler)
+
+      # Deliberately manual: positive verification requires an explicit runtime opt-in.
+      luisa_compute_add_test(test_tile_cuda_ir unit/tile/test_tile_cuda_ir.cpp)
+      target_link_libraries(test_tile_cuda_ir PRIVATE luisa-compute-tile)
+      add_dependencies(test_tile_cuda_ir luisa-compute-backend-cuda)
+      if (TARGET luisa-cuda-tile-compiler)
+          target_compile_definitions(test_tile_cuda_ir PRIVATE LUISA_TEST_CUDA_TILE_IR_ENABLED=1)
+          add_dependencies(test_tile_cuda_ir luisa-cuda-tile-compiler)
+      endif ()
   endif ()
 
 # --- integration/runtime: external device config extension tests ---

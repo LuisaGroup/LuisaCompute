@@ -56,6 +56,19 @@ CUDAShaderTile::CUDAShaderTile(CUDADevice *device, luisa::vector<std::byte> ptx,
     _module_image = std::move(ptx);
 }
 
+CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::string entry,
+                               const std::array<uint32_t, 3u> &grid,
+                               luisa::vector<uint32_t> buffer_arguments,
+                               luisa::vector<Usage> argument_usages) noexcept
+    : CUDAShader{nullptr, std::move(argument_usages)},
+      _module{module}, _function{function}, _entry{std::move(entry)},
+      _grid{grid}, _block_size{1u, 1u, 1u}, _graph_compatible{false},
+      _buffer_arguments{std::move(buffer_arguments)} {
+    // module_image remains empty. Vulkan interop and CUDA graphs use the DSL
+    // parameter ABI, which is incompatible with Tile's direct pointer list.
+    LUISA_ASSERT(_module != nullptr && _function != nullptr, "Native Tile requires an owned module and entry.");
+}
+
 CUDAShaderTile::~CUDAShaderTile() noexcept {
     LUISA_CHECK_CUDA(cuModuleUnload(_module));
 }

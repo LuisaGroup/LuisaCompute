@@ -1,6 +1,6 @@
-// CUDA native-Tile factory: lowers a Tile kernel through the shared TIRx
-// bridge into a CUDA device artifact (CUDA C source or NVPTX text) and then
-// compiles/loads it for direct, statically shaped cuLaunchKernel launches.
+// CUDA Tile factory: the TIRx route produces SIMT CUDA source/NVPTX;
+// an explicitly enabled native route emits CUDA Tile C++ and compiles Tile IR
+// to cubin. Both use the static, direct-buffer CUDAShaderTile launch ABI.
 //
 // Mirror of src/backends/metal/tile/metal_tile.cpp for the CUDA backend.
 
@@ -21,6 +21,8 @@
 #include <luisa/tile/runtime.h>
 
 #include "cuda_tile.h"
+#include "cuda_tile_codegen.h"
+#include "cuda_tile_ir.h"
 #include "../cuda_buffer.h"
 #include "../cuda_device.h"
 #include "../cuda_error.h"
@@ -551,8 +553,82 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         metadata.error = "Invalid Tile lowering choice or TIRx options passed to native lowering";
         return ShaderCreationInfo::make_invalid();
     }
-    metadata.error = "CUDA native Tile lowering is not implemented; use Lowering::TIRX";
-    return ShaderCreationInfo::make_invalid();
+    auto opt_in = luisa::get_environment_variable("LUISA_CUDA_TILE_IR");
+    if (!opt_in || luisa::string_view{*opt_in} != "1") {
+        metadata.error = "CUDA native Tile IR is experimental; set LUISA_CUDA_TILE_IR=1 or use Lowering::TIRX";
+        return ShaderCreationInfo::make_invalid();
+    }
+    auto fail = [&metadata](luisa::string_view message) noexcept {
+        metadata.error = message;
+        return ShaderCreationInfo::make_invalid();
+    };
+    if (!native_tile_ir_compiler_available()) {
+        return fail("CUDA Tile IR is unavailable: configure CMake with CUDA 13.4+ Tile headers and tileiras");
+    }
+    if (tile_options.threads_per_group != 0u) {
+        return fail("CUDA Tile IR does not support an explicit threads_per_group constraint");
+    }
+    if (option.max_registers != 0u) {
+        return fail("CUDA Tile IR does not support an explicit max_registers constraint");
+    }
+    if (option.enable_fast_math) {
+        return fail("CUDA Tile IR currently requires enable_fast_math=false");
+    }
+    if (!option.name.empty()) {
+        return fail("CUDA Tile IR does not support named shader archives");
+    }
+    if (!option.native_include.empty()) {
+        return fail("CUDA Tile IR does not support native_include");
+    }
+    auto artifact = native_tile::generate(kernel);
+    if (!artifact.ok()) { return fail(artifact.error); }
+    auto block = make_uint3(1u, 1u, 1u);
+    metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
+    metadata.source = std::move(artifact.source);
+    metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; FP32; direct-buffer ABI; block=(1,1,1)";
+    // enable_cache is a hint. This experimental route deliberately does not
+    // consult/write the PTX cache, a user archive, or an in-memory binary cache.
+    luisa::vector<Usage> usages;
+    luisa::vector<uint32_t> bindings;
+    for (auto i = 0u; i < artifact.arguments.size(); i++) {
+        const auto &argument = artifact.arguments[i];
+        if (argument.minimum_size_bytes > std::numeric_limits<size_t>::max()) {
+            return fail("CUDA Tile IR argument size exceeds the host Runtime ABI");
+        }
+        auto usage = argument.read ? (argument.written ? Usage::READ_WRITE : Usage::READ) :
+                                    (argument.written ? Usage::WRITE : Usage::NONE);
+        metadata.arguments.emplace_back(tile::KernelArgument{
+            argument.element, static_cast<size_t>(argument.minimum_size_bytes), usage});
+        usages.emplace_back(usage);
+        bindings.emplace_back(i);
+    }
+    auto binary = compile_native_tile_ir(context().runtime_directory(), metadata.source,
+                                         _handle.compute_capability(), option.enable_debug_info);
+    if (!binary.valid()) { return fail(binary.error); }
+    auto shader = with_handle([&]() noexcept -> CUDAShaderTile * {
+        CUmodule module{};
+        auto status = cuModuleLoadData(&module, binary.cubin.data());
+        if (status != CUDA_SUCCESS) {
+            metadata.error = luisa::format("CUDA Tile IR cubin load failed (CUDA {})", static_cast<int>(status));
+            return nullptr;
+        }
+        CUfunction function{};
+        status = cuModuleGetFunction(&function, module, artifact.entry.c_str());
+        if (status != CUDA_SUCCESS) {
+            auto cleanup = cuModuleUnload(module);
+            metadata.error = luisa::format("CUDA Tile IR entry lookup failed (CUDA {}, module cleanup {})",
+                                          static_cast<int>(status), static_cast<int>(cleanup));
+            return nullptr;
+        }
+        return new_with_allocator<CUDAShaderTile>(module, function, std::move(artifact.entry),
+                                                artifact.grid, std::move(bindings), std::move(usages));
+    });
+    if (shader == nullptr) { return ShaderCreationInfo::make_invalid(); }
+    ShaderCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(shader);
+    info.native_handle = shader->handle();
+    info.block_size = block;
+    return info;
 }
 
 }// namespace luisa::compute::cuda

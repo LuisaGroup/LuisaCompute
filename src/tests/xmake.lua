@@ -694,6 +694,12 @@ end
       end)
       test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
       test_proj("test_cuda_graph_dag", "integration/runtime/test_cuda_graph_dag.cpp")
+    -- xmake deliberately
+    -- compiles the experimental native compiler out; --expect-unavailable verifies it.
+    test_proj("test_tile_cuda_ir", "unit/tile/test_tile_cuda_ir.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+
     -- The optional TIRx bridge is compiled into lc-tile when
     -- lc_tile_tirx_bridge is enabled. Without it this executable verifies the
     -- CUDA backend fails closed for tile TIRX requests; with it, the same

@@ -18,7 +18,7 @@ class CUDADevice;
 // A statically shaped, direct-buffer Tile shader launched on CUDA.
 //
 // Unlike the ordinary DSL CUDAShaderNative, a Tile device artifact has:
-//   * one __global__ entry whose parameters are plain typed buffer pointers
+//   * one device entry whose parameters are plain typed buffer pointers
 //     (no trailing uint4 launch-size parameter, no cudadevrt/kernel_launcher),
 //   * a static grid/block configuration carried by the artifact, and
 //   * a device binding order that may differ from the original host argument
@@ -35,6 +35,7 @@ private:
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
+    bool _graph_compatible{true};
     // Indexed by device buffer slot; each value indexes the original host
     // ShaderDispatchCommand argument (see DeviceArtifact::buffer_arguments).
     luisa::vector<uint32_t> _buffer_arguments;
@@ -55,8 +56,14 @@ public:
                    uint3 block_size,
                    luisa::vector<uint32_t> buffer_arguments,
                    luisa::vector<Usage> argument_usages) noexcept;
+    // Takes ownership of a fully loaded native Tile cubin and its resolved
+    // entry. No second module load, PTX patching, or importable DSL image.
+    CUDAShaderTile(CUmodule module, CUfunction function, luisa::string entry,
+                   const std::array<uint32_t, 3u> &grid,
+                   luisa::vector<uint32_t> buffer_arguments,
+                   luisa::vector<Usage> argument_usages) noexcept;
     ~CUDAShaderTile() noexcept override;
-    [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
+    [[nodiscard]] bool is_graph_compatible() const noexcept override { return _graph_compatible; }
     [[nodiscard]] void *handle() const noexcept override { return _function; }
     [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
     [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }
