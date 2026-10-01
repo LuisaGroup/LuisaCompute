@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -88,13 +89,15 @@ uint lc_strict_native_route_marker(uint value) { return value; }
 }// namespace
 
 int main(int argc, char *argv[]) {
+    // Boost.UT's string_view comparisons select overloaded logical operators,
+    // which do not short-circuit the argc/null guards around argv access.
     if (argc < 2 || argv == nullptr || argv[1] == nullptr ||
-        luisa::string_view{argv[1]} != "vk") {
+        std::strcmp(argv[1], "vk") != 0) {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_native_route_guard");
         return 2;
     }
     if (argc >= 3 && argv[2] != nullptr &&
-        luisa::string_view{argv[2]} == child_probe) {
+        std::strcmp(argv[2], child_probe.data()) == 0) {
         return run_strict_native_route_probe(argc, argv);
     }
     std::vector<const char *> ut_argv;
@@ -119,6 +122,11 @@ int main(int argc, char *argv[]) {
         auto command = luisa::format(
             "\"{}\" vk {} > \"{}\" 2>&1",
             executable_path, child_probe, log_path.string());
+#ifdef _WIN32
+        // system() invokes cmd /C, which strips the outer quote pair. Preserve
+        // the executable and redirected path quotes by enclosing the full line.
+        command = luisa::format("\"{}\"", command);
+#endif
         auto status = std::system(command.c_str());
         auto log = read_text_file(log_path);
 

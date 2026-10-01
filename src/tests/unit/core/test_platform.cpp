@@ -5,8 +5,19 @@
 #include "ut/ut.hpp"
 
 #include <cstring>
+#include <cstdlib>
 #include <luisa/core/platform.h>
 #include <luisa/core/logging.h>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -44,6 +55,58 @@ void reg_env_separator() {
 #else
         expect(sep == ':') << "env separator on POSIX should be ':'";
 #endif
+    };
+}
+
+void reg_process_environment() {
+
+    "process_environment_changes_and_owned_values"_test = [] {
+        constexpr auto name = "LUISA_TEST_PLATFORM_PROCESS_ENVIRONMENT";
+        auto set_value = [](const char *key, const char *value) noexcept {
+#ifdef _WIN32
+            return SetEnvironmentVariableA(key, value) != 0 ||
+                   (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+            return value == nullptr ? unsetenv(key) == 0 : setenv(key, value, 1) == 0;
+#endif
+        };
+        struct RestoreEnvironment {
+            const char *name;
+            decltype(set_value) set;
+            luisa::optional<luisa::string> previous;
+            ~RestoreEnvironment() noexcept {
+                static_cast<void>(set(name, previous ? previous->c_str() : nullptr));
+            }
+        } restore{name, set_value, luisa::get_environment_variable(name)};
+
+        // These writes deliberately bypass the core DLL's CRT environment.
+        expect(set_value(name, nullptr));
+        expect(!luisa::get_environment_variable(name));
+        expect(set_value(name, ""));
+        auto empty = luisa::get_environment_variable(name);
+        expect(empty.has_value());
+        if (empty) { expect(empty->empty()); }
+
+        expect(set_value(name, "first"));
+        auto first = luisa::get_environment_variable(name);
+        expect(first.has_value());
+        if (first) { expect(static_cast<bool>(*first == "first")); }
+
+        auto long_value = luisa::string(4096u, 'x');
+        long_value.back() = 'y';
+        expect(set_value(name, long_value.c_str()));
+        auto grown = luisa::get_environment_variable(name);
+        expect(grown.has_value());
+        if (grown) { expect(static_cast<bool>(*grown == long_value)); }
+        if (first) { expect(static_cast<bool>(*first == "first")); }
+
+        expect(set_value(name, "short"));
+        auto shortened = luisa::get_environment_variable(name);
+        expect(shortened.has_value());
+        if (shortened) { expect(static_cast<bool>(*shortened == "short")); }
+        expect(set_value(name, nullptr));
+        expect(!luisa::get_environment_variable(name));
+        if (grown) { expect(static_cast<bool>(*grown == long_value)); }
     };
 }
 
@@ -151,6 +214,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_exe_path();
     reg_env_separator();
+    reg_process_environment();
     reg_dynamic_module_name();
     reg_aligned_alloc_basic();
     reg_aligned_alloc_various_alignments();

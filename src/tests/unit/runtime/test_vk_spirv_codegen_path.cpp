@@ -7655,6 +7655,10 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
         auto command = luisa::format(
             "\"{}\" vk --indirect-native-alias-probe > \"{}\" 2>&1",
             executable_path, log_path.string());
+#ifdef _WIN32
+        // Preserve the executable and log path quotes when cmd /C strips the outer pair.
+        command = luisa::format("\"{}\"", command);
+#endif
         auto status = std::system(command.c_str());
         expect(status != 0)
             << "a distinct Luisa wrapper for the same VkBuffer must not bypass indirect-source alias validation";
@@ -7706,6 +7710,10 @@ uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
         auto command = luisa::format(
             "\"{}\" vk --indirect-bindless-alias-probe > \"{}\" 2>&1",
             executable_path, log_path.string());
+#ifdef _WIN32
+        // Preserve the executable and log path quotes when cmd /C strips the outer pair.
+        command = luisa::format("\"{}\"", command);
+#endif
         auto status = std::system(command.c_str());
         expect(status != 0)
             << "an indirect target must not reach its metadata source through a writable bindless descriptor";

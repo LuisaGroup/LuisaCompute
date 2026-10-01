@@ -8,6 +8,7 @@
 #include <fstream>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/builder.h>
@@ -215,8 +216,8 @@ canonicalize_spirv_codegen_one_shot_loops(
 
     if (candidates.empty()) { return info; }
 
-    if (auto trace = std::getenv("LUISA_XIR_TRACE_PASSES");
-        trace != nullptr && luisa::string_view{trace} == "1") {
+    if (auto trace = luisa::get_environment_variable("LUISA_XIR_TRACE_PASSES");
+        trace && luisa::string_view{*trace} == "1") {
         for (auto &&candidate : candidates) {
             auto *definition = candidate.owner->parent_function();
             auto ordinal = [&](xir::BasicBlock *candidate_block) noexcept {
@@ -488,8 +489,8 @@ create_spirv_codegen_post_restructure_pipeline() noexcept {
 namespace {
 
 [[nodiscard]] bool optional_optimization_enabled() noexcept {
-    if (auto env = std::getenv("LUISA_XIR_DISABLE_OPTIMIZATION")) {
-        return luisa::string_view{env} != "1";
+    if (auto env = luisa::get_environment_variable("LUISA_XIR_DISABLE_OPTIMIZATION")) {
+        return luisa::string_view{*env} != "1";
     }
     return true;
 }
@@ -501,9 +502,9 @@ namespace {
 // per-shader option, including an explicit "0" that disables it.
 [[nodiscard]] bool scalarizer_enabled(
     const ShaderOption &option) noexcept {
-    if (auto *env =
-            std::getenv("LUISA_XIR_ENABLE_SCALARIZER")) {
-        return luisa::string_view{env} == "1";
+    if (auto env =
+            luisa::get_environment_variable("LUISA_XIR_ENABLE_SCALARIZER")) {
+        return luisa::string_view{*env} == "1";
     }
     return option.enable_scalarizer;
 }

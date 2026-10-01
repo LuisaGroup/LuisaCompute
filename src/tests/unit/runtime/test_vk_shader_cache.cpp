@@ -187,8 +187,10 @@ template<typename Shader>
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc <= 1 || argv == nullptr ||
-        luisa::string_view{argv[1]} != "vk") {
+    // Boost.UT's string_view comparisons select overloaded logical operators,
+    // which do not short-circuit the argc/null guards around argv access.
+    if (argc <= 1 || argv == nullptr || argv[1] == nullptr ||
+        std::strcmp(argv[1], "vk") != 0) {
         LUISA_INFO(
             "Usage: {} vk",
             argc > 0 && argv != nullptr ?

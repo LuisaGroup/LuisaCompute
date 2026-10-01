@@ -13,6 +13,7 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/format.h>
 
 namespace lc::spirv {
@@ -69,11 +70,11 @@ void register_pass(spvtools::Optimizer &optimizer,
 // default, mirroring the strict LUISA_SPIRV_OPT_LEVEL parsing.
 [[nodiscard]] size_t
 spirv_opt_max_iterations_from_environment() noexcept {
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_MAX_ITERATIONS")) {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_MAX_ITERATIONS")) {
         char *end = nullptr;
         errno = 0;
-        auto value = std::strtol(env, &end, 10);
-        if (errno == 0 && end != env && *end == '\0' &&
+        auto value = std::strtol(env->c_str(), &end, 10);
+        if (errno == 0 && end != env->c_str() && *end == '\0' &&
             value >= 1 && value <= 10) {
             return static_cast<size_t>(value);
         }
@@ -86,11 +87,11 @@ spirv_opt_max_iterations_from_environment() noexcept {
 // parity). Values must fit the uint32_t factory argument.
 [[nodiscard]] uint32_t
 spirv_opt_sroa_limit_from_environment() noexcept {
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_SROA_LIMIT")) {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_SROA_LIMIT")) {
         char *end = nullptr;
         errno = 0;
-        auto value = std::strtol(env, &end, 10);
-        if (errno == 0 && end != env && *end == '\0' &&
+        auto value = std::strtol(env->c_str(), &end, 10);
+        if (errno == 0 && end != env->c_str() && *end == '\0' &&
             value >= 0 && value <= std::numeric_limits<int>::max()) {
             return static_cast<uint32_t>(value);
         }
@@ -445,18 +446,18 @@ SpirvTransformCommitReport validate_and_commit_spirv_transform(
 
 SpirvOptimizerOptions spirv_optimizer_options_from_environment() noexcept {
     SpirvOptimizerOptions options;
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_LEVEL")) {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_LEVEL")) {
         char *end = nullptr;
         errno = 0;
-        auto value = std::strtol(env, &end, 10);
-        if (errno == 0 && end != env && *end == '\0' &&
+        auto value = std::strtol(env->c_str(), &end, 10);
+        if (errno == 0 && end != env->c_str() && *end == '\0' &&
             value >= std::numeric_limits<int>::lowest() &&
             value <= std::numeric_limits<int>::max()) {
             options.level = static_cast<int>(value);
         }
     }
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_PASSES")) {
-        options.preset = env;
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_PASSES")) {
+        options.preset = *env;
     }
     return options;
 }
@@ -539,9 +540,9 @@ SpirvOptimizerReport optimize_spirv(
     // Optional -Oconfig-style custom pass list appended after the preset
     // (policy #5). Invalid flags fail closed and retain the input binary,
     // matching DXC's behavior of aborting on an invalid -Oconfig list.
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_PASS_FLAGS")) {
-        if (*env != '\0' &&
-            !register_custom_pass_flags(optimizer, report, env)) {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_PASS_FLAGS")) {
+        if (!env->empty() &&
+            !register_custom_pass_flags(optimizer, report, *env)) {
             report.diagnostics.append(
                 "LUISA_SPIRV_OPT_PASS_FLAGS contains an invalid pass flag; "
                 "aborting optimization and retaining the input binary.\n");
@@ -557,17 +558,17 @@ SpirvOptimizerReport optimize_spirv(
     // validate_and_commit_spirv_transform below; per-iteration validation is
     // redundant and expensive (DXC L17194 does the same).
     optimizer_options.set_run_validator(false);
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_MAX_ID_BOUND")) {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_MAX_ID_BOUND")) {
         char *end = nullptr;
         errno = 0;
-        auto value = std::strtol(env, &end, 10);
-        if (errno == 0 && end != env && *end == '\0' &&
+        auto value = std::strtol(env->c_str(), &end, 10);
+        if (errno == 0 && end != env->c_str() && *end == '\0' &&
             value > 0 && value <= std::numeric_limits<int>::max()) {
             optimizer_options.set_max_id_bound(static_cast<uint32_t>(value));
         }
     }
-    if (auto *env = std::getenv("LUISA_SPIRV_OPT_PRESERVE_BINDINGS")) {
-        luisa::string_view text{env};
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_PRESERVE_BINDINGS")) {
+        luisa::string_view text{*env};
         if (text == "1" || text == "true" || text == "TRUE") {
             optimizer_options.set_preserve_bindings(true);
         } else if (text == "0" || text == "false" || text == "FALSE") {

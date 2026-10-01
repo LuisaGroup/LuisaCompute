@@ -3068,9 +3068,9 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
 #ifdef LUISA_XIR_TO_SPIRV
 [[nodiscard]] static uint64_t xir_spirv_environment_hash() noexcept {
     auto hash_env = [](const char *name) noexcept {
-        auto *value = std::getenv(name);
-        return value == nullptr ? 0ull :
-                                  luisa::hash_value(luisa::string_view{value});
+        auto value = luisa::get_environment_variable(name);
+        return !value ? 0ull :
+                        luisa::hash_value(luisa::string_view{*value});
     };
     return luisa::hash_combine({
         hash_env("LUISA_XIR_DISABLE_OPTIMIZATION"),

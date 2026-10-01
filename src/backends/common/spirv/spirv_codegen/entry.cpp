@@ -9,6 +9,7 @@
 #include <SPIRV/disassemble.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/algorithm.h>
 #include <fstream>
 #include <sstream>
@@ -438,7 +439,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     // Keep the exact emitter output available when the mandatory validator
     // rejects it. Dumping after validation made LUISA_DUMP_SPV ineffective for
     // precisely the failures it is intended to diagnose.
-    if (std::getenv("LUISA_DUMP_SPV")) {
+    if (luisa::get_environment_variable("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
         std::ofstream file(filename.c_str(), std::ios::binary);
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));

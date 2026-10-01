@@ -8,6 +8,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa {
 
@@ -36,6 +37,9 @@ struct TraceItem {
 
 [[nodiscard]] LUISA_CORE_API luisa::string current_executable_path() noexcept;
 [[nodiscard]] LUISA_CORE_API char env_separator() noexcept;
+// Reads the current process environment, including changes made after a DLL
+// was loaded. The owned result distinguishes an unset variable from an empty one.
+[[nodiscard]] LUISA_CORE_API luisa::optional<luisa::string> get_environment_variable(const char *name) noexcept;
 
 }// namespace luisa
 

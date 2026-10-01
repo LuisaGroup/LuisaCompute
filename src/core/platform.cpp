@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+#include <cstdlib>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
@@ -533,6 +534,30 @@ char env_separator() noexcept {
 
 // common functions
 namespace luisa {
+luisa::optional<luisa::string> get_environment_variable(const char *name) noexcept {
+#if defined(LUISA_PLATFORM_WINDOWS)
+    // Statically linked CRTs keep separate environment tables in each DLL.
+    // Read the process environment directly and retry if its value grows.
+    luisa::string value(128u, '\0');
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        auto length = GetEnvironmentVariableA(name, value.data(), static_cast<DWORD>(value.size()));
+        if (length == 0u) {
+            if (GetLastError() == ERROR_SUCCESS) { return luisa::string{}; }
+            return luisa::nullopt;
+        }
+        if (length < value.size()) {
+            value.resize(length);
+            return value;
+        }
+        value.resize(length);
+    }
+#else
+    if (auto *value = std::getenv(name)) { return luisa::string{value}; }
+    return luisa::nullopt;
+#endif
+}
+
 luisa::string to_string(const TraceItem &item) noexcept {
     using namespace std::string_view_literals;
     return luisa::format("{}", item);
