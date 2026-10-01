@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include <spirv-tools/libspirv.hpp>
@@ -123,6 +125,96 @@ public:
     luisa::span<const uint32_t> words) noexcept {
     spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
     return tools.Validate(words.data(), words.size());
+}
+
+struct SpirvReachableInstructions {
+    size_t unreachable_count{0u};
+    size_t store_count{0u};
+    size_t return_count{0u};
+};
+
+[[nodiscard]] luisa::optional<SpirvReachableInstructions>
+inspect_reachable_instructions(luisa::span<const uint32_t> words) noexcept {
+    struct Block {
+        uint32_t function_id{0u};
+        luisa::vector<uint32_t> successors;
+        SpirvReachableInstructions instructions;
+    };
+    struct State {
+        uint32_t function_id{0u};
+        uint32_t block_id{0u};
+        bool needs_entry{false};
+        std::unordered_map<uint32_t, Block> blocks;
+        luisa::vector<uint32_t> entries;
+    } state;
+    auto parse = [](void *user_data, const spv_parsed_instruction_t *instruction) -> spv_result_t {
+        auto &state = *static_cast<State *>(user_data);
+        auto opcode = static_cast<spv::Op>(instruction->opcode);
+        if (opcode == spv::Op::OpFunction) {
+            state.function_id = instruction->result_id;
+            state.block_id = 0u;
+            state.needs_entry = true;
+        } else if (opcode == spv::Op::OpFunctionEnd) {
+            state.function_id = 0u;
+            state.block_id = 0u;
+        } else if (opcode == spv::Op::OpLabel) {
+            state.block_id = instruction->result_id;
+            state.blocks[state.block_id].function_id = state.function_id;
+            if (state.needs_entry) {
+                state.entries.emplace_back(state.block_id);
+                state.needs_entry = false;
+            }
+        } else if (state.block_id != 0u) {
+            auto &block = state.blocks[state.block_id];
+            block.instructions.unreachable_count += opcode == spv::Op::OpUnreachable;
+            block.instructions.store_count += opcode == spv::Op::OpStore;
+            block.instructions.return_count += opcode == spv::Op::OpReturn || opcode == spv::Op::OpReturnValue;
+            if (opcode == spv::Op::OpBranch) {
+                block.successors.emplace_back(instruction->words[1u]);
+            } else if (opcode == spv::Op::OpBranchConditional) {
+                block.successors.emplace_back(instruction->words[2u]);
+                block.successors.emplace_back(instruction->words[3u]);
+            } else if (opcode == spv::Op::OpSwitch) {
+                // Parsed operand offsets account for both 32- and 64-bit case
+                // literals. Operand 1 is the default, then every other operand
+                // is a case target; merge declarations are not CFG edges.
+                for (auto i = uint32_t{1u}; i < instruction->num_operands; i += 2u) {
+                    block.successors.emplace_back(instruction->words[instruction->operands[i].offset]);
+                }
+            }
+        }
+        return SPV_SUCCESS;
+    };
+    spvtools::Context context{SPV_ENV_VULKAN_1_2};
+    if (spvBinaryParse(context.CContext(), &state, words.data(), words.size(),
+                       nullptr, parse, nullptr) != SPV_SUCCESS ||
+        state.entries.empty()) {
+        return luisa::nullopt;
+    }
+    // Start at every defined function's first block, so an uncalled function
+    // cannot hide a reachable OpUnreachable from this test's oracle either.
+    auto pending = state.entries;
+    std::unordered_set<uint32_t> visited;
+    SpirvReachableInstructions result;
+    while (!pending.empty()) {
+        auto id = pending.back();
+        pending.pop_back();
+        if (!visited.emplace(id).second) { continue; }
+        auto iter = state.blocks.find(id);
+        if (iter == state.blocks.end()) { return luisa::nullopt; }
+        auto &block = iter->second;
+        result.unreachable_count += block.instructions.unreachable_count;
+        result.store_count += block.instructions.store_count;
+        result.return_count += block.instructions.return_count;
+        for (auto successor : block.successors) {
+            auto target = state.blocks.find(successor);
+            if (target == state.blocks.end() || target->second.function_id != block.function_id) {
+                return luisa::nullopt;
+            }
+            pending.emplace_back(successor);
+        }
+    }
+    return result;
 }
 
 struct SpirvPhiRecord {
@@ -1265,8 +1357,18 @@ int main(int argc, char *argv[]) {
         expect(validates(words))
             << "multiple loop breaks, a nested selection, and a continue must "
                "produce valid Vulkan 1.2 structured control flow";
-        expect(count_opcode(words, spv::Op::OpUnreachable) == 0u)
-            << "the nested break merge path must remain reachable";
+        auto reachable = inspect_reachable_instructions(words);
+        expect(reachable.has_value());
+        if (!reachable) { return; }
+        // Both final selection arms may continue, leaving its structural merge
+        // inactive. Its OpUnreachable is legal; no executable path may reach it.
+        expect(reachable->unreachable_count == 0u)
+            << "no loop break or continue path may execute OpUnreachable";
+        expect(reachable->store_count > 0u);
+        expect(reachable->store_count == count_opcode(words, spv::Op::OpStore))
+            << "the post-loop output write must remain entry-reachable";
+        expect(reachable->return_count > 0u)
+            << "the loop exit must retain a reachable return";
     };
 
     "spirv_loop_switch_nested_exits_preserve_phi"_test = [] {

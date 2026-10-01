@@ -238,7 +238,8 @@ int main(int argc, char *argv[]) {
         expect_complete_matrix(
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
         expect_complete_matrix(
-            ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR, 6u);
+            ResourceQueryOp::ACCEL_SIZE, 7u);
+        expect_unsupported(ResourceQueryOp::ACCEL_SIZE, "instance-count query");
         expect_complete_matrix(
             ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, 44u);
         expect_complete_matrix(
