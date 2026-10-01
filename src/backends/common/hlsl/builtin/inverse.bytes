@@ -66,7 +66,7 @@ float4 inv_3=inv3*sign_b;
 float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
 float dot1=dot0.x+dot0.y+dot0.z+dot0.w;
 float one_over_determinant=1.0f/dot1;
-return float4x4(inv_0*one_over_determinant,
+return _float4x4(inv_0*one_over_determinant,
 inv_1*one_over_determinant,
 inv_2*one_over_determinant,
 inv_3*one_over_determinant);
