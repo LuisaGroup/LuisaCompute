@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "description": "Run --ranking-contract stable. Exact stable values/indices, original full-sort control plus existing chunk256/512.",
+  "cases": [
+    {
+      "id": "schedule-sort-4x8192-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        8192,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "schedule-sort-4x8192-fp32-chunked_bitonic_c256",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        8192,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c256"
+    },
+    {
+      "id": "schedule-sort-4x8192-fp32-chunked_bitonic_c512",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        8192,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c512"
+    }
+  ]
+}

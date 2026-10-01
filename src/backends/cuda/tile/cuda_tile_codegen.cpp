@@ -14,7 +14,7 @@ using namespace tile;
 
 class Emitter {
 private:
-    const Function &_function;
+    const tile::Function &_function;
     const bool _enable_fast_math;
     const bool _enable_aligned16;
     uint32_t _aligned16_seen{0u};
@@ -149,7 +149,7 @@ private:
         }
         return result + ">";
     }
-    [[nodiscard]] bool _type(const Type &type, const Operation *op) noexcept {
+    [[nodiscard]] bool _type(const tile::Type &type, const Operation *op) noexcept {
         if (type.kind() == TypeKind::INDEX) { return true; }
         if (type.scalar_type() == ScalarType::FLOAT64) {
             _fail(op, "this native runtime slice supports FP32 arithmetic and explicit FP16/BF16 storage/conversion/MMA");
@@ -161,7 +161,7 @@ private:
         }
         return !type.is_tile() || _space(*type.index_space(), true, op);
     }
-    [[nodiscard]] luisa::string_view _element(const Type &type) noexcept {
+    [[nodiscard]] luisa::string_view _element(const tile::Type &type) noexcept {
         return type.kind() == TypeKind::INDEX ? "long long" : _scalar(type.scalar_type());
     }
     void _bind(const Value *value, luisa::string expression) noexcept {
@@ -216,7 +216,7 @@ private:
         return luisa::format("ct::broadcast(ct::reshape({}, {}{{}}), {}{{}})",
                              expression, _shape(extents), _shape(destination));
     }
-    [[nodiscard]] luisa::string _elementwise_value(const Value *value, const Type &result, const Operation &op) noexcept {
+    [[nodiscard]] luisa::string _elementwise_value(const Value *value, const tile::Type &result, const Operation &op) noexcept {
         auto expression = _value(value);
         if (result.is_tile() && value->type().is_tile()) {
             return _align(std::move(expression), *value->type().index_space(), *result.index_space(), op);
@@ -611,8 +611,8 @@ private:
             auto operation = value->defining_operation();
             if (operation == nullptr || operation->kind() != OperationKind::ELEMENTWISE ||
                 operation->elementwise_op() != ElementwiseOp::CAST) { return value; }
-            auto integer64 = [](const Type &type) noexcept {
-                return type.kind() == TypeKind::INDEX || type == Type::scalar(ScalarType::INT64);
+            auto integer64 = [](const tile::Type &type) noexcept {
+                return type.kind() == TypeKind::INDEX || type == tile::Type::scalar(ScalarType::INT64);
             };
             if (!integer64(value->type()) || !integer64(operation->operand(0u)->type())) { return value; }
             value = operation->operand(0u);
@@ -621,7 +621,7 @@ private:
     [[nodiscard]] static const Operation *_index_operation(const Value *value, ElementwiseOp opcode) noexcept {
         value = _index_value(value);
         auto operation = value->defining_operation();
-        if (value->type().kind() != TypeKind::INDEX && value->type() != Type::scalar(ScalarType::INT64)) { return nullptr; }
+        if (value->type().kind() != TypeKind::INDEX && value->type() != tile::Type::scalar(ScalarType::INT64)) { return nullptr; }
         return operation != nullptr && operation->kind() == OperationKind::ELEMENTWISE &&
                        operation->elementwise_op() == opcode && operation->operand_count() == 2u ?
                    operation : nullptr;
@@ -764,7 +764,7 @@ private:
         _map_space = nullptr;
         _map_body = nullptr;
     }
-    [[nodiscard]] static bool _tree_scalar(const Type &type) noexcept {
+    [[nodiscard]] static bool _tree_scalar(const tile::Type &type) noexcept {
         if (type.kind() != TypeKind::SCALAR) { return false; }
         auto element = type.scalar_type();
         return element == ScalarType::FLOAT32 || element == ScalarType::INT32 || element == ScalarType::UINT32 ||
@@ -1039,7 +1039,7 @@ private:
     }
 
 public:
-    explicit Emitter(const Function &function, bool enable_fast_math, bool enable_aligned16) noexcept
+    explicit Emitter(const tile::Function &function, bool enable_fast_math, bool enable_aligned16) noexcept
         : _function{function}, _enable_fast_math{enable_fast_math}, _enable_aligned16{enable_aligned16} {}
     [[nodiscard]] Artifact run() noexcept {
         auto module = _function.parent_module();
