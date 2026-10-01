@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 ROWS = {"rmsnorm", "layernorm", "softmax", "masked_softmax", "rope", "swiglu",
         "gelu_residual", "reduce_sum", "reduce_max", "scan", "scan_ordered"}
-OPERATIONS = ROWS | {"gemm", "gemv", "attention", "attention_tensorcore", "sort", "topk"}
+OPERATIONS = ROWS | {"gemm", "gemv", "bmm", "attention", "attention_tensorcore", "sort", "topk"}
 HIDDEN = 0x08000000
 
 
@@ -114,14 +114,16 @@ def validate_case(row, default_seed):
     op = row["operation"]
     require(type(row.get("fast_math", False)) is bool, "fast_math must be boolean")
     ranking = row.get("ranking_algorithm", "full_sort_prefix")
-    require(ranking in {"full_sort_prefix", "repeated_extrema"}, "unknown ranking algorithm")
+    require(ranking in {"full_sort_prefix", "repeated_extrema", "chunked_bitonic_c256", "chunked_bitonic_c512"}, "unknown ranking algorithm")
     require("ranking_algorithm" not in row or op in {"sort", "topk"}, "ranking_algorithm is only applicable to ranking")
     require(ranking != "repeated_extrema" or op == "topk", "repeated_extrema requires topk")
+    require(not ranking.startswith("chunked_bitonic_") or op == "sort", "chunked bitonic requires sort")
     dims, tile = row.get("dimensions"), row.get("tile")
-    require(isinstance(dims, list) and len(dims) == (2 if op in ROWS else 7 if op in {"attention", "attention_tensorcore"} else 3), "wrong dimension count")
+    require(isinstance(dims, list) and len(dims) == (2 if op in ROWS else 7 if op in {"attention", "attention_tensorcore"} else 4 if op == "bmm" else 3), "wrong dimension count")
     require(isinstance(tile, list) and len(tile) == 3 and
             all(type(v) is int and 0 < v <= 65536 for v in dims + tile), "invalid dimensions/tile")
-    require(math.prod(dims) <= (2**31 if op in {"attention", "attention_tensorcore"} else 2**28), "case exceeds native fixture work bound")
+    work_limit = 2**34 if op in {"gemm", "gemv", "bmm"} else 2**31 if op in {"attention", "attention_tensorcore"} else 2**28
+    require(math.prod(dims) <= work_limit, "case exceeds native fixture work bound")
     require(row.get("precision", "fp32") in {"fp32", "fp16", "bf16"}, "unsupported precision")
     require(op != "attention_tensorcore" or row.get("precision", "fp32") in {"fp16", "bf16"}, "attention_tensorcore requires FP16/BF16")
     require(row.get("pattern", "random") in {"random", "cancellation", "adversarial"}, "invalid input pattern")
@@ -133,11 +135,22 @@ def validate_case(row, default_seed):
         require(op != "rope" or dims[1] % 2 == 0, "RoPE width must be even")
         require(tile[1] >= (dims[1] // 2 if op == "rope" else dims[1]), "row tile does not cover the logical width")
         require(op != "scan_ordered" or tile[1] <= 1024, "ordered reference scan is bounded to tile width 1024")
+    elif op == "bmm":
+        b, m, n, k = dims
+        require(max(b * m * k, b * k * n, b * m * n) <= 2**24, "BMM input/output exceeds fixture allocation bound")
+        require(tile[0] <= 128 and tile[1] <= 128 and tile[2] <= 256 and
+                all(v & (v - 1) == 0 for v in tile), "invalid BMM schedule")
+        require((m + tile[0] - 1) // tile[0] <= 65535 and
+                (n + tile[1] - 1) // tile[1] <= 65535, "BMM launch grid exceeds CUDA limits")
     elif op in {"sort", "topk"}:
         r, n, k = dims
         require(n <= 16384 and k <= n and r * n <= 2**24 and tile[0] == tile[2] == 1 and
                 n <= tile[1] <= 16384 and tile[1] & (tile[1] - 1) == 0 and
                 (op != "sort" or k == n), "ranking exceeds padded-network shape/allocation limits")
+        if ranking.startswith("chunked_bitonic_"):
+            chunk = 256 if ranking == "chunked_bitonic_c256" else 512
+            require(tile[1] == 1 << (n - 1).bit_length() and tile[1] >= chunk,
+                    "chunked sort requires exact bit_ceil(N) tile width >= selected chunk")
     elif op in {"attention", "attention_tensorcore"}:
         b, h, kh, q, k, d, dv = dims
         require(max(b * h * q * d, b * kh * k * d, b * kh * k * dv, b * h * q * dv) <= 2**24,
@@ -188,7 +201,8 @@ def tensor_receipts(manifest_path, expected_case):
     if expected_case["operation"] in {"sort", "topk"}:
         ranking = expected_case.get("ranking_algorithm", "full_sort_prefix")
         require(manifest.get("ranking_algorithm", "full_sort_prefix") == ranking, "manifest ranking algorithm mismatch")
-        algorithm = ("stable_repeated_extrema" if ranking == "repeated_extrema" else
+        algorithm = ("stable_chunked_bitonic_whole_tile_merge" if ranking.startswith("chunked_bitonic_") else
+                     "stable_repeated_extrema" if ranking == "repeated_extrema" else
                      "padded_bitonic_full_sort" if expected_case["operation"] == "sort" else "padded_bitonic_full_sort_prefix")
         require(manifest.get("algorithm") == algorithm, "manifest realized ranking algorithm mismatch")
     sizes = {"float32": 4, "float16": 2, "bfloat16": 2}
@@ -289,7 +303,57 @@ def native_result(process, path, row, args, route):
             if args.graph_batch:
                 require(result["graph_batch"] == args.graph_batch and len(result["graph_event_stream_span_us_per_op"]) == args.samples,
                         "native graph contract mismatch")
-    return dict(status=result["status"], process=process, result=result, result_path=str(path))
+    artifacts = {}
+    if result["status"] == "passed" and row.get("ranking_algorithm", "").startswith("chunked_bitonic_"):
+        chunk = 256 if row["ranking_algorithm"] == "chunked_bitonic_c256" else 512
+        count = 1 + int(math.log2(row["tile"][1] // chunk))
+        pipeline = result.get("pipeline", {})
+        require(pipeline.get("kind") == "chunked_bitonic_whole_tile_merge" and
+                pipeline.get("chunk") == chunk and pipeline.get("stages_per_operation") == count and
+                pipeline.get("stage_widths") == [chunk << i for i in range(count)] and
+                pipeline.get("scratch_elements_per_plane") == (0 if count == 1 else row["dimensions"][0] * row["tile"][1]) and
+                pipeline.get("scratch_slots") == (0 if count == 1 else 2),
+                "native pipeline identity/stage count mismatch")
+        stages = result.get("pipeline_stages", [])
+        require(len(stages) == count, "pipeline per-stage receipts missing")
+        expected_graph_batch = 0 if route == "simd" else args.graph_batch
+        require(result.get("graph_stage_dispatches") == count * expected_graph_batch,
+                "pipeline graph must include every stage of every operation")
+        replays = result.get("graph_replays_per_sample", 0)
+        require(type(replays) is int and replays >= 0, "invalid pipeline graph replay count")
+        operations = expected_graph_batch * replays
+        require(result.get("graph_operations_per_sample") == operations and
+                result.get("graph_stage_dispatches_per_sample") == count * operations,
+                "pipeline sample must count every stage of every calibrated replay")
+        if expected_graph_batch:
+            require(result.get("graph_protocol") == "adaptive_replay_span_v2" and
+                    1 <= replays <= min(65536, 10_000_000 // expected_graph_batch),
+                    "pipeline graph protocol/replay cap mismatch")
+            calibration = result.get("graph_calibration", [])
+            require(1 <= len(calibration) <= 4 and calibration[-1].get("replays") == replays,
+                    "pipeline must use the final actually calibrated replay count")
+            for total_key, per_op_key in (("graph_event_span_ms", "graph_event_stream_span_us_per_op"),
+                                           ("graph_host_span_ms", "graph_host_wall_us_per_op")):
+                total, per_op = result.get(total_key, []), result.get(per_op_key, [])
+                require(len(total) == len(per_op) == args.samples and
+                        all(math.isfinite(a) and a > 0 and math.isfinite(b) and b > 0 and
+                            math.isclose(a * 1000 / operations, b, rel_tol=1e-12, abs_tol=1e-12)
+                            for a, b in zip(total, per_op)),
+                        "pipeline graph normalization must divide by logical operations, never stages")
+        else:
+            require(replays == 0, "graph-disabled pipeline has a nonzero replay count")
+        root = path.parent.resolve()
+        for index, stage in enumerate(stages):
+            require(stage.get("index") == index and stage.get("realization") and stage.get("compile_ms", -1) >= 0,
+                    "invalid per-stage receipt")
+            expected_source = "source.txt" if index == 0 else f"source-stage{index}.txt"
+            require(stage.get("source") == expected_source, "unexpected/duplicate pipeline stage source")
+            source = (root / stage["source"]).resolve(strict=True)
+            require(source.is_relative_to(root), "pipeline source escapes export packet")
+            artifacts[stage["source"]] = digest(source)
+        require(math.isclose(sum(stage["compile_ms"] for stage in stages), result.get("compile_ms", -1),
+                             rel_tol=1e-12, abs_tol=1e-9), "pipeline compile_ms must include every stage")
+    return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts)
 
 
 def torch_result(process, path, row, args):
@@ -326,7 +390,9 @@ def summarize(records):
                 else:
                     measurement.update(compile_ms=result["compile_ms"], cold_call_ms=result["cold_ms"],
                                        host_wall_p50_us=result["host_wall_p50_us"], realization=result["realization"],
-                                       allocation_policy="preallocated fixed output; graph dispatches share WAW dependency")
+                                       allocation_policy=("preallocated input/output/scratch; graph uses scratch/output hazard DAG; independent stages may overlap across complete calls"
+                                                          if result.get("pipeline") else
+                                                          "preallocated fixed output; graph dispatches share WAW dependency"))
                     if result["cuda_event_stream_span_us"]:
                         measurement["event_stream_span_p50_us"] = statistics.median(result["cuda_event_stream_span_us"])
                     if result["graph_event_stream_span_us_per_op"]:
@@ -409,7 +475,7 @@ def main(argv=None):
     require(smi is not None, "nvidia-smi is required for telemetry")
     sources = [ROOT / "src/tests/benchmark/benchmark_tile_workloads.cpp", ROOT / "src/tests/common/tile_workload_test_utils.h",
                ROOT / "src/tests/common/tile_llm_test_utils.h", ROOT / "src/tests/common/tile_rank_test_utils.h",
-               ROOT / "src/tests/common/tile_selection_test_utils.h",
+               ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
@@ -424,7 +490,7 @@ def main(argv=None):
                   [str(x) for x in value] if key == "path_prefix" else value for key, value in vars(args).items()},
                   topology=topology, selected_processors=selected, environment_overrides=overrides, environment_removed=removed,
                   build_marker=marker_data, files=identities, planned_cases=rows, cases=[],
-                  methodology="Serial actual Tile compile and fullgraph torch.compile; every route uses hash-identical exported inputs/oracle. Cold phases separate. Host wall, event stream spans and graph replay spans never pooled. Native fixed-output WAW versus functional Torch allocation and standard ranking tie differences retained; no pure-kernel or matched-allocation claim.")
+                  methodology="Serial actual Tile compile and fullgraph torch.compile; every route uses hash-identical exported inputs/oracle. Cold phases separate. Host wall, event stream spans and graph replay spans never pooled. Native fixed output and optional scratch/output hazard DAG versus functional Torch allocation and standard ranking tie differences retained; no pure-kernel or matched-allocation claim.")
 
     def checkpoint():
         record["summary"] = summarize(record["cases"])

@@ -6,6 +6,7 @@
 #include "tile_llm_test_utils.h"
 #include "tile_rank_test_utils.h"
 #include "tile_selection_test_utils.h"
+#include "tile_sort_pipeline_test_utils.h"
 #include <luisa/tile/algorithms.h>
 #include <luisa/core/stl/optional.h>
 #include <algorithm>
@@ -28,6 +29,11 @@ struct Options {
 
 struct Fixture {
     optional<compute::tile::Kernel> kernel;
+    // First stage stays in kernel; the following stages execute in order.
+    vector<compute::tile::Kernel> continuation_kernels;
+    vector<int64_t> pipeline_widths;
+    size_t scratch_elements{0u};
+    int64_t pipeline_chunk{0};
     std::array<vector<int64_t>, 3u> input_shapes;
     std::array<vector<float>, 3u> inputs;
     vector<int64_t> output_shape;
@@ -226,12 +232,14 @@ template<typename T = float>
     auto op = string_view{o.operation};
     auto rows = is_row(op);
     auto gemm = op == "gemm" || op == "gemv";
+    auto bmm = op == "bmm";
     auto rank = op == "sort" || op == "topk";
     auto tensorcore_attention = op == "attention_tensorcore";
     auto attention = op == "attention" || tensorcore_attention;
-    if ((o.ranking_algorithm != "full_sort_prefix" && o.ranking_algorithm != "repeated_extrema") ||
-        (o.ranking_algorithm == "repeated_extrema" && op != "topk")) {
-        f.error = "ranking_algorithm must be full_sort_prefix, or repeated_extrema for topk";
+    auto chunked = o.ranking_algorithm == "chunked_bitonic_c256" || o.ranking_algorithm == "chunked_bitonic_c512";
+    if ((o.ranking_algorithm != "full_sort_prefix" && o.ranking_algorithm != "repeated_extrema" && !chunked) ||
+        (o.ranking_algorithm == "repeated_extrema" && op != "topk") || (chunked && op != "sort")) {
+        f.error = "ranking_algorithm must be full_sort_prefix, repeated_extrema for topk, or chunked_bitonic_c256/c512 for sort";
         return f;
     }
     if constexpr (std::is_same_v<T, float>) {
@@ -240,15 +248,37 @@ template<typename T = float>
             return f;
         }
     }
-    if (!rows && !gemm && !rank && !attention) {
+    if (!rows && !gemm && !bmm && !rank && !attention) {
         f.error = "operation has no benchmark fixture";
         return f;
     }
-    auto count = rows ? 2u : attention ? 7u :
-                                         3u;
-    if (o.dimensions.size() != count || !product_bounded(o.dimensions, attention ? (1ull << 31u) : (1ull << 28u))) {
+    auto count = rows ? 2u : attention ? 7u : bmm ? 4u : 3u;
+    // The complete matrix FP64 oracle visits one product per B*M*N*K term.
+    // This work limit is separate from each tensor's unchanged allocation cap.
+    auto work_limit = gemm || bmm ? (1ull << 34u) : attention ? (1ull << 31u) : (1ull << 28u);
+    if (o.dimensions.size() != count || !product_bounded(o.dimensions, work_limit)) {
         f.error = "invalid dimensions or fixture work bound exceeded";
         return f;
+    }
+    if (gemm || bmm) {
+        auto base = bmm ? 1u : 0u;
+        auto batches = bmm ? o.dimensions[0] : int64_t{1};
+        auto m = o.dimensions[base], n = o.dimensions[base + 1u], k = o.dimensions[base + 2u];
+        auto bm = o.tile[0], bn = o.tile[1], bk = o.tile[2];
+        if (std::any_of(o.dimensions.begin(), o.dimensions.end(), [](int64_t value) noexcept { return value > 65536; }) ||
+            bm <= 0 || bn <= 0 || bk <= 0 || bm > 128 || bn > 128 || bk > (op == "gemv" ? 1024 : 256) ||
+            (bmm && (!std::has_single_bit(static_cast<uint64_t>(bm)) || !std::has_single_bit(static_cast<uint64_t>(bn)) ||
+                     !std::has_single_bit(static_cast<uint64_t>(bk)))) || (op == "gemv" && n != 1)) {
+            f.error = "matrix fixtures require dimensions<=65536, bounded tile extents, BMM power-of-two tiles and GEMV N=1";
+            return f;
+        }
+        if (!product_bounded(std::array{batches, m, k}, 1ull << 24u) ||
+            !product_bounded(std::array{batches, k, n}, 1ull << 24u) ||
+            !product_bounded(std::array{batches, m, n}, 1ull << 24u) ||
+            (bmm && ceil_div(m, bm) > 65535) || ((bmm || o.backend == "cuda") && ceil_div(n, bn) > 65535)) {
+            f.error = "matrix input/output allocation exceeds 2^24 elements or launch grid exceeds CUDA limits";
+            return f;
+        }
     }
     if (rows) {
         auto width = o.dimensions[1];
@@ -259,12 +289,31 @@ template<typename T = float>
             return f;
         }
         build_rows<T>(f, o);
+    } else if (bmm) {
+        auto batches = o.dimensions[0], m = o.dimensions[1], n = o.dimensions[2], k = o.dimensions[3];
+        auto bm = o.tile[0], bn = o.tile[1], bk = o.tile[2];
+        auto definition = tile_kernel("workload_bmm", [=](TensorView<const T, 3> A, TensorView<const T, 3> B,
+                                                       TensorView<const T, 1> Unused, TensorView<T, 3> C) {
+            static_cast<void>(Unused);
+            auto batch = axis("batch", 1), im = axis("m", bm), jn = axis("n", bn), kk = axis("k", bk);
+            auto gb = axis("gb", batches), gm = axis("gm", ceil_div(m, bm)), gn = axis("gn", ceil_div(n, bn));
+            for (auto &nest : parallel(shape(gb, gm, gn))) {
+                auto bi = nest.index(gb), mi = nest.index(gm) * bm, nj = nest.index(gn) * bn;
+                auto acc = zeros<float>(shape(batch, im, jn));
+                for (auto &step : nest.pipeline(shape(ceil_div(k, bk)), {.window = 2u, .interval = 1u})) {
+                    auto a = A.tile(coord(bi, mi, step.index() * bk), shape(batch, im, kk)).load();
+                    auto b = B.tile(coord(bi, step.index() * bk, nj), shape(batch, kk, jn)).load();
+                    acc = mma(a, b, acc, {.allow_reassociation = true});
+                }
+                C(coord(bi, mi, nj), shape(batch, im, jn)).store(cast<T>(acc));
+            }
+        });
+        f.kernel = definition.capture(tensor_shape(batches, m, k), tensor_shape(batches, k, n), tensor_shape(1), tensor_shape(batches, m, n));
+        f.input_shapes = {vector<int64_t>{batches, m, k}, {batches, k, n}, {1}};
+        f.output_shape = {batches, m, n};
+        f.algorithm = "tile_bmm_singleton_batch_typed_inputs_fp32_accumulator_reassociation";
     } else if (gemm) {
         auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        if ((op == "gemv" && n != 1) || o.tile[0] > 128 || o.tile[1] > 128 || o.tile[2] > (op == "gemv" ? 1024 : 256)) {
-            f.error = "GEMV requires N=1; GEMM tile exceeds benchmark limits";
-            return f;
-        }
         auto bm = o.tile[0], bn = o.tile[1], bk = o.tile[2];
         auto definition = tile_kernel("workload_gemm", [=](TensorView<const T, 2> A, TensorView<const T, 2> B,
                                                            TensorView<const T, 1> Unused, TensorView<T, 2> C) {
@@ -317,7 +366,25 @@ template<typename T = float>
                 Indices(origin, ranked.indices.space()).store(ranked.indices);
             }
         });
-        if (o.ranking_algorithm == "repeated_extrema") {
+        if (chunked) {
+            auto chunk = o.ranking_algorithm == "chunked_bitonic_c256" ? 256ll : 512ll;
+            auto plan = tile_sort_pipeline::plan(r, n, chunk);
+            if (!plan.error.empty()) { f.error = plan.error; return f; }
+            if (plan.padded != padded) { f.error = "chunked sort requires tile width exactly bit_ceil(N)"; return f; }
+            f.pipeline_chunk = chunk;
+            for (auto &&stage : plan.stages) { f.pipeline_widths.emplace_back(stage.width); }
+            if (plan.stages.size() == 1u) {
+                f.kernel = tile_sort_pipeline::initialize<T, T, int64_t>(plan);
+            } else {
+                f.scratch_elements = static_cast<size_t>(r * padded);
+                f.kernel = tile_sort_pipeline::initialize<T>(plan);
+                for (auto i = size_t{1u}; i < plan.stages.size(); i++) {
+                    auto &&stage = plan.stages[i];
+                    if (stage.final) { f.continuation_kernels.emplace_back(tile_sort_pipeline::merge_whole<T, int64_t>(plan, stage)); }
+                    else { f.continuation_kernels.emplace_back(tile_sort_pipeline::merge_whole<>(plan, stage)); }
+                }
+            }
+        } else if (o.ranking_algorithm == "repeated_extrema") {
             f.kernel = tile_selection::repeated_extrema_topk<T>(r, n, k, padded);
         } else {
             f.kernel = definition.capture(tensor_shape(r, n), tensor_shape(r, k), tensor_shape(r, k));
@@ -325,7 +392,8 @@ template<typename T = float>
         f.input_shapes = {vector<int64_t>{r, n}, {1}, {1}};
         f.output_shape = {r, k};
         f.ranking = true;
-        f.algorithm = o.ranking_algorithm == "repeated_extrema" ? "stable_repeated_extrema" :
+        f.algorithm = chunked ? "stable_chunked_bitonic_whole_tile_merge" :
+                      o.ranking_algorithm == "repeated_extrema" ? "stable_repeated_extrema" :
                       op == "sort" ? "padded_bitonic_full_sort" : "padded_bitonic_full_sort_prefix";
     } else {
         auto &d = o.dimensions;
@@ -403,11 +471,16 @@ template<typename T = float>
             data[i] = x;
         }
     }
-    if (gemm && o.pattern == "cancellation") {
-        auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        for (int64_t t = 0; t + 1 < k; t += 2) {
-            for (int64_t i = 0; i < m; i++) { f.inputs[0][i * k + t + 1] = f.inputs[0][i * k + t]; }
-            for (int64_t j = 0; j < n; j++) { f.inputs[1][(t + 1) * n + j] = -f.inputs[1][t * n + j] * (1.0f - 0x1p-20f); }
+    if ((gemm || bmm) && o.pattern == "cancellation") {
+        auto base = bmm ? 1u : 0u;
+        auto batches = bmm ? o.dimensions[0] : int64_t{1};
+        auto m = o.dimensions[base], n = o.dimensions[base + 1u], k = o.dimensions[base + 2u];
+        for (int64_t batch = 0; batch < batches; batch++) {
+            auto a_offset = batch * m * k, b_offset = batch * k * n;
+            for (int64_t t = 0; t + 1 < k; t += 2) {
+                for (int64_t i = 0; i < m; i++) { f.inputs[0][a_offset + i * k + t + 1] = f.inputs[0][a_offset + i * k + t]; }
+                for (int64_t j = 0; j < n; j++) { f.inputs[1][b_offset + (t + 1) * n + j] = -f.inputs[1][b_offset + t * n + j] * (1.0f - 0x1p-20f); }
+            }
         }
     }
     // These float vectors hold exact decoded storage values, never an
@@ -424,18 +497,23 @@ template<typename T = float>
     if (tensorcore_attention) { f.probability_rounding_bound.resize(f.expected.size()); }
     if (rows) {
         row_oracle(f, o);
-    } else if (gemm) {
-        auto m = o.dimensions[0], n = o.dimensions[1], k = o.dimensions[2];
-        for (int64_t i = 0; i < m; i++) {
-            for (int64_t j = 0; j < n; j++) {
-                double value = 0.0, absolute = 0.0;
-                for (int64_t t = 0; t < k; t++) {
-                    auto product = static_cast<double>(f.inputs[0][i * k + t]) * f.inputs[1][t * n + j];
-                    value += product;
-                    absolute += std::abs(product);
+    } else if (gemm || bmm) {
+        auto base = bmm ? 1u : 0u;
+        auto batches = bmm ? o.dimensions[0] : int64_t{1};
+        auto m = o.dimensions[base], n = o.dimensions[base + 1u], k = o.dimensions[base + 2u];
+        for (int64_t batch = 0; batch < batches; batch++) {
+            auto a_offset = batch * m * k, b_offset = batch * k * n, c_offset = batch * m * n;
+            for (int64_t i = 0; i < m; i++) {
+                for (int64_t j = 0; j < n; j++) {
+                    double value = 0.0, absolute = 0.0;
+                    for (int64_t t = 0; t < k; t++) {
+                        auto product = static_cast<double>(f.inputs[0][a_offset + i * k + t]) * f.inputs[1][b_offset + t * n + j];
+                        value += product;
+                        absolute += std::abs(product);
+                    }
+                    f.expected[c_offset + i * n + j] = value;
+                    f.bound[c_offset + i * n + j] = sum_bound(k, absolute);
                 }
-                f.expected[i * n + j] = value;
-                f.bound[i * n + j] = sum_bound(k, absolute);
             }
         }
     } else if (rank) {

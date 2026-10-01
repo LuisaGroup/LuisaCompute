@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "description": "CUDA Tile extended coverage; use --ranking-contract stable. Every output is checked against the unchanged complete oracle; performance parity is not assumed.",
+  "cases": [
+    {
+      "id": "chunked-v2-low-row-4x4096-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "chunked-v2-low-row-4x4096-fp32-chunked_bitonic_c256",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c256"
+    },
+    {
+      "id": "chunked-v2-low-row-4x4096-fp32-chunked_bitonic_c512",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c512"
+    },
+    {
+      "id": "chunked-v2-many-row-128x1024-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        128,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "chunked-v2-many-row-128x1024-fp32-chunked_bitonic_c256",
+      "operation": "sort",
+      "dimensions": [
+        128,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c256"
+    },
+    {
+      "id": "chunked-v2-many-row-128x1024-fp32-chunked_bitonic_c512",
+      "operation": "sort",
+      "dimensions": [
+        128,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c512"
+    },
+    {
+      "id": "chunked-v2-ragged-3x1537-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        3,
+        1537,
+        1537
+      ],
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "chunked-v2-ragged-3x1537-fp32-chunked_bitonic_c256",
+      "operation": "sort",
+      "dimensions": [
+        3,
+        1537,
+        1537
+      ],
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c256"
+    },
+    {
+      "id": "chunked-v2-ragged-3x1537-fp32-chunked_bitonic_c512",
+      "operation": "sort",
+      "dimensions": [
+        3,
+        1537,
+        1537
+      ],
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "chunked_bitonic_c512"
+    }
+  ]
+}

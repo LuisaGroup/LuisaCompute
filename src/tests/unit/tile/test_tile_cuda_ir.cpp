@@ -5,6 +5,7 @@
 #include "tile_xir_test_utils.h"
 #include "tile_llm_test_utils.h"
 #include "tile_selection_test_utils.h"
+#include "tile_sort_pipeline_test_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -21,6 +22,8 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/algorithms.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/runtime/command_list.h>
+#include <luisa/backends/ext/cuda/cuda_graph_ext.h>
 
 #ifndef LUISA_TEST_CUDA_TILE_IR_ENABLED
 #define LUISA_TEST_CUDA_TILE_IR_ENABLED 0
@@ -712,11 +715,13 @@ void expect_rejected(const tile::Shader &shader, luisa::string_view reason) noex
     expect(shader.metadata().error.find(reason) != luisa::string::npos) << shader.metadata().error;
 }
 
-void row_operations(Device &device) {
+void row_operations(Device &device, bool fast_norm = false) {
     using test::tile_llm::RowOp;
     for (auto op : {RowOp::RMS_NORM, RowOp::LAYER_NORM, RowOp::SWIGLU, RowOp::ROPE, RowOp::MASKED_SOFTMAX, RowOp::GELU_RESIDUAL}) {
+        if (fast_norm && op != RowOp::RMS_NORM && op != RowOp::LAYER_NORM) { continue; }
         auto fixture = test::tile_llm::rows(op, 7, 32);
-        auto shader = tile::compile(device, fixture.kernel);
+        auto shader = tile::compile(device, fixture.kernel, {}, {.enable_fast_math = fast_norm});
+        if (fast_norm) { expect(shader.metadata().source.find("ct::rsqrt(") != string::npos); }
         if (!check_native(shader, make_uint3(7u, 1u, 1u), 4u)) { continue; }
         if (op == RowOp::RMS_NORM || op == RowOp::LAYER_NORM || op == RowOp::MASKED_SOFTMAX) {
             expect(shader.metadata().source.find("ct::sum(") != luisa::string::npos);
@@ -1076,6 +1081,182 @@ void native_scan_and_sort(Device &device) {
     for (auto i = 0u; i < kPad; i++) { expect(indices[i] == -731ll); expect(indices[kPad + 16u + i] == -731ll); }
 }
 
+// These benchmark/test compositions require independent input/output/scratch
+// allocations. No in-place or overlapping-view contract is implied.
+template<typename T>
+void chunked_sort_pipeline(Device &device, int64_t columns, int64_t chunk, size_t expected_stages) {
+    namespace pipeline = luisa::test::tile_sort_pipeline;
+    constexpr auto rows = int64_t{4};
+    auto plan = pipeline::plan(rows, columns, chunk);
+    expect(plan.error.empty()) << plan.error;
+    expect(plan.stages.size() == expected_stages);
+    if (!plan.error.empty() || plan.stages.size() != expected_stages) { return; }
+    auto *extension = device.extension<CudaGraphExt>();
+    expect(extension != nullptr);
+    if (extension == nullptr) { return; }
+    luisa::vector<tile::Shader> shaders;
+    shaders.reserve(plan.stages.size());
+    for (size_t stage = 0u; stage < plan.stages.size(); stage++) {
+        auto descriptor = plan.stages[stage];
+        auto kernel = descriptor.initial ?
+                          (descriptor.final ? pipeline::initialize<T, T, int64_t>(plan) : pipeline::initialize<T>(plan)) :
+                          (descriptor.final ? pipeline::merge_whole<T, int64_t>(plan, descriptor) : pipeline::merge_whole<>(plan, descriptor));
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto shader = tile::compile(device, kernel, {}, {.enable_fast_math = false});
+        if (!check_native(shader, make_uint3(static_cast<uint32_t>(rows), static_cast<uint32_t>(plan.padded / descriptor.width), 1u),
+                          descriptor.initial ? 3u : 4u)) { return; }
+        shaders.emplace_back(std::move(shader));
+    }
+    auto count = static_cast<size_t>(rows * columns);
+    auto scratch_count = static_cast<size_t>(rows * plan.padded);
+    using Word = std::conditional_t<sizeof(T) == 2u, uint16_t, uint32_t>;
+    auto word = [](T value) noexcept { return std::bit_cast<Word>(value); };
+    auto guard = T{-719.5f};
+    constexpr auto scratch_guard = -933.25f;
+    constexpr auto index_guard = std::numeric_limits<int64_t>::min() + 37;
+    constexpr auto scratch_index_guard = std::numeric_limits<int32_t>::min() + 51;
+    luisa::vector<T> input(count + 2u * kPad, guard), output(count + 2u * kPad, guard);
+    luisa::vector<int64_t> indices(count + 2u * kPad, index_guard);
+    std::array<luisa::vector<float>, 2u> scratch_values;
+    std::array<luisa::vector<int32_t>, 2u> scratch_indices;
+    auto gpu_input = device.create_buffer<T>(input.size());
+    auto gpu_output = device.create_buffer<T>(output.size());
+    auto gpu_indices = device.create_buffer<int64_t>(indices.size());
+    std::array<Buffer<float>, 2u> gpu_scratch_values;
+    std::array<Buffer<int32_t>, 2u> gpu_scratch_indices;
+    for (size_t slot = 0u; slot < 2u; slot++) {
+        scratch_values[slot].assign(scratch_count + 2u * kPad, scratch_guard);
+        scratch_indices[slot].assign(scratch_count + 2u * kPad, scratch_index_guard);
+        gpu_scratch_values[slot] = device.create_buffer<float>(scratch_values[slot].size());
+        gpu_scratch_indices[slot] = device.create_buffer<int32_t>(scratch_indices[slot].size());
+    }
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto make_commands = [&](size_t calls) {
+        CommandList commands;
+        for (size_t call = 0u; call < calls; call++) {
+            if (shaders.size() == 1u) {
+                commands << shaders.front()(gpu_input.view(kPad, count), gpu_output.view(kPad, count),
+                                             gpu_indices.view(kPad, count)).dispatch();
+                continue;
+            }
+            commands << shaders.front()(gpu_input.view(kPad, count), gpu_scratch_values[0].view(kPad, scratch_count),
+                                         gpu_scratch_indices[0].view(kPad, scratch_count)).dispatch();
+            for (size_t stage = 1u; stage < shaders.size(); stage++) {
+                auto read_slot = (stage - 1u) % 2u;
+                if (stage + 1u == shaders.size()) {
+                    commands << shaders[stage](gpu_scratch_values[read_slot].view(kPad, scratch_count),
+                                                gpu_scratch_indices[read_slot].view(kPad, scratch_count),
+                                                gpu_output.view(kPad, count), gpu_indices.view(kPad, count)).dispatch();
+                } else {
+                    auto write_slot = stage % 2u;
+                    expect(write_slot != read_slot);
+                    commands << shaders[stage](gpu_scratch_values[read_slot].view(kPad, scratch_count),
+                                                gpu_scratch_indices[read_slot].view(kPad, scratch_count),
+                                                gpu_scratch_values[write_slot].view(kPad, scratch_count),
+                                                gpu_scratch_indices[write_slot].view(kPad, scratch_count)).dispatch();
+                }
+            }
+        }
+        return commands;
+    };
+    // Three complete calls expose scratch RAW/WAR/WAW edges between calls.
+    // The public graph extension may overlap independent stages; output order
+    // and all required data hazards must still preserve the complete result.
+    auto graph = extension->create_graph(make_commands(3u));
+    expect(graph.handle().valid());
+    if (!graph.handle().valid()) { return; }
+    auto executable = extension->instantiate(graph.handle().handle);
+    expect(executable.handle().valid());
+    if (!executable.handle().valid()) { return; }
+    const std::array pattern{std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                             5.0f, 5.0f, -0.0f, 0.0f, .25f, -.25f};
+    for (auto generation = 0u; generation < 2u; generation++) {
+        std::fill(input.begin(), input.end(), guard);
+        for (auto i = int64_t{0}; i < columns; i++) {
+            input[kPad + i] = T{pattern[(static_cast<size_t>(i) + 3u * generation) % pattern.size()]};
+            input[kPad + columns + i] = T{(i + generation) % 2 == 0 ? -0.0f : 0.0f};
+            input[kPad + 2 * columns + i] = T{generation == 0u ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity()};
+            input[kPad + 3 * columns + i] = T{generation == 0u ? 2.5f : -2.5f};
+        }
+        auto original = input;
+        luisa::vector<int64_t> expected(count), order(static_cast<size_t>(columns));
+        for (auto row = int64_t{0}; row < rows; row++) {
+            std::iota(order.begin(), order.end(), int64_t{0});
+            std::sort(order.begin(), order.end(), [&](auto a, auto b) {
+                auto x = static_cast<float>(original[kPad + row * columns + a]);
+                auto y = static_cast<float>(original[kPad + row * columns + b]);
+                return x == y ? a < b : x > y;
+            });
+            std::copy(order.begin(), order.end(), expected.begin() + row * columns);
+        }
+        stream << gpu_input.copy_from(luisa::span{input});
+        for (size_t slot = 0u; slot < 2u; slot++) {
+            std::fill(scratch_values[slot].begin(), scratch_values[slot].end(), scratch_guard);
+            std::fill(scratch_indices[slot].begin(), scratch_indices[slot].end(), scratch_index_guard);
+            stream << gpu_scratch_values[slot].copy_from(luisa::span{scratch_values[slot]})
+                   << gpu_scratch_indices[slot].copy_from(luisa::span{scratch_indices[slot]});
+        }
+        auto poison_output = [&] {
+            std::fill(output.begin(), output.end(), guard);
+            std::fill_n(output.begin() + kPad, count, std::numeric_limits<T>::quiet_NaN());
+            std::fill(indices.begin(), indices.end(), index_guard);
+            stream << gpu_output.copy_from(luisa::span{output}) << gpu_indices.copy_from(luisa::span{indices}) << synchronize();
+        };
+        auto check = [&] {
+            stream << gpu_input.copy_to(luisa::span{input}) << gpu_output.copy_to(luisa::span{output})
+                   << gpu_indices.copy_to(luisa::span{indices});
+            for (size_t slot = 0u; slot < 2u; slot++) {
+                stream << gpu_scratch_values[slot].copy_to(luisa::span{scratch_values[slot]})
+                       << gpu_scratch_indices[slot].copy_to(luisa::span{scratch_indices[slot]});
+            }
+            stream << synchronize();
+            for (size_t i = 0u; i < input.size(); i++) { expect(word(input[i]) == word(original[i])) << "chunked readonly=" << i; }
+            for (size_t i = 0u; i < kPad; i++) {
+                expect(word(output[i]) == word(guard));
+                expect(word(output[kPad + count + i]) == word(guard));
+                expect(indices[i] == index_guard);
+                expect(indices[kPad + count + i] == index_guard);
+                for (size_t slot = 0u; slot < 2u; slot++) {
+                    expect(bits(scratch_values[slot][i]) == bits(scratch_guard));
+                    expect(bits(scratch_values[slot][kPad + scratch_count + i]) == bits(scratch_guard));
+                    expect(scratch_indices[slot][i] == scratch_index_guard);
+                    expect(scratch_indices[slot][kPad + scratch_count + i] == scratch_index_guard);
+                }
+            }
+            // The direct case touches no scratch; a two-stage pipeline only
+            // writes slot 0. Check complete unused allocations as well.
+            for (size_t slot = 0u; slot < 2u; slot++) {
+                if (slot + 1u < shaders.size()) { continue; }
+                for (size_t i = 0u; i < scratch_values[slot].size(); i++) {
+                    expect(bits(scratch_values[slot][i]) == bits(scratch_guard));
+                    expect(scratch_indices[slot][i] == scratch_index_guard);
+                }
+            }
+            for (auto row = int64_t{0}; row < rows; row++) {
+                for (auto rank = int64_t{0}; rank < columns; rank++) {
+                    auto position = static_cast<size_t>(row * columns + rank);
+                    auto index = expected[position];
+                    expect(indices[kPad + position] == index) << "chunked stable row=" << row << " rank=" << rank;
+                    expect(word(output[kPad + position]) == word(original[kPad + row * columns + index]))
+                        << "chunked value bits row=" << row << " rank=" << rank;
+                }
+            }
+        };
+        poison_output();
+        stream << make_commands(1u).commit() << synchronize();
+        check();
+        // Reuse the exact graph after changing the immutable input contents,
+        // and poison the output before each replay to detect stale results.
+        for (auto replay = 0u; replay < 3u; replay++) {
+            poison_output();
+            extension->launch(executable.handle().handle, stream.handle());
+            check();
+        }
+    }
+}
+
+
 template<typename T>
 void repeated_extrema_topk(Device &device, uint32_t columns, uint32_t count) {
     constexpr auto rows = 4u;
@@ -1330,7 +1511,7 @@ void explicit_fast_math(Device &device) {
     expect(defaults.metadata().source.find("round_subnormals_to_zero_t") == string::npos);
     expect(fast.metadata().source.find("ct::round_approximate_t{}") != string::npos);
     expect(fast.metadata().source.find("ct::round_subnormals_to_zero_t{}") != string::npos);
-    expect(fast.metadata().realization.find("elementwise-fp32-approx-ftz-v1") != string::npos);
+    expect(fast.metadata().realization.find("elementwise-fp32-approx-ftz-rsqrt-v2") != string::npos);
 
     GuardedBuffer a{device, count}, b{device, count}, output{device, count * operations};
     for (auto i = 0u; i < 16u; i++) {
@@ -1389,12 +1570,133 @@ void explicit_fast_math(Device &device) {
     }
     // This kernel has integer address arithmetic and MMA only. Selecting fast
     // elementwise math must not change its generated FMA order/policy at all.
-    auto contraction = matrix(false, false, false);
-    auto strict_mma = tile::compile(device, contraction);
-    auto fast_mma = tile::compile(device, contraction, {}, {.enable_fast_math = true});
-    if (check_native(strict_mma, make_uint3(2u, 3u, 1u), 3u) &&
-        check_native(fast_mma, make_uint3(2u, 3u, 1u), 3u)) {
-        expect(strict_mma.metadata().source == fast_mma.metadata().source);
+    for (auto reassociate : {false, true}) {
+        auto contraction = matrix(false, false, reassociate);
+        auto strict_mma = tile::compile(device, contraction);
+        auto fast_mma = tile::compile(device, contraction, {}, {.enable_fast_math = true});
+        if (check_native(strict_mma, make_uint3(2u, 3u, 1u), 3u) &&
+            check_native(fast_mma, make_uint3(2u, 3u, 1u), 3u)) {
+            expect(strict_mma.metadata().source == fast_mma.metadata().source);
+            expect(strict_mma.metadata().source.find(reassociate ? "ct::mma(" : "ct::fma(") != string::npos);
+        }
+    }
+}
+
+
+// Exact producer matching, both named-axis alignments, shared SQRT users,
+// scalar-valued map bodies, and explicit nonmatches all use real DSL capture.
+void fast_div_sqrt(Device &device) {
+    using namespace tile;
+    constexpr auto rows = 8u, columns = 8u, count = rows * columns, operations = 7u;
+    auto kernel = tile_kernel("fast_div_sqrt_contract", [=](TensorView<const float, 2> a,
+                                                          TensorView<const float, 2> b,
+                                                          TensorView<const float, 1> row,
+                                                          TensorView<float, 2> output) {
+                      auto m = axis("m", rows), n = axis("n", columns);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto x = a.tile(coord(0, 0), shape(m, n)).load();
+                          auto y = b.tile(coord(0, 0), shape(n, m)).load();
+                          auto root = sqrt(y);
+                          auto aligned_y = broadcast_to(y, shape(m, n));
+                          auto aligned_root = broadcast_to(root, shape(m, n));
+                          output(coord(0, 0), shape(m, n)).store(x / root);
+                          output(coord(rows, 0), shape(m, n)).store(aligned_root);
+                          auto row_root = sqrt(row.tile(coord(0), shape(m)).load());
+                          output(coord(2u * rows, 0), shape(m, n)).store(x / row_root);
+                          auto mapped = map<float>(shape(m, n), [&](const Nest &index) {
+                              return x.at(index) / sqrt(aligned_y.at(index));
+                          });
+                          output(coord(3u * rows, 0), shape(m, n)).store(mapped);
+                          // These DIV producers are map-broadcast, ADD, CONSTANT.
+                          // They must keep their ordinary fast division path.
+                          output(coord(4u * rows, 0), shape(m, n)).store(x / aligned_root);
+                          output(coord(5u * rows, 0), shape(m, n)).store(x / (root + 1.0f));
+                          output(coord(6u * rows, 0), shape(m, n)).store(x / 2.0f);
+                      }
+                  }).capture(tensor_shape(rows, columns), tensor_shape(columns, rows), tensor_shape(rows), tensor_shape(operations * rows, columns));
+    auto defaults = tile::compile(device, kernel);
+    auto strict = tile::compile(device, kernel, {}, {.enable_fast_math = false});
+    auto fast = tile::compile(device, kernel, {}, {.enable_fast_math = true});
+    if (!check_native(defaults, make_uint3(1u), 4u) || !check_native(strict, make_uint3(1u), 4u) || !check_native(fast, make_uint3(1u), 4u)) { return; }
+    expect(defaults.metadata().source == strict.metadata().source);
+    expect(strict.metadata().source.find("ct::rsqrt(") == string::npos);
+    auto occurrences = [](string_view source, string_view needle) noexcept {
+        auto count = size_t{0u}, cursor = size_t{0u};
+        while ((cursor = source.find(needle, cursor)) != string_view::npos) { count++; cursor += needle.size(); }
+        return count;
+    };
+    expect(occurrences(fast.metadata().source, "ct::rsqrt(") == 3u);
+    expect(occurrences(fast.metadata().source, "ct::div(") == 3u);
+    expect(fast.metadata().source.find("ct::sqrt(") != string::npos);
+    expect(fast.metadata().source.find("ct::permute(") != string::npos);
+    expect(fast.metadata().realization.find("elementwise-fp32-approx-ftz-rsqrt-v2") != string::npos);
+
+    GuardedBuffer a{device, count}, b{device, count}, row{device, rows}, output{device, operations * count};
+    for (auto i = 0u; i < 32u; i++) {
+        a[i] = (static_cast<float>(i) - 15.25f) * .125f;
+        b[(i % columns) * rows + i / columns] = std::ldexp(1.125f + static_cast<float>(i % 3u) * .25f, static_cast<int>(i) - 16);
+    }
+    constexpr auto inf = std::numeric_limits<float>::infinity(), nan = std::numeric_limits<float>::quiet_NaN();
+    constexpr auto tiny = std::numeric_limits<float>::denorm_min(), normal = std::numeric_limits<float>::min(), large = std::numeric_limits<float>::max();
+    std::array<float, 32u> xs{0.0f, -0.0f, 1.0f, -1.0f, 0.0f, -0.0f, inf, -inf,
+                              nan, 1.0f, 1.0f, 1.0f, -1.0f, normal, large, tiny,
+                              -tiny, tiny, -tiny, 1.0f, -1.0f, inf, -inf, 0.0f,
+                              -0.0f, large, normal, -normal, large, -large, 1.0f, -1.0f};
+    std::array<float, 32u> ys{0.0f, -0.0f, 0.0f, -0.0f, inf, inf, inf, inf,
+                              1.0f, -1.0f, -tiny, tiny, -normal, large, normal, 2.0f,
+                              2.0f, 0.0f, -0.0f, nan, -inf, 4.0f, 4.0f, -4.0f,
+                              -4.0f, large, normal, normal, 0.0f, -0.0f, 0x1p-126f, 0x1.fffffep127f};
+    for (auto j = 0u; j < xs.size(); j++) {
+        auto i = j + 32u;
+        a[i] = xs[j];
+        b[(i % columns) * rows + i / columns] = ys[j];
+    }
+    std::array<float, rows> row_values{.25f, 2.0f, 16.0f, 1e-5f, normal, large, .0625f, 1024.0f};
+    for (auto i = 0u; i < rows; i++) { row[i] = row_values[i]; }
+    auto original_a = a.host, original_b = b.host, original_row = row.host;
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto flush = [](float value) noexcept { return std::fpclassify(value) == FP_SUBNORMAL ? std::copysign(0.0f, value) : value; };
+    for (auto use_fast : {false, true}) {
+        auto &shader = use_fast ? fast : strict;
+        output.poison();
+        stream << a.buffer.copy_from(luisa::span{a.host}) << b.buffer.copy_from(luisa::span{b.host})
+               << row.buffer.copy_from(luisa::span{row.host}) << output.buffer.copy_from(luisa::span{output.host})
+               << shader(a.view(), b.view(), row.view(), output.view()).dispatch()
+               << a.buffer.copy_to(luisa::span{a.host}) << b.buffer.copy_to(luisa::span{b.host})
+               << row.buffer.copy_to(luisa::span{row.host}) << output.buffer.copy_to(luisa::span{output.host}) << synchronize();
+        check_readonly(a, original_a);
+        check_readonly(b, original_b);
+        check_readonly(row, original_row);
+        output.check_guards();
+        for (auto i = 0u; i < count; i++) {
+            auto numerator = use_fast ? flush(a[i]) : a[i];
+            auto radicand = b[(i % columns) * rows + i / columns];
+            if (use_fast) { radicand = flush(radicand); }
+            auto root = std::sqrt(static_cast<double>(radicand));
+            auto rounded_root = static_cast<float>(root);
+            if (use_fast) { rounded_root = flush(rounded_root); }
+            auto biased_root = static_cast<float>(static_cast<double>(rounded_root) + 1.0);
+            if (use_fast) { biased_root = flush(biased_root); }
+            auto row_root = std::sqrt(static_cast<double>(row[i / columns]));
+            std::array<double, operations> expected{static_cast<double>(numerator) / root, root,
+                static_cast<double>(numerator) / row_root, static_cast<double>(numerator) / root,
+                static_cast<double>(numerator) / rounded_root, static_cast<double>(numerator) / biased_root,
+                static_cast<double>(numerator) / 2.0};
+            for (auto op = 0u; op < operations; op++) {
+                auto actual = output[op * count + i];
+                auto rounded = static_cast<float>(expected[op]);
+                if (use_fast) { rounded = flush(rounded); }
+                if (std::isnan(rounded)) { expect(std::isnan(actual)) << "fast=" << use_fast << " op=" << op << " index=" << i; }
+                else if (std::isinf(rounded)) { expect(actual == rounded) << "fast=" << use_fast << " op=" << op << " index=" << i; }
+                else if (rounded == 0.0f) { expect(bits(actual) == bits(rounded)) << "fast=" << use_fast << " op=" << op << " index=" << i; }
+                else {
+                    auto error = std::abs(static_cast<double>(actual) - expected[op]);
+                    expect(std::isfinite(actual) && error <= 2e-6 * std::abs(expected[op]) + 1e-44)
+                        << "fast=" << use_fast << " op=" << op << " index=" << i << " error=" << error;
+                }
+            }
+        }
     }
 }
 
@@ -1558,7 +1860,15 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ir_named_axis_broadcast"_test = [&] { named_axis_broadcast(device); };
     "tile_cuda_ir_ordered_reductions"_test = [&] { ordered_reductions(device); };
     "tile_cuda_ir_elementary_math"_test = [&] { elementary_math(device); };
-    "tile_cuda_ir_native_scan_and_sort"_test = [&] { native_scan_and_sort(device); };
+    "tile_cuda_ir_native_scan_and_sort"_test = [&] {
+        native_scan_and_sort(device);
+        chunked_sort_pipeline<float>(device, 129, 256, 1u);
+        chunked_sort_pipeline<float>(device, 257, 256, 2u);
+        chunked_sort_pipeline<half>(device, 769, 256, 3u);
+        chunked_sort_pipeline<tile::bfloat16>(device, 1537, 256, 4u);
+        chunked_sort_pipeline<float>(device, 769, 512, 2u);
+        chunked_sort_pipeline<half>(device, 1537, 512, 3u);
+    };
     "tile_cuda_ir_repeated_extrema_topk"_test = [&] {
         repeated_extrema_topk<float>(device, 1u, 1u);
         repeated_extrema_topk<float>(device, 33u, 7u);
@@ -1588,6 +1898,7 @@ int main(int argc, char *argv[]) {
         typed_buffer_copy<uint64_t>(device);
     };
     "tile_cuda_ir_explicit_fast_math"_test = [&] { explicit_fast_math(device); };
+    "tile_cuda_ir_fast_div_sqrt"_test = [&] { fast_div_sqrt(device); row_operations(device, true); };
     "tile_cuda_ir_rejects_unsupported_options"_test = [&] { rejected_options(device); };
     "tile_cuda_ir_rejects_shapes_constraints_and_types"_test = [&] { rejected_shapes_and_constraints(device); };
     return 0;

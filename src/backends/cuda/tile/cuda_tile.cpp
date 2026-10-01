@@ -594,7 +594,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
     metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1)";
-    if (option.enable_fast_math) { metadata.realization += "; elementwise-fp32-approx-ftz-v1"; }
+    if (option.enable_fast_math) { metadata.realization += "; elementwise-fp32-approx-ftz-rsqrt-v2"; }
     // enable_cache is a hint. This experimental route deliberately does not
     // consult/write the PTX cache, a user archive, or an in-memory binary cache.
     luisa::vector<Usage> usages;

@@ -254,6 +254,30 @@ private:
         scalar = luisa::format("ct::element_cast<{}>({})", _element(type), scalar);
         _bind(op.result(0u), type.is_tile() ? luisa::format("ct::full<ct::tile<{}, {}>>({})", _element(type), _shape(*type.index_space()), scalar) : scalar);
     }
+    [[nodiscard]] luisa::string _fast_div_sqrt(const Operation &op, luisa::string_view numerator) noexcept {
+        auto denominator = op.operand(1u);
+        auto root = denominator->defining_operation();
+        if (op.operand(0u)->type().scalar_type() != ScalarType::FLOAT32 ||
+            root == nullptr || root->kind() != OperationKind::ELEMENTWISE ||
+            root->elementwise_op() != ElementwiseOp::SQRT || root->operand_count() != 1u ||
+            root->result_count() != 1u || root->result(0u) != denominator ||
+            denominator->type().scalar_type() != ScalarType::FLOAT32 ||
+            root->operand(0u)->type().scalar_type() != ScalarType::FLOAT32) { return {}; }
+        // Keep both named-axis alignments from the original SQRT then DIV.
+        // Computing the reciprocal in the producer's space allows a row
+        // scalar to remain a row scalar before the consumer broadcasts it.
+        auto argument = _elementwise_value(root->operand(0u), denominator->type(), *root);
+        auto reciprocal = luisa::format("ct::rsqrt({}, ct::round_subnormals_to_zero_t{{}})", argument);
+        auto &&result = op.result(0u)->type();
+        if (result.is_tile() && denominator->type().is_tile()) {
+            reciprocal = _align(std::move(reciprocal), *denominator->type().index_space(), *result.index_space(), op);
+        }
+        // This is an explicit fast FP32 policy, not a general reciprocal
+        // transform. SQRT emission is retained for any other users; an unused
+        // pure producer may be removed by the native compiler. Scalar values
+        // in map bodies retain the ordinary _mapped_values propagation below.
+        return luisa::format("ct::mul({}, {}, ct::round_ties_to_even_t{{}}, ct::round_subnormals_to_zero_t{{}})", numerator, reciprocal);
+    }
     void _elementwise(const Operation &op) noexcept {
         auto &&result_type = op.result(0u)->type();
         auto a = _elementwise_value(op.operand(0u), result_type, op);
@@ -276,7 +300,10 @@ private:
             case ElementwiseOp::ADD: binary = "+"; break;
             case ElementwiseOp::SUB: binary = "-"; break;
             case ElementwiseOp::MUL: binary = "*"; break;
-            case ElementwiseOp::DIV: binary = "/"; break;
+            case ElementwiseOp::DIV:
+                if (fast_fp32) { expression = _fast_div_sqrt(op, a); }
+                if (expression.empty()) { binary = "/"; }
+                break;
             case ElementwiseOp::MOD: binary = "%"; break;
             case ElementwiseOp::EQ: binary = "=="; break;
             case ElementwiseOp::NE: binary = "!="; break;

@@ -1398,7 +1398,7 @@ The flag is recorded and checked in both manifest and native results. The
 input/oracle files, numerical acceptance bounds and Torch program are unchanged.
 Fast results must pass the same declared oracle; the flag does not enlarge it.
 
-The native policy `elementwise-fp32-approx-ftz-v1` only relaxes FP32 elementwise
+The native policy `elementwise-fp32-approx-ftz-rsqrt-v2` relaxes FP32 elementwise
 add/sub/mul (RNE plus FTZ), division/sqrt (approximate plus FTZ), and exp
 (approximate, with no FTZ guarantee). Tanh retains full precision because the
 SDK's approximate mode failed the unchanged elementwise error budget.
@@ -1406,6 +1406,76 @@ MMA precision/order, reduction/scan
 ordering and native tree intrinsics, casts, comparisons and min/max keep their
 prior behavior. Elementwise operations inside ordered or custom reduction
 bodies follow the same explicit fast-math policy. It does not
-enable blanket compiler fast math, TF32, reciprocal rewrites or a fallback.
+enable blanket compiler fast math, TF32, general division-to-reciprocal rewrites or a fallback.
 Other routes receive their existing `ShaderOption` flag and may implement a
 different fast-math policy; compare realization metadata, not flag equality.
+
+The explicit v2 fast policy additionally maps a FP32 `x / sqrt(y)` to
+`ct::mul(x, ct::rsqrt(y, FTZ), RNE, FTZ)` only when the DIV operand is directly
+the SQRT result. Both original named-axis alignments are retained, including
+row broadcasts and scalar values within `map`. Casts, explicit broadcast
+operations and other producers are not traversed. A shared SQRT remains
+available to its other users. Default/strict generated source is unchanged.
+The native route currently has no shader cache; the realization tag identifies
+this policy separately from historical v1 results.
+
+The SDK reciprocal square root has an explicit subnormal mode, but no separate
+approximate rounding parameter. FP32 FTZ applies to its input/result and to
+both multiplication inputs/result. This changes intermediate rounding in fast
+mode; it is not a bit-exact rewrite of two separately rounded operations.
+For finite positive normal y, reciprocal-sqrt is itself normal, avoiding the
+intermediate reciprocal-underflow problem of rewriting arbitrary `x / y`.
+Special values and signed zeros remain subject to the runtime conformance
+tests. The existing elementwise and workload error bounds are not widened.
+See the [CUDA 13.4.1 math API](https://docs.nvidia.com/cuda/archive/13.4.1/cuda-tile-cpp-api-reference/math_operations.html#cuda-tiles-rsqrt)
+and [subnormal policies](https://docs.nvidia.com/cuda/cuda-tile-cpp-api-reference/general_principles.html#subnormals-rounding-mode).
+
+
+### Optional complete chunked-sort pipelines
+
+`ranking_algorithm: "chunked_bitonic_c256"` and `"chunked_bitonic_c512"` are explicit
+`sort`-only compositions. The input/output ABI and exact stable index/value oracle
+are unchanged. The row Tile remains `(1,bit_ceil(N),1)`, and its width must be at
+least the named chunk size. The first kernel sorts alternating runs; each later
+kernel merges a doubled span, ending with typed values and INT64 indices. No
+public Tile primitive or lower-precision ranking key is introduced.
+
+Every timed operation includes all stages. Scratch comprises two disjoint
+FP32-value/INT32-index planes, each with 64 guards at both ends; allocation/upload
+and compilation are outside warm execution timing. `pipeline` and
+`pipeline_stages` describe the widths, buffers, stage sources, realizations and
+individual compile times. The ordinary `compile_ms` is the sum of those stage
+compile times. All sources are retained and hashed by the matrix runner.
+
+With `--graph-batch 100`, the graph contains 100 complete pipelines. Protocol
+`adaptive_replay_span_v2` calibrates R complete replays per sample; timing is
+divided by 100*R, never by its number of kernels. Both actual total spans and
+per-operation arrays remain in the receipt, along with stage dispatch counts. `CudaGraphExt` creates a buffer
+hazard DAG, so independent stages in adjacent complete operations may overlap.
+This is complete-operation throughput, not isolated single-sort latency; use
+the existing synchronized single-call measurement for that separate quantity.
+There is no inserted dummy dependency or omitted merge. Every operation starts
+from the same original input rather than the previous sorted output. Native
+stable tie order and the selected Torch ranking contract remain distinct when
+the standard Torch unstable sort is requested. No performance advantage is
+asserted by selecting this algorithm.
+
+### Extended operator and size inventories
+
+`cuda_llm_extended.json` adds BMM, larger GEMM/GEMV, and paired strict/fast
+normalization configurations. Use the standard Torch ranking contract.
+`cuda_sort_chunked.json` compares full sorting with both chunk sizes on identical
+inputs; run it with `--ranking-contract stable` to require matching index ties.
+Both inventories use the ordinary `cuda_matrix.py` command and graph timing
+protocol above. A case list specifies coverage, not a claim of performance parity.
+
+BMM dimensions are `[B,M,N,K]`, with contiguous `[B,M,K]` and `[B,K,N]`
+inputs, FP32 accumulation, and typed `[B,M,N]` output. Each program handles a
+singleton batch slice; batch broadcasting and dynamically grouped matrices
+are outside this fixture. GEMM/GEMV/BMM permit at most `2^34` product terms
+and `2^24` elements in each input or output. The complete FP64 oracle remains
+enabled, so larger cases also cost more host time. Matrix compile failures and
+timeouts remain failures; they do not become unsupported capability results.
+
+The [core78 checkpoint](results/2026-10-01-core78-v2/README.md) records the
+earlier implementation, its full samples and remaining performance gaps.

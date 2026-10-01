@@ -67,9 +67,34 @@ def expected_shapes(op, dims):
     return [(r, n), aux, aux], (r, 1 if op in {"reduce_sum", "reduce_max", "argmax"} else n)
 
 
+def check_matrix_limits(op, dims, tile, backend=None):
+    """Validate metadata before any tensor allocation/read; mirror the native fixture."""
+    require(op in {"gemm", "gemv", "bmm"}, "not a matrix operation")
+    require(isinstance(dims, (list, tuple)) and len(dims) == (4 if op == "bmm" else 3) and
+            all(type(v) is int and 0 < v <= 65536 for v in dims), "invalid matrix dimensions")
+    b, m, n, k = dims if op == "bmm" else (1, *dims)
+    require(b * m * n * k <= 2**34, "matrix exceeds fixture work bound")
+    require(max(b * m * k, b * k * n, b * m * n) <= 2**24, "matrix input/output exceeds fixture allocation bound")
+    require(isinstance(tile, list) and len(tile) == 3 and
+            all(type(v) is int and v > 0 for v in tile), "invalid matrix tile")
+    require(op != "bmm" or all(v & (v - 1) == 0 for v in tile), "invalid BMM tile")
+    require(tile[0] <= 128 and tile[1] <= 128 and tile[2] <= (1024 if op == "gemv" else 256) and
+            (op != "gemv" or n == 1), "invalid matrix schedule")
+    # BMM retains its original bounded-grid fixture contract. GEMM/GEMV's
+    # additional CUDA grid guard must not constrain packets from SIMD.
+    if op == "bmm" or backend == "cuda":
+        require((n + tile[1] - 1) // tile[1] <= 65535 and
+                (op != "bmm" or (m + tile[0] - 1) // tile[0] <= 65535), "matrix launch grid exceeds CUDA limits")
+
+
 def check_semantics(manifest):
     op, semantics = manifest["operation"], manifest.get("semantics", {})
     constraints = {"accumulation": "float32"}
+    if op == "bmm":
+        constraints.update(batch_layout="contiguous_bmk_bkn_bmn", batch_broadcast=False,
+                           contraction="mma_fused_reassociation_allowed",
+                           input_quantization="round_to_nearest_even_before_fp64_oracle", output_rounding="round_to_nearest_even")
+        require(semantics.get("batch_broadcast") is False, "BMM batch broadcasting is unsupported")
     if op == "rope":
         constraints["rope_pairing"] = "half_split"
     if op in {"softmax", "masked_softmax"}:
@@ -109,6 +134,8 @@ def load_packet(path):
     op = manifest["operation"]
     require(len(dims) == (7 if op in {"attention", "attention_tensorcore"} else 4 if op == "bmm" else
                          3 if op in {"gemm", "gemv", "sort", "topk"} else 2), "operation dimension arity mismatch")
+    if op in {"gemm", "gemv", "bmm"}:
+        check_matrix_limits(op, dims, manifest.get("tile"), manifest.get("backend"))
     if op == "rope":
         require(dims[1] % 2 == 0, "RoPE requires an even width")
     if op in {"attention", "attention_tensorcore"}:
@@ -140,6 +167,12 @@ def load_packet(path):
     entries = manifest["inputs"]
     require(isinstance(entries, list) and entries, "missing input tensors")
     require([entry["name"] for entry in entries] == [f"input{i}" for i in range(len(entries))], "input order/name mismatch")
+    if op in {"gemm", "gemv", "bmm"}:
+        matrix_inputs, matrix_output = expected_shapes(op, dims)
+        require(len(entries) == len(matrix_inputs) and
+                all(shape(entry["shape"]) == required for entry, required in zip(entries, matrix_inputs)) and
+                shape(manifest["output"]["shape"]) == matrix_output,
+                "exported tensor shapes differ from the matrix operation contract")
     storage_dtype = PRECISIONS[manifest["precision"]]
     def read_input(entry):
         if storage_dtype == "bfloat16":

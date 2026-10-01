@@ -159,6 +159,19 @@ template<typename T>
     }
 }
 
+void pipeline_metadata(std::ostream &out, const workloads::Fixture &f) {
+    if (f.pipeline_widths.empty()) { return; }
+    out << ",\"pipeline\":{\"kind\":\"chunked_bitonic_whole_tile_merge\",\"chunk\":" << f.pipeline_chunk
+        << ",\"stages_per_operation\":" << f.pipeline_widths.size() << ",\"stage_widths\":";
+    array(out, f.pipeline_widths);
+    out << ",\"scratch_elements_per_plane\":" << f.scratch_elements
+        << ",\"scratch_slots\":" << (f.scratch_elements == 0u ? 0u : 2u)
+        << ",\"scratch_value_dtype\":\"float32\",\"scratch_index_dtype\":\"int32\","
+           "\"scratch_guard_elements_per_plane\":128,\"final_indices_dtype\":\"int64\","
+           "\"timing_unit\":\"one complete sort, all stages included\","
+           "\"graph_ordering\":\"buffer hazard DAG; independent stages from adjacent sorts may overlap\"}";
+}
+
 template<typename T>
 [[nodiscard]] bool export_fixture(const luisa::filesystem::path &directory,
                                   const workloads::Options &o, const workloads::Fixture &f) {
@@ -178,6 +191,7 @@ template<typename T>
     identity(out, o);
     out << ",\"algorithm\":";
     quoted(out, f.algorithm);
+    pipeline_metadata(out, f);
     out << ",\"endianness\":\"little\",\"inputs\":[";
     for (size_t i = 0; i < 3u; i++) {
         if (i != 0u) { out << ','; }
@@ -226,11 +240,14 @@ template<typename T>
            "\"attention_scale\":";
     auto scale = (o.operation == "attention" || o.operation == "attention_tensorcore") ? 1.0f / std::sqrt(static_cast<float>(o.dimensions[5])) : 1.0f;
     out << static_cast<double>(scale) << ",\"input_quantization\":\"round_to_nearest_even_before_fp64_oracle\",\"output_rounding\":\"round_to_nearest_even\",\"contraction\":";
-    quoted(out, o.operation == "gemv"                                                                          ? "nonfused_products_unordered_tree_sum" :
-                o.operation == "gemm" || (o.operation == "attention" || o.operation == "attention_tensorcore") ? "mma_fused_reassociation_allowed" :
-                                                                                                                 "not_applicable");
+    auto fused_contraction = o.operation == "gemm" || o.operation == "bmm" ||
+                             o.operation == "attention" || o.operation == "attention_tensorcore";
+    quoted(out, o.operation == "gemv" ? "nonfused_products_unordered_tree_sum" :
+                fused_contraction    ? "mma_fused_reassociation_allowed" :
+                                       "not_applicable");
+    if (o.operation == "bmm") { out << ",\"batch_layout\":\"contiguous_bmk_bkn_bmn\",\"batch_broadcast\":false"; }
     out << ",\"logical_view_offset_elements\":64,\"logical_view_offset_bytes\":" << 64u * sizeof(T)
-        << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N repeated identical dispatches, same inputs and output allocation, ordered WAW; R complete graph replays per timed sample; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract.\"}"
+        << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N complete identical workloads including every pipeline stage; same inputs/output/scratch allocations and hazard-DAG ordering. Independent pipeline stages may overlap across calls. R complete graph replays per timed sample, divided by N*R complete workloads; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract.\"}"
            ",\"validation\":{\"reference\":\"host_fp64\",\"bound\":\"per_element_bound.f64\","
            "\"require_finite\":true,\"output_guard_elements\":128,\"readonly_inputs_checked\":true}}\n";
     return write_text(directory / "manifest.json", out.str());
@@ -311,7 +328,8 @@ template<typename T>
 int run(int argc, char *argv[]) {
     workloads::Options options;
     if (argc < 13 || argc > 19 || (argc - 13) % 2 != 0) {
-        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|repeated_extrema] [--fast-math 0|1]\n";
+        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1]\n";
+        std::cerr << "BMM operation dimensions are B,M,N,K; tile is BM,BN,BK.\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
     }
     options.backend = argv[1];
@@ -341,7 +359,8 @@ int run(int argc, char *argv[]) {
         } else if (flag == "--ranking-algorithm" && !ranking_seen) {
             ranking_seen = true;
             options.ranking_algorithm = argv[i + 1];
-            if (options.ranking_algorithm != "full_sort_prefix" && options.ranking_algorithm != "repeated_extrema") {
+            if (options.ranking_algorithm != "full_sort_prefix" && options.ranking_algorithm != "repeated_extrema" &&
+                options.ranking_algorithm != "chunked_bitonic_c256" && options.ranking_algorithm != "chunked_bitonic_c512") {
                 return finish(options, {}, "failed", "invalid --ranking-algorithm", 1);
             }
         } else if (flag == "--fast-math" && !fast_seen) {
@@ -379,6 +398,16 @@ int run(int argc, char *argv[]) {
         }
         return finish(options, directory, "unsupported", diagnostics.empty() ? string_view{"Tile capture rejected the fixture"} : string_view{diagnostics}, 3);
     }
+    for (auto &&kernel : fixture.continuation_kernels) {
+        if (!kernel.valid()) {
+            string diagnostics;
+            for (auto &text : kernel.diagnostics()) { diagnostics += text; diagnostics += '\n'; }
+            return finish(options, directory, "unsupported", diagnostics.empty() ? string_view{"Tile pipeline capture rejected a stage"} : string_view{diagnostics}, 3);
+        }
+    }
+    auto stage_count = 1u + fixture.continuation_kernels.size();
+    auto max_repetitions = uint64_t{100000u} / stage_count;
+    if (options.graph_batch > max_repetitions) { return finish(options, directory, "failed", "graph exceeds 100000 total stage dispatches", 1); }
     if (options.backend == "cuda" && options.lowering == "native") {
         auto opt_in = luisa::get_environment_variable("LUISA_CUDA_TILE_IR");
         if (!opt_in || *opt_in != "1") { return finish(options, directory, "unsupported", "CUDA native benchmark requires exact LUISA_CUDA_TILE_IR=1; no fallback", 3); }
@@ -390,28 +419,39 @@ int run(int argc, char *argv[]) {
     auto runtime_ms = elapsed(start);
     tile::CompileOptions compile_options;
     compile_options.lowering = options.lowering == "tirx" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
-    start = Clock::now();
-    auto shader = tile::compile(device, *fixture.kernel, compile_options, {.enable_fast_math = options.fast_math});
-    auto compile_ms = elapsed(start);
-    if (!shader.metadata().source.empty() && !write_text(directory / "source.txt", std::string{shader.metadata().source.data(), shader.metadata().source.size()})) {
-        return finish(options, directory, "failed", "source export failed", 1, compile_ms);
+    vector<tile::Shader> shaders;
+    vector<double> stage_compile_ms;
+    shaders.reserve(stage_count);
+    auto compile_ms = 0.0;
+    for (auto stage = size_t{0u}; stage < stage_count; stage++) {
+        auto &kernel = stage == 0u ? *fixture.kernel : fixture.continuation_kernels[stage - 1u];
+        start = Clock::now();
+        auto shader = tile::compile(device, kernel, compile_options, {.enable_fast_math = options.fast_math});
+        stage_compile_ms.emplace_back(elapsed(start));
+        compile_ms += stage_compile_ms.back();
+        auto source_name = stage == 0u ? std::string{"source.txt"} : "source-stage" + std::to_string(stage) + ".txt";
+        if (!shader.metadata().source.empty() && !write_text(directory / source_name, std::string{shader.metadata().source.data(), shader.metadata().source.size()})) {
+            return finish(options, directory, "failed", "stage source export failed", 1, compile_ms);
+        }
+        if (!shader) {
+            auto error = string_view{shader.metadata().error};
+            auto compiler_failure = error.starts_with("CUDA Tile IR NVRTC failed (") ||
+                                    error.starts_with("CUDA Tile IR tileiras failed (") ||
+                                    error.starts_with("CUDA Tile IR NVRTC could not start:") ||
+                                    error.starts_with("CUDA Tile IR tileiras could not start:");
+            return finish(options, directory, compiler_failure ? "compiler_failure" : "unsupported", error,
+                          compiler_failure ? 1 : 3, compile_ms, shader.metadata().realization);
+        }
+        if (options.backend == "cuda" && options.lowering == "native" && !shader.metadata().realization.starts_with("CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin")) {
+            return finish(options, directory, "failed", "requested native Tile IR realization was not produced", 1, compile_ms, shader.metadata().realization);
+        }
+        if (options.backend == "cuda" && options.lowering == "tirx" &&
+            (shader.metadata().realization.find("TIRx ->") == string::npos || shader.metadata().realization.find("PTX") == string::npos)) {
+            return finish(options, directory, "failed", "requested CUDA TIRx/PTX realization was not produced", 1, compile_ms, shader.metadata().realization);
+        }
+        shaders.emplace_back(std::move(shader));
     }
-    if (!shader) {
-        auto error = string_view{shader.metadata().error};
-        auto compiler_failure = error.starts_with("CUDA Tile IR NVRTC failed (") ||
-                                error.starts_with("CUDA Tile IR tileiras failed (") ||
-                                error.starts_with("CUDA Tile IR NVRTC could not start:") ||
-                                error.starts_with("CUDA Tile IR tileiras could not start:");
-        return finish(options, directory, compiler_failure ? "compiler_failure" : "unsupported", error,
-                      compiler_failure ? 1 : 3, compile_ms, shader.metadata().realization);
-    }
-    if (options.backend == "cuda" && options.lowering == "native" && !shader.metadata().realization.starts_with("CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin")) {
-        return finish(options, directory, "failed", "requested native Tile IR realization was not produced", 1, compile_ms, shader.metadata().realization);
-    }
-    if (options.backend == "cuda" && options.lowering == "tirx" &&
-        (shader.metadata().realization.find("TIRx ->") == string::npos || shader.metadata().realization.find("PTX") == string::npos)) {
-        return finish(options, directory, "failed", "requested CUDA TIRx/PTX realization was not produced", 1, compile_ms, shader.metadata().realization);
-    }
+    auto &shader = shaders.front();
     CudaTiming events{device, stream, options.backend == "cuda"};
     if (options.backend == "cuda" && !events.enabled) { return finish(options, directory, "unsupported", events.error, 3, compile_ms, shader.metadata().realization); }
     constexpr size_t pad = 64u;
@@ -432,11 +472,47 @@ int run(int argc, char *argv[]) {
     vector<int64_t> host_indices((fixture.ranking ? fixture.expected_indices.size() : 1u) + 2u * pad, index_guard);
     auto indices = device.create_buffer<int64_t>(host_indices.size());
     stream << output.copy_from(span{host_output}) << indices.copy_from(span{host_indices}) << synchronize();
+    std::array<Buffer<float>, 2u> scratch_values;
+    std::array<Buffer<int32_t>, 2u> scratch_indices;
+    std::array<vector<float>, 2u> host_scratch_values;
+    std::array<vector<int32_t>, 2u> host_scratch_indices;
+    constexpr int32_t scratch_index_guard = std::numeric_limits<int32_t>::min() + 37;
+    if (fixture.scratch_elements != 0u) {
+        for (auto slot = size_t{0u}; slot < 2u; slot++) {
+            host_scratch_values[slot].assign(fixture.scratch_elements + 2u * pad, guard);
+            host_scratch_indices[slot].assign(fixture.scratch_elements + 2u * pad, scratch_index_guard);
+            scratch_values[slot] = device.create_buffer<float>(host_scratch_values[slot].size());
+            scratch_indices[slot] = device.create_buffer<int32_t>(host_scratch_indices[slot].size());
+            stream << scratch_values[slot].copy_from(span{host_scratch_values[slot]})
+                   << scratch_indices[slot].copy_from(span{host_scratch_indices[slot]});
+        }
+        stream << synchronize();
+    }
     auto upload_ms = elapsed(start);
     auto make_commands = [&](uint64_t repetitions) {
         CommandList commands;
         for (uint64_t i = 0; i < repetitions; i++) {
-            if (fixture.ranking) {
+            if (fixture.scratch_elements != 0u) {
+                // A full operation always starts from the original input. No
+                // iteration consumes the previous operation's sorted output.
+                commands << shaders[0](inputs[0].view(pad, fixture.inputs[0].size()),
+                                       scratch_values[0].view(pad, fixture.scratch_elements),
+                                       scratch_indices[0].view(pad, fixture.scratch_elements)).dispatch();
+                for (auto stage = size_t{1u}; stage < shaders.size(); stage++) {
+                    auto read_slot = (stage - 1u) % 2u, write_slot = stage % 2u;
+                    if (stage + 1u == shaders.size()) {
+                        commands << shaders[stage](scratch_values[read_slot].view(pad, fixture.scratch_elements),
+                                                   scratch_indices[read_slot].view(pad, fixture.scratch_elements),
+                                                   output.view(pad, fixture.expected.size()),
+                                                   indices.view(pad, fixture.expected_indices.size())).dispatch();
+                    } else {
+                        commands << shaders[stage](scratch_values[read_slot].view(pad, fixture.scratch_elements),
+                                                   scratch_indices[read_slot].view(pad, fixture.scratch_elements),
+                                                   scratch_values[write_slot].view(pad, fixture.scratch_elements),
+                                                   scratch_indices[write_slot].view(pad, fixture.scratch_elements)).dispatch();
+                    }
+                }
+            } else if (fixture.ranking) {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), output.view(pad, fixture.expected.size()),
                                    indices.view(pad, fixture.expected_indices.size()))
                                 .dispatch();
@@ -469,7 +545,24 @@ int run(int argc, char *argv[]) {
     auto check = [&] {
         stream << output.copy_to(span{host_output}) << indices.copy_to(span{host_indices});
         for (size_t i = 0; i < 3u; i++) { stream << inputs[i].copy_to(span{host_inputs[i]}); }
+        if (fixture.scratch_elements != 0u) {
+            for (auto slot = size_t{0u}; slot < 2u; slot++) {
+                stream << scratch_values[slot].copy_to(span{host_scratch_values[slot]})
+                       << scratch_indices[slot].copy_to(span{host_scratch_indices[slot]});
+            }
+        }
         stream << synchronize();
+        if (fixture.scratch_elements != 0u) {
+            for (auto slot = size_t{0u}; slot < 2u; slot++) {
+                for (auto i = size_t{0u}; i < pad; i++) {
+                    auto tail = fixture.scratch_elements + pad + i;
+                    errors += std::bit_cast<uint32_t>(host_scratch_values[slot][i]) != std::bit_cast<uint32_t>(guard);
+                    errors += std::bit_cast<uint32_t>(host_scratch_values[slot][tail]) != std::bit_cast<uint32_t>(guard);
+                    errors += host_scratch_indices[slot][i] != scratch_index_guard;
+                    errors += host_scratch_indices[slot][tail] != scratch_index_guard;
+                }
+            }
+        }
         auto bits = [](T x) { return std::bit_cast<std::array<std::byte, sizeof(T)>>(x); };
         for (size_t i = 0; i < 3u; i++) {
             for (size_t j = 0; j < host_inputs[i].size(); j++) {
@@ -514,8 +607,8 @@ int run(int argc, char *argv[]) {
     uint64_t repetitions = 1u;
     for (uint32_t attempt = 0; attempt < 8u; attempt++) {
         auto ms = batch(repetitions, false, ignored);
-        if (ms >= options.sample_ms * .8 || repetitions == 100000u) { break; }
-        repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(repetitions * options.sample_ms / std::max(ms, 1e-6)), repetitions + 1u, 100000u);
+        if (ms >= options.sample_ms * .8 || repetitions == max_repetitions) { break; }
+        repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(repetitions * options.sample_ms / std::max(ms, 1e-6)), repetitions + 1u, max_repetitions);
     }
     vector<double> throughput, latency, device_span, instrumented_host, graph_host, graph_device;
     for (uint32_t i = 0; i < options.samples; i++) { throughput.emplace_back(1000.0 * batch(repetitions, false, ignored) / repetitions); }
@@ -636,9 +729,22 @@ int run(int argc, char *argv[]) {
     }
     out << ",\"status\":\"passed\",\"realization\":";
     quoted(out, shader.metadata().realization);
+    pipeline_metadata(out, fixture);
+    if (!fixture.pipeline_widths.empty()) {
+        out << ",\"pipeline_stages\":[";
+        for (auto stage = size_t{0u}; stage < shaders.size(); stage++) {
+            if (stage != 0u) { out << ','; }
+            out << "{\"index\":" << stage << ",\"compile_ms\":" << stage_compile_ms[stage] << ",\"source\":";
+            quoted(out, stage == 0u ? std::string{"source.txt"} : "source-stage" + std::to_string(stage) + ".txt");
+            out << ",\"realization\":";
+            quoted(out, shaders[stage].metadata().realization);
+            out << '}';
+        }
+        out << "],\"graph_stage_dispatches\":" << shaders.size() * options.graph_batch;
+    }
     out << ",\"timing_scope\":\"C++ command construction, submission, execution and final synchronization\","
            "\"device_timing_scope\":\"CUDA event stream span after command construction; may include host submission starvation; not isolated kernel time\","
-           "\"graph_timing_scope\":\"R complete graph replays per sample; event stream span and synchronized host wall divided by graph_batch*R; complete-operation throughput, may include host submission starvation\","
+           "\"graph_timing_scope\":\"R complete graph replays per sample; all stages included; event stream span and synchronized host wall divided by graph_batch*R; complete-operation throughput; hazard DAG may overlap independent stages across calls and host submission may starve GPU\","
            "\"fixture_ms\":"
         << fixture_ms << ",\"runtime_ms\":" << runtime_ms << ",\"compile_ms\":" << compile_ms
         << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_ms\":" << cold_ms << ",\"warmup_actual_ms\":" << warmup_actual_ms
@@ -673,7 +779,7 @@ int run(int argc, char *argv[]) {
     array(out, graph_event_span_ms);
     out << ",\"graph_host_span_ms\":";
     array(out, graph_host_span_ms);
-    out << ",\"graph_stage_dispatches_per_sample\":" << graph_replays * options.graph_batch;
+    out << ",\"graph_stage_dispatches_per_sample\":" << graph_replays * options.graph_batch * shaders.size();
     out << ",\"graph_host_wall_us_per_op\":";
     array(out, graph_host);
     out << ",\"graph_event_stream_span_us_per_op\":";
