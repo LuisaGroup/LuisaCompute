@@ -76,6 +76,7 @@
 #include <luisa/core/stl/unordered_map.h>
 
 #include <array>
+#include <bit>
 #include <cfenv>
 #include <cmath>
 #include <limits>
@@ -1605,10 +1606,290 @@ void reg_fast_math_simplify() {
         expect(f64_ret->return_value() == f64_power);
         expect(annotated_ret->return_value() == annotated_power);
         expect(one_exponent_ret->return_value() == one_exponent_power);
-        expect(report.entries().size() == 2u);
+        expect(report.entries().size() == 3u);
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "fast_math_opposite_difference_shares_length_and_normalize"_test = [] {
+        for (auto fast : {false, true}) {
+            Module m;
+            auto *f = m.create_callable(Type::of<float3>());
+            auto *a = f->create_value_argument(Type::of<float3>());
+            auto *b_value = f->create_value_argument(Type::of<float3>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sink = b.alloca_local(Type::of<float>());
+            auto *forward = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+            auto *length = b.call(Type::of<float>(), ArithmeticOp::LENGTH, {forward});
+            b.store(sink, length);
+            auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            auto *normal = b.call(Type::of<float3>(), ArithmeticOp::NORMALIZE, {reverse});
+            b.return_(normal);
+            auto before = xir_to_text_translate(&m, true);
+            expect(xir_verify_module(&m).succeeded());
+
+            auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = fast});
+            expect(info.opposite_sub_count == (fast ? 1u : 0u));
+            expect(length->operand(0u) == forward);
+            if (fast) {
+                expect(normal->operand(0u) == forward);
+                expect(forward->operand(0u) == b_value);
+                expect(forward->operand(1u) == a);
+                expect(!fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true}).changed());
+            } else {
+                expect(xir_to_text_translate(&m, true) == before);
+                expect(normal->operand(0u) == reverse);
+            }
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "fast_math_opposite_difference_keeps_earlier_direction_when_later_uses_are_even"_test = [] {
+        for (auto operation : {ArithmeticOp::LENGTH_SQUARED, ArithmeticOp::DOT, ArithmeticOp::BINARY_MUL}) {
+            Module m;
+            auto *result_type = operation == ArithmeticOp::BINARY_MUL ? Type::of<float3>() : Type::of<float>();
+            auto *f = m.create_callable(result_type);
+            auto *a = f->create_value_argument(Type::of<float3>());
+            auto *b_value = f->create_value_argument(Type::of<float3>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sink = b.alloca_local(Type::of<float3>());
+            auto *forward = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+            b.store(sink, forward);
+            auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            auto *even = operation == ArithmeticOp::LENGTH_SQUARED ?
+                             b.call(result_type, operation, {reverse}) :
+                             b.call(result_type, operation, {reverse, reverse});
+            b.return_(even);
+            expect(xir_verify_module(&m).succeeded());
+
+            auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+            expect(info.opposite_sub_count == 1u);
+            expect(forward->operand(0u) == a);
+            expect(forward->operand(1u) == b_value);
+            expect(even->operand(0u) == forward);
+            if (operation != ArithmeticOp::LENGTH_SQUARED) { expect(even->operand(1u) == forward); }
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "fast_math_opposite_difference_preserves_scalar_square_values"_test = [] {
+        for (auto inputs : {float2{7.5f, -2.0f}, float2{-13.0f, 5.5f}, float2{0.0f, -0.0f}}) {
+            Module m;
+            auto *f = m.create_callable(Type::of<float>());
+            auto *body = f->create_body_block();
+            auto *a = m.create_constant(Type::of<float>(), &inputs.x);
+            auto *b_value = m.create_constant(Type::of<float>(), &inputs.y);
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sink = b.alloca_local(Type::of<float>());
+            auto *forward = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+            b.store(sink, forward);
+            auto *reverse = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            auto *square = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {reverse, reverse});
+            auto *ret = b.return_(square);
+            auto expected_difference = inputs.y - inputs.x;
+            auto expected = expected_difference * expected_difference;
+
+            auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+            expect(info.opposite_sub_count == 1u);
+            // The first round folds the difference; the second folds its square.
+            (void)const_fold_pass_run_on_function(f);
+            (void)const_fold_pass_run_on_function(f);
+            expect(ret->return_value()->isa<Constant>());
+            if (ret->return_value()->isa<Constant>()) {
+                auto actual = static_cast<Constant *>(ret->return_value())->as<float>();
+                expect(std::bit_cast<uint32_t>(actual) == std::bit_cast<uint32_t>(expected));
+            }
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "fast_math_opposite_difference_preserves_special_square_classification"_test = [] {
+        auto tiny = std::numeric_limits<float>::denorm_min();
+        auto minimum_normal = std::numeric_limits<float>::min();
+        auto infinity = std::numeric_limits<float>::infinity();
+        auto nan = std::numeric_limits<float>::quiet_NaN();
+        for (auto inputs : {float2{tiny, 0.0f}, float2{-tiny, 0.0f},
+                            float2{minimum_normal, std::nextafter(minimum_normal, infinity)},
+                            float2{0x1p-74f, 0.0f},
+                            float2{infinity, 1.0f}, float2{-infinity, 1.0f},
+                            float2{infinity, -infinity}, float2{infinity, infinity},
+                            float2{nan, 1.0f}, float2{1.0f, nan}}) {
+            Module m;
+            auto *f = m.create_callable(Type::of<float>());
+            auto *body = f->create_body_block();
+            auto *a = m.create_constant(Type::of<float>(), &inputs.x);
+            auto *b_value = m.create_constant(Type::of<float>(), &inputs.y);
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sink = b.alloca_local(Type::of<float>());
+            auto *forward = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+            b.store(sink, forward);
+            auto *reverse = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            auto *square = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {reverse, reverse});
+            b.return_(square);
+            // Do not use const_fold here: target-neutral folding deliberately
+            // rejects subnormal operands/results and manufactured NaN payloads.
+            auto expected_difference = inputs.y - inputs.x;
+            auto expected = expected_difference * expected_difference;
+            auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+            // Equal constants may share one SSA value, for which the pass is a no-op.
+            auto *expected_instruction = a == b_value ? reverse : forward;
+            expect(info.opposite_sub_count == (a == b_value ? 0u : 1u));
+            expect(square->operand(0u) == expected_instruction);
+            expect(square->operand(1u) == expected_instruction);
+            auto *actual_instruction = static_cast<ArithmeticInst *>(square->operand(0u));
+            auto actual_difference = static_cast<Constant *>(actual_instruction->operand(0u))->as<float>() -
+                                     static_cast<Constant *>(actual_instruction->operand(1u))->as<float>();
+            auto actual = actual_difference * actual_difference;
+            expect(std::fpclassify(actual) == std::fpclassify(expected));
+            if (!std::isnan(expected)) {
+                expect(std::bit_cast<uint32_t>(actual) == std::bit_cast<uint32_t>(expected));
+            }
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "fast_math_opposite_difference_replays_alternating_leader_directions"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float3>());
+        auto *a = f->create_value_argument(Type::of<float3>());
+        auto *b_value = f->create_value_argument(Type::of<float3>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sink = b.alloca_local(Type::of<float3>());
+        struct Group {
+            ArithmeticInst *leader;
+            ArithmeticInst *length;
+            ArithmeticInst *normal;
+            ArithmeticInst *square;
+            Value *lhs;
+            Value *rhs;
+        };
+        luisa::vector<Group> groups;
+        for (auto i = 0u; i < 12u; ++i) {
+            auto *lhs = i % 2u == 0u ? a : b_value;
+            auto *rhs = i % 2u == 0u ? b_value : a;
+            auto *leader = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {lhs, rhs});
+            auto *length = b.call(Type::of<float>(), ArithmeticOp::LENGTH, {leader});
+            auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {rhs, lhs});
+            auto *normal = b.call(Type::of<float3>(), ArithmeticOp::NORMALIZE, {reverse});
+            b.store(sink, normal);
+            auto *again = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {lhs, rhs});
+            auto *square = b.call(Type::of<float3>(), ArithmeticOp::BINARY_MUL, {again, again});
+            b.store(sink, square);
+            groups.emplace_back(Group{leader, length, normal, square, lhs, rhs});
+        }
+        b.return_(groups.back().normal);
+        expect(xir_verify_module(&m).succeeded());
+        auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+        expect(info.opposite_sub_count == 2u * groups.size());
+        for (auto group : groups) {
+            expect(group.leader->operand(0u) == group.rhs);
+            expect(group.leader->operand(1u) == group.lhs);
+            expect(group.length->operand(0u) == group.leader);
+            expect(group.normal->operand(0u) == group.leader);
+            expect(group.square->operand(0u) == group.leader);
+            expect(group.square->operand(1u) == group.leader);
+        }
+        expect(xir_verify_module(&m).succeeded());
+        auto after = xir_to_text_translate(&m, true);
+        expect(!fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true}).changed());
+        expect(xir_to_text_translate(&m, true) == after);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_opposite_difference_retains_repeated_non_even_candidates"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float3>());
+        auto *a = f->create_value_argument(Type::of<float3>());
+        auto *b_value = f->create_value_argument(Type::of<float3>());
+        auto *body = f->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sink = b.alloca_local(Type::of<float3>());
+        auto *leader = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+        // Uses are prepended: the sign-sensitive store follows many even uses in
+        // the leader's use list. Rejected candidates must not repeatedly scan it.
+        b.store(sink, leader);
+        for (auto i = 0u; i < 128u; ++i) {
+            b.call(Type::of<float>(), ArithmeticOp::LENGTH, {leader});
+        }
+        auto *result = leader;
+        for (auto i = 0u; i < 128u; ++i) {
+            auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            auto *normal = b.call(Type::of<float3>(), ArithmeticOp::NORMALIZE, {reverse});
+            b.store(sink, normal);
+            result = normal;
+        }
+        b.return_(result);
+        auto before = xir_to_text_translate(&m, true);
+        expect(xir_verify_module(&m).succeeded());
+        expect(!fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true}).changed());
+        expect(xir_to_text_translate(&m, true) == before);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fast_math_opposite_difference_rejects_sign_observation_and_metadata"_test = [] {
+        for (auto mode = 0u; mode < 4u; ++mode) {
+            Module m;
+            auto *f = m.create_callable(Type::of<float3>());
+            auto *a = f->create_value_argument(Type::of<float3>());
+            auto *b_value = f->create_value_argument(Type::of<float3>());
+            auto *body = f->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *sink = b.alloca_local(Type::of<float3>());
+            auto *forward = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+            auto *length = b.call(Type::of<float>(), ArithmeticOp::LENGTH, {forward});
+            (void)length;
+            if (mode == 0u) { b.store(sink, forward); }
+            if (mode == 1u) { forward->set_location("opposite_difference.cpp", 1); }
+            if (mode == 3u) {
+                // A non-self multiply preserves the sign of its first operand.
+                auto *product = b.call(Type::of<float3>(), ArithmeticOp::BINARY_MUL, {forward, a});
+                b.store(sink, product);
+            }
+            auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+            if (mode == 2u) { reverse->set_location("opposite_difference.cpp", 2); }
+            auto *normal = b.call(Type::of<float3>(), ArithmeticOp::NORMALIZE, {reverse});
+            b.return_(normal);
+            auto before = xir_to_text_translate(&m, true);
+
+            auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+            expect(!info.changed());
+            expect(xir_to_text_translate(&m, true) == before);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
+
+    "fast_math_opposite_difference_does_not_cross_block_boundaries"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<float3>());
+        auto *a = f->create_value_argument(Type::of<float3>());
+        auto *b_value = f->create_value_argument(Type::of<float3>());
+        auto *entry = f->create_body_block();
+        auto *next = f->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *forward = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {a, b_value});
+        b.call(Type::of<float>(), ArithmeticOp::LENGTH, {forward});
+        b.br(next);
+        b.set_insertion_point(next);
+        auto *reverse = b.call(Type::of<float3>(), ArithmeticOp::BINARY_SUB, {b_value, a});
+        auto *normal = b.call(Type::of<float3>(), ArithmeticOp::NORMALIZE, {reverse});
+        b.return_(normal);
+        auto before = xir_to_text_translate(&m, true);
+
+        auto info = fast_math_simplify_pass_run_on_function(f, {.enable_fast_math = true});
+        expect(!info.changed());
+        expect(xir_to_text_translate(&m, true) == before);
+        expect(xir_verify_module(&m).succeeded());
+    };
     "fast_math_simplify_null_entries_are_total"_test = [] {
         expect(!fast_math_simplify_pass_run_on_function(
                     nullptr, {.enable_fast_math = true})
@@ -1617,7 +1898,7 @@ void reg_fast_math_simplify() {
         expect(!fast_math_simplify_pass_run_on_module(
                     nullptr, {.enable_fast_math = true}, &report)
                     .changed());
-        expect(report.entries().size() == 2u);
+        expect(report.entries().size() == 3u);
     };
 }
 

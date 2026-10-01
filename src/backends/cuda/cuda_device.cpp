@@ -32,6 +32,7 @@
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/early_return_elimination.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
@@ -234,6 +235,10 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         // block. Reuse the shared normalization pass's idempotent storage proof.
         cfg.add("compact-ray-query-state", normalize_ray_queries);
     }
+    cfg.add("fast-math-simplify", [fast_math = option.enable_fast_math](xir::Module *m, xir::PassReport &r) {
+        auto info = xir::fast_math_simplify_pass_run_on_module(m, {.enable_fast_math = fast_math}, &r);
+        return info.changed();
+    });
     auto cfg_stats = cfg.run(xir_module.get());
     verify_xir_or_error(xir_module.get(), "codegen handoff");
     cfg_stats.log("CUDA backend CFG normalization");
@@ -319,8 +324,8 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 19 removes the query-pointer slots from hardware-result payloads.
-static constexpr uint64_t cuda_llvm_cache_revision = 19u;
+// Revision 20 shares opposite differences through fast-math norm consumers.
+static constexpr uint64_t cuda_llvm_cache_revision = 20u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {
@@ -884,7 +889,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
     auto uses_user_path = !name.empty();
     if (!uses_user_path) {
         name = generate_ptx ?
-                   luisa::format("kernel_{:016x}.llvm-v19{}", expected_metadata.checksum, extension) :
+                   luisa::format("kernel_{:016x}.llvm-v20{}", expected_metadata.checksum, extension) :
                    luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
     }
     if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&
