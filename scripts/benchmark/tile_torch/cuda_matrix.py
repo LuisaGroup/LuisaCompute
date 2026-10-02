@@ -285,7 +285,9 @@ def alignment_receipts(result, requested):
         else:
             require(mask == 0, "default run contains alignment specialization")
         aligned = bool(mask) and all(value == 0 for slot, value in enumerate(residues) if mask & (1 << slot))
-        require(receipt.get("expected_selected_entry") == ("luisa_tile_aligned16" if aligned else "luisa_tile_main"),
+        streaming = result.get("native_streaming", [])
+        selected_streaming = len(streaming) == len(stages) and streaming[index].get("available") and streaming[index].get("static_ranges_disjoint")
+        require(receipt.get("expected_selected_entry") == ("luisa_tile_stream_scan" if selected_streaming else "luisa_tile_aligned16" if aligned else "luisa_tile_main"),
                 "alignment selected entry mismatch")
     return receipts
 
@@ -306,10 +308,78 @@ def worker_warps_receipts(result, requested):
     return receipts
 
 
-def validate_native_structure(scan_chunk, independent_axis):
+def validate_native_collective_cost(requested, aligned16=False, worker_warps=0,
+                                    scan_chunk=0, independent_axis=0, streaming_scan=0):
+    require(type(requested) is bool, "native collective-cost request must be boolean")
+    require(not requested or not any((aligned16, worker_warps, scan_chunk, independent_axis, streaming_scan)),
+            "native collective-cost is mutually exclusive with aligned16, worker-warps and structural/streaming experiments")
+
+
+def collective_cost_receipts(result, requested=False):
+    require(type(requested) is bool, "native collective-cost request must be boolean")
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    require(isinstance(stages, list) and stages, "missing collective-cost stage realizations")
+    receipts = []
+    required = {"profile", "workers", "status", "reason"}
+    for index, stage in enumerate(stages):
+        require(isinstance(stage, dict) and isinstance(stage.get("realization", ""), str),
+                "invalid collective-cost realization")
+        realization = stage.get("realization", "")
+        entries = re.findall(r"(?:^|[;\s])collective-cost-([a-z-]+)=([^;\s]+)(?=$|[;\s])", realization)
+        require(len(entries) == realization.count("collective-cost-"), "malformed collective-cost marker")
+        if not requested:
+            require(not entries, "unrequested collective-cost realization")
+            continue
+        markers = dict(entries)
+        require(len(markers) == len(entries) and required <= markers.keys() <= required | {"log-score"},
+                "missing, duplicate or unknown collective-cost marker")
+        require(markers["profile"] == "sm89-24-cuda134-v3", "unexpected collective-cost profile")
+        require(markers["workers"] in ("0", "8") and markers["status"] in ("selected", "default", "ineligible"),
+                "invalid collective-cost workers/status")
+        workers, status, reason = int(markers["workers"]), markers["status"], markers["reason"]
+        require((status == "selected") == (workers == 8), "collective-cost selection/worker mismatch")
+        require(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", reason) is not None, "invalid collective-cost reason")
+        score = None
+        if "log-score" in markers:
+            raw = markers["log-score"]
+            require(re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", raw) is not None,
+                    "invalid collective-cost log-score")
+            score = float(raw)
+            require(math.isfinite(score), "nonfinite collective-cost log-score")
+        require(status != "ineligible" or score is None, "ineligible collective-cost stage has a model score")
+        require(not (status == "selected" or reason == "predicted-default") or score is not None,
+                "model collective-cost decision is missing its score")
+        require(reason != "prefix" or (status == "default" and score is None), "invalid collective-cost prefix fallback")
+        if score is not None:
+            selected = score < -0.05129329438755058  # Frozen v3 profile: strict log(0.95) threshold.
+            require(status == ("selected" if selected else "default") and
+                    reason == ("predicted-saving" if selected else "predicted-default"),
+                    "collective-cost score/decision/reason mismatch")
+        else:
+            require(reason not in ("predicted-saving", "predicted-default"), "collective-cost prediction is missing its score")
+        receipts.append(dict(stage=index, requested=True, profile=markers["profile"], workers=workers,
+                             status=status, reason=reason, log_score=score, nondefault_hint_selected=workers == 8))
+    return receipts
+
+
+def collective_cost_worker_receipts(result, cost_receipts):
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    require(len(stages) == len(cost_receipts), "collective-cost/worker stage count mismatch")
+    receipts = []
+    for index, (stage, decision) in enumerate(zip(stages, cost_receipts)):
+        receipt = worker_warps_receipts(dict(realization=stage.get("realization", "")), decision["workers"])[0]
+        receipt.update(stage=index, request_source="collective_cost_profile")
+        receipts.append(receipt)
+    return receipts
+
+
+
+def validate_native_structure(scan_chunk, independent_axis, streaming_scan=0):
     require(type(scan_chunk) is int and scan_chunk in (0, 1024, 2048), "invalid native scan-chunk request")
     require(type(independent_axis) is int and independent_axis in (0, 1, 2, 4), "invalid native independent-axis request")
-    require(not (scan_chunk and independent_axis), "native scan-chunk and independent-axis are mutually exclusive")
+    require(type(streaming_scan) is int and streaming_scan in (0, 1024, 2048), "invalid native streaming-scan request")
+    require(sum(bool(value) for value in (scan_chunk, independent_axis, streaming_scan)) <= 1,
+            "native scan-chunk, independent-axis and streaming-scan are mutually exclusive")
 
 
 def structural_receipts(result, scan_chunk=0, independent_axis=0):
@@ -325,7 +395,8 @@ def structural_receipts(result, scan_chunk=0, independent_axis=0):
                                           ("independent-axis-extent", independent_axis, False),
                                           ("partitioned-collectives", independent_axis, True)):
             values = re.findall(r"(?:^|[;\s])" + re.escape(name) + r"=([0-9]+)(?=$|[;\s])", realization)
-            require(len(values) == (1 if requested else 0) and realization.count(name) == (1 if requested else 0),
+            tokens = re.findall(r"(?:^|[;\s])" + re.escape(name) + r"(?=$|[=;\s])", realization)
+            require(len(values) == (1 if requested else 0) and len(tokens) == (1 if requested else 0),
                     "native structural request/realization mismatch: " + name)
             value = int(values[0]) if values else None
             require(not requested or (value > 0 if is_count else values == [str(requested)]),
@@ -338,8 +409,48 @@ def structural_receipts(result, scan_chunk=0, independent_axis=0):
     return receipts
 
 
+def streaming_scan_receipts(result, requested=0):
+    validate_native_structure(0, 0, requested)
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    receipts = result.get("native_streaming")
+    if receipts is None and not requested:
+        require(all("streaming-scan" not in stage.get("realization", "") for stage in stages), "missing streaming receipts")
+        return []
+    require(isinstance(receipts, list) and len(receipts) == len(stages), "missing per-stage streaming receipts")
+    for index, (receipt, stage) in enumerate(zip(receipts, stages)):
+        realization = stage.get("realization", "")
+        require(receipt.get("stage") == index and receipt.get("chunk_requested") == requested, "streaming request/stage mismatch")
+        markers = re.findall(r"(?:^|[;\s])streaming-scan-chunk=([0-9]+)(?=$|[;\s])", realization)
+        require(markers == ([str(requested)] if requested else []), "streaming chunk metadata mismatch")
+        available, disjoint = receipt.get("available"), receipt.get("static_ranges_disjoint")
+        require(type(available) is bool and type(disjoint) is bool and
+                available == ("; streaming-scan-available;" in realization), "invalid streaming availability")
+        require(not disjoint or available, "streaming disjoint receipt without available candidate")
+        if available:
+            require(requested != 0, "default run contains streaming specialization")
+            for name in ("input_slot", "output_slot", "input_bytes", "output_bytes"):
+                value = receipt.get(name)
+                token = "streaming-scan-" + name.replace('_', '-')
+                values = re.findall(r"(?:^|[;\s])" + re.escape(token) + r"=([0-9]+)(?=$|[;\s])", realization)
+                require(type(value) is int and value >= (1 if name.endswith("bytes") else 0) and values == [str(value)],
+                        "streaming static view metadata mismatch")
+            require(receipt["input_slot"] != receipt["output_slot"], "streaming slots alias statically")
+        else:
+            require(all(receipt.get(name) == 0 for name in ("input_slot", "output_slot", "input_bytes", "output_bytes")),
+                    "unavailable streaming candidate has view metadata")
+        selected = available and disjoint
+        require((receipt.get("expected_selected_entry") == "luisa_tile_stream_scan") == selected,
+                "streaming expected host selection mismatch")
+        if requested:
+            # Calibration must never time the generic fallback and label it a
+            # streamed candidate; runtime fallback remains legal outside this run.
+            require(selected, "streaming calibration did not select the available disjoint candidate")
+    return receipts
+
+
 def route_environment(environment, route, native_aligned16=False, native_worker_warps=0,
-                      native_scan_chunk=0, native_independent_axis=0):
+                      native_scan_chunk=0, native_independent_axis=0, native_streaming_scan=0,
+                      native_collective_cost=False):
     # Never inherit experimental specialization into a control or another
     # route. Only an explicit native request may set the exact opt-in value.
     result = dict(environment)
@@ -348,7 +459,11 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
     result.pop("LUISA_CUDA_TILE_WORKER_WARPS", None)
     result.pop("LUISA_CUDA_TILE_SCAN_CHUNK", None)
     result.pop("LUISA_CUDA_TILE_INDEPENDENT_AXIS", None)
-    validate_native_structure(native_scan_chunk, native_independent_axis)
+    result.pop("LUISA_CUDA_TILE_STREAMING_SCAN", None)
+    result.pop("LUISA_CUDA_TILE_COLLECTIVE_COST", None)
+    validate_native_collective_cost(native_collective_cost, native_aligned16, native_worker_warps,
+                                    native_scan_chunk, native_independent_axis, native_streaming_scan)
+    validate_native_structure(native_scan_chunk, native_independent_axis, native_streaming_scan)
     require(type(native_worker_warps) is int and native_worker_warps in (0, 4, 8), "invalid native worker-warps request")
     if route == "native":
         result["LUISA_CUDA_TILE_IR"] = "1"
@@ -360,6 +475,10 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
             result["LUISA_CUDA_TILE_SCAN_CHUNK"] = str(native_scan_chunk)
         if native_independent_axis:
             result["LUISA_CUDA_TILE_INDEPENDENT_AXIS"] = str(native_independent_axis)
+        if native_streaming_scan:
+            result["LUISA_CUDA_TILE_STREAMING_SCAN"] = str(native_streaming_scan)
+        if native_collective_cost:
+            result["LUISA_CUDA_TILE_COLLECTIVE_COST"] = "1"
     return result
 
 
@@ -443,11 +562,20 @@ def native_result(process, path, row, args, route):
         alignment_receipts(result, getattr(args, "native_aligned16", False))
     worker_receipts = []
     structure_receipts = []
+    streaming_receipts = []
+    cost_receipts = []
     if result["status"] == "passed":
-        worker_receipts = worker_warps_receipts(result, getattr(args, "native_worker_warps", 0) if route == "native" else 0)
+        cost_requested = getattr(args, "native_collective_cost", False) if route == "native" else False
+        validate_native_collective_cost(cost_requested, getattr(args, "native_aligned16", False),
+            getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
+            getattr(args, "native_independent_axis", 0), getattr(args, "native_streaming_scan", 0))
+        cost_receipts = collective_cost_receipts(result, cost_requested)
+        worker_receipts = (collective_cost_worker_receipts(result, cost_receipts) if cost_requested else
+                           worker_warps_receipts(result, getattr(args, "native_worker_warps", 0) if route == "native" else 0))
         structure_receipts = structural_receipts(result,
             getattr(args, "native_scan_chunk", 0) if route == "native" else 0,
             getattr(args, "native_independent_axis", 0) if route == "native" else 0)
+        streaming_receipts = streaming_scan_receipts(result, getattr(args, "native_streaming_scan", 0) if route == "native" else 0)
     artifacts = {}
     if result["status"] == "passed" and row.get("ranking_algorithm", "").startswith("chunked_bitonic_"):
         chunk = 256 if row["ranking_algorithm"] == "chunked_bitonic_c256" else 512
@@ -508,7 +636,8 @@ def native_result(process, path, row, args, route):
             generated_sources["source.txt"] = digest(source)
     return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts,
                 generated_sources=generated_sources,
-                native_worker_warps=worker_receipts, native_structure=structure_receipts)
+                native_worker_warps=worker_receipts, native_structure=structure_receipts, native_streaming=streaming_receipts,
+                native_collective_cost=cost_receipts)
 
 
 def torch_result(process, path, row, args):
@@ -580,7 +709,11 @@ def main(argv=None):
                         help="explicit native pure scan chunking; 0 preserves default; incompatible with nonzero independent-axis")
     parser.add_argument("--native-independent-axis", type=int, choices=(0, 1, 2, 4), default=0,
                         help="explicit native independent-axis partition extent; 0 preserves default; incompatible with nonzero scan-chunk")
+    parser.add_argument("--native-collective-cost", action="store_true",
+                        help="experimental native collective cost profile; mutually exclusive with all other native scheduling experiments")
     parser.add_argument("--native-only", action="store_true", help="calibration only: run the native route, omit Torch entirely and report no Torch comparison")
+    parser.add_argument("--native-streaming-scan", type=int, choices=(0, 1024, 2048), default=0,
+                        help="native streaming prefix chunk; requires a proved disjoint available candidate")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -595,7 +728,9 @@ def main(argv=None):
     parser.add_argument("--path-prefix", type=Path, action="append", default=[], help="additional CUDA/TVMx DLL directory; repeatable")
     parser.add_argument("--telemetry-ms", type=int, default=1000)
     args = parser.parse_args(argv)
-    validate_native_structure(args.native_scan_chunk, args.native_independent_axis)
+    validate_native_collective_cost(args.native_collective_cost, args.native_aligned16, args.native_worker_warps,
+                                    args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
+    validate_native_structure(args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
     require(not args.native_only or args.routes == "native", "--native-only requires --routes native")
     rows = selected_cases(args)
     if args.list_cases:
@@ -629,7 +764,7 @@ def main(argv=None):
     environment = os.environ.copy()
     removed = {}
     for key in list(environment):
-        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
+        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN", "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
             removed[key] = environment.pop(key)
     overrides = {"LUISA_SIMD_WORKER_COUNT": str(args.threads), "LUISA_SIMD_WARP_WIDTH": "8", "OPENBLAS_NUM_THREADS": str(args.threads),
                  "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads), "GOTO_NUM_THREADS": str(args.threads),
@@ -643,12 +778,15 @@ def main(argv=None):
                ROOT / "src/tests/common/tile_llm_test_utils.h", ROOT / "src/tests/common/tile_rank_test_utils.h",
                ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_argmax_test_utils.h", ROOT / "src/tests/common/tile_embedding_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h",
-               ROOT / "include/luisa/tile/collective_plan.h", ROOT / "src/tile/collective_plan.cpp"]
+               ROOT / "include/luisa/tile/collective_plan.h", ROOT / "src/tile/collective_plan.cpp",
+               ROOT / "include/luisa/tile/collective_cost.h", ROOT / "src/tile/collective_cost.cpp",
+               ROOT / "src/backends/cuda/tile/cuda_tile_collective_cost.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
     files += [path for name in ("luisa_cuda_tile_compiler.exe", "luisa_nvrtc.exe") if (path := build / "bin" / name).is_file()]
     files += list((ROOT / "src/backends/cuda/tile").glob("cuda_tile*.cpp"))
     files += [ROOT / name for name in ("src/backends/cuda/tile/cuda_tile_codegen.h", "src/backends/cuda/cuda_shader_tile.h",
+                                       "src/backends/cuda/tile/cuda_tile_streaming_scan.h", "src/backends/cuda/tile/cuda_tile_streaming_guard.h",
                                        "src/backends/cuda/cuda_shader_tile.cpp", "src/backends/cuda/extensions/cuda_graph_ext.cpp")]
     for path in args.path_prefix:
         files += list(path.resolve().glob("*tvm*.dll"))
@@ -701,7 +839,8 @@ def main(argv=None):
                     if args.graph_batch and route != "simd":
                         command += ["--graph-batch", args.graph_batch]
                     child_environment = route_environment(environment, route, args.native_aligned16, args.native_worker_warps,
-                                                          args.native_scan_chunk, args.native_independent_axis)
+                                                          args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
+                                                          args.native_collective_cost)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
@@ -713,9 +852,12 @@ def main(argv=None):
                     item["runs"][route]["native_worker_warps_requested"] = args.native_worker_warps if route == "native" else 0
                     item["runs"][route]["native_scan_chunk_requested"] = args.native_scan_chunk if route == "native" else 0
                     item["runs"][route]["native_independent_axis_requested"] = args.native_independent_axis if route == "native" else 0
+                    item["runs"][route]["native_streaming_scan_requested"] = args.native_streaming_scan if route == "native" else 0
+                    item["runs"][route]["native_collective_cost_requested"] = route == "native" and args.native_collective_cost
                     item["runs"][route]["environment_overrides"] = {
                         key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS",
-                                                               "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS") if key in child_environment}
+                                                               "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN",
+                                                               "LUISA_CUDA_TILE_COLLECTIVE_COST") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:
@@ -734,7 +876,7 @@ def main(argv=None):
                 if args.native_only:
                     item["runs"]["torch"] = dict(status="not_requested", requested=False,
                         reason="--native-only calibration: no Torch child was run", native_worker_warps_requested=0,
-                        native_scan_chunk_requested=0, native_independent_axis_requested=0,
+                        native_scan_chunk_requested=0, native_independent_axis_requested=0, native_collective_cost_requested=False,
                         environment_overrides={})
                     item["comparison_status"] = "absent_native_only_calibration"
                 elif canonical is None:
@@ -757,6 +899,7 @@ def main(argv=None):
                     except Exception as error:
                         item["runs"]["torch"] = dict(status="failed", process=process, error=str(error), traceback=traceback.format_exc())
                     item["runs"]["torch"]["native_worker_warps_requested"] = 0
+                    item["runs"]["torch"]["native_collective_cost_requested"] = False
                     item["runs"]["torch"]["native_scan_chunk_requested"] = 0
                     item["runs"]["torch"]["native_independent_axis_requested"] = 0
                     item["runs"]["torch"]["environment_overrides"] = {}

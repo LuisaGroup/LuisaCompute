@@ -10,6 +10,7 @@
 #include <luisa/ast/usage.h>
 
 #include "cuda_shader.h"
+#include "tile/cuda_tile_streaming_guard.h"
 
 namespace luisa::compute::cuda {
 
@@ -34,6 +35,8 @@ private:
     CUfunction _function{};
     CUfunction _aligned16_function{};
     uint32_t _aligned16_buffer_mask{0u};
+    CUfunction _streaming_scan_function{};
+    native_tile::StreamingScanGuard _streaming_scan_guard{};
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
@@ -64,7 +67,9 @@ public:
                    luisa::vector<uint32_t> buffer_arguments,
                    luisa::vector<Usage> argument_usages,
                    CUfunction aligned16_function = nullptr,
-                   uint32_t aligned16_buffer_mask = 0u) noexcept;
+                   uint32_t aligned16_buffer_mask = 0u,
+                   CUfunction streaming_scan_function = nullptr,
+                   native_tile::StreamingScanGuard streaming_scan_guard = {}) noexcept;
     ~CUDAShaderTile() noexcept override;
     [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
     [[nodiscard]] bool is_tile() const noexcept override { return true; }

@@ -419,5 +419,46 @@ class CudaMatrixAtomicSaveTests(unittest.TestCase):
             sleep.assert_not_called()
 
 
+class StreamingReceiptTests(unittest.TestCase):
+    @staticmethod
+    def packet():
+        return dict(realization="native; streaming-scan-chunk=2048; streaming-scan-available; "
+                    "streaming-scan-input-slot=0; streaming-scan-output-slot=1; "
+                    "streaming-scan-input-bytes=32768; streaming-scan-output-bytes=32768",
+                    native_streaming=[dict(stage=0, chunk_requested=2048, available=True, input_slot=0, output_slot=1,
+                                           input_bytes=32768, output_bytes=32768, static_ranges_disjoint=True,
+                                           expected_selected_entry="luisa_tile_stream_scan")])
+
+    def test_streaming_receipt_and_structural_marker_do_not_conflict(self):
+        packet = self.packet()
+        self.assertEqual(len(cuda_matrix.streaming_scan_receipts(packet, 2048)), 1)
+        self.assertEqual(cuda_matrix.structural_receipts(packet)[0]["chunked_scans"], 0)
+        packet["realization"] += ";"
+        self.assertEqual(len(cuda_matrix.streaming_scan_receipts(packet, 2048)), 1)
+
+    def test_calibration_rejects_fallback_and_changed_range_facts(self):
+        for updates in (dict(available=False), dict(static_ranges_disjoint=False), dict(input_bytes=65536),
+                        dict(input_slot=1), dict(chunk_requested=1024), dict(expected_selected_entry="luisa_tile_main")):
+            packet = self.packet()
+            packet["native_streaming"][0].update(updates)
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                cuda_matrix.streaming_scan_receipts(packet, 2048)
+
+    def test_streaming_is_removed_from_controls_and_other_routes(self):
+        environment = {"LUISA_CUDA_TILE_STREAMING_SCAN": "2048"}
+        for route in ("native", "tirx", "simd"):
+            self.assertNotIn("LUISA_CUDA_TILE_STREAMING_SCAN", route_environment(environment, route))
+        self.assertEqual(route_environment(environment, "native", native_streaming_scan=1024)["LUISA_CUDA_TILE_STREAMING_SCAN"], "1024")
+        self.assertNotIn("LUISA_CUDA_TILE_STREAMING_SCAN", route_environment(environment, "tirx", native_streaming_scan=1024))
+        for kwargs in (dict(native_scan_chunk=1024), dict(native_independent_axis=1)):
+            with self.assertRaises(ValueError):
+                route_environment(environment, "native", native_streaming_scan=2048, **kwargs)
+
+    def test_default_historical_receipt_remains_valid(self):
+        self.assertEqual(cuda_matrix.streaming_scan_receipts(dict(realization="native")), [])
+        with self.assertRaises(ValueError):
+            cuda_matrix.streaming_scan_receipts(self.packet(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

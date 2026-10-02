@@ -1,5 +1,11 @@
 #include "ut/ut.hpp"
 #include "cuda_tile_codegen.h"
+#include "cuda_tile_streaming_scan.h"
+#include "cuda_tile_collective_cost.h"
+#include <array>
+#include <cmath>
+#include <bit>
+#include <limits>
 #include <luisa/tile/algorithms.h>
 #include <luisa/core/stl/format.h>
 
@@ -231,10 +237,278 @@ void test_native_collective_configuration() {
 }
 }// namespace
 
+namespace {
+template<typename T>
+[[nodiscard]] luisa::compute::tile::Kernel capture_streaming_source(int64_t rows, int64_t columns, int64_t block_rows,
+                                                                    int mode = 0) {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    auto width = static_cast<int64_t>(std::bit_ceil(static_cast<uint64_t>(columns)));
+    return tile_kernel("unrelated_prefix_identity", [=](TensorView<const T, 2> input, TensorView<T, 2> output) {
+               auto r = axis("independent", block_rows), c = axis("contribution", width);
+               for (auto &p : parallel(shape((rows + block_rows - 1) / block_rows))) {
+                   auto row = mode == 1 ? Scalar<int64_t>{0} : p.index() * block_rows;
+                   auto loaded = cast<float>(input.tile(coord(row, 0), shape(r, c)).load());
+                   // Normal front ends can leave an unused pure coordinate map.
+                   auto unused_mask = iota(c) < columns;
+                   static_cast<void>(unused_mask);
+                   auto policy = mode == 2 ? reduction::fold_left : reduction::unordered_tree;
+                   auto result = inclusive_sum(loaded, c, policy);
+                   if (mode == 3) { result = result + loaded; }
+                   output(coord(row, 0), shape(r, c)).store(cast<T>(result));
+                   if (mode == 4) { output(coord(row, 0), shape(r, c)).store(cast<T>(loaded)); }
+               }
+           })
+        .capture(tensor_shape(rows, columns), tensor_shape(rows, columns));
+}
+
+void test_native_streaming_scan_plan() {
+    using namespace luisa;
+    using namespace luisa::compute;
+    using namespace luisa::compute::cuda::native_tile;
+    using namespace boost::ut;
+    auto check = []<typename T>() {
+        for (auto rows : {int64_t{3}, int64_t{8}}) {
+            for (auto columns : {int64_t{2049}, int64_t{8192}}) {
+                auto kernel = capture_streaming_source<T>(rows, columns, 4);
+                expect(kernel.valid());
+                if (!kernel.valid()) { continue; }
+                for (auto fast : {false, true}) {
+                    auto original = generate(kernel.function(), fast);
+                    expect(original.ok()) << original.error;
+                    if (!original.ok()) { continue; }
+                    auto zero = original;
+                    append_streaming_scan(zero, kernel.function(), 0u);
+                    expect(zero.source == original.source);
+                    expect(zero.streaming_scan_entry.empty());
+                    for (auto chunk : {1024u, 2048u}) {
+                        auto plan = match_streaming_scan(kernel.function(), original, chunk);
+                        expect(plan.ok()) << plan.error;
+                        if (!plan.ok()) { continue; }
+                        expect(plan.rows == static_cast<uint64_t>(rows));
+                        expect(plan.columns == static_cast<uint64_t>(columns));
+                        expect(plan.rows_per_program == 4u);
+                        expect(plan.minimum_bytes == static_cast<uint64_t>(rows * columns * sizeof(T)));
+                        auto candidate = original;
+                        append_streaming_scan(candidate, kernel.function(), chunk);
+                        expect(candidate.ok()) << candidate.error;
+                        expect(candidate.source.starts_with(original.source + '\n'));
+                        expect(candidate.grid == original.grid);
+                        expect(candidate.block == original.block);
+                        expect(candidate.streaming_scan_entry == "luisa_tile_stream_scan");
+                        expect(candidate.streaming_scan_source_offset == original.source.size());
+                        expect(candidate.streaming_scan_guard.input_slot == 0u);
+                        expect(candidate.streaming_scan_guard.output_slot == 1u);
+                        auto extra = candidate.source.substr(original.source.size());
+                        expect(chunk_scan_occurrences(extra, "ct::partial_sum(") == 1u);
+                        expect(chunk_scan_occurrences(extra, "ct::extract(") == 1u);
+                        expect(extra.find("ct::shape<4, 1>") != string::npos);
+                        expect(extra.find("ct::round_subnormals_to_zero") == string::npos);
+                        expect((extra.find("ct::store(") != string::npos) == (rows == 8 && columns == 8192));
+                        expect((extra.find("ct::store_masked(") != string::npos) == (rows != 8 || columns != 8192));
+                    }
+                }
+            }
+        }
+    };
+    check.template operator()<float>();
+    check.template operator()<half>();
+    check.template operator()<tile::bfloat16>();
+    for (auto mode : {1, 2, 3, 4}) {
+        auto kernel = capture_streaming_source<float>(8, 4096, 4, mode);
+        auto original = generate(kernel.function());
+        expect(original.ok()) << original.error;
+        if (!original.ok()) { continue; }
+        auto candidate = original;
+        append_streaming_scan(candidate, kernel.function(), 1024u);
+        expect(candidate.ok());
+        expect(candidate.streaming_scan_entry.empty());
+        expect(!candidate.streaming_scan_diagnostic.empty());
+        expect(candidate.source == original.source);
+    }
+    auto kernel = capture_streaming_source<float>(8, 8192, 4);
+    auto original = generate(kernel.function());
+    auto bad = match_streaming_scan(kernel.function(), original, 512u);
+    expect(!bad.ok());
+    auto transformed = generate(kernel.function(), false, false, 0u, 0u, 1024u, 0u);
+    expect(transformed.ok()) << transformed.error;
+    expect(!match_streaming_scan(kernel.function(), transformed, 1024u).ok());
+
+    std::array<uint64_t, 2u> pointers{0x1000u, 0x2000u};
+    StreamingScanGuard guard{0u, 1u, 0x1000u, 0x1000u};
+    auto admitted = [&] { return streaming_scan_disjoint(guard, span<const uint64_t>{pointers.data(), pointers.size()}); };
+    expect(admitted());
+    pointers[1] = 0x1fffu;
+    expect(!admitted());
+    pointers[1] = pointers[0];
+    expect(!admitted());
+    pointers[0] = std::numeric_limits<uint64_t>::max() - 0xfffu;
+    pointers[1] = 0x1000u;
+    expect(!admitted());
+}
+}// namespace
+
+namespace {
+struct ScheduleParity {
+    uint64_t programs;
+    uint64_t elementwork;
+    uint64_t read_bytes;
+    uint64_t write_bytes;
+    uint64_t live_bytes;
+    uint64_t largest_tile;
+    std::array<luisa::compute::tile::CollectiveWork, 2u> collectives;
+    size_t collective_count;
+    std::array<double, 9u> features;
+    uint32_t workers;
+    bool has_score;
+    double score;
+};
+
+[[nodiscard]] auto schedule_parity_cases() {
+    namespace tile = luisa::compute::tile;
+    // Frozen training-only logical facts. No fixture names or performance
+    // results enter the evaluator; the expected values are Python parity.
+    // Profile: 357c15e0c745797a75e8d11c9de9fafc0ab204f71d1619fedd9251323e7abb35.
+    return std::array<ScheduleParity, 32u>{{{128u, 32768u, 16384u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {}}}, 1u, {2.662965012722429, 13.000176099486442, 9.702172685365548, 2.321928094887362, 8.005624549193879, 1.0, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {128u, 32768u, 16384u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {}}}, 1u, {2.662965012722429, 13.000176099486442, 9.702172685365548, 2.321928094887362, 8.005624549193879, 1.0, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {128u, 32768u, 32768u, 32768u, 106496u, 8192u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {}}}, 1u, {2.662965012722429, 13.000176099486442, 9.702172685365548, 2.321928094887362, 8.005624549193879, 1.0, 0.0, 0.0, 1.584962500721156}, 0u, false, 0.0},
+                                            {128u, 385u, 512u, 4u, 1664u, 128u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 128u, 1u, 128u}, {}}}, 1u, {2.662965012722429, 7.011227255423254, 3.807354922057604, 2.002815015607054, 2.321928094887362, 1.0, 1.0, 0.0, 1.005624549193878}, 0u, true, 0.09904688984331009},
+                                            {32u, 773u, 2048u, 16u, 4096u, 512u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 128u, 4u, 512u}, {}}}, 1u, {1.2223924213364477, 9.002815015607053, 5.044394119358453, 1.3275526440812404, 2.321928094887362, 2.321928094887362, 1.0, 0.0, 1.005624549193878}, 0u, true, 0.09904688984331009},
+                                            {17u, 3073u, 2048u, 2u, 13312u, 1024u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 1024u, 1u, 1024u}, {}}}, 1u, {0.7725895038969276, 10.001408194392809, 6.714245517666122, 2.000352177480301, 5.044394119358453, 1.0, 1.0, 0.0, 0.5854320515929623}, 0u, true, 0.014389211452413706},
+                                            {5u, 6149u, 8192u, 8u, 25600u, 4096u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 7.651051691178929, 1.322632363898609, 5.044394119358453, 2.321928094887362, 1.0, 0.0, 0.5854320515929623}, 8u, true, -0.2564738724463534},
+                                            {1u, 73731u, 32768u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {}}}, 1u, {0.058893689053568614, 13.000176099486442, 9.702172685365548, 3.3219809269903284, 8.005624549193879, 1.0, 1.0, 0.0, 1.3219280948873624}, 8u, true, -0.2564738724463534},
+                                            {1u, 98308u, 49152u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {1u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}}}, 2u, {0.058893689053568614, 13.000176099486442, 9.702172685365548, 2.8074052383900145, 8.005624549193879, 1.584962500721156, 1.0, 0.0, 1.0}, 8u, true, -0.2564738724463534},
+                                            {128u, 73731u, 32768u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {}}}, 1u, {2.662965012722429, 13.000176099486442, 9.702172685365548, 3.3219809269903284, 8.005624549193879, 1.0, 1.0, 0.0, 1.3219280948873624}, 0u, true, 0.014389211452413706},
+                                            {128u, 98308u, 49152u, 16384u, 106496u, 8192u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}, {1u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 8192u, 1u, 8192u}}}, 2u, {2.662965012722429, 13.000176099486442, 9.702172685365548, 2.8074052383900145, 8.005624549193879, 1.584962500721156, 1.0, 0.0, 1.0}, 0u, true, 0.014389211452413706},
+                                            {1024u, 4608u, 1024u, 1024u, 6656u, 512u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 512u, 1u, 512u}, {1u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 512u, 1u, 512u}}}, 2u, {5.448460500816294, 9.002815015607053, 5.727920454563199, 2.4594316186372973, 4.087462841250339, 1.584962500721156, 0.5, 0.5, 0.5849625007211562}, 0u, true, 0.3131874161611729},
+                                            {17u, 4096u, 2048u, 2048u, 13312u, 1024u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 1024u, 1u, 1024u}, {}}}, 1u, {0.7725895038969276, 10.001408194392809, 6.714245517666122, 2.321928094887362, 5.044394119358453, 1.0, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {5u, 10241u, 8192u, 8192u, 32768u, 4096u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 8.005624549193879, 1.8074555529676222, 5.044394119358453, 2.321928094887362, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {17u, 4097u, 2048u, 2u, 13312u, 1024u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 1024u, 1u, 1024u}, {}}}, 1u, {0.7725895038969276, 10.001408194392809, 6.714245517666122, 2.3222098437488943, 5.044394119358453, 1.0, 0.0, 1.0, 0.5854320515929623}, 0u, true, 0.014389211452413706},
+                                            {5u, 10245u, 8192u, 8u, 33792u, 4096u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 8.049848549450562, 1.807858006430275, 5.044394119358453, 2.321928094887362, 0.0, 1.0, 0.5854320515929623}, 8u, true, -0.2564738724463534},
+                                            {32u, 773u, 2048u, 16u, 4096u, 512u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 128u, 4u, 512u}, {}}}, 1u, {1.2223924213364477, 9.002815015607053, 5.044394119358453, 1.3275526440812404, 2.321928094887362, 2.321928094887362, 1.0, 0.0, 1.005624549193878}, 0u, true, 0.09904688984331009},
+                                            {9u, 2569u, 8192u, 32u, 16384u, 2048u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 256u, 8u, 2048u}, {}}}, 1u, {0.45943161863729726, 11.000704269011246, 7.011227255423254, 1.1727400170493665, 3.169925001442312, 3.169925001442312, 1.0, 0.0, 1.002815015607054}, 0u, true, 0.09904688984331009},
+                                            {32u, 3077u, 4096u, 8u, 12800u, 2048u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 512u, 4u, 2048u}, {}}}, 1u, {1.2223924213364477, 11.000704269011246, 6.658211482751795, 1.3233362892801708, 4.087462841250339, 2.321928094887362, 1.0, 0.0, 0.5859014496907713}, 0u, true, 0.3131874161611729},
+                                            {5u, 6149u, 8192u, 8u, 25600u, 4096u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 7.651051691178929, 1.322632363898609, 5.044394119358453, 2.321928094887362, 1.0, 0.0, 0.5854320515929623}, 8u, true, -0.2564738724463534},
+                                            {9u, 20489u, 32768u, 16u, 98304u, 16384u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 2048u, 8u, 16384u}, {}}}, 1u, {0.45943161863729726, 14.000088052430122, 9.586839787961827, 1.1702771789226134, 6.022367813028454, 3.169925001442312, 1.0, 0.0, 0.585197295260024}, 8u, true, -0.2564738724463534},
+                                            {32u, 24581u, 65536u, 16u, 131072u, 16384u, {{{0u, tile::CollectiveKind::SUM, tile::ScalarType::FLOAT32, 4096u, 4u, 16384u}, {}}}, 1u, {1.2223924213364477, 14.000088052430122, 10.001408194392809, 1.3221041943738048, 7.011227255423254, 2.321928094887362, 1.0, 0.0, 1.0001760994864426}, 0u, true, 0.014389211452413706},
+                                            {32u, 2565u, 2048u, 8u, 8448u, 1024u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 256u, 4u, 1024u}, {}}}, 1u, {1.2223924213364477, 10.001408194392809, 6.066089190457772, 1.8093662078160775, 3.169925001442312, 2.321928094887362, 0.0, 1.0, 0.5868397879618266}, 0u, true, 0.09904688984331009},
+                                            {9u, 9225u, 16384u, 32u, 33280u, 4096u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 512u, 8u, 4096u}, {}}}, 1u, {0.45943161863729726, 12.0003521774803, 8.027905996569885, 1.701414768331626, 4.087462841250339, 3.169925001442312, 0.0, 1.0, 1.0014081943928084}, 0u, true, 0.09904688984331009},
+                                            {5u, 10245u, 8192u, 8u, 33792u, 4096u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 8.049848549450562, 1.807858006430275, 5.044394119358453, 2.321928094887362, 0.0, 1.0, 0.5854320515929623}, 8u, true, -0.2564738724463534},
+                                            {16u, 36873u, 32768u, 16u, 133120u, 16384u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 2048u, 8u, 16384u}, {}}}, 1u, {0.736965594166206, 14.000088052430122, 10.023754353299417, 1.7006835424760793, 6.022367813028454, 3.169925001442312, 0.0, 1.0, 0.585197295260024}, 0u, true, 0.014389211452413706},
+                                            {5u, 40965u, 65536u, 16u, 135168u, 16384u, {{{0u, tile::CollectiveKind::MAXIMUM, tile::ScalarType::FLOAT32, 4096u, 4u, 16384u}, {}}}, 1u, {0.27301849440641585, 14.000088052430122, 10.045759661382682, 1.8074807095984133, 7.011227255423254, 2.321928094887362, 0.0, 1.0, 1.0001760994864426}, 8u, true, -0.2564738724463534},
+                                            {3u, 4609u, 4096u, 4096u, 16384u, 2048u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 256u, 8u, 2048u}, {}}}, 1u, {0.16992500144231237, 11.000704269011246, 7.011227255423254, 1.7006564529181676, 3.169925001442312, 3.169925001442312, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {17u, 5121u, 4096u, 4096u, 16384u, 2048u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 512u, 4u, 2048u}, {}}}, 1u, {0.7725895038969276, 11.000704269011246, 7.011227255423254, 1.8075561768589195, 4.087462841250339, 2.321928094887362, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {5u, 10241u, 8192u, 8192u, 32768u, 4096u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 1024u, 4u, 4096u}, {}}}, 1u, {0.27301849440641585, 12.0003521774803, 8.005624549193879, 1.8074555529676222, 5.044394119358453, 2.321928094887362, 0.0, 0.0, 1.0}, 0u, false, 0.0},
+                                            {16u, 36865u, 65536u, 65536u, 131072u, 16384u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 2048u, 8u, 16384u}, {}}}, 1u, {0.736965594166206, 14.000088052430122, 10.001408194392809, 1.7004668117689115, 6.022367813028454, 3.169925001442312, 0.0, 0.0, 1.584962500721156}, 0u, false, 0.0},
+                                            {17u, 40961u, 32768u, 32768u, 131072u, 16384u, {{{0u, tile::CollectiveKind::INCLUSIVE_SUM, tile::ScalarType::FLOAT32, 4096u, 4u, 16384u}, {}}}, 1u, {0.7725895038969276, 14.000088052430122, 10.001408194392809, 1.8073800804431672, 7.011227255423254, 2.321928094887362, 0.0, 0.0, 1.0}, 0u, false, 0.0}}};
+}
+
+[[nodiscard]] luisa::compute::tile::CollectiveWorkAnalysis schedule_parity_work(const ScheduleParity &row) {
+    luisa::compute::tile::CollectiveWorkAnalysis work;
+    work.programs = row.programs;
+    work.elementwise_elements_per_program = row.elementwork;
+    work.global_read_bytes_per_program = row.read_bytes;
+    work.global_write_bytes_per_program = row.write_bytes;
+    work.materialized_tile_peak_bytes = row.live_bytes;
+    work.largest_materialized_tile_elements = row.largest_tile;
+    for (auto i = size_t{0u}; i < row.collective_count; i++) { work.collectives.emplace_back(row.collectives[i]); }
+    return work;
+}
+
+void test_native_collective_schedule_parity() {
+    using namespace luisa::compute;
+    using namespace boost::ut;
+    auto cases = schedule_parity_cases();
+    auto selected = size_t{0u};
+    for (auto i = size_t{0u}; i < cases.size(); i++) {
+        auto &&row = cases[i];
+        auto work = schedule_parity_work(row);
+        auto features = tile::collective_cost_features(work, {24u, 32u});
+        expect(features.ok()) << features.error;
+        if (!features.ok()) { continue; }
+        for (auto j = size_t{0u}; j < row.features.size(); j++) {
+            expect(std::abs(features.values[j] - row.features[j]) < 2e-14) << i << j;
+        }
+        auto choice = cuda::native_tile::choose_collective_schedule(work, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+        expect(choice.worker_warps == row.workers) << i;
+        expect(choice.has_score == row.has_score) << i;
+        if (row.has_score) {
+            expect(std::abs(choice.log_score - row.score) < 2e-14) << i;
+            expect(choice.status == (row.workers == 8u ? "selected" : "default"));
+            expect(choice.reason == (row.workers == 8u ? "predicted-saving" : "predicted-default"));
+        } else {
+            expect(choice.status == "default");
+            expect(choice.reason == "prefix");
+        }
+        selected += choice.worker_warps != 0u;
+    }
+    expect(selected == 8u);
+}
+
+void test_native_collective_schedule_gates() {
+    using namespace luisa::compute;
+    using namespace boost::ut;
+    auto cases = schedule_parity_cases();
+    auto positive = size_t{0u};
+    while (positive < cases.size() && cases[positive].workers == 0u) { positive++; }
+    expect(positive < cases.size());
+    if (positive == cases.size()) { return; }
+    auto work = schedule_parity_work(cases[positive]);
+    auto choose = [](const tile::CollectiveWorkAnalysis &facts) {
+        return cuda::native_tile::choose_collective_schedule(facts, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+    };
+    expect(choose(work).worker_warps == 8u);
+    // Version-family boundary only: API/header versions are not cryptographic
+    // proof that runtime compiler files match the recorded tool receipts.
+    constexpr std::array<uint32_t, 6u> target{89u, 24u, 32u, 1536u, 13040u, 13040u};
+    for (auto i = size_t{0u}; i < target.size(); i++) {
+        auto incompatible = target;
+        incompatible[i]++;
+        auto choice = cuda::native_tile::choose_collective_schedule(work, incompatible[0u], incompatible[1u],
+                                                                    incompatible[2u], incompatible[3u], incompatible[4u], incompatible[5u], false);
+        expect(choice.worker_warps == 0u && !choice.has_score);
+        expect(choice.status == "ineligible" && choice.reason == "target-profile");
+    }
+    auto fast = cuda::native_tile::choose_collective_schedule(work, 89u, 24u, 32u, 1536u, 13040u, 13040u, true);
+    expect(fast.worker_warps == 0u && !fast.has_score && fast.reason == "fast-math");
+    auto bad = work;
+    bad.error = "analysis rejected";
+    expect(choose(bad).worker_warps == 0u && !choose(bad).has_score && choose(bad).reason == "analysis");
+    bad = work;
+    bad.collectives.clear();
+    expect(choose(bad).reason == "analysis");
+    bad = work;
+    bad.collectives[0u].kind = tile::CollectiveKind::MINIMUM;
+    expect(choose(bad).worker_warps == 0u && !choose(bad).has_score && choose(bad).reason == "unsupported-algebra");
+    bad = work;
+    bad.collectives[0u].kind = tile::CollectiveKind::INCLUSIVE_SUM;
+    expect(choose(bad).worker_warps == 0u && !choose(bad).has_score && choose(bad).reason == "prefix");
+    expect(choose(bad).status == "default");
+    bad = work;
+    bad.collectives[0u].kind = static_cast<tile::CollectiveKind>(255u);
+    expect(choose(bad).reason == "unsupported-algebra");
+    bad = work;
+    bad.collectives[0u].input_elements++;
+    expect(choose(bad).worker_warps == 0u && !choose(bad).has_score && choose(bad).reason == "features");
+    bad = work;
+    bad.collectives[0u].element = tile::ScalarType::FLOAT16;
+    expect(choose(bad).reason == "features");
+    bad = work;
+    bad.programs = 0u;
+    expect(choose(bad).reason == "features");
+    bad = work;
+    bad.global_read_bytes_per_program = std::numeric_limits<uint64_t>::max();
+    expect(choose(bad).reason == "features");
+}
+}// namespace
+
 int main(int argc, char *argv[]) {
     using namespace boost::ut;
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_cuda_collective_chunk_sources"_test = [] { test_native_pure_chunk_scan_sources(); };
     "tile_cuda_collective_independent_sources"_test = [] { test_native_independent_collective_sources(); };
     "tile_cuda_collective_configuration"_test = [] { test_native_collective_configuration(); };
+    "tile_cuda_streaming_scan_plan"_test = [] { test_native_streaming_scan_plan(); };
+    "tile_cuda_collective_schedule_parity"_test = [] { test_native_collective_schedule_parity(); };
+    "tile_cuda_collective_schedule_gates"_test = [] { test_native_collective_schedule_gates(); };
 }

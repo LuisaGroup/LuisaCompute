@@ -1576,6 +1576,50 @@ actual memory traffic or elapsed time. Ordered/custom reducers and unrecognized
 constraints remain outside this analysis; numerical legality is established
 before any scheduling decision.
 
+`--native-streaming-scan 1024` (or `2048`) requests the separate
+`LUISA_CUDA_TILE_STREAMING_SCAN` experiment. A closed, unordered FP32 prefix
+with FP32/FP16/BF16 storage can load, scan and store consecutive chunks while
+retaining an FP32 carry. The original entry remains available. The runtime
+selects streaming only when the proved static input/output intervals, using
+final BufferView pointers, are disjoint; overlapping views retain the original
+snapshot behavior. Direct launches and graph construction share this selector.
+Optional compilation or module-loading failure also restores the original
+source. Benchmark calibration requires an available candidate and records the
+expected host selection from actual pointers/range facts; it does not label a
+fallback timing as streaming. This is a host prediction, not a device trace.
+Both chunk sizes regressed on all eight configurations in the October 3
+calibration. They remain explicit diagnostic candidates and are rejected for
+automatic selection; reducing a logical intermediate does not establish a
+physical register reduction or a runtime benefit.
+
+`--native-collective-cost` enables `LUISA_CUDA_TILE_COLLECTIVE_COST=1`, a
+default-disabled experimental worker-hint profile. A shared Tile IR feature
+extractor and bounded decision-tree evaluator use logical collective work;
+the fitted parameters and device/version guard belong to CUDA. The initial
+`sm89-24-cuda134-v3` profile targets strict math, SM89 with 24 processors,
+32-lane warps, 1536 maximum resident threads per processor, and CUDA toolkit /
+Driver API version 13.4. This version-family guard does not check compiler
+binary hashes or guarantee performance on every matching driver build.
+
+The profile selects either the original schedule or the 8-worker compiler hint
+from an uncalibrated relative log-time prediction. Prefix scans, unsupported
+algebra/IR, fast math, and unmatched targets retain the original schedule.
+Per-stage metadata records the profile, decision, reason, optional score and
+actual requested hint. This experiment is mutually exclusive with explicit
+worker hints, alignment specialization and the structural/streaming experiments.
+Controls and other routes clear inherited cost settings. The profile contains
+no benchmark-name or tensor-shape lookup; all negative calibration outcomes
+remain part of the model's validation record.
+
+The [independent collective validation](results/2026-10-03-collective-validation/README.md)
+records the frozen profile's twelve unseen configurations, matched default
+rechecks, fresh Torch baselines, and the rejected streaming candidates. The
+profile improved the geometric mean of per-case time ratios by approximately
+2% in both visits, with repeatable gains around 9% for the tested small RMSNorm
+and 11% for the tested small Softmax. Pure reductions changed little, and the
+tested Softmax and long half-precision scans still trail Torch. This is not a
+claim that the profile is reliable across other devices, compilers or shapes.
+
 `cuda_attention_mha.json` adds batch-two MHA decode and prefill with a ragged
 key length, complementing the existing causal GQA/MQA attention cases.
 

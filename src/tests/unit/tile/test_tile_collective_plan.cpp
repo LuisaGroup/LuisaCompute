@@ -1,5 +1,7 @@
 #include "ut/ut.hpp"
 #include <luisa/tile/collective_plan.h>
+#include <luisa/tile/collective_cost.h>
+#include <cmath>
 #include <luisa/tile/algorithms.h>
 #include <luisa/tile/verifier.h>
 #include <limits>
@@ -258,10 +260,106 @@ void rejections() {
     expect(!analyze_collective_work(orphan).ok());
 }
 
+void cost_features() {
+    CollectiveWorkAnalysis facts;
+    facts.programs = 80u;
+    facts.elementwise_elements_per_program = 1600u;
+    facts.global_read_bytes_per_program = facts.global_write_bytes_per_program = 800u;
+    facts.materialized_tile_total_bytes = 8192u;
+    facts.materialized_tile_peak_bytes = 4096u;
+    facts.largest_materialized_tile_elements = 256u;
+    facts.collectives = {{1u, CollectiveKind::SUM, ScalarType::FLOAT32, 64u, 2u, 128u},
+                         {2u, CollectiveKind::MAXIMUM, ScalarType::FLOAT32, 32u, 4u, 128u},
+                         {3u, CollectiveKind::INCLUSIVE_SUM, ScalarType::FLOAT32, 128u, 1u, 128u},
+                         {4u, CollectiveKind::MINIMUM, ScalarType::FLOAT32, 16u, 1u, 16u}};
+    auto result = collective_cost_features(facts, {20u, 32u});
+    expect(result.ok()) << result.error;
+    // Frozen binary64 Python feature_vector parity, C=400. MINIMUM remains
+    // representable here; a fitted backend may separately exclude that family.
+    constexpr std::array expected{2.321928094887362, 8.005624549193879, 5.044394119358453,
+                                  2.321928094887362, 2.321928094887362, 3.169925001442312,
+                                  0.32, 0.32, 1.0};
+    for (auto i = size_t{0u}; i < expected.size(); i++) { expect(std::abs(result.values[i] - expected[i]) < 2e-14); }
+    expect(!collective_cost_features(facts, {0u, 32u}).ok());
+    expect(!collective_cost_features(facts, {20u, 0u}).ok());
+    auto bad = facts;
+    bad.error = "not admitted";
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    bad = facts;
+    bad.collectives[0u].input_elements++;
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    bad = facts;
+    bad.collectives[0u].contribution_extent = std::numeric_limits<uint64_t>::max();
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    bad = facts;
+    bad.collectives = {{0u, CollectiveKind::SUM, ScalarType::FLOAT32, std::numeric_limits<uint64_t>::max(), 1u, std::numeric_limits<uint64_t>::max()},
+                       {1u, CollectiveKind::MAXIMUM, ScalarType::FLOAT32, 1u, 1u, 1u}};
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    bad = facts;
+    bad.global_read_bytes_per_program = std::numeric_limits<uint64_t>::max();
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    bad = facts;
+    bad.collectives[0u].kind = static_cast<CollectiveKind>(255u);
+    expect(!collective_cost_features(bad, {20u, 32u}).ok());
+    auto kernel = capture(TestKind::SCAN, 17, 8192, 4);
+    auto admitted = analyze_collective_work(kernel.function());
+    expect(admitted.ok());
+    expect(collective_cost_features(admitted, {76u, 32u}).ok());
+}
+
+void cost_tree() {
+    std::array<double, 9u> features{};
+    features[0u] = .5;
+    std::array<CollectiveCostTreeNode, 3u> tree{{{0, .5, 1u, 2u, 0.0}, {-1, 0.0, 0u, 0u, -.1}, {-1, 0.0, 0u, 0u, .2}}};
+    auto evaluate = [&](auto &&nodes) { return evaluate_collective_cost_tree(span<const CollectiveCostTreeNode>{nodes}, span<const double>{features}); };
+    auto result = evaluate(tree);
+    expect(result.ok());
+    expect(result.log_score == -.1);
+    features[0u] = std::nextafter(.5, 1.0);
+    expect(evaluate(tree).log_score == .2);
+    auto bad = tree;
+    bad[0u].feature = 9;
+    expect(!evaluate(bad).ok());
+    bad[0u].feature = -2;
+    expect(!evaluate(bad).ok());
+    bad = tree;
+    bad[0u].right = 3u;
+    expect(!evaluate(bad).ok());
+    bad = tree;
+    bad[0u].left = 0u;
+    expect(!evaluate(bad).ok());
+    bad = tree;
+    bad[0u].right = 1u;// The unselected node still must be well-formed.
+    bad[2u] = {0, 0.0, 2u, 2u, 0.0};
+    expect(!evaluate(bad).ok());
+    bad = tree;
+    bad[2u].log_score = std::numeric_limits<double>::quiet_NaN();
+    expect(!evaluate(bad).ok());
+    bad = tree;
+    bad[0u].threshold = std::numeric_limits<double>::infinity();
+    expect(!evaluate(bad).ok());
+    features[8u] = std::numeric_limits<double>::quiet_NaN();
+    expect(!evaluate(tree).ok());
+    features[8u] = 0.0;
+    expect(!evaluate_collective_cost_tree({}, span<const double>{features}).ok());
+    expect(!evaluate_collective_cost_tree(span<const CollectiveCostTreeNode>{tree}, {}).ok());
+    std::array<CollectiveCostTreeNode, kCollectiveCostMaxNodes> chain{};
+    for (auto i = uint32_t{0u}; i + 1u < chain.size(); i++) { chain[i] = {0, 0.0, i + 1u, i + 1u, 0.0}; }
+    chain.back().log_score = -.25;
+    expect(evaluate(chain).ok());
+    expect(evaluate(chain).log_score == -.25);
+    std::array<CollectiveCostTreeNode, kCollectiveCostMaxNodes + 1u> oversized{};
+    expect(!evaluate(oversized).ok());
+    std::array<double, kCollectiveCostMaxFeatures + 1u> extra_features{};
+    expect(!evaluate_collective_cost_tree(span<const CollectiveCostTreeNode>{tree}, span<const double>{extra_features}).ok());
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_collective_work_logical_features"_test = [] { features(); };
     "tile_collective_work_admission"_test = [] { rejections(); };
+    "tile_collective_cost_features_v3"_test = [] { cost_features(); };
+    "tile_collective_cost_bounded_tree"_test = [] { cost_tree(); };
 }

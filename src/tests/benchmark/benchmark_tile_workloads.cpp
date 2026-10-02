@@ -249,8 +249,8 @@ template<typename T>
     auto fused_contraction = o.operation == "gemm" || o.operation == "bmm" ||
                              o.operation == "attention" || o.operation == "attention_tensorcore";
     quoted(out, o.operation == "gemv" ? "nonfused_products_unordered_tree_sum" :
-                fused_contraction    ? "mma_fused_reassociation_allowed" :
-                                       "not_applicable");
+                fused_contraction     ? "mma_fused_reassociation_allowed" :
+                                        "not_applicable");
     if (f.input_ids) {
         out << ",\"index_dtype\":\"int64\",\"index_bounds\":\"reject_invalid\",\"gather_axis\":0,\"value_preservation\":\"storage_bits\",\"index_view_offset_bytes\":" << 64u * sizeof(int64_t)
             << ",\"index_pattern\":";
@@ -413,7 +413,10 @@ int run(int argc, char *argv[]) {
     for (auto &&kernel : fixture.continuation_kernels) {
         if (!kernel.valid()) {
             string diagnostics;
-            for (auto &text : kernel.diagnostics()) { diagnostics += text; diagnostics += '\n'; }
+            for (auto &text : kernel.diagnostics()) {
+                diagnostics += text;
+                diagnostics += '\n';
+            }
             return finish(options, directory, "unsupported", diagnostics.empty() ? string_view{"Tile pipeline capture rejected a stage"} : string_view{diagnostics}, 3);
         }
     }
@@ -517,24 +520,28 @@ int run(int argc, char *argv[]) {
                 // iteration consumes the previous operation's sorted output.
                 commands << shaders[0](inputs[0].view(pad, fixture.inputs[0].size()),
                                        scratch_values[0].view(pad, fixture.scratch_elements),
-                                       scratch_indices[0].view(pad, fixture.scratch_elements)).dispatch();
+                                       scratch_indices[0].view(pad, fixture.scratch_elements))
+                                .dispatch();
                 for (auto stage = size_t{1u}; stage < shaders.size(); stage++) {
                     auto read_slot = (stage - 1u) % 2u, write_slot = stage % 2u;
                     if (stage + 1u == shaders.size()) {
                         commands << shaders[stage](scratch_values[read_slot].view(pad, fixture.scratch_elements),
                                                    scratch_indices[read_slot].view(pad, fixture.scratch_elements),
                                                    output.view(pad, fixture.expected.size()),
-                                                   indices.view(pad, fixture.expected_indices.size())).dispatch();
+                                                   indices.view(pad, fixture.expected_indices.size()))
+                                        .dispatch();
                     } else {
                         commands << shaders[stage](scratch_values[read_slot].view(pad, fixture.scratch_elements),
                                                    scratch_indices[read_slot].view(pad, fixture.scratch_elements),
                                                    scratch_values[write_slot].view(pad, fixture.scratch_elements),
-                                                   scratch_indices[write_slot].view(pad, fixture.scratch_elements)).dispatch();
+                                                   scratch_indices[write_slot].view(pad, fixture.scratch_elements))
+                                        .dispatch();
                     }
                 }
             } else if (fixture.input_ids) {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()),
-                                   input_ids.view(pad, fixture.input_ids->size()), output.view(pad, fixture.expected.size())).dispatch();
+                                   input_ids.view(pad, fixture.input_ids->size()), output.view(pad, fixture.expected.size()))
+                                .dispatch();
             } else if (fixture.ranking) {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), output.view(pad, fixture.expected.size()),
                                    indices.view(pad, fixture.expected_indices.size()))
@@ -548,6 +555,7 @@ int run(int argc, char *argv[]) {
         return commands;
     };
     std::string native_alignment_receipts;
+    std::string native_streaming_receipts;
     if (options.backend == "cuda" && options.lowering == "native") {
         // Inspect the actual command binding order, including BufferView byte
         // offsets. Record only pointer residues, never device addresses. This
@@ -569,7 +577,9 @@ int run(int argc, char *argv[]) {
         auto commands = make_commands(1u).steal_commands();
         LUISA_ASSERT(commands.size() == shaders.size(), "Alignment receipts require one command per stage.");
         std::ostringstream receipt;
+        std::ostringstream streaming_receipt;
         receipt << '[';
+        streaming_receipt << '[';
         for (auto stage = size_t{0u}; stage < shaders.size(); stage++) {
             auto command = static_cast<const ShaderDispatchCommand *>(commands[stage].get());
             auto args = command->arguments();
@@ -584,26 +594,68 @@ int run(int argc, char *argv[]) {
             }
             LUISA_ASSERT(args.size() <= 31u && (mask >> args.size()) == 0u, "Invalid alignment mask.");
             vector<uint32_t> residues;
+            vector<uint64_t> pointers;
             auto aligned = mask != 0u;
             for (auto slot = size_t{0u}; slot < args.size(); slot++) {
                 auto &&arg = args[slot];
                 LUISA_ASSERT(arg.tag == Argument::Tag::BUFFER, "Tile alignment receipt expects buffers.");
                 auto base = std::find_if(buffer_bases.begin(), buffer_bases.end(), [&](auto &&item) { return item.first == arg.buffer.handle; });
                 LUISA_ASSERT(base != buffer_bases.end(), "Unknown buffer in alignment receipt.");
+                LUISA_ASSERT(arg.buffer.offset <= std::numeric_limits<uint64_t>::max() - base->second, "Buffer address overflow.");
+                pointers.emplace_back(base->second + arg.buffer.offset);
                 auto residue = static_cast<uint32_t>(((base->second & 15u) + (arg.buffer.offset & 15u)) & 15u);
                 residues.emplace_back(residue);
                 if ((mask & (uint64_t{1u} << slot)) != 0u && residue != 0u) { aligned = false; }
             }
+            auto fact = [&](string_view name) {
+                auto found = realization.find(name);
+                auto value = uint64_t{0u};
+                if (found != string_view::npos) {
+                    auto text = realization.substr(found + name.size());
+                    text = text.substr(0u, text.find(';'));
+                    LUISA_ASSERT(integer(text, value), "Invalid streaming metadata.");
+                }
+                return value;
+            };
+            auto chunk = fact("streaming-scan-chunk=");
+            auto available = realization.find("; streaming-scan-available;") != string_view::npos;
+            auto input_slot = fact("streaming-scan-input-slot="), output_slot = fact("streaming-scan-output-slot=");
+            auto input_bytes = fact("streaming-scan-input-bytes="), output_bytes = fact("streaming-scan-output-bytes=");
+            auto disjoint = false;
+            if (available) {
+                LUISA_ASSERT(input_slot < pointers.size() && output_slot < pointers.size() && input_slot != output_slot &&
+                                 input_bytes > 0u && output_bytes > 0u &&
+                                 input_bytes <= args[input_slot].buffer.size && output_bytes <= args[output_slot].buffer.size,
+                             "Invalid streaming view metadata.");
+                auto input = pointers[input_slot], output_pointer = pointers[output_slot];
+                disjoint = input != 0u && output_pointer != 0u &&
+                           input_bytes <= std::numeric_limits<uint64_t>::max() - input &&
+                           output_bytes <= std::numeric_limits<uint64_t>::max() - output_pointer &&
+                           (input + input_bytes <= output_pointer || output_pointer + output_bytes <= input);
+            }
+            auto selected = available && disjoint ? "luisa_tile_stream_scan" : aligned ? "luisa_tile_aligned16" :
+                                                                                         "luisa_tile_main";
+            if (stage != 0u) { streaming_receipt << ','; }
+            streaming_receipt << "{\"stage\":" << stage << ",\"chunk_requested\":" << chunk
+                              << ",\"available\":" << (available ? "true" : "false")
+                              << ",\"input_slot\":" << input_slot << ",\"output_slot\":" << output_slot
+                              << ",\"input_bytes\":" << input_bytes << ",\"output_bytes\":" << output_bytes
+                              << ",\"static_ranges_disjoint\":" << (disjoint ? "true" : "false")
+                              << ",\"expected_selected_entry\":";
+            quoted(streaming_receipt, selected);
+            streaming_receipt << '}';
             if (stage != 0u) { receipt << ','; }
             receipt << "{\"stage\":" << stage << ",\"requested\":" << (requested ? "true" : "false")
                     << ",\"eligible_buffer_mask\":" << mask << ",\"final_argument_mod16\":";
             array(receipt, residues);
             receipt << ",\"expected_selected_entry\":";
-            quoted(receipt, aligned ? "luisa_tile_aligned16" : "luisa_tile_main");
+            quoted(receipt, selected);
             receipt << '}';
         }
         receipt << ']';
+        streaming_receipt << ']';
         native_alignment_receipts = receipt.str();
+        native_streaming_receipts = streaming_receipt.str();
     }
     auto batch = [&](uint64_t repetitions, bool instrumented, double &device_ms) {
         stream.synchronize();
@@ -820,6 +872,10 @@ int run(int argc, char *argv[]) {
     if (!native_alignment_receipts.empty()) {
         out << ",\"native_alignment\":" << native_alignment_receipts
             << ",\"native_alignment_evidence\":\"actual command BufferView offsets plus CUDA native buffer base modulo 16; expected host selection, not device trace\"";
+    }
+    if (!native_streaming_receipts.empty()) {
+        out << ",\"native_streaming\":" << native_streaming_receipts
+            << ",\"native_streaming_evidence\":\"actual command BufferView pointers and proved static touched ranges; expected shared live/graph host selection, not device trace\"";
     }
     pipeline_metadata(out, fixture);
     if (!fixture.pipeline_widths.empty()) {

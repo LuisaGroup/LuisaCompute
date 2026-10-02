@@ -61,10 +61,14 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
                                luisa::vector<uint32_t> buffer_arguments,
                                luisa::vector<Usage> argument_usages,
                                CUfunction aligned16_function,
-                               uint32_t aligned16_buffer_mask) noexcept
+                               uint32_t aligned16_buffer_mask,
+                               CUfunction streaming_scan_function,
+                               native_tile::StreamingScanGuard streaming_scan_guard) noexcept
     : CUDAShader{nullptr, std::move(argument_usages)},
       _module{module}, _function{function}, _aligned16_function{aligned16_function},
-      _aligned16_buffer_mask{aligned16_buffer_mask}, _entry{std::move(entry)},
+      _aligned16_buffer_mask{aligned16_buffer_mask},
+      _streaming_scan_function{streaming_scan_function}, _streaming_scan_guard{streaming_scan_guard},
+      _entry{std::move(entry)},
       _grid{grid}, _block_size{1u, 1u, 1u},
       _buffer_arguments{std::move(buffer_arguments)} {
     // module_image remains empty: Vulkan interop uses the DSL parameter ABI.
@@ -74,6 +78,12 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
                      ((_aligned16_function == nullptr) == (_aligned16_buffer_mask == 0u)) &&
                      (_aligned16_buffer_mask >> _buffer_arguments.size()) == 0u,
                  "Native Tile aligned entry has an invalid device binding mask.");
+    LUISA_ASSERT(_streaming_scan_function == nullptr ||
+                     (_streaming_scan_guard.input_slot < _buffer_arguments.size() &&
+                      _streaming_scan_guard.output_slot < _buffer_arguments.size() &&
+                      _streaming_scan_guard.input_slot != _streaming_scan_guard.output_slot &&
+                      _streaming_scan_guard.input_bytes != 0u && _streaming_scan_guard.output_bytes != 0u),
+                 "Native Tile streaming entry has an invalid static range descriptor.");
 }
 
 CUDAShaderTile::~CUDAShaderTile() noexcept {
@@ -101,7 +111,11 @@ bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
 }
 
 CUfunction CUDAShaderTile::select_entry(luisa::span<const CUdeviceptr> pointers) const noexcept {
-    if (_aligned16_function == nullptr || pointers.size() != _buffer_arguments.size()) { return _function; }
+    if (pointers.size() != _buffer_arguments.size()) { return _function; }
+    if (_streaming_scan_function != nullptr && native_tile::streaming_scan_disjoint(_streaming_scan_guard, pointers)) {
+        return _streaming_scan_function;
+    }
+    if (_aligned16_function == nullptr) { return _function; }
     CUdeviceptr alignment_bits = 0u;
     for (auto slot = size_t{0u}; slot < pointers.size(); slot++) {
         if ((_aligned16_buffer_mask & (uint32_t{1u} << slot)) != 0u) { alignment_bits |= pointers[slot]; }

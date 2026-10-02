@@ -2,6 +2,7 @@
 
 #include <array>
 #include <luisa/tile/ir.h>
+#include "cuda_tile_streaming_guard.h"
 
 namespace luisa::compute::cuda::native_tile {
 
@@ -29,6 +30,12 @@ struct Artifact {
     uint32_t chunked_scan_operations{0u};
     uint32_t independent_axis_extent{0u};
     uint32_t partitioned_collective_operations{0u};
+    // Optional streaming entry keeps the original source prefix byte-identical.
+    luisa::string streaming_scan_entry;
+    luisa::string streaming_scan_diagnostic;
+    size_t streaming_scan_source_offset{0u};
+    uint32_t streaming_scan_chunk_extent{0u};
+    StreamingScanGuard streaming_scan_guard{};
     std::array<uint32_t, 3u> grid{1u, 1u, 1u};
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<BufferArgument> arguments;
