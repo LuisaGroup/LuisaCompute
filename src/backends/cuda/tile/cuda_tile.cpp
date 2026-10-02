@@ -15,6 +15,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/string.h>
@@ -417,7 +418,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                     src_dump_path = _io->write_shader_source(src_name, src_span);
                 }
             }
-            src_filename = luisa::string{src_dump_path.string()};
+                          src_filename = luisa::to_string(src_dump_path);
             Clock compile_clock;
             auto result = _compiler->compile(
                 metadata.source, src_filename, nvrtc_options);

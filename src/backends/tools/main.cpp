@@ -192,7 +192,15 @@ struct Options {
     }
 };
 [[nodiscard]] luisa::filesystem::path absolute_path(luisa::string_view p) {
-    auto path = luisa::filesystem::path{p};
+    // Every command-line path goes through here, and argv text is narrow (ANSI
+    // code page) on Windows: path_from_narrow() decodes it the same way
+    // filesystem::path's constructor does, but reports unrepresentable bytes
+    // instead of throwing - this tool is built without exception support.
+    luisa::filesystem::path path;
+    if (!luisa::path_from_narrow(p, path)) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Path '{}' cannot be represented in the ANSI code page.", p);
+    }
     return path.is_absolute() ? path : luisa::filesystem::absolute(path);
 }
 void print_usage(const char *exe) {
@@ -1233,7 +1241,10 @@ public:
 
 private:
     [[nodiscard]] static luisa::filesystem::path resolve(const luisa::filesystem::path &dir, luisa::string_view name) {
-        auto path = luisa::filesystem::path{name};
+        // `name` is narrow text (an artifact name or a full path); decode it with
+        // path_from_narrow() so nothing here can throw.
+        luisa::filesystem::path path;
+        static_cast<void>(luisa::path_from_narrow(name, path));
         return path.is_absolute() ? path : dir / path.filename();
     }
       [[nodiscard]] static luisa::unique_ptr<BinaryStream> open(luisa::string_view name, const luisa::filesystem::path &dir) {

@@ -9,6 +9,7 @@
 #include <SPIRV/GlslangToSpv.h>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 
 namespace lc::vk {
 
@@ -63,19 +64,28 @@ uint32_t glsl_version_number(luisa::string_view source) noexcept {
 // includer borrows the caller's `include_dirs` and is attached to every
 // parse, so a missing header reports a "could not find" error instead of
 // glslang's default "not supported".
+// GLSL include names are taken from the shader source, which is UTF-8 text, so
+// they are decoded with path_from_utf8(): filesystem::path's own narrow
+// conversion uses the ANSI code page and throws std::system_error on bytes that
+// page cannot represent, which these noexcept overrides cannot survive. An
+// undecodable name yields an empty path, i.e. a header that is simply not found.
+[[nodiscard]] luisa::filesystem::path glsl_include_path(luisa::string_view text) noexcept {
+    luisa::filesystem::path result;
+    static_cast<void>(luisa::path_from_utf8(text, result));
+    return result;
+}
+
 class GlslFileIncluder final : public glslang::TShader::Includer {
-public:
+  public:
     explicit GlslFileIncluder(
         luisa::span<const luisa::filesystem::path> include_dirs) noexcept
         : _include_dirs{include_dirs} {}
-
     IncludeResult *includeLocal(const char *header_name,
                                 const char *includer_name,
                                 size_t /*inclusion_depth*/) override {
         if (includer_name != nullptr) {
-            if (auto *result = read_file(luisa::filesystem::path{
-                    luisa::string{includer_name}}.parent_path() /
-                                         header_name)) {
+            if (auto *result = read_file(glsl_include_path(includer_name).parent_path() /
+                                         glsl_include_path(header_name))) {
                 return result;
             }
         }
@@ -86,11 +96,11 @@ public:
                                  const char * /*includer_name*/,
                                  size_t /*inclusion_depth*/) override {
         for (auto &&dir : _include_dirs) {
-            if (auto *result = read_file(dir / header_name)) { return result; }
+            if (auto *result = read_file(dir / glsl_include_path(header_name))) { return result; }
         }
         // Fallback: the header name as-is, relative to the current working
         // directory, matching the compiler CLIs' last-resort behaviour.
-        return read_file(luisa::filesystem::path{header_name});
+        return read_file(glsl_include_path(header_name));
     }
 
     void releaseInclude(IncludeResult *result) override {
@@ -117,8 +127,13 @@ private:
             return nullptr;
         }
         content[length] = '\0';
+        // includeName is only echoed back in diagnostics: luisa::to_string()
+        // degrades lossily for names the ANSI code page cannot represent, while
+        // path::generic_string() would throw (the decoded path may hold any
+        // Unicode scalar because GLSL sources are UTF-8).
+        auto include_name = std::string{luisa::to_string(path)};
         return new IncludeResult{
-            path.generic_string(), content, length, content};
+            include_name, content, length, content};
     }
 
     luisa::span<const luisa::filesystem::path> _include_dirs;

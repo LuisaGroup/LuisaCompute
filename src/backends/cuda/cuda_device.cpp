@@ -90,11 +90,25 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         if (LUISA_SHOULD_DUMP_XIR) {
             auto module_name = module->name().value_or("unnamed");
             auto dump_dir = getenv("LUISA_DUMP_XIR_DIR");
-            auto dump_path = luisa::filesystem::path{
-                dump_dir == nullptr ? "." : dump_dir};
+            // LUISA_DUMP_XIR_DIR is a narrow (ANSI code page) environment value and
+            // the dump file names are built from the module name: decode both with
+            // path_from_narrow() instead of letting path's implicit narrow
+            // conversion throw - this function is noexcept.
+            auto narrow_path = [](luisa::string_view text) noexcept {
+                luisa::filesystem::path result;
+                static_cast<void>(luisa::path_from_narrow(text, result));
+                return result;
+            };
+            luisa::filesystem::path dump_path;
+            if (!luisa::path_from_narrow(dump_dir == nullptr ? luisa::string_view{"."} : luisa::string_view{dump_dir}, dump_path)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "XIR dump directory '{}' cannot be represented in the ANSI code page.",
+                    dump_dir);
+                return;
+            }
             auto stem = luisa::format("{}.invalid", module_name);
             {
-                std::ofstream f{dump_path / luisa::format("{}.errors.txt", stem)};
+                std::ofstream f{dump_path / narrow_path(luisa::format("{}.errors.txt", stem))};
                 f << "stage: " << stage << '\n';
                 for (size_t i = 0u; i < verification.errors.size(); i++) {
                     auto &&error = verification.errors[i];
@@ -110,7 +124,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
                 f.flush();
             }
             {
-                std::ofstream f{dump_path / luisa::format("{}.xir", stem)};
+                                  std::ofstream f{dump_path / narrow_path(luisa::format("{}.xir", stem))};
                 f << xir::xir_to_text_translate(module, true);
                 f.flush();
             }
@@ -961,7 +975,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
                 src_dump_path = _io->write_shader_source(src_name, src_data);
             }
         }
-        luisa::string src_filename{src_dump_path.string()};
+                  luisa::string src_filename{luisa::to_string(src_dump_path)};
         ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
             luisa::span ptx_data{

@@ -3826,7 +3826,18 @@ LUISA_EXPORT_API VkInstance init_vk_instance(bool enable_validation, bool &enabl
         "is live; Volk uses process-global dispatch tables.");
     std::lock_guard lck{detail::instance_mtx};
     enable_validation |= detail::validation_enabled_by_default();
-    detail::load_or_create_process_instance(enable_validation, enable_surface, custom_vk_lib_path ? luisa::filesystem::path{custom_vk_lib_path} : luisa::filesystem::path{}, custom_vk_lib_name ? luisa::string_view{custom_vk_lib_name} : luisa::string_view{}, luisa::span{extra_instance_exts, extra_instance_ext_count});
+    // custom_vk_lib_path is application-supplied narrow text: decode it with
+    // path_from_narrow() so an unrepresentable path simply means "no custom
+    // library" instead of throwing inside path's constructor.
+    luisa::filesystem::path custom_lib_path;
+    if (custom_vk_lib_path != nullptr &&
+        !luisa::path_from_narrow(luisa::string_view{custom_vk_lib_path}, custom_lib_path)) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Custom Vulkan library path '{}' cannot be represented in the ANSI code page.",
+            custom_vk_lib_path);
+        custom_lib_path.clear();
+    }
+    detail::load_or_create_process_instance(enable_validation, enable_surface, custom_lib_path, custom_vk_lib_name ? luisa::string_view{custom_vk_lib_name} : luisa::string_view{}, luisa::span{extra_instance_exts, extra_instance_ext_count});
     return detail::vk_instance;
 }
 

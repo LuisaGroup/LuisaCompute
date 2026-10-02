@@ -56,7 +56,7 @@ public:
                                    luisa::filesystem::canonical(current_executable_path()).parent_path() :
                                    custom_path;
             vk_module = _try_load_vulkan_dylib(search_path, lib_name);
-            LUISA_ASSERT(vk_module, "Failed to load vulkan module from {}/{}", search_path.string(), lib_name);
+            LUISA_ASSERT(vk_module, "Failed to load vulkan module from {}/{}", luisa::to_string(search_path), lib_name);
             auto ptr = vk_module.address("vkGetInstanceProcAddr");
             LUISA_ASSERT(ptr != nullptr, "vkGetInstanceProcAddr symbol not found.");
             volkInitializeCustom(reinterpret_cast<PFN_vkGetInstanceProcAddr>(ptr));

@@ -113,8 +113,15 @@ DynamicModule DynamicModule::load(luisa::string_view name) noexcept {
 }
 
 DynamicModule DynamicModule::load(const luisa::filesystem::path &folder, luisa::string_view name) noexcept {
-    auto make_path = [&folder](const auto &file_name) noexcept {
-        return folder.empty() ? luisa::filesystem::path{file_name} : folder / file_name;
+    // Module names are narrow text (backend names, file names built from ASCII
+    // identifiers, or full names the application supplied). Decoding them with
+    // path_from_narrow() keeps this noexcept function from throwing through
+    // path's implicit narrow->wide conversion when the ANSI code page cannot
+    // represent the bytes; an undecodable name simply yields no module.
+    auto make_path = [&folder](luisa::string_view file_name) noexcept -> luisa::filesystem::path {
+        luisa::filesystem::path result;
+        if (!path_from_narrow(file_name, result)) return result;
+        return folder.empty() ? std::move(result) : folder / result;
     };
     if (auto m = load_exact(make_path(dynamic_module_name(name)))) {
         return m;

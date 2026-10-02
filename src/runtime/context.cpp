@@ -215,7 +215,19 @@ public:
     explicit ContextImpl(luisa::string_view program_path, luisa::string_view data_dir) noexcept {
         using namespace std::string_view_literals;
 
-        luisa::filesystem::path program{program_path};
+        // program_path is application-supplied narrow text (usually argv[0]).
+        // path_from_narrow() decodes it exactly like path's narrow constructor,
+        // but reports an unrepresentable name through its return value instead of
+        // throwing (the library is built without C++ exceptions, where that throw
+        // would terminate the process). A failed decode leaves the path empty and
+        // the fallbacks below resolve it to the current executable.
+        luisa::filesystem::path program;
+        if (!path_from_narrow(program_path, program)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Program path '{}' cannot be represented in the ANSI code page; "
+                "using the current executable path instead.",
+                program_path);
+        }
         LUISA_INFO(
             "Created context for program '{}'.",
             luisa::to_string(program.filename()));
@@ -235,10 +247,17 @@ public:
             } else {
                 runtime_directory = luisa::filesystem::canonical(program.parent_path());
             }
-            if (data_dir.empty()) {
+            luisa::filesystem::path data_dir_path;
+            if (data_dir.empty() || !path_from_narrow(data_dir, data_dir_path)) [[unlikely]] {
+                if (!data_dir.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Data directory '{}' cannot be represented in the ANSI code page; "
+                        "using the current working directory instead.",
+                        data_dir);
+                }
                 data_directory = luisa::filesystem::current_path();
             } else {
-                data_directory = luisa::filesystem::canonical(data_dir);
+                data_directory = luisa::filesystem::canonical(data_dir_path);
             }
 
             LUISA_INFO(
@@ -252,7 +271,15 @@ public:
     explicit ContextImpl(luisa::string_view program_path) noexcept {
         using namespace std::string_view_literals;
 
-        luisa::filesystem::path program{program_path};
+        // See the comment in the two-argument constructor: narrow decoding goes
+        // through path_from_narrow() so it can never throw.
+        luisa::filesystem::path program;
+        if (!path_from_narrow(program_path, program)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Program path '{}' cannot be represented in the ANSI code page; "
+                "using the current executable path instead.",
+                program_path);
+        }
         LUISA_INFO(
             "Created context for program '{}'.",
             luisa::to_string(program.filename()));
@@ -437,7 +464,15 @@ const luisa::filesystem::path &Context::create_runtime_subdir(luisa::string_view
         folder_name,
 #endif
         luisa::lazy_construct([&]() {
-            auto dir = runtime_directory() / folder_name;
+            // `path / narrow_string_view` converts the bytes through the ANSI code
+            // page and throws when they are not representable, so decode first.
+            luisa::filesystem::path subdir;
+            if (!path_from_narrow(folder_name, subdir)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Runtime sub-directory '{}' cannot be represented in the ANSI code page.",
+                    folder_name);
+            }
+            auto dir = runtime_directory() / subdir;
             std::error_code ec;
             luisa::filesystem::create_directories(dir, ec);
             if (ec) [[unlikely]] {
@@ -459,7 +494,14 @@ const luisa::filesystem::path &Context::create_data_subdir(luisa::string_view fo
         folder_name,
 #endif
         luisa::lazy_construct([&]() {
-            auto dir = data_directory() / folder_name;
+            // See create_runtime_subdir(): append a decoded path, never raw bytes.
+            luisa::filesystem::path subdir;
+            if (!path_from_narrow(folder_name, subdir)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Data sub-directory '{}' cannot be represented in the ANSI code page.",
+                    folder_name);
+            }
+            auto dir = data_directory() / subdir;
             std::error_code ec;
             luisa::filesystem::create_directories(dir, ec);
             if (ec) [[unlikely]] {

@@ -246,13 +246,25 @@ struct NativeShaderCompileResult {
 
 namespace detail {
 
+// Source and include names reach the backends as narrow text supplied by the
+// application. filesystem::path's own narrow conversion decodes such text with
+// the ANSI code page and throws std::system_error on bytes that page cannot
+// represent - fatal here because these helpers are inline and noexcept - so the
+// conversion goes through path_from_narrow(): undecodable text yields an empty
+// path, which then simply fails to open like any missing file.
+[[nodiscard]] inline luisa::filesystem::path native_shader_path(luisa::string_view text) noexcept {
+    luisa::filesystem::path result;
+    static_cast<void>(path_from_narrow(text, result));
+    return result;
+}
+
 // Reads an entire source file for a `FilePath` compile. Never throws; returns
 // false and fills `error` when the file cannot be opened or read.
 [[nodiscard]] inline bool native_shader_read_source_file(
     luisa::string_view path, luisa::string &content,
     luisa::string &error) noexcept {
     content.clear();
-    std::ifstream file{luisa::filesystem::path{luisa::string{path}},
+    std::ifstream file{native_shader_path(path),
                        std::ios::in | std::ios::binary};
     if (!file.is_open()) {
         error = luisa::format("Cannot open native shader source file '{}'.", path);
@@ -291,7 +303,7 @@ namespace detail {
               return false;
           }
           source = source_storage;
-          auto parent = luisa::filesystem::path{luisa::string{info.source}}.parent_path();
+          auto parent = native_shader_path(info.source).parent_path();
           // An empty parent means the file was named relative to the current
           // working directory, which the compilers' "header name as-is"
           // fallback already covers, so there is nothing to prepend.

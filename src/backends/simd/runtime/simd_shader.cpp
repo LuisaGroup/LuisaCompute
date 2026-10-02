@@ -231,7 +231,16 @@ void dump_compilation_artifacts(
     luisa::string_view object) noexcept {
     static std::atomic_uint64_t sequence{0u};
     std::error_code error;
-    auto path = luisa::filesystem::path{directory};
+    // `directory` comes from std::getenv(), i.e. ANSI-code-page bytes: decode it
+    // with path_from_narrow() instead of path's implicit narrow conversion, which
+    // throws on bytes the code page cannot represent (this code is noexcept).
+    luisa::filesystem::path path;
+    if (!luisa::path_from_narrow(directory, path)) [[unlikely]] {
+        LUISA_WARNING(
+            "SIMD assembly directory '{}' cannot be represented in the ANSI code page.",
+            directory);
+        return;
+    }
     luisa::filesystem::create_directories(path, error);
     if (error) {
         LUISA_WARNING(

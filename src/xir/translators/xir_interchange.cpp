@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -1733,9 +1734,18 @@ void apply_metadata_records(
             case MetadataRecord::Kind::NAME:
                 metadata = luisa::make_managed<NameMD>(iter->text);
                 break;
-            case MetadataRecord::Kind::LOCATION:
-                metadata = luisa::make_managed<LocationMD>(luisa::filesystem::path{iter->text}, static_cast<int>(iter->number));
+            case MetadataRecord::Kind::LOCATION: {
+                // The interchange text carries the file name exactly as
+                // luisa::to_string() wrote it (the ANSI code page on Windows), so
+                // it is decoded the same way: path_from_narrow() reports bytes the
+                // code page cannot represent through its return value instead of
+                // throwing inside path's narrow constructor. Undecodable text
+                // yields an empty location file.
+                luisa::filesystem::path file;
+                static_cast<void>(luisa::path_from_narrow(iter->text, file));
+                metadata = luisa::make_managed<LocationMD>(std::move(file), static_cast<int>(iter->number));
                 break;
+            }
             case MetadataRecord::Kind::COMMENT:
                 metadata = luisa::make_managed<CommentMD>(iter->text);
                 break;
@@ -1790,7 +1800,7 @@ void apply_metadata_records(
             case DerivedMetadataTag::LOCATION: {
                 auto value = static_cast<const LocationMD *>(metadata);
                 text.append("location ");
-                append_quoted(text, value->file().string());
+                                  append_quoted(text, luisa::to_string(value->file()));
                 luisa::format_to(std::back_inserter(text), " {}", value->line());
                 break;
             }

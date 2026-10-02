@@ -94,6 +94,17 @@ ManagedDevice::~ManagedDevice() noexcept {
     }
 }
 static luisa::filesystem::path output_path;
+
+// pybind11 hands out UTF-8 text, so every path that originates from a Python
+// string is decoded with path_from_utf8(). filesystem::path's own narrow
+// conversion uses the ANSI code page and throws std::system_error on bytes that
+// page cannot represent, which would terminate this exception-free binding; an
+// undecodable name yields an empty path and is reported as a failed open.
+[[nodiscard]] static luisa::filesystem::path pybind_path(luisa::string_view text) noexcept {
+    luisa::filesystem::path result;
+    static_cast<void>(path_from_utf8(text, result));
+    return result;
+}
 void interop_copy(DeviceInterface &d, uint64_t interop_buffer, uint64_t interop_buffer_offset_bytes, void *cu_stream_ptr, void *cu_buffer, size_t size_bytes, bool interop_to_compute) {
     interop.create(&d);
     auto gs = default_stream_data.lock();
@@ -154,12 +165,20 @@ public:
         if (!home) {
             LUISA_WARNING("Failed to get user home directory: environment variable not found.");
         } else {
-            std::error_code ec;
-            auto p = luisa::filesystem::canonical(home, ec);
-            if (!ec) {
-                _path = p / ".luisa";
+            // The environment block is narrow (ANSI code page) text, so the home
+            // directory is decoded with path_from_narrow() rather than through
+            // path's throwing constructor.
+            luisa::filesystem::path home_path;
+            if (!path_from_narrow(luisa::string_view{home}, home_path)) [[unlikely]] {
+                LUISA_WARNING("Failed to get user home directory: '{}' is not representable in the ANSI code page.", home);
             } else {
-                LUISA_WARNING("Failed to get user home directory: {}.", ec.message());
+                std::error_code ec;
+                auto p = luisa::filesystem::canonical(home_path, ec);
+                if (!ec) {
+                    _path = p / ".luisa";
+                } else {
+                    LUISA_WARNING("Failed to get user home directory: {}.", ec.message());
+                }
             }
         }
         if (_path.empty()) {
@@ -170,7 +189,7 @@ public:
         luisa::filesystem::create_directories(_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application data directory at '{}': {}.",
-                          _path.string(), ec.message());
+                          luisa::to_string(_path), ec.message());
         }
     }
 
@@ -180,16 +199,16 @@ public:
     }
     [[nodiscard]] unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override {
         if (_path.empty()) { return {}; }
-        auto path = _path / "cache" / name;
-        return luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
+        auto path = _path / "cache" / pybind_path(name);
+        return luisa::make_unique<BinaryFileStream>(luisa::to_string(path));
     }
     [[nodiscard]] unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override {
         if (_path.empty()) { return {}; }
-        auto path = _path / "internal" / name;
-        return luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
+        auto path = _path / "internal" / pybind_path(name);
+        return luisa::make_unique<BinaryFileStream>(luisa::to_string(path));
     }
     [[nodiscard]] filesystem::path write_shader_bytecode(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
-        luisa::filesystem::path path{name};
+        auto path = pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
@@ -204,7 +223,7 @@ public:
         luisa::filesystem::remove_all(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to remove cache directory '{}': {}.",
-                          cache_path.string(), ec.message());
+                          luisa::to_string(cache_path), ec.message());
         }
     }
     [[nodiscard]] filesystem::path write_shader_cache(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
@@ -214,15 +233,15 @@ public:
         luisa::filesystem::create_directories(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application cache directory at '{}': {}.",
-                          cache_path.string(), ec.message());
+                          luisa::to_string(cache_path), ec.message());
             return {};
         }
-        auto path = cache_path / name;
+        auto path = cache_path / pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
         }
-        LUISA_WARNING("Failed to write shader cache to '{}'.", path.string());
+        LUISA_WARNING("Failed to write shader cache to '{}'.", luisa::to_string(path));
         return {};
     }
     [[nodiscard]] filesystem::path write_internal_shader(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
@@ -232,15 +251,15 @@ public:
         luisa::filesystem::create_directories(internal_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application internal data directory at '{}': {}.",
-                          internal_path.string(), ec.message());
+                          luisa::to_string(internal_path), ec.message());
             return {};
         }
-        auto path = internal_path / name;
+        auto path = internal_path / pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
         }
-        LUISA_WARNING("Failed to write internal shader to '{}'.", path.string());
+        LUISA_WARNING("Failed to write internal shader to '{}'.", luisa::to_string(path));
         return {};
     }
 };
@@ -266,9 +285,13 @@ void export_runtime(py::module &m) {
             DeviceConfig config{.binary_io = &io};
             return ManagedDevice(self.create_device(backend_name, &config));
         })// TODO: support properties
-        .def("set_shader_path", [](Context &self, std::string const &str) {
-            luisa::filesystem::path p{str};
-            auto cp = luisa::filesystem::canonical(p);
+          .def("set_shader_path", [](Context &self, std::string const &str) {
+              auto p = pybind_path(luisa::string_view{str});
+              if (p.empty()) {
+                  LUISA_WARNING("Shader output path '{}' is not valid UTF-8; ignoring it.", str);
+                  return;
+              }
+              auto cp = luisa::filesystem::canonical(p);
             if (!luisa::filesystem::is_directory(cp))
                 cp = luisa::filesystem::canonical(cp.parent_path());
             output_path = std::move(cp);
@@ -387,7 +410,7 @@ void export_runtime(py::module &m) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
             if (!output_path.empty()) {
-                auto dst_path = output_path / luisa::filesystem::path{str};
+                auto dst_path = output_path / pybind_path(str);
                 dst_path_str = to_string(dst_path);
                 str_view = dst_path_str;
             } else {
@@ -406,7 +429,7 @@ void export_runtime(py::module &m) {
                     luisa::string_view str_view;
                     luisa::string dst_path_str;
                     if (!output_path.empty()) {
-                        auto dst_path = output_path / luisa::filesystem::path{str};
+                        auto dst_path = output_path / pybind_path(str);
                         dst_path_str = to_string(dst_path);
                         str_view = dst_path_str;
                     } else {
@@ -471,7 +494,7 @@ void export_runtime(py::module &m) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
-                auto dst_path = output_path / luisa::filesystem::path{str};
+                auto dst_path = output_path / pybind_path(str);
                 option.name = to_string(dst_path);
             } else {
                 option.name = str;
@@ -484,7 +507,7 @@ void export_runtime(py::module &m) {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
-                    auto dst_path = output_path / luisa::filesystem::path{str};
+                    auto dst_path = output_path / pybind_path(str);
                     option.name = to_string(dst_path);
                 } else {
                     option.name = str;

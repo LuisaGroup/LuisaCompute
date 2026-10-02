@@ -65,7 +65,11 @@ static VulkanLoaderIdentity g_volk_loader_identity;
         luisa::filesystem::absolute(search_path));
     return VulkanLoaderIdentity{
         .source = lc::vk::detail::VulkanLoaderSource::CUSTOM_LOADER,
-        .search_path = luisa::string{search_path.generic_string()},
+        // search_path is only an identity/logging string: luisa::to_string()
+        // degrades lossily instead of throwing when the path is not
+        // representable in the ANSI code page (path::generic_string() does
+        // the checked conversion and would terminate the process).
+        .search_path = luisa::to_string(search_path),
         .library_name = luisa::string{lib_name}};
 }
 

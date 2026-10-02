@@ -1,4 +1,7 @@
 #include <luisa/core/stl/filesystem.h>
+
+#include <climits>
+
 #if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
 #ifndef UNICODE
 #define UNICODE 1
@@ -22,7 +25,7 @@ namespace luisa {
 // One WideCharToMultiByte pass. Returns an empty string when the conversion
 // fails (only possible in strict mode); a genuinely empty input is handled by
 // the caller so an empty result here always means "failed".
-luisa::string kfs_convert(const wchar_t *data, int len, UINT code_page,
+static luisa::string kfs_convert(const wchar_t *data, int len, UINT code_page,
                                  DWORD flags) {
     const int needed = ::WideCharToMultiByte(code_page, flags, data, len,
                                              nullptr, 0, nullptr, nullptr);
@@ -48,7 +51,10 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
     // (__fastfail 0xC0000409) - observed in the wild when grep's directory
     // walk hit a directory named 'D<U+F03A><U+F05C>proj'. Convert manually
     // with graceful degradation instead:
-    const std::wstring &wide = path.native();
+    // path::native() is a std::basic_string<wchar_t> with the *system*
+    // allocator, so only a view of it is taken here (luisa::wstring_view) to
+    // avoid copying the whole path.
+    const luisa::wstring_view wide{path.native()};
     if (wide.empty()) {
         return {};
     }
@@ -57,30 +63,30 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
     }
     const int len = static_cast<int>(wide.size());
     // 1. Strict CP_ACP: byte-identical to what path.string<char>() produces
-    //    for every representable path (the common case).
+    // for every representable path (the common case).
     luisa::string out = kfs_convert(wide.data(), len, CP_ACP, WC_ERR_INVALID_CHARS);
     if (!out.empty()) {
         return out;
     }
     // 2. Lossy CP_ACP: unrepresentable characters become the default
-    //    replacement char, mirroring how the rest of Windows resolves such
-    //    names. The result may not re-resolve to the same file; callers that
-    //    re-open the path (grep, glob, read) already handle a failed open.
+    // replacement char, mirroring how the rest of Windows resolves such
+    // names. The result may not re-resolve to the same file; callers that
+    // re-open the path (grep, glob, read) already handle a failed open.
     out = kfs_convert(wide.data(), len, CP_ACP, 0);
     if (!out.empty()) {
         return out;
     }
     // 3. The lossy pass can still fail on lone surrogates (invalid scalars).
-    //    Replace those with '?' and encode as UTF-8, which covers every
-    //    remaining valid scalar value.
-    std::wstring cleaned(wide);
-    for (size_t i = 0; i < cleaned.size(); ++i) {
+    // Replace those with '?' and encode as UTF-8, which covers every
+    // remaining valid scalar value.
+    luisa::wstring cleaned{wide};
+    for (size_t i = 0u; i < cleaned.size(); ++i) {
         const wchar_t wc = cleaned[i];
         const bool lone_high = (wc >= 0xD800 && wc <= 0xDBFF) &&
                                (i + 1 >= cleaned.size() || cleaned[i + 1] < 0xDC00 ||
                                 cleaned[i + 1] > 0xDFFF);
         const bool lone_low = (wc >= 0xDC00 && wc <= 0xDFFF) &&
-                              (i == 0 || cleaned[i - 1] < 0xD800 ||
+                              (i == 0u || cleaned[i - 1] < 0xD800 ||
                                cleaned[i - 1] > 0xDBFF);
         if (lone_high || lone_low) {
             cleaned[i] = L'?';
@@ -93,7 +99,76 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
     return {};
 #else
     // POSIX paths are plain byte strings; no conversion can fail.
-    return luisa::string(path.native());
+    return luisa::string{path.native()};
+#endif
+}
+
+LUISA_CORE_API bool path_from_narrow(luisa::string_view text,
+                                     luisa::filesystem::path &out) noexcept {
+    out.clear();
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
+    if (text.size() > static_cast<size_t>(INT_MAX)) {
+        return false;
+    }
+    const int len = static_cast<int>(text.size());
+    // CP_ACP + MB_ERR_INVALID_CHARS mirrors what the STL's narrow path
+    // conversion does: a byte that cannot be represented makes the conversion
+    // fail instead of being silently replaced with a placeholder.
+    const int needed = ::MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS,
+                                             text.data(), len, nullptr, 0);
+    if (needed <= 0) {
+        // MultiByteToWideChar reports 0 both for an empty input (which is a
+        // valid empty path) and for invalid input; only the latter is an error.
+        return len == 0;
+    }
+    luisa::wstring wide(static_cast<size_t>(needed), L'\0');
+    if (::MultiByteToWideChar(CP_ACP, MB_ERR_INVALID_CHARS, text.data(), len,
+                              wide.data(), needed) != needed) {
+        return false;
+    }
+    // The wide constructor stores the native string as-is: no conversion, so
+    // it cannot fail.
+    out = luisa::filesystem::path{wide};
+    return true;
+#else
+    // POSIX paths are plain byte strings; construction cannot fail.
+    out = luisa::filesystem::path{text};
+    return true;
+#endif
+}
+
+LUISA_CORE_API bool path_from_utf8(luisa::string_view text,
+                                   luisa::filesystem::path &out) noexcept {
+    out.clear();
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
+    if (text.size() > static_cast<size_t>(INT_MAX)) {
+        return false;
+    }
+    const int len = static_cast<int>(text.size());
+    // CP_UTF8 + MB_ERR_INVALID_CHARS: a byte sequence that is not valid
+    // UTF-8 makes the conversion fail instead of being silently replaced
+    // with a placeholder. Without the flag, invalid input would decode
+    // lossily and the path would silently point at a different name.
+    const int needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                             text.data(), len, nullptr, 0);
+    if (needed <= 0) {
+        // MultiByteToWideChar reports 0 both for an empty input (which is a
+        // valid empty path) and for invalid input; only the latter is an error.
+        return len == 0;
+    }
+    luisa::wstring wide(static_cast<size_t>(needed), L'\0');
+    if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), len,
+                              wide.data(), needed) != needed) {
+        return false;
+    }
+    // The wide constructor stores the native string as-is: no conversion, so
+    // it cannot fail.
+    out = luisa::filesystem::path{wide};
+    return true;
+#else
+    // POSIX paths are plain byte strings; construction cannot fail.
+    out = luisa::filesystem::path{text};
+    return true;
 #endif
 }
 
@@ -117,4 +192,3 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
 #undef pascal
 #endif
 #endif
-
