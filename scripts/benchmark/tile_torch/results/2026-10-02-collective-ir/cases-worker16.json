@@ -1,0 +1,277 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "aligned16-scan-128x8192-fp16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-scan-128x8192-bf16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-control-scan-128x8192-fp32",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-rmsnorm-1x8192-fp16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-layernorm-1x8192-bf16",
+      "operation": "layernorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "coverage-rmsnorm-128x8192-bf16-tile1x8192x1",
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "coverage-layernorm-128x8192-bf16-tile1x8192x1",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "coverage-softmax-1024x512-fp16-tile1x512x1",
+      "operation": "softmax",
+      "dimensions": [
+        1024,
+        512
+      ],
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br1",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br4",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br1",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

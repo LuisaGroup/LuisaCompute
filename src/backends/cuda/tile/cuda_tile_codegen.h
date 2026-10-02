@@ -24,6 +24,11 @@ struct Artifact {
     // select this specialization. Bits index the direct device buffer ABI.
     luisa::string aligned16_entry;
     uint32_t aligned16_buffer_mask{0u};
+    // Diagnostic opt-ins: immutable-value realizations, never grid changes.
+    uint32_t scan_chunk_extent{0u};
+    uint32_t chunked_scan_operations{0u};
+    uint32_t independent_axis_extent{0u};
+    uint32_t partitioned_collective_operations{0u};
     std::array<uint32_t, 3u> grid{1u, 1u, 1u};
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<BufferArgument> arguments;
@@ -41,6 +46,9 @@ struct Artifact {
 // Other lane-dependent gathers, nested maps and explicit layout constraints reject.
 // Buffer parameters are contiguous row-major views with static extents.
 [[nodiscard]] Artifact generate(const tile::Function &function, bool enable_fast_math = false,
-                                bool enable_aligned16 = false) noexcept;
+                                bool enable_aligned16 = false,
+                                uint32_t worker_warps = 0u, uint32_t target_sm = 0u,
+                                uint32_t scan_chunk_extent = 0u,
+                                uint32_t independent_axis_extent = 0u) noexcept;
 
 }// namespace luisa::compute::cuda::native_tile

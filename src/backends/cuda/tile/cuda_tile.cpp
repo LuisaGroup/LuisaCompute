@@ -20,6 +20,7 @@
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/tile/runtime.h>
+#include <luisa/tile/collective_plan.h>
 
 #include "cuda_tile.h"
 #include "cuda_tile_codegen.h"
@@ -593,13 +594,70 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     }
     auto aligned16_option = luisa::get_environment_variable("LUISA_CUDA_TILE_IR_ALIGNED16");
     auto aligned16_requested = aligned16_option && luisa::string_view{*aligned16_option} == "1";
-    auto artifact = native_tile::generate(kernel, option.enable_fast_math, aligned16_requested);
+    auto worker_warps = 0u;
+    if (auto workers = luisa::get_environment_variable("LUISA_CUDA_TILE_WORKER_WARPS")) {
+        auto value = luisa::string_view{*workers};
+        if (value == "4" || value == "8") {
+            worker_warps = static_cast<uint32_t>(value.front() - '0');
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_WORKER_WARPS requires 0, 4 or 8");
+        }
+    }
+    auto scan_chunk_extent = 0u;
+    if (auto chunk = luisa::get_environment_variable("LUISA_CUDA_TILE_SCAN_CHUNK")) {
+        auto value = luisa::string_view{*chunk};
+        if (value == "1024") {
+            scan_chunk_extent = 1024u;
+        } else if (value == "2048") {
+            scan_chunk_extent = 2048u;
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_SCAN_CHUNK requires 0, 1024 or 2048");
+        }
+    }
+    auto independent_axis_extent = 0u;
+    if (auto extent = luisa::get_environment_variable("LUISA_CUDA_TILE_INDEPENDENT_AXIS")) {
+        auto value = luisa::string_view{*extent};
+        if (value == "1" || value == "2" || value == "4") {
+            independent_axis_extent = static_cast<uint32_t>(value.front() - '0');
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_INDEPENDENT_AXIS requires 0, 1, 2 or 4");
+        }
+    }
+    if (scan_chunk_extent != 0u && independent_axis_extent != 0u) {
+        return fail("CUDA Tile collective calibration permits only one structural transform at a time");
+    }
+    auto artifact = native_tile::generate(kernel, option.enable_fast_math, aligned16_requested, worker_warps,
+                                          _handle.compute_capability(), scan_chunk_extent, independent_axis_extent);
     if (!artifact.ok()) { return fail(artifact.error); }
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
     metadata.realization = "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1)";
     if (option.enable_fast_math) { metadata.realization += "; elementwise-fp32-approx-ftz-rsqrt-v2"; }
+    if (worker_warps != 0u) { metadata.realization += luisa::format("; worker-warps-hint={}", worker_warps); }
+    if (artifact.scan_chunk_extent != 0u) {
+        metadata.realization += luisa::format("; scan-chunk={}; chunked-scans={}",
+                                              artifact.scan_chunk_extent, artifact.chunked_scan_operations);
+    }
+    if (artifact.independent_axis_extent != 0u) {
+        metadata.realization += luisa::format("; independent-axis-extent={}; partitioned-collectives={}",
+                                              artifact.independent_axis_extent, artifact.partitioned_collective_operations);
+    }
+    auto collective_work = tile::analyze_collective_work(kernel);
+    if (collective_work.ok()) {
+        // These are logical IR facts for schedule calibration, not measured
+        // register counts, memory traffic or an occupancy guarantee.
+        metadata.realization += luisa::format(
+            "; collective-work-v1: programs={}, elementwork={}, read-bytes={}, write-bytes={}, tile-live-bytes={}, largest-tile={}",
+            collective_work.programs, collective_work.elementwise_elements_per_program,
+            collective_work.global_read_bytes_per_program, collective_work.global_write_bytes_per_program,
+            collective_work.materialized_tile_peak_bytes, collective_work.largest_materialized_tile_elements);
+        for (auto &&collective : collective_work.collectives) {
+            metadata.realization += luisa::format("; collective=kind{}:width{}:independent{}",
+                                                  static_cast<uint32_t>(collective.kind),
+                                                  collective.contribution_extent, collective.independent_elements);
+        }
+    }
     if (aligned16_requested) {
         metadata.realization += luisa::format("; aligned16-requested; aligned16-buffer-mask={}; {}",
                                               artifact.aligned16_buffer_mask,

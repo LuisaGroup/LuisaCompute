@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "newline": "LF",
+  "files": {
+    ".gitattributes": {
+      "sha256": "6a5d5cedac6f2b00ce867f0ce17815d6660a68b7b4381ebc22d2923347b6e755",
+      "bytes": 54
+    },
+    "cases-heldout12-unmeasured.json": {
+      "sha256": "5a7a68969ed8320752cf9d5cb3b748438d3080d891f1868ad2ce6cfc8c0db15e",
+      "bytes": 2424
+    },
+    "cases-independent4.json": {
+      "sha256": "6874fcaec70cc9547beb6e555ec1fdb04334ba401882f67018fca6a49b5b232e",
+      "bytes": 1306
+    },
+    "cases-scan3.json": {
+      "sha256": "deaff17dd4c79df0068569a5e5463423df7f559df74fddb745ff234cd893a217",
+      "bytes": 967
+    },
+    "cases-structural7.json": {
+      "sha256": "188fbf94bfc4e7421b29c4a1874004a86b724ca2b6d4299798bc75e6a895f3d7",
+      "bytes": 2238
+    },
+    "cases-worker16.json": {
+      "sha256": "9fade4a3fffab9c29c8c7b6cb26b46c4d16eeab24c59e8c978b7afa5b14717b5",
+      "bytes": 5093
+    },
+    "device.json": {
+      "sha256": "7f77131e013c58bd336ca0bb3f4b1c552ff8189705b62cf57e1746ecbdbb6a57",
+      "bytes": 1016
+    },
+    "README.md": {
+      "sha256": "a64d1a11e93a0e43d94e5732aaed269e482e1fe6eda04fbc86a0c1fde764fa80",
+      "bytes": 6714
+    },
+    "receipt-summary.json": {
+      "sha256": "69a8e5bb0009c9c4d8c056c41be31aa1a6408f8bc83b444f2065e572c166f6ad",
+      "bytes": 14821
+    },
+    "source-hashes.csv": {
+      "sha256": "10fa3dc60929623bc1a88a424e3a22646b10e52b2480d58db112491835a7bdf7",
+      "bytes": 22796
+    },
+    "structural/checkpoint.json": {
+      "sha256": "e4f2e2e2ee55972e22b4435c5898efe4373b9b43c31342a945345ed84debb9a2",
+      "bytes": 283000
+    },
+    "structural/README.md": {
+      "sha256": "114119d87aab1231228a35d95a949ff0c135ba37baee40e9125d8530626cb651",
+      "bytes": 1018
+    },
+    "timings.csv": {
+      "sha256": "ea45bffe51b07204131ca9600ce2487278ec41ea3ba268f95f9a22922b361dfd",
+      "bytes": 27439
+    },
+    "worker/checkpoint.json": {
+      "sha256": "fa0331a22e908491fa970e103fef1f69bf8ad095f324ee28343f20a954b76d78",
+      "bytes": 771638
+    },
+    "worker/README.md": {
+      "sha256": "2ffc7776225898ec6adcb5b7c770df3764e28447dddcd4a6bd63b559a0313271",
+      "bytes": 2280
+    }
+  }
+}

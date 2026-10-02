@@ -1,4 +1,5 @@
 set(LUISA_COMPUTE_TILE_SOURCES
+        collective_plan.cpp
         dimension.cpp
         dsl.cpp
         ir.cpp

@@ -48,7 +48,18 @@ def digest(path):
 def save(path, record):
     temporary = path.with_suffix(path.suffix + ".writing")
     temporary.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    # Windows readers/antivirus may briefly deny atomic replacement. Retry
+    # only that operation; preserve both the original and pending JSON on error.
+    deadline = time.monotonic() + 2.0
+    while True:
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise
+            time.sleep(min(0.05, remaining))
 
 
 def read_json(path):
@@ -279,16 +290,76 @@ def alignment_receipts(result, requested):
     return receipts
 
 
-def route_environment(environment, route, native_aligned16=False):
+def worker_warps_receipts(result, requested):
+    require(type(requested) is int and requested in (0, 4, 8), "invalid native worker-warps request")
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    require(isinstance(stages, list) and stages, "missing worker-warps stage realizations")
+    receipts = []
+    for index, stage in enumerate(stages):
+        realization = stage.get("realization", "")
+        require(isinstance(realization, str), "invalid worker-warps realization")
+        markers = re.findall(r"(?:^|[;\s])worker-warps-hint=([0-9]+)(?=$|[;\s])", realization)
+        require(markers == ([str(requested)] if requested else []) and
+                realization.count("worker-warps-hint") == (1 if requested else 0),
+                "worker-warps request/realization mismatch")
+        receipts.append(dict(stage=index, requested=requested, reported_hint=int(markers[0]) if markers else None))
+    return receipts
+
+
+def validate_native_structure(scan_chunk, independent_axis):
+    require(type(scan_chunk) is int and scan_chunk in (0, 1024, 2048), "invalid native scan-chunk request")
+    require(type(independent_axis) is int and independent_axis in (0, 1, 2, 4), "invalid native independent-axis request")
+    require(not (scan_chunk and independent_axis), "native scan-chunk and independent-axis are mutually exclusive")
+
+
+def structural_receipts(result, scan_chunk=0, independent_axis=0):
+    validate_native_structure(scan_chunk, independent_axis)
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    require(isinstance(stages, list) and stages, "missing native structural stage realizations")
+    receipts = []
+    for index, stage in enumerate(stages):
+        require(isinstance(stage, dict) and isinstance(stage.get("realization", ""), str), "invalid native structural realization")
+        realization = stage.get("realization", "")
+        markers = {}
+        for name, requested, is_count in (("scan-chunk", scan_chunk, False), ("chunked-scans", scan_chunk, True),
+                                          ("independent-axis-extent", independent_axis, False),
+                                          ("partitioned-collectives", independent_axis, True)):
+            values = re.findall(r"(?:^|[;\s])" + re.escape(name) + r"=([0-9]+)(?=$|[;\s])", realization)
+            require(len(values) == (1 if requested else 0) and realization.count(name) == (1 if requested else 0),
+                    "native structural request/realization mismatch: " + name)
+            value = int(values[0]) if values else None
+            require(not requested or (value > 0 if is_count else values == [str(requested)]),
+                    "native structural request/realization mismatch: " + name)
+            markers[name] = value
+        receipts.append(dict(stage=index, scan_chunk_requested=scan_chunk, independent_axis_requested=independent_axis,
+                             scan_chunk=markers["scan-chunk"], chunked_scans=markers["chunked-scans"] or 0,
+                             independent_axis_extent=markers["independent-axis-extent"],
+                             partitioned_collectives=markers["partitioned-collectives"] or 0))
+    return receipts
+
+
+def route_environment(environment, route, native_aligned16=False, native_worker_warps=0,
+                      native_scan_chunk=0, native_independent_axis=0):
     # Never inherit experimental specialization into a control or another
     # route. Only an explicit native request may set the exact opt-in value.
     result = dict(environment)
     result.pop("LUISA_CUDA_TILE_IR_ALIGNED16", None)
     result.pop("LUISA_CUDA_TILE_IR", None)
+    result.pop("LUISA_CUDA_TILE_WORKER_WARPS", None)
+    result.pop("LUISA_CUDA_TILE_SCAN_CHUNK", None)
+    result.pop("LUISA_CUDA_TILE_INDEPENDENT_AXIS", None)
+    validate_native_structure(native_scan_chunk, native_independent_axis)
+    require(type(native_worker_warps) is int and native_worker_warps in (0, 4, 8), "invalid native worker-warps request")
     if route == "native":
         result["LUISA_CUDA_TILE_IR"] = "1"
         if native_aligned16:
             result["LUISA_CUDA_TILE_IR_ALIGNED16"] = "1"
+        if native_worker_warps:
+            result["LUISA_CUDA_TILE_WORKER_WARPS"] = str(native_worker_warps)
+        if native_scan_chunk:
+            result["LUISA_CUDA_TILE_SCAN_CHUNK"] = str(native_scan_chunk)
+        if native_independent_axis:
+            result["LUISA_CUDA_TILE_INDEPENDENT_AXIS"] = str(native_independent_axis)
     return result
 
 
@@ -370,6 +441,13 @@ def native_result(process, path, row, args, route):
                         "native graph contract mismatch")
     if result["status"] == "passed" and route == "native":
         alignment_receipts(result, getattr(args, "native_aligned16", False))
+    worker_receipts = []
+    structure_receipts = []
+    if result["status"] == "passed":
+        worker_receipts = worker_warps_receipts(result, getattr(args, "native_worker_warps", 0) if route == "native" else 0)
+        structure_receipts = structural_receipts(result,
+            getattr(args, "native_scan_chunk", 0) if route == "native" else 0,
+            getattr(args, "native_independent_axis", 0) if route == "native" else 0)
     artifacts = {}
     if result["status"] == "passed" and row.get("ranking_algorithm", "").startswith("chunked_bitonic_"):
         chunk = 256 if row["ranking_algorithm"] == "chunked_bitonic_c256" else 512
@@ -420,7 +498,17 @@ def native_result(process, path, row, args, route):
             artifacts[stage["source"]] = digest(source)
         require(math.isclose(sum(stage["compile_ms"] for stage in stages), result.get("compile_ms", -1),
                              rel_tol=1e-12, abs_tol=1e-9), "pipeline compile_ms must include every stage")
-    return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts)
+    generated_sources = dict(artifacts)
+    if result["status"] == "passed" and route == "native" and not result.get("pipeline"):
+        # Historical packets may lack exported source; keep read-only validation
+        # compatible. A new measurement below requires this receipt to exist.
+        source = path.parent / "source.txt"
+        if source.is_file():
+            require(source.resolve().is_relative_to(path.parent.resolve()), "native source escapes export packet")
+            generated_sources["source.txt"] = digest(source)
+    return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts,
+                generated_sources=generated_sources,
+                native_worker_warps=worker_receipts, native_structure=structure_receipts)
 
 
 def torch_result(process, path, row, args):
@@ -486,6 +574,13 @@ def main(argv=None):
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--routes", default="native,tirx", help="comma-separated native,tirx,simd; CUDA runs remain serial")
     parser.add_argument("--native-aligned16", action="store_true", help="opt in to host-selected 16-byte aligned native Tile entries; other routes stay unchanged")
+    parser.add_argument("--native-worker-warps", type=int, choices=(0, 4, 8), default=0,
+                        help="explicit experimental native Tile worker hint; 0 preserves the default, other routes never inherit it")
+    parser.add_argument("--native-scan-chunk", type=int, choices=(0, 1024, 2048), default=0,
+                        help="explicit native pure scan chunking; 0 preserves default; incompatible with nonzero independent-axis")
+    parser.add_argument("--native-independent-axis", type=int, choices=(0, 1, 2, 4), default=0,
+                        help="explicit native independent-axis partition extent; 0 preserves default; incompatible with nonzero scan-chunk")
+    parser.add_argument("--native-only", action="store_true", help="calibration only: run the native route, omit Torch entirely and report no Torch comparison")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -500,12 +595,15 @@ def main(argv=None):
     parser.add_argument("--path-prefix", type=Path, action="append", default=[], help="additional CUDA/TVMx DLL directory; repeatable")
     parser.add_argument("--telemetry-ms", type=int, default=1000)
     args = parser.parse_args(argv)
+    validate_native_structure(args.native_scan_chunk, args.native_independent_axis)
+    require(not args.native_only or args.routes == "native", "--native-only requires --routes native")
     rows = selected_cases(args)
     if args.list_cases:
         print(json.dumps(dict(schema=1, suite=args.suite, cases=rows), indent=2))
         return 0
     require(os.name == "nt", "this owned-job/affinity runner currently requires Windows")
-    require(args.build_dir and args.torch_python and args.output and args.affinity_mask, "execution requires build-dir, torch-python, output, affinity-mask")
+    require(args.build_dir and args.output and args.affinity_mask and (args.native_only or args.torch_python),
+            "execution requires build-dir, output, affinity-mask, and torch-python unless native-only")
     require(1 <= args.threads <= 64 and 1 <= args.samples <= 99 and args.samples % 2 == 1 and
             1 <= args.sample_ms <= 5000 and 1 <= args.warmup_ms <= 30000 and 0 <= args.graph_batch <= 65536 and
             100 <= args.telemetry_ms <= 60000 and args.affinity_mask > 0 and
@@ -514,7 +612,7 @@ def main(argv=None):
     require(routes and len(set(routes)) == len(routes) and set(routes) <= {"native", "tirx", "simd"}, "invalid/duplicate routes")
     build = args.build_dir.resolve(strict=True)
     executable = (build / "bin/benchmark_tile_workloads.exe").resolve(strict=True)
-    python = args.torch_python.resolve(strict=True)
+    python = (args.torch_python or Path(sys.executable)).resolve(strict=True)
     baseline = HERE / "cuda_torch_baseline.py"
     marker = (args.build_marker or build / "logs/full-build-success.json").resolve(strict=True)
     marker_data = read_json(marker)
@@ -531,7 +629,7 @@ def main(argv=None):
     environment = os.environ.copy()
     removed = {}
     for key in list(environment):
-        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
+        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
             removed[key] = environment.pop(key)
     overrides = {"LUISA_SIMD_WORKER_COUNT": str(args.threads), "LUISA_SIMD_WARP_WIDTH": "8", "OPENBLAS_NUM_THREADS": str(args.threads),
                  "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads), "GOTO_NUM_THREADS": str(args.threads),
@@ -544,7 +642,8 @@ def main(argv=None):
     sources = [ROOT / "src/tests/benchmark/benchmark_tile_workloads.cpp", ROOT / "src/tests/common/tile_workload_test_utils.h",
                ROOT / "src/tests/common/tile_llm_test_utils.h", ROOT / "src/tests/common/tile_rank_test_utils.h",
                ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_argmax_test_utils.h", ROOT / "src/tests/common/tile_embedding_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
-               ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h"]
+               ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h",
+               ROOT / "include/luisa/tile/collective_plan.h", ROOT / "src/tile/collective_plan.cpp"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
     files += [path for name in ("luisa_cuda_tile_compiler.exe", "luisa_nvrtc.exe") if (path := build / "bin" / name).is_file()]
@@ -560,7 +659,10 @@ def main(argv=None):
                   [str(x) for x in value] if key == "path_prefix" else value for key, value in vars(args).items()},
                   topology=topology, selected_processors=selected, environment_overrides=overrides, environment_removed=removed,
                   build_marker=marker_data, files=identities, planned_cases=rows, cases=[],
-                  methodology="Serial actual Tile compile and fullgraph torch.compile; every route uses hash-identical exported inputs/oracle. Cold phases separate. Host wall, event stream spans and graph replay spans never pooled. Native fixed output and optional scratch/output hazard DAG versus functional Torch allocation and standard ranking tie differences retained; no pure-kernel or matched-allocation claim.")
+                  torch_requested=not args.native_only,
+                  methodology=("Native-only calibration; Torch is not invoked and no Torch comparison is produced. " if args.native_only else
+                               "Serial actual Tile compile and fullgraph torch.compile; every route uses hash-identical exported inputs/oracle. ") +
+                              "Cold phases separate. Host wall, event stream spans and graph replay spans never pooled. Native fixed output and optional scratch/output hazard DAG versus functional Torch allocation and standard ranking tie differences retained; no pure-kernel or matched-allocation claim.")
 
     def checkpoint():
         record["summary"] = summarize(record["cases"])
@@ -598,15 +700,22 @@ def main(argv=None):
                         command += ["--ranking-algorithm", definition["ranking_algorithm"]]
                     if args.graph_batch and route != "simd":
                         command += ["--graph-batch", args.graph_batch]
-                    child_environment = route_environment(environment, route, args.native_aligned16)
+                    child_environment = route_environment(environment, route, args.native_aligned16, args.native_worker_warps,
+                                                          args.native_scan_chunk, args.native_independent_axis)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
+                        if route == "native" and item["runs"][route]["status"] == "passed":
+                            require(item["runs"][route].get("generated_sources"), "new native measurement requires frozen generated source receipts")
                     except Exception as error:
                         item["runs"][route] = dict(status="failed", process=process, error=str(error), traceback=traceback.format_exc())
                     item["runs"][route]["native_aligned16_requested"] = route == "native" and args.native_aligned16
+                    item["runs"][route]["native_worker_warps_requested"] = args.native_worker_warps if route == "native" else 0
+                    item["runs"][route]["native_scan_chunk_requested"] = args.native_scan_chunk if route == "native" else 0
+                    item["runs"][route]["native_independent_axis_requested"] = args.native_independent_axis if route == "native" else 0
                     item["runs"][route]["environment_overrides"] = {
-                        key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16") if key in child_environment}
+                        key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS",
+                                                               "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:
@@ -622,7 +731,13 @@ def main(argv=None):
                             item["runs"][route].update(status="failed", fixture_error=str(error))
                     checkpoint()
                     save(directory / "case.json", item)
-                if canonical is None:
+                if args.native_only:
+                    item["runs"]["torch"] = dict(status="not_requested", requested=False,
+                        reason="--native-only calibration: no Torch child was run", native_worker_warps_requested=0,
+                        native_scan_chunk_requested=0, native_independent_axis_requested=0,
+                        environment_overrides={})
+                    item["comparison_status"] = "absent_native_only_calibration"
+                elif canonical is None:
                     item["runs"]["torch"] = dict(status="failed", reason="no complete exported input/oracle packet; native failures retained")
                 else:
                     work = directory / "torch"
@@ -633,13 +748,18 @@ def main(argv=None):
                                "--graph-batch", args.graph_batch, "--threads", args.threads]
                     if args.eager:
                         command.append("--eager")
-                    process = child(cpu, command, work, environment, args.affinity_mask, args.torch_timeout)
+                    child_environment = route_environment(environment, "torch")
+                    process = child(cpu, command, work, child_environment, args.affinity_mask, args.torch_timeout)
                     try:
                         item["runs"]["torch"] = torch_result(process, torch_output / "result.json", definition, args)
                         _, hashes = tensor_receipts(canonical, definition)
                         require(hashes == canonical_hashes, "exported fixture changed during Torch execution")
                     except Exception as error:
                         item["runs"]["torch"] = dict(status="failed", process=process, error=str(error), traceback=traceback.format_exc())
+                    item["runs"]["torch"]["native_worker_warps_requested"] = 0
+                    item["runs"]["torch"]["native_scan_chunk_requested"] = 0
+                    item["runs"]["torch"]["native_independent_axis_requested"] = 0
+                    item["runs"]["torch"]["environment_overrides"] = {}
                 statuses = [run["status"] for run in item["runs"].values()]
                 item.update(status="failed" if "failed" in statuses else "unsupported" if "unsupported" in statuses else "passed", finished=now())
                 save(directory / "case.json", item)

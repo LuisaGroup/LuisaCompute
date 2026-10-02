@@ -1550,6 +1550,32 @@ otherwise identical case and graph-v2 settings. Compilation includes both
 entries and its cost is retained separately from warm execution timing.
 `cuda_alignment.json` provides matching off/on cases for GEMM, BMM, scan,
 normalization, softmax and reductions, including ineligible tail controls.
+
+`cuda_matrix.py --native-worker-warps 4` (or `8`) requests a CUDA Tile worker
+warp hint for calibration on SM89. Zero, the default, emits the original source
+without a hint. CUDA 13.4 supports only these two nonzero values; a hint is not
+an observation of physical threads, occupancy or the compiler's final choice.
+The Tile launch ABI remains unchanged. The runner clears inherited worker hints
+for every route and passes the requested value only to native CUDA. Each stage
+must report the matching hint, and its emitted source is hashed when the child
+finishes. Keep each candidate and the unhinted control in separate output paths.
+
+`--routes native --native-only` runs calibration without a Torch child. These
+records explicitly mark Torch as not requested and contain no Torch comparison.
+It can be used to compare several schedules against one separately recorded
+native-plus-Torch baseline, followed by another unhinted native run to check
+drift. Such comparisons must match the full input/oracle receipts, math policy,
+measurement configuration and generated source apart from the scheduling hint.
+Retain every sample and failed case; the fastest sample is not a cost model.
+
+Admitted native collectives report `collective-work-v1` facts derived from Tile
+IR: logical program count, collective width and independent elements, elementwise
+work, nominal view bytes, and explicit Tile SSA liveness. These are inputs for
+candidate selection and calibration, not estimates of physical registers, spills,
+actual memory traffic or elapsed time. Ordered/custom reducers and unrecognized
+constraints remain outside this analysis; numerical legality is established
+before any scheduling decision.
+
 `cuda_attention_mha.json` adds batch-two MHA decode and prefill with a ragged
 key length, complementing the existing causal GQA/MQA attention cases.
 

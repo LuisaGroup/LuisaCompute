@@ -7,6 +7,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/tile/collective_plan.h>
 
 namespace luisa::compute::cuda::native_tile {
 namespace {
@@ -17,6 +18,12 @@ private:
     const tile::Function &_function;
     const bool _enable_fast_math;
     const bool _enable_aligned16;
+    const uint32_t _worker_warps;
+    const uint32_t _target_sm;
+    const uint32_t _scan_chunk_extent;
+    const uint32_t _independent_axis_extent;
+    luisa::unordered_set<uint64_t> _chunked_scan_operations;
+    luisa::unordered_map<uint64_t, tile::CollectiveKind> _partition_collectives;
     uint32_t _aligned16_seen{0u};
     uint32_t _aligned16_rejected{0u};
     Artifact _artifact;
@@ -225,7 +232,7 @@ private:
     }
     [[nodiscard]] luisa::string _map_broadcast(luisa::string expression) noexcept {
         return _map_space == nullptr ? expression :
-               luisa::format("ct::broadcast({}, {}{{}})", expression, _shape(*_map_space));
+                                       luisa::format("ct::broadcast({}, {}{{}})", expression, _shape(*_map_space));
     }
     void _constant(const Operation &op) noexcept {
         if (op.result_count() != 1u) {
@@ -324,8 +331,8 @@ private:
             case ElementwiseOp::MAX: {
                 auto name = op.elementwise_op() == ElementwiseOp::MIN ? "min" : "max";
                 expression = element == ScalarType::FLOAT32 ?
-                    luisa::format("ct::{}({}, {}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", name, a, b) :
-                    luisa::format("ct::{}({}, {})", name, a, b);
+                                 luisa::format("ct::{}({}, {}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", name, a, b) :
+                                 luisa::format("ct::{}({}, {})", name, a, b);
                 break;
             }
             case ElementwiseOp::EXP:
@@ -389,7 +396,7 @@ private:
         }
     }
     [[nodiscard]] bool _view_fully_in_bounds(const Operation &op, const IndexSpace &space,
-                                            const IndexSpace &view_space) const noexcept {
+                                             const IndexSpace &view_space) const noexcept {
         if (_map_space != nullptr || space.rank() == 0u || space.rank() != view_space.rank()) { return false; }
         for (auto i = 0u; i < space.rank(); i++) {
             if (_mapped_values.contains(op.operand(1u + i))) { return false; }
@@ -574,8 +581,11 @@ private:
         _line(luisa::format("auto {}_a = ct::element_cast<float>({});", prefix, lhs));
         _line(luisa::format("auto {}_b = ct::element_cast<float>({});", prefix, rhs));
         auto acc = squeezed ? luisa::format("{}_acc", prefix) : _name(op.result(0u));
-        if (squeezed) { _line(luisa::format("auto {} = {};", acc, initial)); }
-        else { _bind(op.result(0u), std::move(initial)); }
+        if (squeezed) {
+            _line(luisa::format("auto {} = {};", acc, initial));
+        } else {
+            _bind(op.result(0u), std::move(initial));
+        }
         auto emit_fma = [&](luisa::string_view index) noexcept {
             _line(luisa::format("{} = ct::fma(ct::extract({}_a, ct::shape<{}, 1>{{}}, 0u, {}), ct::extract({}_b, ct::shape<1, {}>{{}}, {}, 0u), {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}});",
                                 acc, prefix, c.axis(0u).extent.constant_value(), index, prefix, c.axis(1u).extent.constant_value(), index, acc));
@@ -624,7 +634,8 @@ private:
         if (value->type().kind() != TypeKind::INDEX && value->type() != tile::Type::scalar(ScalarType::INT64)) { return nullptr; }
         return operation != nullptr && operation->kind() == OperationKind::ELEMENTWISE &&
                        operation->elementwise_op() == opcode && operation->operand_count() == 2u ?
-                   operation : nullptr;
+                   operation :
+                   nullptr;
     }
     [[nodiscard]] static luisa::optional<int64_t> _index_constant(const Value *value) noexcept {
         value = _index_value(value);
@@ -669,7 +680,7 @@ private:
         return {};
     }
     [[nodiscard]] luisa::string _xor_permute(luisa::string expression, const IndexSpace &space,
-                                              uint32_t axis, uint64_t stride, const Operation &op) noexcept {
+                                             uint32_t axis, uint64_t stride, const Operation &op) noexcept {
         uint64_t prefix = 1u, suffix = 1u;
         for (auto i = 0u; i < axis; i++) { prefix *= space.axis(i).extent.constant_value(); }
         for (auto i = axis + 1u; i < space.rank(); i++) { suffix *= space.axis(i).extent.constant_value(); }
@@ -799,6 +810,134 @@ private:
         return opcode == ElementwiseOp::MIN &&
                *number == (element == ScalarType::UINT32 ? std::numeric_limits<uint32_t>::max() : std::numeric_limits<uint64_t>::max());
     }
+    // Only matched unordered FP32 prefix operations enter this opt-in path.
+    // The original immutable source remains materialized. No global access,
+    // memory ordering, alias assumption or storage conversion is introduced.
+    [[nodiscard]] luisa::string _chunked_scan(luisa::string input, const IndexSpace &space,
+                                              uint32_t axis, const Operation &op) noexcept {
+        auto extent = space.axis(axis).extent.constant_value();
+        auto chunks = extent / _scan_chunk_extent;
+        luisa::vector<uint64_t> shape, carry_shape;
+        for (auto i = 0u; i < space.rank(); i++) {
+            auto dimension = space.axis(i).extent.constant_value();
+            shape.emplace_back(i == axis ? _scan_chunk_extent : dimension);
+            carry_shape.emplace_back(i == axis ? 1u : dimension);
+        }
+        auto chunk_shape = _shape(shape);
+        auto last_shape = _shape(carry_shape);
+        auto prefix = luisa::format("scan{}_", op.id());
+        luisa::vector<luisa::string> scanned;
+        luisa::string carry;
+        for (auto chunk = uint64_t{0u}; chunk < chunks; chunk++) {
+            luisa::string indices, last_indices;
+            for (auto i = 0u; i < space.rank(); i++) {
+                indices += luisa::format(", {}ull", i == axis ? chunk : 0u);
+                last_indices += luisa::format(", {}ull", i == axis ? _scan_chunk_extent - 1u : 0u);
+            }
+            auto extracted = luisa::format("{}input{}", prefix, chunk);
+            auto local = luisa::format("{}local{}", prefix, chunk);
+            auto result = luisa::format("{}prefix{}", prefix, chunk);
+            _line(luisa::format("auto {} = ct::extract({}, {}{{}}{});", extracted, input, chunk_shape, indices));
+            _line(luisa::format("auto {} = ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}}, ct::scan_forward_t{{}});", local, extracted, axis));
+            if (chunk == 0u) {
+                result = local;
+            } else {
+                _line(luisa::format("auto {} = ct::add({}, {}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}});", result, carry, local));
+            }
+            scanned.emplace_back(result);
+            if (chunk + 1u != chunks) {
+                carry = luisa::format("{}carry{}", prefix, chunk);
+                _line(luisa::format("auto {} = ct::extract({}, {}{{}}{});", carry, result, last_shape, last_indices));
+            }
+        }
+        // SDK cat requires two equal-shaped operand types. A balanced tree
+        // doubles one extent at each level and remains power-of-two throughout.
+        for (auto level = 0u; scanned.size() > 1u; level++) {
+            luisa::vector<luisa::string> next;
+            for (auto i = size_t{0u}; i < scanned.size(); i += 2u) {
+                auto result = luisa::format("{}join{}_{}", prefix, level, i / 2u);
+                _line(luisa::format("auto {} = ct::cat({}, {}, ct::integral_constant<{}>{{}});", result, scanned[i], scanned[i + 1u], axis));
+                next.emplace_back(std::move(result));
+            }
+            scanned = std::move(next);
+        }
+        _artifact.chunked_scan_operations++;
+        return scanned.front();
+    }
+
+    // Partition immutable values only, never programs or memory operations.
+    // Independent axes have no carries between partitions. The whole source
+    // and result snapshots remain live according to the compiler's allocation.
+    [[nodiscard]] luisa::optional<luisa::string> _partition_collective(
+        const luisa::string &input, const IndexSpace &space,
+        luisa::span<const uint32_t> collective_axes, const Operation &op,
+        tile::CollectiveKind kind) noexcept {
+        auto admitted = _partition_collectives.find(op.id());
+        if (_independent_axis_extent == 0u || admitted == _partition_collectives.end() ||
+            admitted->second != kind || op.result(0u)->type().scalar_type() != ScalarType::FLOAT32) { return {}; }
+        // A bounded diagnostic code-size budget, not a profitability estimate.
+        constexpr auto kMaxPartitions = uint64_t{16u};
+        luisa::optional<uint32_t> selected;
+        auto selected_extent = uint64_t{0u};
+        for (auto i = 0u; i < space.rank(); i++) {
+            if (std::find(collective_axes.begin(), collective_axes.end(), i) != collective_axes.end()) { continue; }
+            auto &&extent = space.axis(i).extent;
+            if (!extent.is_constant()) { continue; }
+            auto size = extent.constant_value();
+            if (!std::has_single_bit(size) || size <= _independent_axis_extent ||
+                size % _independent_axis_extent != 0u || size / _independent_axis_extent > kMaxPartitions) { continue; }
+            if (size > selected_extent) {
+                selected = i;
+                selected_extent = size;
+            }
+        }
+        if (!selected) { return {}; }
+        auto axis = *selected;
+        auto partitions = selected_extent / _independent_axis_extent;
+        luisa::vector<uint64_t> extents;
+        for (auto i = 0u; i < space.rank(); i++) {
+            extents.emplace_back(i == axis ? _independent_axis_extent : space.axis(i).extent.constant_value());
+        }
+        auto shape = _shape(extents);
+        auto prefix = luisa::format("independent{}_", op.id());
+        luisa::vector<luisa::string> results;
+        for (auto partition = uint64_t{0u}; partition < partitions; partition++) {
+            luisa::string indices;
+            for (auto i = 0u; i < space.rank(); i++) {
+                // extract takes partition coordinates, not element offsets.
+                indices += luisa::format(", {}ull", i == axis ? partition : 0u);
+            }
+            auto extracted = luisa::format("{}input{}", prefix, partition);
+            _line(luisa::format("auto {} = ct::extract({}, {}{{}}{});", extracted, input, shape, indices));
+            auto expression = extracted;
+            for (auto collective_axis : collective_axes) {
+                if (kind == tile::CollectiveKind::INCLUSIVE_SUM) {
+                    expression = luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}}, ct::scan_forward_t{{}})", expression, collective_axis);
+                } else if (kind == tile::CollectiveKind::SUM) {
+                    expression = luisa::format("ct::sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", expression, collective_axis);
+                } else {
+                    expression = luisa::format("ct::reduce_{}({}, ct::integral_constant<{}>{{}}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", kind == tile::CollectiveKind::MINIMUM ? "min" : "max", expression, collective_axis);
+                }
+            }
+            auto result = luisa::format("{}result{}", prefix, partition);
+            _line(luisa::format("auto {} = {};", result, expression));
+            results.emplace_back(std::move(result));
+        }
+        // cat requires identical shapes. Pairwise concatenation doubles only
+        // the selected axis; reduced axes retain their singleton extents.
+        for (auto level = 0u; results.size() > 1u; level++) {
+            luisa::vector<luisa::string> next;
+            for (auto i = size_t{0u}; i < results.size(); i += 2u) {
+                auto result = luisa::format("{}join{}_{}", prefix, level, i / 2u);
+                _line(luisa::format("auto {} = ct::cat({}, {}, ct::integral_constant<{}>{{}});", result, results[i], results[i + 1u], axis));
+                next.emplace_back(std::move(result));
+            }
+            results = std::move(next);
+        }
+        _artifact.partitioned_collective_operations++;
+        return std::move(results.front());
+    }
+
     // A prefix scan is a closed sum whose contribution at k is selected by
     // k <= output_coordinate. Tree permission is required; fold policies keep
     // their scalar sequence even when their current inputs happen to agree.
@@ -812,7 +951,8 @@ private:
         auto merge = yield->operand_count() == 1u ? yield->operand(0u)->defining_operation() : nullptr;
         if (merge == nullptr || merge->kind() != OperationKind::ELEMENTWISE || merge->elementwise_op() != ElementwiseOp::ADD) { return false; }
         auto carry = body->argument(1u);
-        auto term = merge->operand(0u) == carry ? merge->operand(1u) : merge->operand(1u) == carry ? merge->operand(0u) : nullptr;
+        auto term = merge->operand(0u) == carry ? merge->operand(1u) : merge->operand(1u) == carry ? merge->operand(0u) :
+                                                                                                     nullptr;
         auto select = term != nullptr ? term->defining_operation() : nullptr;
         if (select == nullptr || select->kind() != OperationKind::ELEMENTWISE || select->elementwise_op() != ElementwiseOp::SELECT ||
             !_tree_identity(select->operand(2u), ElementwiseOp::ADD)) { return false; }
@@ -831,7 +971,9 @@ private:
                 if (scan_axis || source.axis(i).extent != op.domain()->axis(0u).extent ||
                     predicate->operand(1u) != _map_body->argument(*mapped)) { return false; }
                 scan_axis = i;
-            } else if (coordinate != _map_body->argument(*mapped)) { return false; }
+            } else if (coordinate != _map_body->argument(*mapped)) {
+                return false;
+            }
         }
         if (!scan_axis) { return false; }
         auto padding = select->operand(2u)->defining_operation();
@@ -845,9 +987,16 @@ private:
         if (signed_integer) {
             expression = luisa::format("ct::element_bitcast<{}>({})", element == ScalarType::INT32 ? "unsigned" : "unsigned long long", expression);
         }
-        expression = element == ScalarType::FLOAT32 ?
-            luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}}, ct::scan_forward_t{{}})", expression, *scan_axis) :
-            luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::scan_forward_t{{}})", expression, *scan_axis);
+        uint32_t collective_axes[]{*scan_axis};
+        if (element == ScalarType::FLOAT32 && _chunked_scan_operations.contains(op.id())) {
+            expression = _chunked_scan(std::move(expression), source, *scan_axis, op);
+        } else if (auto partitioned = _partition_collective(expression, source, collective_axes, op, tile::CollectiveKind::INCLUSIVE_SUM)) {
+            expression = std::move(*partitioned);
+        } else {
+            expression = element == ScalarType::FLOAT32 ?
+                             luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}}, ct::scan_forward_t{{}})", expression, *scan_axis) :
+                             luisa::format("ct::partial_sum({}, ct::integral_constant<{}>{{}}, ct::scan_forward_t{{}})", expression, *scan_axis);
+        }
         if (signed_integer) { expression = luisa::format("ct::element_bitcast<{}>({})", _element(op.result(0u)->type()), expression); }
         expression = _align(std::move(expression), source, *_map_space, op);
         // Float +0 has a signed-zero effect; the matched integer zero is exact.
@@ -901,21 +1050,30 @@ private:
         if (signed_sum) {
             expression = luisa::format("ct::element_bitcast<{}>({})", element == ScalarType::INT32 ? "unsigned" : "unsigned long long", expression);
         }
-        for (auto axis : axes) {
-            if (element == ScalarType::FLOAT32) {
-                expression = opcode == ElementwiseOp::ADD ?
-                    luisa::format("ct::sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", expression, axis) :
-                    luisa::format("ct::reduce_{}({}, ct::integral_constant<{}>{{}}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", opcode == ElementwiseOp::MIN ? "min" : "max", expression, axis);
-            } else {
-                auto name = opcode == ElementwiseOp::ADD ? "sum" : opcode == ElementwiseOp::MIN ? "reduce_min" : "reduce_max";
-                expression = luisa::format("ct::{}({}, ct::integral_constant<{}>{{}})", name, expression, axis);
+        auto kind = opcode == ElementwiseOp::ADD ? tile::CollectiveKind::SUM :
+                    opcode == ElementwiseOp::MIN ? tile::CollectiveKind::MINIMUM :
+                                                   tile::CollectiveKind::MAXIMUM;
+        if (auto partitioned = _partition_collective(expression, source, axes, op, kind)) {
+            expression = std::move(*partitioned);
+        } else {
+            for (auto axis : axes) {
+                if (element == ScalarType::FLOAT32) {
+                    expression = opcode == ElementwiseOp::ADD ?
+                                     luisa::format("ct::sum({}, ct::integral_constant<{}>{{}}, ct::round_ties_to_even_t{{}}, ct::preserve_subnormals_t{{}})", expression, axis) :
+                                     luisa::format("ct::reduce_{}({}, ct::integral_constant<{}>{{}}, ct::suppress_nan_t{{}}, ct::preserve_subnormals_t{{}})", opcode == ElementwiseOp::MIN ? "min" : "max", expression, axis);
+                } else {
+                    auto name = opcode == ElementwiseOp::ADD ? "sum" : opcode == ElementwiseOp::MIN ? "reduce_min" :
+                                                                                                      "reduce_max";
+                    expression = luisa::format("ct::{}({}, ct::integral_constant<{}>{{}})", name, expression, axis);
+                }
             }
         }
         if (signed_sum) { expression = luisa::format("ct::element_bitcast<{}>({})", _element(op.result(0u)->type()), expression); }
         expression = luisa::format("ct::reshape({}, {}{{}})", expression, _shape(remaining));
         expression = _align(std::move(expression), remaining, *_map_space, op);
         if (element == ScalarType::FLOAT32) {
-            auto name = opcode == ElementwiseOp::ADD ? "add" : opcode == ElementwiseOp::MIN ? "min" : "max";
+            auto name = opcode == ElementwiseOp::ADD ? "add" : opcode == ElementwiseOp::MIN ? "min" :
+                                                                                              "max";
             auto policy = opcode == ElementwiseOp::ADD ? "ct::round_ties_to_even_t{}" : "ct::suppress_nan_t{}";
             expression = luisa::format("ct::{}({}, {}, {}, ct::preserve_subnormals_t{{}})", name, _value(op.operand(0u)), expression, policy);
         }
@@ -1039,8 +1197,11 @@ private:
     }
 
 public:
-    explicit Emitter(const tile::Function &function, bool enable_fast_math, bool enable_aligned16) noexcept
-        : _function{function}, _enable_fast_math{enable_fast_math}, _enable_aligned16{enable_aligned16} {}
+    explicit Emitter(const tile::Function &function, bool enable_fast_math, bool enable_aligned16,
+                     uint32_t worker_warps, uint32_t target_sm, uint32_t scan_chunk_extent, uint32_t independent_axis_extent) noexcept
+        : _function{function}, _enable_fast_math{enable_fast_math}, _enable_aligned16{enable_aligned16},
+          _worker_warps{worker_warps}, _target_sm{target_sm},
+          _scan_chunk_extent{scan_chunk_extent}, _independent_axis_extent{independent_axis_extent} {}
     [[nodiscard]] Artifact run() noexcept {
         auto module = _function.parent_module();
         if (module == nullptr) {
@@ -1057,7 +1218,56 @@ public:
             return std::move(_artifact);
         }
         auto body = _function.body().block(0u);
-        _artifact.source = "#include <cuda_tile.h>\n#include <cuda_fp16.h>\n#include <cuda_bf16.h>\nnamespace ct = cuda::tiles;\nextern \"C\" __tile_global__ void luisa_tile_main(";
+        if (_scan_chunk_extent != 0u && _independent_axis_extent != 0u) {
+            _fail(nullptr, "experimental collective realizations must be measured separately");
+            return std::move(_artifact);
+        }
+        if (_scan_chunk_extent != 0u || _independent_axis_extent != 0u) {
+            if (_scan_chunk_extent != 0u && _scan_chunk_extent != 1024u && _scan_chunk_extent != 2048u) {
+                _fail(nullptr, "experimental scan chunks require 1024 or 2048 elements");
+                return std::move(_artifact);
+            }
+            if (_independent_axis_extent != 0u && !std::has_single_bit(_independent_axis_extent)) {
+                _fail(nullptr, "experimental independent-axis extent must be a power of two");
+                return std::move(_artifact);
+            }
+            // Both candidates consume the same target-independent admission.
+            // Analyze once; the zero/default path neither analyzes nor changes source.
+            auto analysis = tile::analyze_collective_work(_function);
+            if (!analysis.ok()) {
+                _fail(nullptr, luisa::format("experimental collective planning rejected: {}", analysis.error));
+                return std::move(_artifact);
+            }
+            for (auto &&work : analysis.collectives) {
+                if (work.element != ScalarType::FLOAT32) { continue; }
+                if (_independent_axis_extent != 0u) {
+                    _partition_collectives.emplace(work.operation_id, work.kind);
+                }
+                // Bound generated code, independently of a future profitability model.
+                constexpr auto kMaxScanChunks = uint64_t{16u};
+                if (_scan_chunk_extent != 0u && work.kind == tile::CollectiveKind::INCLUSIVE_SUM &&
+                    work.contribution_extent > _scan_chunk_extent &&
+                    work.contribution_extent % _scan_chunk_extent == 0u &&
+                    work.contribution_extent / _scan_chunk_extent <= kMaxScanChunks &&
+                    std::has_single_bit(work.contribution_extent / _scan_chunk_extent)) {
+                    _chunked_scan_operations.emplace(work.operation_id);
+                }
+            }
+            if (_scan_chunk_extent != 0u && _chunked_scan_operations.empty()) {
+                _fail(nullptr, "experimental scan planning found no divisible wider FP32 prefix within the code-size budget");
+                return std::move(_artifact);
+            }
+            _artifact.scan_chunk_extent = _scan_chunk_extent;
+            _artifact.independent_axis_extent = _independent_axis_extent;
+        }
+        if (_worker_warps != 0u &&
+            ((_worker_warps != 4u && _worker_warps != 8u) || _target_sm != 89u)) {
+            _fail(nullptr, "worker-warp calibration requires SM89 and 4 or 8 worker warps");
+            return std::move(_artifact);
+        }
+        _artifact.source = "#include <cuda_tile.h>\n#include <cuda_fp16.h>\n#include <cuda_bf16.h>\nnamespace ct = cuda::tiles;\n";
+        _artifact.source += _worker_warps == 0u ? "extern \"C\" __tile_global__ void luisa_tile_main(" :
+                                                  luisa::format("extern \"C\" {{\n[[cutile::hint({}, num_worker_warps_per_cta = {})]]\n__tile_global__ void luisa_tile_main(", _target_sm * 10u, _worker_warps);
         if (body->argument_count() > 31u) { _fail(nullptr, "buffer argument count exceeds existing CUDAShaderTile ABI"); }
         for (auto i = 0u; i < body->argument_count() && _artifact.error.empty(); i++) {
             auto arg = body->argument(i);
@@ -1086,7 +1296,16 @@ public:
         _artifact.source += ") {\n";
         if (_artifact.error.empty()) { _block(*body, {}); }
         if (_parallel_count != 1u) { _fail(nullptr, "exactly one root PARALLEL is required"); }
+        if (_artifact.error.empty() && _scan_chunk_extent != 0u &&
+            _artifact.chunked_scan_operations != _chunked_scan_operations.size()) {
+            _fail(nullptr, "experimental scan plan was not fully realized");
+        }
+        if (_artifact.error.empty() && _independent_axis_extent != 0u &&
+            _artifact.partitioned_collective_operations == 0u) {
+            _fail(nullptr, "experimental independent-axis planning found no supported non-collective partition");
+        }
         _artifact.source += "}\n";
+        if (_worker_warps != 0u) { _artifact.source += "}\n"; }
         if (!_artifact.error.empty()) { _artifact.source.clear(); }
         auto mask = _aligned16_seen & ~_aligned16_rejected;
         if (_artifact.ok() && mask != 0u) {
@@ -1095,7 +1314,7 @@ public:
             // Keep the entire original entry byte-for-byte. Same-entry
             // guarded assumptions can affect the compiler's fallback branch,
             // so the host chooses between two separate entry functions.
-            auto begin = _artifact.source.find("extern \"C\" __tile_global__ void ");
+            auto begin = _artifact.source.find("extern \"C\" ");
             auto aligned = _artifact.source.substr(begin);
             auto entry = aligned.find(_artifact.entry);
             aligned.replace(entry, _artifact.entry.size(), _artifact.aligned16_entry);
@@ -1115,7 +1334,8 @@ public:
 };
 }// namespace
 
-Artifact generate(const tile::Function &function, bool enable_fast_math, bool enable_aligned16) noexcept {
-    return Emitter{function, enable_fast_math, enable_aligned16}.run();
+Artifact generate(const tile::Function &function, bool enable_fast_math, bool enable_aligned16,
+                  uint32_t worker_warps, uint32_t target_sm, uint32_t scan_chunk_extent, uint32_t independent_axis_extent) noexcept {
+    return Emitter{function, enable_fast_math, enable_aligned16, worker_warps, target_sm, scan_chunk_extent, independent_axis_extent}.run();
 }
 }// namespace luisa::compute::cuda::native_tile
