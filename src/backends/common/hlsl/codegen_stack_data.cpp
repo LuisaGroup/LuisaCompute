@@ -235,15 +235,17 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
         .access_place = '$',
         .args_place = '@',
         .temp_type_place = '#'};
-    // The bundled DXC cannot lower float atomics to SPIR-V: its float CAS
-    // intrinsic is unimplemented and it does not expose atomic-float SPIR-V
-    // extensions. Fail closed; native XIR-to-SPIR-V owns Vulkan float atomics.
+    // The bundled DXC lowers float add/sub/min/max/exchange natively for
+    // DXIL and Vulkan SPIR-V alike; float compare-exchange needs the
+    // bitwise CAS intrinsic (DXIL) or a RWByteAddressBuffer view (SPIR-V),
+    // so it stays fail-closed on the SPIR-V route.
     auto lowering = plan_hlsl_atomic_lowering(
         op, retType->is_float32(), isSpirv);
     if (lowering == HlslAtomicLowering::UNSUPPORTED) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Float atomics are unavailable in the HLSL-to-SPIR-V fallback "
-            "because the bundled DXC cannot lower them. Use native "
+            "Float atomic compare-exchange is unavailable in the "
+            "HLSL-to-SPIR-V fallback because the bundled DXC only accepts "
+            "the float CAS intrinsic on RWByteAddressBuffer. Use native "
             "XIR-to-SPIR-V codegen for this kernel.");
     }
     auto use_software_float_rmw =
