@@ -382,3 +382,21 @@ baseline for further lowering work, not a selection policy or performance win.
 The original sources, all 168 primary timing samples and actual graph/resource
 observations are retained in the
 {download}`CUDA subgroup checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-cuda-tirx-subgroup/README.md>`.
+
+Three further isolated comparisons retain 54 executions and all 378 timing
+samples in the
+{download}`CUDA subgroup tuning checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-cuda-tirx-tuning/README.md>`.
+At lane8, increasing the existing unroll constraint from 1 to 8 improved the
+BF16 tail RMSNorm case by about 30%; most other changes were small. The lane1
+experiment improved five cases but regressed that tail case by about 32%, with
+304 local bytes reported by the compiled function. This experiment used a
+temporary narrower second-level collective, so its timings do not validate
+lane1 on the original collective implementation.
+
+A separate full-tree/narrow-tree/full-tree comparison then found a 15.7%
+large-softmax regression against the final control, despite identical register,
+shared-memory and local-memory attributes. The narrow-tree implementation was
+withdrawn. Fewer shuffle instructions and smaller source-level state are not
+sufficient profitability proofs. These experiments reuse existing execution
+and layout primitives, preserve their losses, and contain no new Torch
+denominator or automatic CUDA selection policy.

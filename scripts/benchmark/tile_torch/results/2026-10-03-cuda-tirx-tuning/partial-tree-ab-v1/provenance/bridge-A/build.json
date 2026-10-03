@@ -1,0 +1,1 @@
+{"base_commit":"02e1a3c657774acfc60e9ec4676b42335fe5eb0a","command":"cmake --build build-msvc-llvm --parallel 8","completed":"2026-10-03T19:34:56.1404814+08:00","dll_sha256":"942c7597f8362347bb9e856c06da59d71aadd756796482a9d176337f08183ff1","source_diff_sha256":"0b40d233c6d225c44c8b24786d20b9e6ac0f8c6fac7438394beba59be005253e"}
