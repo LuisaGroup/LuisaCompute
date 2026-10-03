@@ -123,6 +123,7 @@ struct StripedMaterialization {
     tvm::tirx::BufferVar buffer;
     const tvm::tirx::BufferStoreNode *store{nullptr};
     uint64_t elements{0u};
+    luisa::optional<uint64_t> maximum_index_domain_elements;
 };
 
 [[nodiscard]] luisa::optional<StripedMaterialization>
@@ -578,6 +579,7 @@ struct StripedAccess {
     uint64_t stores{0u};
     uint64_t loads{0u};
     bool valid{true};
+    luisa::optional<uint64_t> maximum_index_domain_elements{0u};
 };
 
 class StripedMaterializationAudit final
@@ -587,6 +589,16 @@ private:
     const luisa::unordered_map<BufferKey, StripedMaterialization> &_candidates;
     luisa::vector<const tvm::tirx::ForNode *> _domain;
     luisa::optional<tvm::PrimExpr> _owner;
+    luisa::optional<uint64_t> _owner_elements;
+
+    void _index_domain(StripedAccess &record) const noexcept {
+        if (_owner_elements && record.maximum_index_domain_elements) {
+            record.maximum_index_domain_elements = std::max(
+                *record.maximum_index_domain_elements, *_owner_elements);
+        } else {
+            record.maximum_index_domain_elements.reset();
+        }
+    }
 
     [[nodiscard]] bool _owned_access(
         const StripedMaterialization &candidate,
@@ -606,8 +618,10 @@ protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
         _domain.emplace_back(loop);
         auto previous_owner = _owner;
+        auto previous_elements = _owner_elements;
         if (_reductions.reductions.contains(loop)) {
             _owner = loop->loop_var - loop->min;
+            _owner_elements = _reductions.reductions.at(loop).elements;
         } else if (loop->annotations.count(independent_elements_annotation) &&
                    !_reductions.replicated_elements.contains(loop)) {
             if (auto element = element_domain(loop)) {
@@ -617,12 +631,15 @@ protected:
                              (axis->loop_var - axis->min);
                 }
                 _owner = std::move(linear);
+                _owner_elements = element->count;
             } else {
                 _owner.reset();
+                _owner_elements.reset();
             }
         }
         StmtExprVisitor::VisitStmt_(loop);
         _owner = std::move(previous_owner);
+        _owner_elements = previous_elements;
         _domain.pop_back();
     }
 
@@ -641,6 +658,7 @@ protected:
             iter != _candidates.end()) {
             auto &record = access[iter->first];
             record.stores++;
+            _index_domain(record);
             record.valid &= store == iter->second.store &&
                             _owned_access(iter->second, store->indices);
         }
@@ -652,6 +670,7 @@ protected:
             iter != _candidates.end()) {
             auto &record = access[iter->first];
             record.loads++;
+            _index_domain(record);
             record.valid &= _owned_access(iter->second, load->indices);
         }
         StmtExprVisitor::VisitExpr_(load);
@@ -696,10 +715,37 @@ striped_materializations(const tvm::tirx::Stmt &body,
             iter->second.allocations != 1u || iter->second.stores != 1u ||
             iter->second.loads == 0u) {
             rejected.emplace_back(key);
+        } else {
+            candidate.maximum_index_domain_elements =
+                iter->second.maximum_index_domain_elements;
         }
     }
     for (auto key : rejected) { candidates.erase(key); }
     return candidates;
+}
+
+// This mirrors _stripe_loop, not a register-allocation model. For J full
+// chunks and U > 1, factor=min(J,U), with floor(J/factor) serial packs;
+// the remainder is explicitly unrolled. One pack simplifies to constant zero.
+// U=1 uses the original serial loop, constant only for J <= 1. Therefore the
+// least sufficient integer U is floor(J/2)+1, with 0/1 both requiring one.
+// A literal partial final worker pack needs no further unrolling.
+[[nodiscard]] luisa::optional<uint64_t> constant_striped_index_min_unroll(
+    const luisa::unordered_map<BufferKey, StripedMaterialization> &materializations,
+    uint64_t workers, uint64_t lane_elements) noexcept {
+    if (workers == 0u || lane_elements == 0u ||
+        workers > std::numeric_limits<uint64_t>::max() / lane_elements) {
+        return luisa::nullopt;
+    }
+    auto stride = workers * lane_elements;
+    auto required = uint64_t{1u};
+    for (auto &&[key, materialization] : materializations) {
+        static_cast<void>(key);
+        if (!materialization.maximum_index_domain_elements) { return luisa::nullopt; }
+        auto chunks = *materialization.maximum_index_domain_elements / stride;
+        required = std::max(required, chunks / 2u + 1u);
+    }
+    return required;
 }
 
 [[nodiscard]] bool contains_reduction(
@@ -1449,6 +1495,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         uint64_t threads{0u};
         uint64_t partial_bytes{0u};
         uint64_t striped_storage_scalars{0u};
+        uint32_t unroll_factor{1u};
         double scalar_rounds{0.0};
         double lane_utilization{0.0};
         ReductionCost cost{0.0, 1.0, std::numeric_limits<double>::infinity()};
@@ -1502,6 +1549,19 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
             candidates_rejected++;
             continue;
         }
+        auto minimum_unroll = cuda ?
+                                  constant_striped_index_min_unroll(materializations, workers, options.reduction_lane_elements) :
+                                  luisa::optional<uint64_t>{};
+        auto resolved_unroll = options.reduction_unroll_factor;
+        if (resolved_unroll == 0u) {
+            // Explicit CUDA-only structural choice. Do not silently clamp an
+            // unknown or unsatisfiable requirement, or raise storage budgets.
+            if (!cuda || !minimum_unroll || *minimum_unroll > 64u) {
+                candidates_rejected++;
+                continue;
+            }
+            resolved_unroll = static_cast<uint32_t>(*minimum_unroll);
+        }
         auto scalar_rounds = 0.0;
         auto scalar_elements = 0.0;
         for (auto elements : analysis.independent_domains) {
@@ -1543,9 +1603,10 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
             auto features = ReductionCandidate{
                 *groups, static_cast<uint32_t>(threads),
                 static_cast<uint32_t>(subgroups), static_cast<uint32_t>(packed),
-                group_partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements,
+                group_partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, resolved_unroll, options.reduction_lane_elements,
                 luisa::ceil_div(*groups, packed), scalar_elements, lane_utilization,
                 accesses.known, accesses.demand(), accesses.demand(workers, options.reduction_lane_elements)};
+            features.source_constant_striped_index_min_unroll = minimum_unroll;
             auto cost = policy.reduction_cost(features, model);
             if (!std::isfinite(cost.program_score) || cost.program_score < 0.0 ||
                 !std::isfinite(cost.concurrent_waves) || cost.concurrent_waves < 1.0 ||
@@ -1554,7 +1615,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
             }
             if (cost.kernel_score < best.cost.kernel_score) {
                 best = Candidate{subgroups, packed, threads,
-                                 group_partial_bytes, striped_storage_scalars, scalar_rounds, lane_utilization, cost};
+                                 group_partial_bytes, striped_storage_scalars, resolved_unroll, scalar_rounds, lane_utilization, cost};
             }
         }
     }
@@ -1620,7 +1681,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     }
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup, partial_base, program_active,
-        program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor, options.reduction_lane_elements,
+        program_workers, multi_subgroup ? subgroups_per_program : 1u, best.unroll_factor, options.reduction_lane_elements,
         target, analysis, partials, striped_buffers, diagnostic}(loop->body);
     if (diagnostic.failed()) { return {}; }
     if (!allocations.empty()) {
@@ -1665,7 +1726,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     plan.reduction_subgroups_per_program =
         static_cast<uint32_t>(subgroups_per_program);
     plan.reduction_programs_per_group = static_cast<uint32_t>(packed_programs);
-    plan.reduction_unroll_factor = options.reduction_unroll_factor;
+    plan.reduction_unroll_factor = best.unroll_factor;
     plan.reduction_lane_elements = options.reduction_lane_elements;
     plan.reduction_threadgroups = blocks;
     plan.reduction_scalar_rounds = best.scalar_rounds;

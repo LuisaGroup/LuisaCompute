@@ -519,7 +519,7 @@ void cuda_subgroup_unroll_boundaries() {
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;
     if (!native) { return; }
-    for (auto factor : {0u, 65u, UINT32_MAX}) {
+    for (auto factor : {65u, UINT32_MAX}) {
         auto options = cuda_subgroup_options();
         options.planner.reduction_unroll_factor = factor;
         auto rejected = compile_device(native.value, kernel.function().name(), options);
@@ -528,7 +528,7 @@ void cuda_subgroup_unroll_boundaries() {
     }
     // Metal rejects the new range during mapping, before requesting a Metal
     // code generator. This negative needs neither a Metal device nor runtime.
-    for (auto factor : {17u, 64u}) {
+    for (auto factor : {0u, 17u, 64u}) {
         auto options = cuda_subgroup_options();
         options.target = R"({"kind":"metal","thread_warp_size":32,"max_num_threads":1024,"max_shared_memory_per_block":32768})";
         options.planner.cuda_subgroup_reductions = false;
@@ -557,6 +557,213 @@ void cuda_subgroup_unroll_boundaries() {
     auto non_device = luisa::compute::tile::bridge::tirx::compile(native.value, kernel.function().name(), options);
     expect(!non_device.ok());
     expect(!non_device.error().empty());
+}
+
+void cuda_subgroup_automatic_unroll_gates() {
+    auto kernel = cuda_subgroup_sum_kernel();
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto options = cuda_subgroup_options();
+    options.planner.threads_per_group = 64u;
+    options.planner.reduction_programs_per_group = 1u;
+    auto exact = compile_device(native.value, kernel.function().name(), options);
+    options.planner.reduction_unroll_factor = 0u;
+    auto automatic = compile_device(native.value, kernel.function().name(), options);
+    expect(static_cast<bool>(exact) && static_cast<bool>(automatic));
+    if (exact && automatic) {
+        expect(automatic.artifact.source == exact.artifact.source);
+        expect(automatic.plans.size() == 1u);
+        if (automatic.plans.size() == 1u) {
+            expect(automatic.plans.front().striped_storage_scalars_per_worker == 0u);
+            expect(automatic.plans.front().reduction_unroll_factor == 1u);
+        }
+    }
+    for (auto mode = 0u; mode != 5u; mode++) {
+        auto rejected_options = options;
+        if (mode == 0u) { rejected_options.planner.cuda_subgroup_reductions = false; }
+        if (mode == 1u) { rejected_options.target = nvptx_target(); }
+        if (mode == 2u) { rejected_options.noalias = false; }
+        if (mode == 3u) { rejected_options.planner.enabled = false; }
+        if (mode == 4u) { rejected_options.planner.max_reduction_striped_scalars_per_worker = 0u; }
+        auto rejected = compile_device(native.value, kernel.function().name(), rejected_options);
+        expect(!static_cast<bool>(rejected)) << "auto gate=" << mode;
+        expect(!rejected.error.empty());
+    }
+    class Ordered final : public tvm::tirx::StmtMutator {
+        tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+            auto result = StmtMutator::VisitStmt_(loop);
+            if (loop->annotations.count("luisa.tile.reduction_policy")) {
+                auto rewritten = result.as_or_throw<tvm::tirx::For>();
+                rewritten.CopyOnWrite()->annotations.Set("luisa.tile.reduction_policy",
+                    tvm::IntImm::Int64(static_cast<int64_t>(reduction::ordered_tree)));
+                result = rewritten;
+            }
+            return result;
+        }
+    } ordered;
+    auto function = native.value;
+    function.CopyOnWrite()->body = ordered(function->body);
+    auto rejected = compile_device(function, kernel.function().name(), options);
+    expect(!static_cast<bool>(rejected));
+    expect(!rejected.error.empty());
+}
+
+void cuda_subgroup_private_index_facts() {
+    class Observe final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable luisa::optional<ReductionCandidate> last;
+        ReductionCost reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
+            last = candidate;
+            return AnalyticExecutionCostPolicy::reduction_cost(candidate, model);
+        }
+    } policy;
+    // The same named SSA snapshot is used by its materialization, two
+    // reductions and an epilogue. Domain multiplicity must not add the needed
+    // unroll factors. J=0,1,15,16,64 pins both sides of the real pack boundary.
+    for (auto [columns, required] : {std::pair{37u, 1u}, {64u, 1u}, {960u, 8u}, {1024u, 9u}, {4096u, 33u}}) {
+        auto definition = tile_kernel("cuda_private_index_fact", [=](TensorView<const bfloat16, 2> input,
+                                                                     TensorView<bfloat16, 2> output) {
+            auto one = axis("one", 1), feature = axis("feature", columns);
+            for (auto &nest : parallel(shape(3))) {
+                auto origin = coord(nest.index(), 0);
+                auto x = cast<float>(input.tile(origin, shape(one, feature)).load());
+                auto sum = reduce(x * x, feature, add);
+                auto largest = reduce(x, feature, maximum);
+                output(origin, shape(one, feature)).store(cast<bfloat16>(x / sqrt(sum + 1e-5f) + largest));
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(3, columns), tensor_shape(3, columns));
+        expect(kernel.valid());
+        auto native = lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        auto options = cuda_subgroup_options();
+        options.planner.threads_per_group = 64u;
+        options.planner.reduction_programs_per_group = 1u;
+        options.planner.reduction_unroll_factor = required;
+        auto control = compile_device(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(control)) << control.error;
+        options.planner.cost_policy = &policy;
+        policy.last.reset();
+        auto result = compile_device(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(result)) << result.error;
+        expect(policy.last.has_value());
+        if (!result || !policy.last || !control) { continue; }
+        auto fact = policy.last->source_constant_striped_index_min_unroll;
+        expect(fact.has_value());
+        if (fact) { expect(*fact == required) << "N=" << columns; }
+        expect(result.artifact.source == control.artifact.source);
+        options.planner.reduction_unroll_factor = 0u;
+        auto automatic = compile_device(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(automatic)) << automatic.error;
+        if (automatic) {
+            expect(automatic.artifact.source == control.artifact.source);
+            expect(automatic.artifact.grid == control.artifact.grid);
+            expect(automatic.artifact.block == control.artifact.block);
+            expect(automatic.plans.size() == 1u);
+            if (automatic.plans.size() == 1u) {
+                expect(automatic.plans.front().reduction_unroll_factor == required);
+                expect(automatic.plans.front().cost.kernel_score == control.plans.front().cost.kernel_score);
+            }
+            expect(policy.last->unroll_factor == required);
+            expect(policy.last->source_constant_striped_index_min_unroll == fact);
+        }
+        expect(policy.last->reductions == 2u);
+        expect(policy.last->striped_scalars_per_worker == (columns + 63u) / 64u);
+        auto nonconstant = 0u;
+        auto inspect = [&](const auto &buffer, const auto &indices) {
+            if (buffer.scope() == "local") {
+                for (auto &index : indices) {
+                    nonconstant += index.template as<tvm::IntImmNode>() == nullptr;
+                }
+            }
+        };
+        tvm::tirx::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { inspect(load->buffer, load->indices); }
+            if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { inspect(store->buffer, store->indices); }
+        });
+        expect(nonconstant == 0u) << "N=" << columns << " U=" << required;
+        if (required > 1u) {
+            options.planner.reduction_unroll_factor = required - 1u;
+            auto insufficient = compile_device(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(insufficient)) << insufficient.error;
+            if (insufficient) {
+                nonconstant = 0u;
+                tvm::tirx::PostOrderVisit(insufficient.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { inspect(load->buffer, load->indices); }
+                    if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { inspect(store->buffer, store->indices); }
+                });
+                expect(nonconstant > 0u);
+                expect(policy.last->source_constant_striped_index_min_unroll == fact);
+            }
+        }
+    }
+
+    // Raw rank-two private materialization: the exact row-major flattening
+    // is accepted; transposed and data-dependent ownership remain rejected.
+    // A raised explicit storage budget lets the known required U exceed 64;
+    // that is distinct from unknown and must not silently become U64.
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode = 0u; mode != 4u; mode++) {
+        auto columns = int64_t{mode == 3u ? 8256 : 1024};
+        auto input = tvm::tirx::decl_buffer({i64(3), i64(columns)}, tvm::PrimType::Float(32), "input");
+        auto output = tvm::tirx::decl_buffer({i64(3)}, tvm::PrimType::Float(32), "output");
+        auto private_tile = tvm::tirx::decl_buffer({i64(2), i64(columns / 2)}, tvm::PrimType::Float(32), "snapshot", "local");
+        auto carry = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
+        auto next = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "next", "local");
+        auto p = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto a = tvm::tirx::PrimVar{"axis0", tvm::PrimType::Int(64)};
+        auto b = tvm::tirx::PrimVar{"axis1", tvm::PrimType::Int(64)};
+        auto k = tvm::tirx::PrimVar{"reduce", tvm::PrimType::Int(64)};
+        auto e = tvm::tirx::PrimVar{"out", tvm::PrimType::Int(64)};
+        auto fill = tvm::tirx::For{a, i64(0), i64(2), tvm::tirx::ForKind::kSerial,
+            tvm::tirx::For{b, i64(0), i64(columns / 2), tvm::tirx::ForKind::kSerial,
+                tvm::tirx::BufferStore{private_tile, tvm::tirx::BufferLoad{input, {p, a * i64(columns / 2) + b}}, {a, b}}}, {},
+            {{"luisa.tile.independent_elements", i64(2)}, {"luisa.tile.contract.materialized_pure_tile", i64(1)}}};
+        tvm::ffi::Array<tvm::PrimExpr> indices{tvm::floordiv(k, i64(columns / 2)), tvm::floormod(k, i64(columns / 2))};
+        if (mode == 1u) { indices = {tvm::floormod(k, i64(2)), tvm::floordiv(k, i64(2))}; }
+        if (mode == 2u) { indices = {i64(0), tvm::cast(tvm::PrimType::Int(64), tvm::tirx::BufferLoad{input, {p, k}})}; }
+        auto update = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+            tvm::tirx::AllocBuffer{next},
+            tvm::tirx::BufferStore{next, tvm::tirx::BufferLoad{carry, {i64(0)}} + tvm::tirx::BufferLoad{private_tile, indices}, {i64(0)}},
+            tvm::tirx::BufferStore{carry, tvm::tirx::BufferLoad{next, {i64(0)}}, {i64(0)}}});
+        auto reduce_loop = tvm::tirx::For{k, i64(0), i64(columns), tvm::tirx::ForKind::kSerial, update, {},
+            {{"luisa.tile.contract.reduction", i64(1)}, {"luisa.tile.reduction_policy", i64(static_cast<int64_t>(reduction::unordered_tree))}}};
+        auto store = tvm::tirx::For{e, i64(0), i64(1), tvm::tirx::ForKind::kSerial,
+            tvm::tirx::BufferStore{output, tvm::tirx::BufferLoad{carry, {i64(0)}}, {p + e}}, {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        auto body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{tvm::tirx::AllocBuffer{private_tile}, fill,
+            tvm::tirx::AllocBuffer{carry}, tvm::tirx::BufferStore{carry, f32(0.f), {i64(0)}}, reduce_loop, store});
+        auto function = tvm::tirx::PrimFunc{{input, output}, tvm::tirx::For{p, i64(0), i64(3), tvm::tirx::ForKind::kSerial,
+            body, {}, {{"luisa.tile.logical_parallel", i64(1)}}}};
+        auto options = cuda_subgroup_options();
+        options.planner.threads_per_group = 64u;
+        options.planner.reduction_programs_per_group = 1u;
+        options.planner.max_reduction_striped_scalars_per_worker = 256u;
+        options.planner.cost_policy = &policy;
+        policy.last.reset();
+        auto result = compile_device(function, "private_index_domain", options);
+        expect(eq(static_cast<bool>(result), mode == 0u || mode == 3u)) << result.error;
+        if (mode == 1u || mode == 2u) { expect(!policy.last); }
+        else {
+            expect(policy.last.has_value());
+            if (policy.last) {
+                auto fact = policy.last->source_constant_striped_index_min_unroll;
+                expect(fact.has_value());
+                if (fact) { expect(*fact == (mode == 3u ? 65u : 9u)); }
+            }
+        }
+        options.planner.reduction_unroll_factor = 0u;
+        auto automatic = compile_device(function, "private_index_domain", options);
+        expect(eq(static_cast<bool>(automatic), mode == 0u)) << automatic.error;
+        if (automatic) {
+            expect(automatic.plans.front().reduction_unroll_factor == 9u);
+            // Unknown ownership and known U65 are both rejected automatically;
+            // the preceding manual U1 control preserves their distinct facts.
+        }
+    }
+    cuda_subgroup_automatic_unroll_gates();
 }
 
 void test_cuda_subgroup_target_contract() {
@@ -613,6 +820,7 @@ void test_cuda_subgroup_target_contract() {
     // The existing test_cuda_fail_closed_options remains unchanged, including
     // its separate rejection of metal_subgroup_reductions on a CUDA target.
     cuda_subgroup_unroll_boundaries();
+    cuda_subgroup_private_index_facts();
 }
 
 template<typename T>

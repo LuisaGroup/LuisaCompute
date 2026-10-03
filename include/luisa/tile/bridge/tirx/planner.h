@@ -4,6 +4,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/vector.h>
 
 namespace luisa::compute::tile::bridge::tirx {
@@ -122,7 +123,11 @@ struct PlannerOptions {
     // independent accumulators or change its floating-point recurrence order.
     // A bounded code-size choice, not a hardware vector-width promise.
     // Metal accepts 1..16; opt-in CUDA-source subgroup reductions accept
-    // 1..64. Non-default values require the respective subgroup capability.
+    // 1..64. CUDA additionally accepts zero as an explicit request for the
+    // least structurally sufficient constant-striped-index factor per legal
+    // candidate. Unknown or over-cap facts reject that automatic candidate.
+    // Positive values stay exact; the default is still one. Non-default
+    // values require the respective subgroup capability.
     // Each stripe uses min(requested factor, actual chunks); the existing
     // private-stripe budget is separate and is not increased by unrolling.
     uint32_t reduction_unroll_factor{1u};
@@ -228,6 +233,13 @@ struct ReductionCandidate {
     // Sum of the longest worker stripe's demand for each distributed domain.
     // Domains are rounded independently, using this candidate's ownership map.
     ReductionAccessDemand payload_accesses_per_worker;
+    // CUDA source-level fact for the proved striped allocations only. After
+    // the existing explicit-unroll/simplify passes, this factor suffices to
+    // remove every nonconstant chunk index in their access domains. Null is
+    // unknown/not requested; one also covers no striped allocations. A known
+    // value above the target's unroll cap is unsatisfiable under that cap.
+    // Not a register, spill, physical resource, or performance guarantee.
+    luisa::optional<uint64_t> source_constant_striped_index_min_unroll;
 };
 
 // The solver minimizes kernel_score, not program_score. A backend may combine

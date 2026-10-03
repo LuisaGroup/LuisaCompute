@@ -578,10 +578,10 @@ public:
     // independent private-stripe budget and all capability gates still apply.
     auto cuda_unroll = cuda_subgroup_reductions && target->kind->name == "cuda";
     auto maximum_unroll_factor = cuda_unroll ? 64u : 16u;
-    if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > maximum_unroll_factor ||
+    if ((!cuda_unroll && options.planner.reduction_unroll_factor == 0u) || options.planner.reduction_unroll_factor > maximum_unroll_factor ||
         (options.planner.reduction_unroll_factor != 1u && !subgroup_reductions)) {
         return diagnostic.reject(cuda_unroll ?
-                                     "CUDA subgroup reduction unrolling requires a factor in [1,64]" :
+                                     "CUDA subgroup reduction unrolling requires a factor in [1,64], or zero for source-index automatic selection" :
                                      "reduction unrolling requires a factor in [1,16] and subgroup reductions when non-default",
                                  module);
     }

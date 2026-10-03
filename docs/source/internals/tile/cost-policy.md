@@ -81,6 +81,27 @@ allocation or faster execution. The default remains one because measurements
 show mixed effects. CUDA's larger bound does not enable the family on NVPTX,
 CPU, or a CUDA request without the subgroup capability.
 
+CUDA subgroup requests may explicitly set `reduction_unroll_factor=0` to
+resolve a structural bound for each legal width. The existing ownership audit
+records every access domain of a proved private stripe. For `J` complete
+chunks, the mapper emits `floor(J / min(J,U))` serial packs and an explicitly
+unrolled remainder. At most one serial pack leaves constant chunk indices
+after simplification. Thus `floor(J/2)+1` is sufficient, including a factor of
+one for zero or one chunk. The maximum requirement across access domains is
+used; repeated consumers do not add their requirements. The literal final
+partial chunk needs no additional expansion.
+
+`ReductionCandidate::source_constant_striped_index_min_unroll` exposes this
+optional source-level fact to the existing cost hook. It covers only proved
+striped allocations, not all private variables or later register allocation.
+No striped allocation requires a factor of one. Unknown requirements or known
+requirements above 64 exclude an automatic candidate rather than clamping the
+factor or increasing the storage budget. The resolved positive factor reaches
+the cost policy, mapper and realized `GroupPlan` consistently. Positive exact
+requests, the default factor of one, Metal admission and existing scores are
+unchanged. This opt-in choice is not a measured performance selector, a new
+execution primitive, or a guarantee that the backend eliminates local memory.
+
 The benchmark's staged/JIT Cartesian product can now include thread count,
 packing, unrolling and materialization. Every candidate and fresh winner is
 checked in full; a separate frozen-plan replay is required before claiming a

@@ -862,16 +862,22 @@ void test_cuda_subgroup_special_values(Device &device, int64_t columns = 512, ui
     auto c = device.create_buffer<float>(rows + 2u * output_pad);
     auto xv = x.view(input_pad, rows * columns);
     auto av = a.view(output_pad, rows), bv = b.view(output_pad, rows), cv = c.view(output_pad, rows);
+    auto stripe_regression = unroll == 0u || unroll == 64u;
+    // Explicit auto must resolve the actual cached input stripe: 2048 values
+    // / 32 workers / one element gives J=64 and minimum sufficient U=33.
+    // This checks the emitted plan, not only acceptance of the requested zero.
+    auto expected_unroll = unroll == 0u ? 33u : unroll;
+    expect(!stripe_regression || columns == 2048);
+    if (stripe_regression && columns != 2048) { return; }
     for (auto geometry : {std::array{64u, 1u}, std::array{128u, 2u}, std::array{128u, 4u}}) {
-        // The added regression is one 32-worker/program layout: 2048 / 32
-        // gives 64 real lane1 chunks, plus a packed tail at row 13.
-        if (unroll == 64u && geometry != std::array{128u, 4u}) { continue; }
+        // One 32-worker/program layout, plus a packed tail at row 13.
+        if (stripe_regression && geometry != std::array{128u, 4u}) { continue; }
         for (auto fast : {false, true}) {
             tile::bridge::tirx::CompileOptions bridge;
             bridge.planner.cuda_subgroup_reductions = true;
             bridge.planner.threads_per_group = geometry[0u];
             bridge.planner.reduction_programs_per_group = geometry[1u];
-            bridge.planner.reduction_lane_elements = unroll == 64u ? 1u : 8u;
+            bridge.planner.reduction_lane_elements = stripe_regression ? 1u : 8u;
             bridge.planner.reduction_unroll_factor = unroll;
             bridge.planner.cache_reduction_inputs = true;
             auto shader = tile::compile(device, kernel, {.lowering = Lowering::TIRX, .tirx = &bridge},
@@ -882,7 +888,7 @@ void test_cuda_subgroup_special_values(Device &device, int64_t columns = 512, ui
             expect(shader.metadata().realization.find("cuda-subgroup-plans=1") != string::npos);
             auto plan = luisa::format("cuda-subgroup-plan=threads{}:programs{}:warps{}:lane-elements{}:reductions3:unroll{}",
                                       geometry[0u], geometry[1u], geometry[0u] / geometry[1u] / 32u,
-                                      bridge.planner.reduction_lane_elements, unroll);
+                                      bridge.planner.reduction_lane_elements, expected_unroll);
             expect(shader.metadata().realization.find(plan) != string::npos);
             expect(shader.block_size().x == geometry[0u] && shader.block_size().y == 1u && shader.block_size().z == 1u);
             vector<float> sa(a.size(), guard), sb(b.size(), guard), sc(c.size(), guard), after(input.size());
@@ -1060,6 +1066,7 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ptx_subgroup_special_values"_test = [&] {
         test_cuda_subgroup_special_values(device);
         test_cuda_subgroup_special_values(device, 2048, 64u);
+        test_cuda_subgroup_special_values(device, 2048, 0u);
     };
     "tile_cuda_ptx_subgroup_partial_tree_values"_test = [&] { test_cuda_subgroup_partial_tree_values(device); };
 #else
