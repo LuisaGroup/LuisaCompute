@@ -826,6 +826,144 @@ void test_native_partition_cost_gates() {
 }
 }// namespace
 
+namespace {
+template<typename T>
+void check_native_aligned_partition_view_source() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    using namespace boost::ut;
+    auto kernel = tile_kernel("unrelated_input_representation", [](TensorView<const T, 2> input,
+                                                                     TensorView<T, 2> output) {
+                      auto m = axis("independent", 8), n = axis("contribution", 128);
+                      for (auto &p : parallel(shape(32))) {
+                          auto origin = p.index() * int64_t{8};
+                          auto x = cast<float>(input.tile(coord(origin, 0), shape(m, n)).load());
+                          output(coord(origin, 0), shape(m, axis("out", 1))).store(cast<T>(reduce(x, n, add)));
+                      }
+                  }).capture(tensor_shape(256, 128), tensor_shape(256, 1));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    for (auto fast : {false, true}) {
+        auto original = cuda::native_tile::generate(kernel.function(), fast, false);
+        auto candidate = cuda::native_tile::generate(kernel.function(), fast, true);
+        expect(original.ok()) << original.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!original.ok() || !candidate.ok()) { continue; }
+        expect(candidate.source.starts_with(original.source + '\n'));
+        expect(candidate.aligned16_buffer_mask == 1u); // output shape<8,1> is not eligible
+        expect(candidate.aligned16_partition_loads == 1u);
+        expect(original.aligned16_partition_loads == 0u);
+        expect(candidate.grid == original.grid);
+        expect(candidate.block == original.block);
+        expect(chunk_scan_occurrences(original.source, "ct::partition_view") == 0u);
+        expect(chunk_scan_occurrences(candidate.source, "ct::partition_view") == 1u);
+        auto alternate = candidate.source.substr(original.source.size());
+        expect(alternate.find("ct::extents<long long, 256, 128>{}") != luisa::string::npos);
+        expect(alternate.find("buffer0 = ct::assume_aligned<16>(buffer0)") != luisa::string::npos);
+        expect(alternate.find("buffer1 = ct::assume_aligned") == luisa::string::npos);
+        expect(chunk_scan_occurrences(alternate, "ct::sum(") == chunk_scan_occurrences(original.source, "ct::sum("));
+        expect(chunk_scan_occurrences(alternate, "ct::store(") == chunk_scan_occurrences(original.source, "ct::store("));
+    }
+}
+
+void test_native_aligned_view_sources() {
+    check_native_aligned_partition_view_source<luisa::half>();
+    check_native_aligned_partition_view_source<luisa::compute::tile::bfloat16>();
+}
+
+void test_native_aligned_view_fallbacks() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    using namespace boost::ut;
+    // case0 full but row-origin not Tile aligned; case1 partial column tail;
+    // case2 negative row; case3 later unproved/alignment-ineligible use of root.
+    for (auto changed : {0u, 1u, 2u, 3u}) {
+        auto row_origin = changed == 0u ? int64_t{1} : changed == 2u ? int64_t{-1} : int64_t{0};
+        auto input_rows = changed == 0u ? int64_t{9} : int64_t{8};
+        auto input_columns = changed == 1u ? int64_t{127} : changed == 3u ? int64_t{136} : int64_t{128};
+        auto kernel = tile_kernel("no_name_based_gate", [=](TensorView<const luisa::half, 2> input,
+                                                             TensorView<luisa::half, 2> output) {
+                          auto m = axis("a", 8), n = axis("b", 128);
+                          for (auto &p : parallel(shape(1))) {
+                              auto x = input.tile(coord(row_origin, 0), shape(m, n)).load();
+                              if (changed == 3u) {
+                                  auto y = input.tile(coord(0, 1), shape(m, n)).load();
+                                  x = cast<luisa::half>(cast<float>(x) + cast<float>(y));
+                              }
+                              output(coord(0, 0), shape(m, n)).store(x);
+                          }
+                      }).capture(tensor_shape(input_rows, input_columns), tensor_shape(8, 128));
+        expect(kernel.valid());
+        if (!kernel.valid()) { continue; }
+        auto original = cuda::native_tile::generate(kernel.function(), false, false);
+        auto candidate = cuda::native_tile::generate(kernel.function(), false, true);
+        expect(original.ok()) << original.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!original.ok() || !candidate.ok()) { continue; }
+        expect(candidate.source.starts_with(original.source + '\n'));
+        expect(candidate.aligned16_partition_loads == 0u);
+        expect(candidate.aligned16_buffer_mask == (changed == 0u ? 3u : 2u));
+        expect(chunk_scan_occurrences(candidate.source, "ct::partition_view") == 0u);
+    }
+}
+
+}// namespace
+
+namespace {
+void test_native_aligned_view_unknown_overflow() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    using namespace boost::ut;
+    auto check = [](const tile::Kernel &kernel, uint32_t output_mask, uint32_t input_slot) {
+        // These must reach source generation successfully: rejection by an
+        // earlier verifier is not evidence that the load proof failed closed.
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto original = cuda::native_tile::generate(kernel.function(), false, false);
+        auto candidate = cuda::native_tile::generate(kernel.function(), false, true);
+        expect(original.ok()) << original.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!original.ok() || !candidate.ok()) { return; }
+        expect(candidate.source.starts_with(original.source + '\n'));
+        expect(candidate.aligned16_buffer_mask == output_mask);
+        expect(candidate.aligned16_partition_loads == 0u);
+        expect(chunk_scan_occurrences(candidate.source, "ct::partition_view") == 0u);
+        expect(chunk_scan_occurrences(original.source, "ct::load_masked(") >= 1u);
+        auto alternate = candidate.source.substr(original.source.size());
+        expect(alternate.find(luisa::format("buffer{} = ct::assume_aligned", input_slot)) == luisa::string::npos);
+        expect(chunk_scan_occurrences(alternate, "ct::load_masked(") == chunk_scan_occurrences(original.source, "ct::load_masked("));
+        expect(candidate.grid == original.grid);
+        expect(candidate.block == original.block);
+    };
+    auto unknown = tile_kernel("unproved_loaded_origin", [](TensorView<const int64_t, 1> offsets,
+                                                             TensorView<const luisa::half, 1> input,
+                                                             TensorView<luisa::half, 1> output) {
+        for (auto &program : parallel(shape(1))) {
+            static_cast<void>(program);
+            auto origin = offsets.tile(coord(0), shape(1)).load().at(coord(0));
+            auto domain = shape(axis("element", 64));
+            auto x = input.tile(coord(origin), domain).load();
+            output.tile(coord(0), domain).store(x);
+        }
+    }).capture(tensor_shape(1), tensor_shape(64), tensor_shape(64));
+    check(unknown, 4u, 1u);
+
+    // Deliberately exercise the interval-overflow rejection in source analysis.
+    // The captured IR is verifier-valid, but this fixture is never compiled or
+    // launched on a GPU: no claim about execution of overflowing signed math.
+    auto overflow = tile_kernel("overflowing_origin_interval", [](TensorView<const luisa::half, 1> input,
+                                                                   TensorView<luisa::half, 1> output) {
+        for (auto &program : parallel(shape(3))) {
+            auto origin = program.index() * std::numeric_limits<int64_t>::max();
+            auto domain = shape(axis("element", 64));
+            auto x = input.tile(coord(origin), domain).load();
+            output.tile(coord(program.index() * int64_t{64}), domain).store(x);
+        }
+    }).capture(tensor_shape(64), tensor_shape(192));
+    check(overflow, 2u, 0u);
+}
+}// namespace
+
 int main(int argc, char *argv[]) {
     using namespace boost::ut;
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
@@ -839,4 +977,6 @@ int main(int argc, char *argv[]) {
     "tile_cuda_program_partition_fallbacks"_test = [] { test_native_program_partition_fallbacks(); };
     "tile_cuda_partition_cost_decisions"_test = [] { test_native_partition_cost_decisions(); };
     "tile_cuda_partition_cost_gates"_test = [] { test_native_partition_cost_gates(); };
+    "tile_cuda_aligned_view_sources"_test = [] { test_native_aligned_view_sources(); };
+    "tile_cuda_aligned_view_fallbacks"_test = [] { test_native_aligned_view_fallbacks(); test_native_aligned_view_unknown_overflow(); };
 }

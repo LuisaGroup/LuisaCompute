@@ -26,6 +26,13 @@ private:
     luisa::unordered_map<uint64_t, tile::CollectiveKind> _partition_collectives;
     uint32_t _aligned16_seen{0u};
     uint32_t _aligned16_rejected{0u};
+    struct AlignedViewLoad {
+        size_t offset;
+        size_t length;
+        uint32_t argument_index;
+        luisa::string replacement;
+    };
+    luisa::vector<AlignedViewLoad> _aligned_view_loads;
     Artifact _artifact;
     luisa::unordered_map<const Value *, luisa::string> _values;
     luisa::unordered_map<const Value *, size_t> _buffers;
@@ -412,26 +419,49 @@ private:
         return true;
     }
 
-    [[nodiscard]] bool _origin_multiple_of_eight(const Value *value, uint32_t depth = 0u) const noexcept {
-        if (depth >= 32u) { return false; }
+    // partition_view indices name whole Tile chunks, not element origins.
+    // This bounded proof uses the existing nonnegative/no-overflow facts.
+    [[nodiscard]] bool _origin_multiple_of(const Value *value, uint64_t divisor,
+                                            uint32_t depth = 0u) const noexcept {
+        if (divisor == 0u || depth >= 32u) { return false; }
         auto fact = _index_facts.find(value);
-        if (fact == _index_facts.end()) { return false; }
-        // The existing interval proof excludes negative values and overflow.
+        if (fact == _index_facts.end() || _mapped_values.contains(value)) { return false; }
+        if (divisor == 1u) { return true; }
         if (fact->second.minimum == fact->second.maximum) {
-            return fact->second.minimum % 8u == 0u;
+            return fact->second.minimum % divisor == 0u;
         }
         if (auto product = _index_operation(value, ElementwiseOp::MUL)) {
             for (auto i = 0u; i < 2u; i++) {
                 auto constant = _index_facts.find(product->operand(i));
                 if (constant != _index_facts.end() && constant->second.minimum == constant->second.maximum &&
-                    constant->second.minimum % 8u == 0u) { return true; }
+                    constant->second.minimum % divisor == 0u) { return true; }
             }
         }
         if (auto sum = _index_operation(value, ElementwiseOp::ADD)) {
-            return _origin_multiple_of_eight(sum->operand(0u), depth + 1u) &&
-                   _origin_multiple_of_eight(sum->operand(1u), depth + 1u);
+            return _origin_multiple_of(sum->operand(0u), divisor, depth + 1u) &&
+                   _origin_multiple_of(sum->operand(1u), divisor, depth + 1u);
         }
         return false;
+    }
+    [[nodiscard]] luisa::string _aligned_partition_load(const Operation &op, const IndexSpace &space,
+                                                        const IndexSpace &view_space, luisa::string_view prefix) noexcept {
+        if (!_enable_aligned16 || !_view_fully_in_bounds(op, space, view_space)) { return {}; }
+        luisa::string extents{"ct::extents<long long"}, chunks;
+        for (auto i = 0u; i < space.rank(); i++) {
+            auto extent = space.axis(i).extent.constant_value();
+            if (!_origin_multiple_of(op.operand(1u + i), extent)) { return {}; }
+            extents += luisa::format(", {}", view_space.axis(i).extent.constant_value());
+            if (i != 0u) { chunks += ", "; }
+            chunks += luisa::format("({}) / {}ll", _value(op.operand(1u + i)), extent);
+        }
+        extents += ">{}";
+        auto indent = luisa::string(_indent * 4u, ' ');
+        return luisa::format("{}auto {}_span = ct::tensor_span{{{}, {}}};\n"
+                             "{}auto {}_partition = ct::partition_view{{{}_span, {}{{}}}};\n"
+                             "{}auto {} = {}_partition.load({});\n",
+                             indent, prefix, _value(op.operand(0u)), extents,
+                             indent, prefix, prefix, _shape(space),
+                             indent, _name(op.result(0u)), prefix, chunks);
     }
     void _record_aligned16_view(const Operation &op, size_t argument_index,
                                 const IndexSpace &space, const IndexSpace &view_space) noexcept {
@@ -450,7 +480,7 @@ private:
             auto last = space.rank() - 1u;
             eligible = space.axis(last).extent.constant_value() % 8u == 0u &&
                        view_space.axis(last).extent.constant_value() % 8u == 0u &&
-                       _origin_multiple_of_eight(op.operand(1u + last));
+                       _origin_multiple_of(op.operand(1u + last), 8u);
         }
         if (!eligible) { _aligned16_rejected |= bit; }
     }
@@ -508,7 +538,13 @@ private:
                                                                           luisa::format("ct::element_cast<{}>(0)", _scalar(argument.element));
                 expression = luisa::format("ct::load_masked({}_ptr, {}_mask, {})", prefix, prefix, fallback);
             }
+            auto binding_offset = _artifact.source.size();
             _bind(op.result(0u), std::move(expression));
+            if (auto replacement = _aligned_partition_load(op, space, view_space, prefix); !replacement.empty()) {
+                _aligned_view_loads.emplace_back(AlignedViewLoad{
+                    binding_offset, _artifact.source.size() - binding_offset,
+                    static_cast<uint32_t>(found->second), std::move(replacement)});
+            }
         } else {
             auto value = _value(op.operand(space.rank() + 1u));
             _line(masked ?
@@ -1316,6 +1352,17 @@ public:
             // so the host chooses between two separate entry functions.
             auto begin = _artifact.source.find("extern \"C\" ");
             auto aligned = _artifact.source.substr(begin);
+            // Apply only to the separate aligned entry after all accesses have
+            // contributed to the root eligibility mask. Keep load positions,
+            // immutable SSA snapshots and every store/arithmetic line unchanged.
+            // Reverse order keeps the recorded original source offsets stable.
+            for (auto i = _aligned_view_loads.size(); i != 0u; i--) {
+                auto &&load = _aligned_view_loads[i - 1u];
+                if ((mask & (uint32_t{1u} << load.argument_index)) != 0u) {
+                    aligned.replace(load.offset - begin, load.length, load.replacement);
+                    _artifact.aligned16_partition_loads++;
+                }
+            }
             auto entry = aligned.find(_artifact.entry);
             aligned.replace(entry, _artifact.entry.size(), _artifact.aligned16_entry);
             auto body = aligned.find(") {\n") + 4u;

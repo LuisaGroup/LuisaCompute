@@ -762,8 +762,9 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         }
     }
     if (aligned16_requested) {
-        metadata.realization += luisa::format("; aligned16-requested; aligned16-buffer-mask={}; {}",
+        metadata.realization += luisa::format("; aligned16-requested; aligned16-buffer-mask={}; aligned16-partition-loads={}; {}",
                                               artifact.aligned16_buffer_mask,
+                                              artifact.aligned16_partition_loads,
                                               artifact.aligned16_entry.empty() ? "aligned16-ineligible" : "host-selected-dual-entry-aligned16-v1");
     }
     // enable_cache is a hint. This experimental route deliberately does not

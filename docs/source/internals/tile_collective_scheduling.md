@@ -102,6 +102,14 @@ a new or stable native FP32 scan win.
 
 ## Shared Tile IR representation and next priorities
 
+Keep scheduling alternatives in compiler analyses and lowering candidates whenever
+the existing Tile values, collective operations and execution nests can express
+them. A different worker layout, memory representation or implementation library
+does not by itself justify another DSL primitive. Before adding an execution-nest
+entity, provide a minimal example and demonstrate why the existing primitives
+cannot express its semantics correctly and efficiently. The candidates below
+operate on existing IR and require no new DSL entities.
+
 1. **Repartition independent rows into more programs.** Prove the complete SSA
    expression, memory operands and result independently separable along a named
    axis. Candidate records original rows/program, target rows/program, original
@@ -133,8 +141,8 @@ a new or stable native FP32 scan win.
 
 CUDA Tile's documented supported worker hints are 4/8, unlike the inspected
 Triton 16-warp launches. Do not expand the CUDA Tile hint whitelist based on
-Triton's separate API. There is no measured proof yet that a new shared plan,
-resource model, vectorization proof or reread candidate closes the gap.
+Triton's separate API. The checkpoints below measure individual candidates;
+none establishes that one shared plan or resource model closes every gap.
 
 ## Implementation status at this checkpoint
 
@@ -180,6 +188,19 @@ The fit and admission rules were not changed after observing those outcomes.
 The policy remains explicitly experimental and off by default. These failures
 motivate adding structured-memory representation and observed compiler-layout
 costs rather than treating logical collective volume as a sufficient model.
+
+The {download}`aligned structured-load checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-aligned-view/aligned-view-sm89.md>`
+uses the existing `LUISA_CUDA_TILE_IR_ALIGNED16=1` alternate entry to preserve
+rectangular load information with `tensor_span` and `partition_view`. The proof
+requires full bounds and chunk-aligned origins; the host checks final buffer
+pointer alignment. The original entry and all arithmetic remain unchanged.
+Across 48 native and 16 same-cohort Torch runs, all output checks passed.
+Four 256x128 SUM/MAX cases improved by 31--35% relative to the original and
+5--23% relative to Torch. However, FP16 scan128x8192 regressed by 37%, so the
+representation remains opt-in. All 448 timing samples and the unchanged-source
+and default-recheck evidence are retained; no operation-name exclusion masks
+the negative result. This is another reason to model compiled layout costs
+alongside logical work rather than select from vector width alone.
 
 The nine source-review observations above remain fixed to October 2;
 the separate calibration report retains its own October 3 denominators and

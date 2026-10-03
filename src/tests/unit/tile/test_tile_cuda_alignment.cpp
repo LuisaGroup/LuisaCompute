@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
+#include <regex>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -45,6 +47,89 @@ struct Environment {
     return tile::compile(device, kernel, {.lowering = tile::Lowering::NATIVE}, {.enable_fast_math = false});
 }
 
+// Replace only the three exact generated lines, after checking their root,
+// static extents, Tile shape, origins and binding against the original entry.
+// The existing final full-body equality remains the final check.
+[[nodiscard]] bool restore_partition_loads(luisa::string &aligned,
+                                           luisa::string_view plain, uint32_t mask) {
+    auto numbers = [](const std::string &text, std::vector<uint64_t> &out) {
+        auto first = text.data(), last = first + text.size();
+        while (first != last) {
+            uint64_t value{};
+            auto parsed = std::from_chars(first, last, value);
+            if (parsed.ec != std::errc{} || parsed.ptr == first || value == 0u) { return false; }
+            out.emplace_back(value);
+            first = parsed.ptr;
+            if (first == last) { break; }
+            if (last - first < 2 || first[0] != ',' || first[1] != ' ') { return false; }
+            first += 2;
+            if (first == last) { return false; }
+        }
+        return !out.empty();
+    };
+    const std::regex triple{
+        R"(([ ]*)auto (mem[0-9]+)_span = ct::tensor_span\{buffer([0-9]+), ct::extents<long long, ([0-9, ]+)>\{\}\};\n\1auto \2_partition = ct::partition_view\{\2_span, ct::shape<([0-9, ]+)>\{\}\};\n\1auto (v[0-9]+) = \2_partition\.load\(([^\n]+)\);\n)"};
+    auto cursor = size_t{0u};
+    std::match_results<luisa::string::const_iterator> match;
+    while (std::regex_search(aligned.cbegin() + cursor, aligned.cend(), match, triple)) {
+        auto indent = match[1].str(), prefix = match[2].str(), root_text = match[3].str();
+        auto view_text = match[4].str(), tile_text = match[5].str();
+        auto result = match[6].str(), chunks = match[7].str();
+        uint32_t root{};
+        auto parsed = std::from_chars(root_text.data(), root_text.data() + root_text.size(), root);
+        if (parsed.ec != std::errc{} || parsed.ptr != root_text.data() + root_text.size() || root >= 32u) { return false; }
+        if ((mask & (uint32_t{1u} << root)) == 0u) { return false; }
+        std::vector<uint64_t> view, tile;
+        if (!numbers(view_text, view) || !numbers(tile_text, tile)) { return false; }
+        if (view.size() != tile.size()) { return false; }
+        auto binding = luisa::format("{}auto {} = ct::load({}_ptr);\n", indent, result, prefix);
+        auto original = plain.find(binding);
+        if (original == luisa::string_view::npos) { return false; }
+        if (plain.find(binding, original + binding.size()) != luisa::string_view::npos) { return false; }
+        auto preceding = [&](luisa::string_view line) {
+            auto found = plain.find(line);
+            if (found == luisa::string_view::npos || found >= original) { return false; }
+            return plain.find(line, found + line.size()) == luisa::string_view::npos;
+        };
+        if (!preceding(luisa::format("{}auto {}_lane = ct::iota<ct::tile<long long, ct::shape<{}>>>();\n", indent, prefix, tile_text))) { return false; }
+        uint64_t volume{1u};
+        for (auto extent : tile) {
+            if (extent > UINT64_MAX / volume) { return false; }
+            volume *= extent;
+        }
+        luisa::string pointer{"0ll"};
+        auto chunk_begin = size_t{0u};
+        for (auto i = size_t{0u}; i < tile.size(); i++) {
+            if (tile[i] > view[i]) { return false; }
+            volume /= tile[i];
+            auto suffix = luisa::format(") / {}ll", tile[i]);
+            if (chunk_begin >= chunks.size() || chunks[chunk_begin] != '(') { return false; }
+            auto close = chunks.find(suffix.c_str(), chunk_begin + 1u);
+            if (close == std::string::npos) { return false; }
+            auto origin = chunks.substr(chunk_begin + 1u, close - chunk_begin - 1u);
+            if (origin.empty()) { return false; }
+            if (!preceding(luisa::format("{}auto {}_c{} = {} + ({}_lane / {}ll) % {}ll;\n",
+                                         indent, prefix, i, origin, prefix, volume, tile[i]))) { return false; }
+            chunk_begin = close + suffix.size();
+            if (i + 1u != tile.size()) {
+                if (chunks.compare(chunk_begin, 2u, ", ") != 0) { return false; }
+                chunk_begin += 2u;
+            }
+            pointer = luisa::format("(({}) * {}ll + {}_c{})", pointer, view[i], prefix, i);
+        }
+        if (chunk_begin != chunks.size()) { return false; }
+        if (!preceding(luisa::format("{}auto {}_ptr = buffer{} + {};\n", indent, prefix, root, pointer))) { return false; }
+        auto position = cursor + static_cast<size_t>(match.position());
+        aligned.replace(position, static_cast<size_t>(match.length()), binding);
+        cursor = position + binding.size();
+    }
+    // Malformed or extra replacement statements cannot be silently ignored.
+    if (aligned.find("ct::tensor_span") != luisa::string::npos) { return false; }
+    if (aligned.find("ct::partition_view") != luisa::string::npos) { return false; }
+    return true;
+}
+
+
 void check_source(const tile::Shader &original, const tile::Shader &candidate, uint32_t mask) {
     expect(static_cast<bool>(original)) << original.metadata().error;
     expect(static_cast<bool>(candidate)) << candidate.metadata().error;
@@ -70,9 +155,12 @@ void check_source(const tile::Shader &original, const tile::Shader &candidate, u
         expect((found != string::npos) == ((mask & (1u << i)) != 0u));
         if (found != string::npos) { aligned.erase(found, assumption.size()); }
     }
+    auto restored = restore_partition_loads(aligned, plain, mask);
+    expect(restored) << "aligned view replacement does not match original addressing";
+    if (!restored) { return; }
     auto entry = aligned.find("luisa_tile_aligned16");
     aligned.replace(entry, string_view{"luisa_tile_aligned16"}.size(), "luisa_tile_main");
-    expect(aligned == plain.substr(plain.find("extern \"C\""))) << "aligned body differs beyond scalar assumptions";
+    expect(aligned == plain.substr(plain.find("extern \"C\""))) << "aligned body differs beyond scalar assumptions and verified load representation";
 }
 
 template<typename T>
@@ -241,6 +329,173 @@ void rank_copy(Device &device, int64_t width, uint32_t expected_mask) {
     }
 }
 
+// One program avoids inter-program races. The first immutable load must keep
+// the pre-store bits, and the second must observe the intervening store.
+template<typename T>
+void snapshot_order(Device &device) {
+    using namespace tile;
+    constexpr auto count = size_t{64u};
+    auto kernel = tile_kernel("immutable_snapshot_order", [](TensorView<T, 1> inout,
+                                                              TensorView<const T, 1> replacement,
+                                                              TensorView<T, 1> output) {
+        for (auto &program : parallel(shape(1))) {
+            static_cast<void>(program);
+            auto tile_shape = shape(axis("element", 64));
+            auto before = inout.tile(coord(0), tile_shape).load();
+            auto next = replacement.tile(coord(0), tile_shape).load();
+            inout.tile(coord(0), tile_shape).store(next);
+            auto after = inout.tile(coord(0), tile_shape).load();
+            output.tile(coord(0), tile_shape).store(before);
+            output.tile(coord(64), tile_shape).store(after);
+        }
+    }).capture(tensor_shape(count), tensor_shape(count), tensor_shape(count * 2u));
+    auto original = compile(device, kernel, nullptr);
+    auto shader = compile(device, kernel, "1");
+    check_source(original, shader, 7u);
+    if (!original || !shader) { return; }
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto *extension = device.extension<CudaGraphExt>();
+    LUISA_ASSERT(extension != nullptr, "CUDA graph extension is required.");
+    auto inout = device.create_buffer<T>(count + 130u);
+    auto replacement = device.create_buffer<T>(count + 130u);
+    auto output = device.create_buffer<T>(2u * count + 130u);
+    vector<T> before(inout.size()), next(replacement.size()), blank(output.size(), T{-719.5f});
+    vector<T> after(inout.size()), readonly(replacement.size()), actual(output.size());
+    for (auto offset : {64u, 65u}) {
+        auto command = [&] {
+            return shader(inout.view(offset, count), replacement.view(offset, count),
+                          output.view(offset, 2u * count)).dispatch();
+        };
+        auto list = CommandList::create();
+        list << command();
+        auto graph = extension->create_graph(std::move(list.commit()).command_list());
+        LUISA_ASSERT(graph.handle().valid(), "Snapshot graph creation failed.");
+        auto exec = extension->instantiate(graph.handle().handle);
+        LUISA_ASSERT(exec.handle().valid(), "Snapshot graph instantiation failed.");
+        for (auto generation = 0u; generation < 2u; generation++) {
+            std::fill(before.begin(), before.end(), T{-719.5f});
+            std::fill(next.begin(), next.end(), T{-719.5f});
+            for (auto i = size_t{0u}; i < count; i++) {
+                before[offset + i] = value<T>(i, generation);
+                next[offset + i] = value<T>(i, generation + 3u);
+            }
+            stream << inout.copy_from(span{before}) << replacement.copy_from(span{next})
+                   << output.copy_from(span{blank}) << synchronize();
+            if (generation == 0u) { stream << command(); }
+            else { extension->launch(exec.handle().handle, stream.handle()); }
+            stream << inout.copy_to(span{after}) << replacement.copy_to(span{readonly})
+                   << output.copy_to(span{actual}) << synchronize();
+            for (auto i = size_t{0u}; i < after.size(); i++) {
+                auto expected = before[i];
+                if (i >= offset && i < offset + count) { expected = next[i]; }
+                expect(bits(after[i]) == bits(expected));
+                expect(bits(readonly[i]) == bits(next[i]));
+            }
+            for (auto i = size_t{0u}; i < actual.size(); i++) {
+                auto expected = blank[i];
+                if (i >= offset && i < offset + count) { expected = before[i]; }
+                else if (i >= offset + count && i < offset + 2u * count) { expected = next[i - count]; }
+                expect(bits(actual[i]) == bits(expected)) << "snapshot word=" << i;
+            }
+        }
+    }
+}
+
+template<typename T>
+[[nodiscard]] T shifted_alias_value(size_t index, size_t generation) {
+    // Do not reuse value(): its period is eight, which would hide an incorrect
+    // streaming copy into a view shifted by exactly eight storage elements.
+    constexpr std::array<uint16_t, 8u> half_words{0u, 0x8000u, 0x7c00u, 0xfc00u, 1u, 0x8001u, 0x7bffu, 0xfbffu};
+    constexpr std::array<uint16_t, 8u> bfloat_words{0u, 0x8000u, 0x7f80u, 0xff80u, 1u, 0x8001u, 0x7f7fu, 0xff7fu};
+    if (index < 8u) {
+        if constexpr (std::is_same_v<T, half>) { return std::bit_cast<T>(half_words[(index + generation) % 8u]); }
+        else { return std::bit_cast<T>(bfloat_words[(index + generation) % 8u]); }
+    }
+    auto word = static_cast<uint16_t>((std::is_same_v<T, half> ? 0x2000u : 0x3e00u) +
+                                     (index * 37u + generation * 101u) % 0x0200u);
+    if ((index + generation) % 2u != 0u) { word |= 0x8000u; }
+    return std::bit_cast<T>(word);
+}
+
+template<typename T>
+void shifted_alias_snapshot(Device &device) {
+    using namespace tile;
+    constexpr auto count = size_t{64u}, total = size_t{208u};
+    auto kernel = tile_kernel("shifted_alias_snapshot", [](TensorView<const T, 1> input,
+                                                          TensorView<T, 1> output) {
+        // Exactly one program: there is no cross-program memory race. The
+        // immutable load is a complete snapshot before the overlapping store.
+        for (auto &program : parallel(shape(1))) {
+            static_cast<void>(program);
+            auto domain = shape(axis("element", 64));
+            auto snapshot = input.tile(coord(0), domain).load();
+            output.tile(coord(0), domain).store(snapshot);
+        }
+    }).capture(tensor_shape(count), tensor_shape(count));
+    auto original = compile(device, kernel, nullptr);
+    auto candidate = compile(device, kernel, "1");
+    check_source(original, candidate, 3u);
+    if (!original || !candidate) { return; }
+    expect(!original.metadata().disjoint_writes && !candidate.metadata().disjoint_writes)
+        << "alignment does not grant disjoint input/output arguments";
+    if (original.metadata().disjoint_writes || candidate.metadata().disjoint_writes) { return; }
+    auto first_view = candidate.metadata().source.find("ct::partition_view");
+    expect(first_view != string::npos) << "candidate did not realize a structured load";
+    if (first_view == string::npos) { return; }
+    expect(candidate.metadata().source.find("ct::partition_view", first_view + 1u) == string::npos);
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto *extension = device.extension<CudaGraphExt>();
+    LUISA_ASSERT(extension != nullptr, "CUDA graph extension is required.");
+    auto buffer = device.create_buffer<T>(total);
+    auto base = reinterpret_cast<uintptr_t>(buffer.native_handle());
+    expect((base & 15u) == 0u);
+    using Offsets = std::array<size_t, 2u>;
+    // First two layouts select the aligned entry with overlapping ranges in
+    // both directions. Last two exercise the unaligned original-entry fallback.
+    constexpr std::array layouts{Offsets{64u, 72u}, Offsets{72u, 64u},
+                                 Offsets{65u, 73u}, Offsets{73u, 65u}};
+    vector<T> before(total), expected(total), actual(total), original_result(total);
+    for (auto offsets : layouts) {
+        for (auto generation = 0u; generation < 2u; generation++) {
+            std::fill(before.begin(), before.end(), T{-719.5f});
+            for (auto i = size_t{0u}; i < count; i++) { before[offsets[0] + i] = shifted_alias_value<T>(i, generation); }
+            expected = before;
+            for (auto i = size_t{0u}; i < count; i++) { expected[offsets[1] + i] = before[offsets[0] + i]; }
+            auto aligned = offsets[0] % 8u == 0u;
+            expect(((base + offsets[0] * sizeof(T)) & 15u) == (aligned ? 0u : 2u));
+            expect(((base + offsets[1] * sizeof(T)) & 15u) == (aligned ? 0u : 2u));
+            for (auto shader : std::array{&original, &candidate}) {
+                auto command = [&] {
+                    return (*shader)(buffer.view(offsets[0], count), buffer.view(offsets[1], count)).dispatch();
+                };
+                stream << buffer.copy_from(span{before}) << command()
+                       << buffer.copy_to(span{actual}) << synchronize();
+                for (auto i = size_t{0u}; i < total; i++) {
+                    expect(bits(actual[i]) == bits(expected[i])) << "alias direct word=" << i;
+                }
+                if (shader == &original) { original_result = actual; }
+                else {
+                    for (auto i = size_t{0u}; i < total; i++) { expect(bits(actual[i]) == bits(original_result[i])); }
+                }
+                auto list = CommandList::create();
+                list << command();
+                auto graph = extension->create_graph(std::move(list.commit()).command_list());
+                LUISA_ASSERT(graph.handle().valid(), "Shifted alias graph creation failed.");
+                auto exec = extension->instantiate(graph.handle().handle);
+                LUISA_ASSERT(exec.handle().valid(), "Shifted alias graph instantiation failed.");
+                stream << buffer.copy_from(span{before}) << synchronize();
+                extension->launch(exec.handle().handle, stream.handle());
+                stream << buffer.copy_to(span{actual}) << synchronize();
+                for (auto i = size_t{0u}; i < total; i++) {
+                    expect(bits(actual[i]) == bits(expected[i])) << "alias graph word=" << i;
+                    expect(bits(actual[i]) == bits(original_result[i]));
+                }
+            }
+        }
+    }
+}
+
+
 void per_root_proof(Device &device) {
     using namespace tile;
     for (auto origin : {int64_t{32}, int64_t{1}, int64_t{-1}}) {
@@ -329,6 +584,12 @@ int main(int argc, char *argv[]) {
         rank_copy<tile::bfloat16, 3u>(device, 64, 3u);
         rank_copy<tile::bfloat16, 3u>(device, 33, 0u);
     };
-    "tile_cuda_alignment_per_root_proof"_test = [&] { per_root_proof(device); };
+    "tile_cuda_alignment_per_root_proof"_test = [&] {
+        per_root_proof(device);
+        snapshot_order<half>(device);
+        snapshot_order<tile::bfloat16>(device);
+        shifted_alias_snapshot<half>(device);
+        shifted_alias_snapshot<tile::bfloat16>(device);
+    };
     return 0;
 }
