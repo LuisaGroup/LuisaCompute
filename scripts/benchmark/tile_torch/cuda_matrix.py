@@ -287,7 +287,9 @@ def alignment_receipts(result, requested):
         aligned = bool(mask) and all(value == 0 for slot, value in enumerate(residues) if mask & (1 << slot))
         streaming = result.get("native_streaming", [])
         selected_streaming = len(streaming) == len(stages) and streaming[index].get("available") and streaming[index].get("static_ranges_disjoint")
-        require(receipt.get("expected_selected_entry") == ("luisa_tile_stream_scan" if selected_streaming else "luisa_tile_aligned16" if aligned else "luisa_tile_main"),
+        partition = result.get("native_program_partition", [])
+        selected_partition = len(partition) == len(stages) and partition[index].get("available") and partition[index].get("static_ranges_disjoint")
+        require(receipt.get("expected_selected_entry") == ("luisa_tile_partition" if selected_partition else "luisa_tile_stream_scan" if selected_streaming else "luisa_tile_aligned16" if aligned else "luisa_tile_main"),
                 "alignment selected entry mismatch")
     return receipts
 
@@ -448,9 +450,64 @@ def streaming_scan_receipts(result, requested=0):
     return receipts
 
 
+def validate_native_program_rows(rows, aligned16=False, worker_warps=0, scan_chunk=0,
+                                 independent_axis=0, streaming_scan=0, collective_cost=False):
+    require(type(rows) is int and rows in (0, 1, 2, 4), "invalid native program-rows request")
+    require(not rows or not any((aligned16, worker_warps, scan_chunk, independent_axis, streaming_scan, collective_cost)),
+            "native program-rows is mutually exclusive with other schedule experiments")
+
+
+def program_partition_receipts(result, requested=0):
+    validate_native_program_rows(requested)
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    receipts = result.get("native_program_partition")
+    if receipts is None and not requested:
+        require(all("program-partition-" not in stage.get("realization", "") for stage in stages), "missing program partition receipts")
+        return []
+    require(isinstance(receipts, list) and len(receipts) == len(stages), "missing per-stage program partition receipts")
+    for index, (receipt, stage) in enumerate(zip(receipts, stages)):
+        realization = stage.get("realization", "")
+        require(receipt.get("stage") == index and type(receipt.get("rows_requested")) is int and
+                receipt["rows_requested"] == requested, "program partition request/stage mismatch")
+        def values(name):
+            return re.findall(r"(?:^|[;\s])program-partition-" + name + r"=([0-9]+)(?=$|[;\s])", realization)
+        require(values("rows") == ([str(requested)] if requested else []), "program partition rows metadata mismatch")
+        available, disjoint = receipt.get("available"), receipt.get("static_ranges_disjoint")
+        require(type(available) is bool and type(disjoint) is bool and
+                available == ("; program-partition-available;" in realization), "invalid program partition availability")
+        require(not disjoint or available, "program partition disjoint receipt without candidate")
+        fields = ("input_slot", "output_slot", "input_bytes", "output_bytes", "original_rows", "grid_x", "original_grid_x")
+        for field in fields:
+            value = receipt.get(field)
+            if available:
+                require(type(value) is int and value >= (0 if field.endswith("slot") else 1) and
+                        values(field.replace("_", "-")) == [str(value)], "program partition static metadata mismatch")
+            else:
+                require(type(value) is int and value == 0 and not values(field.replace("_", "-")), "unavailable partition contains plan metadata")
+        if available:
+            require(requested > 0 and receipt["input_slot"] != receipt["output_slot"] and
+                    receipt["original_rows"] > requested and receipt["original_rows"] % requested == 0 and
+                    receipt["grid_x"] >= receipt["original_grid_x"], "invalid program partition geometry")
+        original_grid, selected_grid = receipt.get("original_grid"), receipt.get("expected_selected_grid")
+        require(isinstance(original_grid, list) and len(original_grid) == 3 and
+                all(type(x) is int and x > 0 for x in original_grid), "missing original partition launch grid")
+        require(isinstance(selected_grid, list) and len(selected_grid) == 3 and
+                all(type(x) is int and x > 0 for x in selected_grid), "missing selected partition launch grid")
+        selected = available and disjoint
+        if available:
+            require(original_grid == [receipt["original_grid_x"], 1, 1], "program partition original grid mismatch")
+        require(selected_grid == ([receipt["grid_x"], 1, 1] if selected else original_grid),
+                "program partition selected grid mismatch")
+        require((receipt.get("expected_selected_entry") == "luisa_tile_partition") == selected,
+                "program partition expected entry mismatch")
+        if requested:
+            require(selected, "program partition calibration did not select an available disjoint candidate")
+    return receipts
+
+
 def route_environment(environment, route, native_aligned16=False, native_worker_warps=0,
                       native_scan_chunk=0, native_independent_axis=0, native_streaming_scan=0,
-                      native_collective_cost=False):
+                      native_collective_cost=False, native_program_rows=0):
     # Never inherit experimental specialization into a control or another
     # route. Only an explicit native request may set the exact opt-in value.
     result = dict(environment)
@@ -461,6 +518,9 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
     result.pop("LUISA_CUDA_TILE_INDEPENDENT_AXIS", None)
     result.pop("LUISA_CUDA_TILE_STREAMING_SCAN", None)
     result.pop("LUISA_CUDA_TILE_COLLECTIVE_COST", None)
+    result.pop("LUISA_CUDA_TILE_PROGRAM_ROWS", None)
+    validate_native_program_rows(native_program_rows, native_aligned16, native_worker_warps,
+                                 native_scan_chunk, native_independent_axis, native_streaming_scan, native_collective_cost)
     validate_native_collective_cost(native_collective_cost, native_aligned16, native_worker_warps,
                                     native_scan_chunk, native_independent_axis, native_streaming_scan)
     validate_native_structure(native_scan_chunk, native_independent_axis, native_streaming_scan)
@@ -479,6 +539,8 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
             result["LUISA_CUDA_TILE_STREAMING_SCAN"] = str(native_streaming_scan)
         if native_collective_cost:
             result["LUISA_CUDA_TILE_COLLECTIVE_COST"] = "1"
+        if native_program_rows:
+            result["LUISA_CUDA_TILE_PROGRAM_ROWS"] = str(native_program_rows)
     return result
 
 
@@ -564,7 +626,14 @@ def native_result(process, path, row, args, route):
     structure_receipts = []
     streaming_receipts = []
     cost_receipts = []
+    partition_receipts = []
     if result["status"] == "passed":
+        program_rows = getattr(args, "native_program_rows", 0) if route == "native" else 0
+        validate_native_program_rows(program_rows, getattr(args, "native_aligned16", False),
+            getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
+            getattr(args, "native_independent_axis", 0), getattr(args, "native_streaming_scan", 0),
+            getattr(args, "native_collective_cost", False))
+        partition_receipts = program_partition_receipts(result, program_rows)
         cost_requested = getattr(args, "native_collective_cost", False) if route == "native" else False
         validate_native_collective_cost(cost_requested, getattr(args, "native_aligned16", False),
             getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
@@ -637,7 +706,7 @@ def native_result(process, path, row, args, route):
     return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts,
                 generated_sources=generated_sources,
                 native_worker_warps=worker_receipts, native_structure=structure_receipts, native_streaming=streaming_receipts,
-                native_collective_cost=cost_receipts)
+                native_collective_cost=cost_receipts, native_program_partition=partition_receipts)
 
 
 def torch_result(process, path, row, args):
@@ -714,6 +783,8 @@ def main(argv=None):
     parser.add_argument("--native-only", action="store_true", help="calibration only: run the native route, omit Torch entirely and report no Torch comparison")
     parser.add_argument("--native-streaming-scan", type=int, choices=(0, 1024, 2048), default=0,
                         help="native streaming prefix chunk; requires a proved disjoint available candidate")
+    parser.add_argument("--native-program-rows", type=int, choices=(0, 1, 2, 4), default=0,
+                        help="independent rows per native reduction program; requires a proved disjoint candidate")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -731,6 +802,9 @@ def main(argv=None):
     validate_native_collective_cost(args.native_collective_cost, args.native_aligned16, args.native_worker_warps,
                                     args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
     validate_native_structure(args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
+    validate_native_program_rows(args.native_program_rows, args.native_aligned16, args.native_worker_warps,
+                                 args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
+                                 args.native_collective_cost)
     require(not args.native_only or args.routes == "native", "--native-only requires --routes native")
     rows = selected_cases(args)
     if args.list_cases:
@@ -764,7 +838,7 @@ def main(argv=None):
     environment = os.environ.copy()
     removed = {}
     for key in list(environment):
-        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN", "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
+        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN", "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
             removed[key] = environment.pop(key)
     overrides = {"LUISA_SIMD_WORKER_COUNT": str(args.threads), "LUISA_SIMD_WARP_WIDTH": "8", "OPENBLAS_NUM_THREADS": str(args.threads),
                  "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads), "GOTO_NUM_THREADS": str(args.threads),
@@ -780,6 +854,8 @@ def main(argv=None):
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h",
                ROOT / "include/luisa/tile/collective_plan.h", ROOT / "src/tile/collective_plan.cpp",
                ROOT / "include/luisa/tile/collective_cost.h", ROOT / "src/tile/collective_cost.cpp",
+               ROOT / "include/luisa/tile/collective_partition.h", ROOT / "src/tile/collective_partition.cpp",
+               ROOT / "src/backends/cuda/tile/cuda_tile_partition_codegen.h",
                ROOT / "src/backends/cuda/tile/cuda_tile_collective_cost.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
@@ -840,7 +916,7 @@ def main(argv=None):
                         command += ["--graph-batch", args.graph_batch]
                     child_environment = route_environment(environment, route, args.native_aligned16, args.native_worker_warps,
                                                           args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
-                                                          args.native_collective_cost)
+                                                          args.native_collective_cost, args.native_program_rows)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
@@ -854,10 +930,11 @@ def main(argv=None):
                     item["runs"][route]["native_independent_axis_requested"] = args.native_independent_axis if route == "native" else 0
                     item["runs"][route]["native_streaming_scan_requested"] = args.native_streaming_scan if route == "native" else 0
                     item["runs"][route]["native_collective_cost_requested"] = route == "native" and args.native_collective_cost
+                    item["runs"][route]["native_program_rows_requested"] = args.native_program_rows if route == "native" else 0
                     item["runs"][route]["environment_overrides"] = {
                         key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS",
                                                                "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN",
-                                                               "LUISA_CUDA_TILE_COLLECTIVE_COST") if key in child_environment}
+                                                               "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:

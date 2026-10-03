@@ -706,9 +706,12 @@ luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "u
 luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_collective_plan unit/tile/test_tile_collective_plan.cpp LABELS "unit;unit_tile")
 target_link_libraries(test_tile_collective_plan PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_collective_partition unit/tile/test_tile_collective_partition.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_collective_partition PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_cuda_collective_codegen unit/tile/test_tile_cuda_collective_codegen.cpp LABELS "unit;unit_tile")
 target_sources(test_tile_cuda_collective_codegen PRIVATE
         ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_partition_codegen.cpp
         ../backends/cuda/tile/cuda_tile_streaming_scan.cpp
         ../backends/cuda/tile/cuda_tile_streaming_scan_codegen.cpp)
 target_include_directories(test_tile_cuda_collective_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
@@ -1600,6 +1603,9 @@ endif ()
           luisa_compute_add_test(test_tile_cuda_streaming_scan unit/tile/test_tile_cuda_streaming_scan.cpp)
           target_link_libraries(test_tile_cuda_streaming_scan PRIVATE luisa-compute-tile CUDA::cuda_driver)
           add_dependencies(test_tile_cuda_streaming_scan luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+          luisa_compute_add_test(test_tile_cuda_program_partition unit/tile/test_tile_cuda_program_partition.cpp)
+          target_link_libraries(test_tile_cuda_program_partition PRIVATE luisa-compute-tile CUDA::cuda_driver)
+          add_dependencies(test_tile_cuda_program_partition luisa-compute-backend-cuda luisa-cuda-tile-compiler)
           target_compile_definitions(test_tile_cuda_ir PRIVATE LUISA_TEST_CUDA_TILE_IR_ENABLED=1)
           add_dependencies(test_tile_cuda_ir luisa-cuda-tile-compiler)
           add_dependencies(test_tile_cuda_alignment luisa-cuda-tile-compiler)

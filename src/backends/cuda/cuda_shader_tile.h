@@ -19,9 +19,9 @@ class CUDADevice;
 // A statically shaped, direct-buffer Tile shader launched on CUDA.
 //
 // Unlike the ordinary DSL CUDAShaderNative, a Tile device artifact has:
-//   * one device entry whose parameters are plain typed buffer pointers
+//   * device entries whose parameters are plain typed buffer pointers
 //     (no trailing uint4 launch-size parameter, no cudadevrt/kernel_launcher),
-//   * a static grid/block configuration carried by the artifact, and
+//   * a static grid/block configuration for each entry, and
 //   * a device binding order that may differ from the original host argument
 //     order (buffer_arguments[device_slot] -> host parameter index).
 //
@@ -30,6 +30,13 @@ class CUDADevice;
 // offset), the exact by-value parameter the generated CUDA kernel expects.
 class CUDAShaderTile final : public CUDAShader {
 
+public:
+    struct Launch {
+        CUfunction function;
+        std::array<uint32_t, 3u> grid;
+        uint3 block;
+    };
+
 private:
     CUmodule _module{};
     CUfunction _function{};
@@ -37,6 +44,9 @@ private:
     uint32_t _aligned16_buffer_mask{0u};
     CUfunction _streaming_scan_function{};
     native_tile::StreamingScanGuard _streaming_scan_guard{};
+    CUfunction _partition_function{};
+    std::array<uint32_t, 3u> _partition_grid{1u, 1u, 1u};
+    native_tile::StreamingScanGuard _partition_guard{};
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
@@ -69,7 +79,10 @@ public:
                    CUfunction aligned16_function = nullptr,
                    uint32_t aligned16_buffer_mask = 0u,
                    CUfunction streaming_scan_function = nullptr,
-                   native_tile::StreamingScanGuard streaming_scan_guard = {}) noexcept;
+                   native_tile::StreamingScanGuard streaming_scan_guard = {},
+                   CUfunction partition_function = nullptr,
+                   std::array<uint32_t, 3u> partition_grid = {1u, 1u, 1u},
+                   native_tile::StreamingScanGuard partition_guard = {}) noexcept;
     ~CUDAShaderTile() noexcept override;
     [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
     [[nodiscard]] bool is_tile() const noexcept override { return true; }
@@ -80,7 +93,9 @@ public:
                                               luisa::span<CUdeviceptr> pointers) const noexcept;
     // Select only after argument reordering and BufferView offsets are encoded.
     // The generic handle/entry remain the safe, unspecialized function.
-    [[nodiscard]] CUfunction select_entry(luisa::span<const CUdeviceptr> pointers) const noexcept;
+    // Function and geometry are one decision: an alias fallback must restore
+    // the original grid as well as the original function.
+    [[nodiscard]] Launch select_launch(luisa::span<const CUdeviceptr> pointers) const noexcept;
     [[nodiscard]] void *handle() const noexcept override { return _function; }
     [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
     [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }

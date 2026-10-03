@@ -2,6 +2,7 @@
 #include "cuda_tile_codegen.h"
 #include "cuda_tile_streaming_scan.h"
 #include "cuda_tile_collective_cost.h"
+#include "cuda_tile_partition_codegen.h"
 #include <array>
 #include <cmath>
 #include <bit>
@@ -502,6 +503,174 @@ void test_native_collective_schedule_gates() {
 }
 }// namespace
 
+namespace {
+template<typename T>
+[[nodiscard]] luisa::compute::tile::Kernel capture_partition_source(int64_t rows, int64_t columns,
+                                                                    int64_t block_rows, bool maximum,
+                                                                    bool masked = false, bool transposed = false,
+                                                                    bool epilogue = false) {
+    using namespace luisa::compute::tile;
+    auto width = static_cast<int64_t>(std::bit_ceil(static_cast<uint64_t>(columns)));
+    return tile_kernel("independent_program_geometry", [=](TensorView<const T, 2> input, TensorView<T, 2> output) {
+               auto r = axis("unrelated_rows", block_rows), c = axis("unrelated_contributions", width);
+               for (auto &p : parallel(shape((rows + block_rows - 1) / block_rows))) {
+                   auto row = p.index() * block_rows;
+                   auto x = cast<float>(input.tile(transposed ? coord(0, row) : coord(row, 0),
+                                                   transposed ? shape(c, r) : shape(r, c))
+                                            .load());
+                   if (masked) { x = ite(iota(c) < columns, x, maximum ? -std::numeric_limits<float>::infinity() : 0.0f); }
+                   auto y = maximum ? reduce(x, c, luisa::compute::tile::maximum) : reduce(x, c, add);
+                   if (epilogue) { y = y + 1.0f; }
+                   auto single = axis("output_singleton", 1);
+                   output(transposed ? coord(0, row) : coord(row, 0),
+                          transposed ? shape(single, r) : shape(r, single))
+                       .store(cast<T>(y));
+               }
+           })
+        .capture(transposed ? tensor_shape(columns, rows) : tensor_shape(rows, columns), transposed ? tensor_shape(1, rows) : tensor_shape(rows, 1));
+}
+
+void test_native_program_partition_sources() {
+    using namespace luisa;
+    using namespace luisa::compute;
+    using namespace luisa::compute::cuda::native_tile;
+    using namespace boost::ut;
+    auto check = []<typename T>() {
+        for (auto old_rows : {int64_t{4}, int64_t{8}}) {
+            for (auto geometry : {std::array<int64_t, 2>{16, 64}, std::array<int64_t, 2>{17, 33}}) {
+                auto rows = geometry[0u], columns = geometry[1u];
+                for (auto maximum : {false, true}) {
+                    for (auto masked : {false, true}) {
+                        auto kernel = capture_partition_source<T>(rows, columns, old_rows, maximum, masked);
+                        expect(kernel.valid());
+                        if (!kernel.valid()) { continue; }
+                        for (auto fast : {false, true}) {
+                            auto original = generate(kernel.function(), fast);
+                            expect(original.ok()) << original.error;
+                            if (!original.ok()) { continue; }
+                            auto disabled = original;
+                            append_program_partition(disabled, kernel.function(), 0u);
+                            expect(disabled.source == original.source);
+                            expect(disabled.partition_entry.empty() && disabled.partition_diagnostic.empty());
+                            expect(disabled.grid == original.grid && disabled.block == original.block);
+                            for (auto target : {1u, 2u, 4u}) {
+                                if (target >= static_cast<uint32_t>(old_rows)) { continue; }
+                                auto candidate = original;
+                                append_program_partition(candidate, kernel.function(), target);
+                                expect(candidate.ok()) << candidate.error;
+                                expect(candidate.partition_diagnostic.empty()) << candidate.partition_diagnostic;
+                                expect(candidate.partition_entry == "luisa_tile_partition");
+                                if (candidate.partition_entry.empty()) { continue; }
+                                auto plan = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = target});
+                                expect(plan.ok()) << plan.error;
+                                expect(candidate.source.starts_with(original.source + '\n'));
+                                expect(candidate.partition_source_offset == original.source.size());
+                                expect(candidate.entry == original.entry);
+                                expect(candidate.grid == original.grid && candidate.block == original.block);
+                                expect(candidate.partition_rows == target);
+                                expect(candidate.partition_original_rows == static_cast<uint32_t>(old_rows));
+                                auto programs = static_cast<uint32_t>((rows + target - 1u) / target);
+                                expect(candidate.partition_grid == std::array<uint32_t, 3>{programs, 1u, 1u});
+                                expect(candidate.partition_grid[0u] == plan.candidate.programs);
+                                expect(candidate.grid[0u] == plan.original.programs);
+                                expect(candidate.arguments.size() == original.arguments.size());
+                                for (auto i = size_t{0}; i < original.arguments.size(); i++) {
+                                    auto a = candidate.arguments[i], b = original.arguments[i];
+                                    expect(a.element == b.element && a.minimum_size_bytes == b.minimum_size_bytes && a.read == b.read && a.written == b.written);
+                                }
+                                auto guard = candidate.partition_guard;
+                                expect(guard.input_slot == 0u && guard.output_slot == 1u);
+                                expect(guard.input_bytes == static_cast<uint64_t>(rows * columns) * sizeof(T));
+                                expect(guard.output_bytes == static_cast<uint64_t>(rows) * sizeof(T));
+                                auto extra = candidate.source.substr(original.source.size());
+                                expect(chunk_scan_occurrences(extra, "ct::sum(") == (maximum ? 0u : 1u));
+                                expect(chunk_scan_occurrences(extra, "ct::reduce_max(") == (maximum ? 1u : 0u));
+                                expect(chunk_scan_occurrences(extra, "ct::add(0.0f,") == (maximum ? 0u : 1u));
+                                expect(chunk_scan_occurrences(extra, "ct::max(identity,") == (maximum ? 1u : 0u));
+                                expect(chunk_scan_occurrences(extra, "input = ct::select(column <") == (masked ? 1u : 0u));
+                                expect(extra.find(format("ct::shape<{}, 64>", target)) != string::npos);
+                                expect(extra.find(format("ct::bid().x) * {}ll", target)) != string::npos);
+                                auto full_rows = rows % target == 0;
+                                auto full_input = full_rows && columns == 64;
+                                expect(chunk_scan_occurrences(extra, "ct::load(") == static_cast<size_t>(full_input));
+                                expect(chunk_scan_occurrences(extra, "ct::load_masked(") == static_cast<size_t>(!full_input));
+                                expect(chunk_scan_occurrences(extra, "ct::store(") == static_cast<size_t>(full_rows));
+                                expect(chunk_scan_occurrences(extra, "ct::store_masked(") == static_cast<size_t>(!full_rows));
+                                expect(extra.find("ct::assume_aligned<") == string::npos);
+                                expect(extra.find("ct::round_subnormals_to_zero") == string::npos);
+                                expect(extra.find("ct::extract(") == string::npos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    check.template operator()<float>();
+    check.template operator()<half>();
+    check.template operator()<tile::bfloat16>();
+}
+
+void test_native_program_partition_fallbacks() {
+    using namespace luisa;
+    using namespace luisa::compute;
+    using namespace luisa::compute::cuda::native_tile;
+    using namespace boost::ut;
+    auto reject = [](const tile::Kernel &kernel, Artifact original, uint32_t target) {
+        auto before = original.source;
+        auto grid = original.grid;
+        append_program_partition(original, kernel.function(), target);
+        expect(original.ok()) << original.error;
+        expect(original.source == before && original.grid == grid);
+        expect(original.partition_entry.empty());
+        expect(!original.partition_diagnostic.empty());
+    };
+    auto kernel = capture_partition_source<float>(17, 33, 4, false);
+    auto original = generate(kernel.function());
+    expect(original.ok()) << original.error;
+    if (!original.ok()) { return; }
+    for (auto target : {3u, 4u, 8u}) { reject(kernel, original, target); }
+    for (auto old_rows : {int64_t{1}, int64_t{2}}) {
+        auto narrow = capture_partition_source<float>(17, 33, old_rows, false);
+        reject(narrow, generate(narrow.function()), 1u);
+    }
+    auto transposed = capture_partition_source<float>(17, 33, 4, false, false, true);
+    auto transposed_plan = tile::plan_independent_collective(transposed.function());
+    expect(transposed_plan.ok()) << transposed_plan.error;
+    reject(transposed, generate(transposed.function()), 1u);
+    auto epilogue = capture_partition_source<float>(17, 33, 4, false, false, false, true);
+    reject(epilogue, generate(epilogue.function()), 1u);
+    for (auto changed : {0u, 1u, 2u, 3u, 4u}) {
+        auto invalid = original;
+        switch (changed) {
+            case 0u: invalid.grid[0u]++; break;
+            case 1u: invalid.arguments[0u].minimum_size_bytes--; break;
+            case 2u: invalid.arguments[1u].read = true; break;
+            case 3u: invalid.scan_chunk_extent = 1024u; break;
+            case 4u: invalid.aligned16_entry = "independent_existing_entry"; break;
+        }
+        reject(kernel, std::move(invalid), 1u);
+    }
+    auto candidate = original;
+    append_program_partition(candidate, kernel.function(), 1u);
+    expect(!candidate.partition_entry.empty()) << candidate.partition_diagnostic;
+    auto guard = candidate.partition_guard;
+    auto disjoint = [&](uint64_t input, uint64_t output) {
+        std::array<uint64_t, 2> pointers{input, output};
+        return streaming_scan_disjoint(guard, span<const uint64_t>{pointers});
+    };
+    expect(disjoint(4096u, 4096u + guard.input_bytes));
+    expect(disjoint(4096u + guard.output_bytes, 4096u));
+    expect(!disjoint(4096u, 4096u + guard.input_bytes - 1u));
+    expect(!disjoint(4096u + guard.output_bytes - 1u, 4096u));
+    expect(!disjoint(4096u, 4096u));
+    expect(!disjoint(0u, 65536u));
+    expect(!disjoint(std::numeric_limits<uint64_t>::max() - guard.input_bytes + 1u, 4096u));
+    expect(!disjoint(4096u, std::numeric_limits<uint64_t>::max() - guard.output_bytes + 1u));
+    expect(!streaming_scan_disjoint(guard, span<const uint64_t>{}));
+}
+}// namespace
+
 int main(int argc, char *argv[]) {
     using namespace boost::ut;
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
@@ -511,4 +680,6 @@ int main(int argc, char *argv[]) {
     "tile_cuda_streaming_scan_plan"_test = [] { test_native_streaming_scan_plan(); };
     "tile_cuda_collective_schedule_parity"_test = [] { test_native_collective_schedule_parity(); };
     "tile_cuda_collective_schedule_gates"_test = [] { test_native_collective_schedule_gates(); };
+    "tile_cuda_program_partition_sources"_test = [] { test_native_program_partition_sources(); };
+    "tile_cuda_program_partition_fallbacks"_test = [] { test_native_program_partition_fallbacks(); };
 }

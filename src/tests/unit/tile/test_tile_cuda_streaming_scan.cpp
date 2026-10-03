@@ -274,6 +274,7 @@ int main(int argc, char *argv[]) {
     Environment aligned{"LUISA_CUDA_TILE_IR_ALIGNED16", "0"};
     Environment pure{"LUISA_CUDA_TILE_SCAN_CHUNK", "0"};
     Environment independent{"LUISA_CUDA_TILE_INDEPENDENT_AXIS", "0"};
+    Environment partition{"LUISA_CUDA_TILE_PROGRAM_ROWS", "0"};
     std::vector<const char *> args{argv[0]};
     for (auto i = 2; i < argc; i++) {
         if (argv[i] == nullptr) { return 2; }

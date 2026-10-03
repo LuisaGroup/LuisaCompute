@@ -1592,6 +1592,23 @@ calibration. They remain explicit diagnostic candidates and are rejected for
 automatic selection; reducing a logical intermediate does not establish a
 physical register reduction or a runtime benefit.
 
+`--native-program-rows 1` (or `2` / `4`) requests
+`LUISA_CUDA_TILE_PROGRAM_ROWS`, a separate independent-program partition
+experiment. The shared Tile IR planner proves independent ownership, reduction
+closure, identity padding, complete coverage and exact root-view intervals.
+The initial CUDA realization admits contiguous FP32/FP16/BF16 SUM/MAXIMUM with
+original tiles of 4 or 8 rows and a strictly smaller divisor. It appends a
+separate entry with its own grid; overlapping final input/output intervals and
+unavailable optional compilation retain the original entry and grid together.
+Direct dispatch and CUDA Graph construction/update share the same launch
+selector. Calibration requires actual host bindings to select the candidate,
+records both grids, and never labels an unavailable or alias fallback as a
+partition timing. The receipts are host selection evidence; the GPU regression
+test additionally inspects real graph CUfunction/grid and verifies alias
+snapshots and graph updates. This experiment is off by default and mutually
+exclusive with other schedule experiments. Its logical work facts are not
+physical register or occupancy measurements.
+
 `--native-collective-cost` enables `LUISA_CUDA_TILE_COLLECTIVE_COST=1`, a
 default-disabled experimental worker-hint profile. A shared Tile IR feature
 extractor and bounded decision-tree evaluator use logical collective work;

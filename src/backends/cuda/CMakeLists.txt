@@ -38,6 +38,7 @@ if (CUDAToolkit_FOUND)
               cuda_shader_tile.cpp cuda_shader_tile.h
               tile/cuda_tile.cpp tile/cuda_tile.h
               tile/cuda_tile_codegen.cpp tile/cuda_tile_codegen.h
+              tile/cuda_tile_partition_codegen.cpp tile/cuda_tile_partition_codegen.h
               tile/cuda_tile_streaming_scan.cpp tile/cuda_tile_streaming_scan.h
               tile/cuda_tile_streaming_scan_codegen.cpp tile/cuda_tile_streaming_guard.h
               tile/cuda_tile_ir.cpp tile/cuda_tile_ir.h

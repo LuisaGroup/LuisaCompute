@@ -556,6 +556,7 @@ int run(int argc, char *argv[]) {
     };
     std::string native_alignment_receipts;
     std::string native_streaming_receipts;
+    std::string native_partition_receipts;
     if (options.backend == "cuda" && options.lowering == "native") {
         // Inspect the actual command binding order, including BufferView byte
         // offsets. Record only pointer residues, never device addresses. This
@@ -578,8 +579,10 @@ int run(int argc, char *argv[]) {
         LUISA_ASSERT(commands.size() == shaders.size(), "Alignment receipts require one command per stage.");
         std::ostringstream receipt;
         std::ostringstream streaming_receipt;
+        std::ostringstream partition_receipt;
         receipt << '[';
         streaming_receipt << '[';
+        partition_receipt << '[';
         for (auto stage = size_t{0u}; stage < shaders.size(); stage++) {
             auto command = static_cast<const ShaderDispatchCommand *>(commands[stage].get());
             auto args = command->arguments();
@@ -635,6 +638,48 @@ int run(int argc, char *argv[]) {
             }
             auto selected = available && disjoint ? "luisa_tile_stream_scan" : aligned ? "luisa_tile_aligned16" :
                                                                                          "luisa_tile_main";
+            auto partition_rows = fact("program-partition-rows=");
+            auto partition_available = realization.find("; program-partition-available;") != string_view::npos;
+            auto partition_input_slot = fact("program-partition-input-slot="), partition_output_slot = fact("program-partition-output-slot=");
+            auto partition_input_bytes = fact("program-partition-input-bytes="), partition_output_bytes = fact("program-partition-output-bytes=");
+            auto partition_original_rows = fact("program-partition-original-rows=");
+            auto partition_grid = fact("program-partition-grid-x="), partition_original_grid = fact("program-partition-original-grid-x=");
+            auto partition_disjoint = false;
+            auto default_grid = shaders[stage].metadata().dispatch_size;
+            if (partition_available) {
+                LUISA_ASSERT(partition_input_slot < pointers.size() && partition_output_slot < pointers.size() &&
+                                 partition_input_slot != partition_output_slot && partition_input_bytes > 0u && partition_output_bytes > 0u &&
+                                 partition_input_bytes <= args[partition_input_slot].buffer.size &&
+                                 partition_output_bytes <= args[partition_output_slot].buffer.size &&
+                                 partition_original_grid == default_grid.x && default_grid.y == 1u && default_grid.z == 1u &&
+                                 partition_grid > 0u && partition_grid <= UINT32_MAX,
+                             "Invalid program partition view/grid metadata.");
+                auto input = pointers[partition_input_slot], output_pointer = pointers[partition_output_slot];
+                partition_disjoint = input != 0u && output_pointer != 0u &&
+                                     partition_input_bytes <= std::numeric_limits<uint64_t>::max() - input &&
+                                     partition_output_bytes <= std::numeric_limits<uint64_t>::max() - output_pointer &&
+                                     (input + partition_input_bytes <= output_pointer || output_pointer + partition_output_bytes <= input);
+            }
+            auto selected_grid = default_grid;
+            if (partition_available && partition_disjoint) {
+                selected = "luisa_tile_partition";
+                selected_grid = make_uint3(static_cast<uint32_t>(partition_grid), 1u, 1u);
+            }
+            if (stage != 0u) { partition_receipt << ','; }
+            partition_receipt << "{\"stage\":" << stage << ",\"rows_requested\":" << partition_rows
+                              << ",\"available\":" << (partition_available ? "true" : "false")
+                              << ",\"input_slot\":" << partition_input_slot << ",\"output_slot\":" << partition_output_slot
+                              << ",\"input_bytes\":" << partition_input_bytes << ",\"output_bytes\":" << partition_output_bytes
+                              << ",\"original_rows\":" << partition_original_rows << ",\"grid_x\":" << partition_grid
+                              << ",\"original_grid_x\":" << partition_original_grid
+                              << ",\"static_ranges_disjoint\":" << (partition_disjoint ? "true" : "false")
+                              << ",\"original_grid\":";
+            array(partition_receipt, std::array{default_grid.x, default_grid.y, default_grid.z});
+            partition_receipt << ",\"expected_selected_grid\":";
+            array(partition_receipt, std::array{selected_grid.x, selected_grid.y, selected_grid.z});
+            partition_receipt << ",\"expected_selected_entry\":";
+            quoted(partition_receipt, selected);
+            partition_receipt << '}';
             if (stage != 0u) { streaming_receipt << ','; }
             streaming_receipt << "{\"stage\":" << stage << ",\"chunk_requested\":" << chunk
                               << ",\"available\":" << (available ? "true" : "false")
@@ -654,8 +699,10 @@ int run(int argc, char *argv[]) {
         }
         receipt << ']';
         streaming_receipt << ']';
+        partition_receipt << ']';
         native_alignment_receipts = receipt.str();
         native_streaming_receipts = streaming_receipt.str();
+        native_partition_receipts = partition_receipt.str();
     }
     auto batch = [&](uint64_t repetitions, bool instrumented, double &device_ms) {
         stream.synchronize();
@@ -876,6 +923,10 @@ int run(int argc, char *argv[]) {
     if (!native_streaming_receipts.empty()) {
         out << ",\"native_streaming\":" << native_streaming_receipts
             << ",\"native_streaming_evidence\":\"actual command BufferView pointers and proved static touched ranges; expected shared live/graph host selection, not device trace\"";
+    }
+    if (!native_partition_receipts.empty()) {
+        out << ",\"native_program_partition\":" << native_partition_receipts
+            << ",\"native_program_partition_evidence\":\"actual command BufferView pointers and proved static ranges; expected shared host entry/grid selection, not device trace\"";
     }
     pipeline_metadata(out, fixture);
     if (!fixture.pipeline_widths.empty()) {

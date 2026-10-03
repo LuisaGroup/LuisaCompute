@@ -26,6 +26,7 @@
 #include "cuda_tile.h"
 #include "cuda_tile_codegen.h"
 #include "cuda_tile_streaming_scan.h"
+#include "cuda_tile_partition_codegen.h"
 #include "cuda_tile_ir.h"
 #include "../cuda_buffer.h"
 #include "../cuda_device.h"
@@ -642,6 +643,19 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     if (scan_chunk_extent != 0u && independent_axis_extent != 0u) {
         return fail("CUDA Tile collective calibration permits only one structural transform at a time");
     }
+    auto program_rows = 0u;
+    if (auto rows = luisa::get_environment_variable("LUISA_CUDA_TILE_PROGRAM_ROWS")) {
+        auto value = luisa::string_view{*rows};
+        if (value == "1" || value == "2" || value == "4") {
+            program_rows = static_cast<uint32_t>(value.front() - '0');
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_PROGRAM_ROWS requires 0, 1, 2 or 4");
+        }
+    }
+    if (program_rows != 0u && (worker_warps != 0u || scan_chunk_extent != 0u ||
+                               independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested)) {
+        return fail("CUDA Tile program partition must be measured separately from explicit schedule hints");
+    }
     auto collective_cost_requested = false;
     if (auto cost = luisa::get_environment_variable("LUISA_CUDA_TILE_COLLECTIVE_COST")) {
         auto value = luisa::string_view{*cost};
@@ -652,7 +666,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         }
     }
     if (collective_cost_requested && (worker_warps != 0u || scan_chunk_extent != 0u ||
-                                      independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested)) {
+                                      independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested || program_rows != 0u)) {
         return fail("CUDA Tile collective cost experiment must be measured separately from explicit schedule hints");
     }
     auto collective_work = tile::analyze_collective_work(kernel);
@@ -674,6 +688,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     if (!artifact.ok()) { return fail(artifact.error); }
     native_tile::append_streaming_scan(artifact, kernel, streaming_scan_chunk,
                                        worker_warps, _handle.compute_capability());
+    native_tile::append_program_partition(artifact, kernel, program_rows);
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
@@ -691,6 +706,9 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     }
     if (streaming_scan_chunk != 0u) {
         metadata.realization += luisa::format("; streaming-scan-chunk={}", streaming_scan_chunk);
+    }
+    if (program_rows != 0u) {
+        metadata.realization += luisa::format("; program-partition-rows={}", program_rows);
     }
     if (artifact.scan_chunk_extent != 0u) {
         metadata.realization += luisa::format("; scan-chunk={}; chunked-scans={}",
@@ -736,21 +754,34 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         bindings.emplace_back(i);
     }
     auto restore_original = [&](luisa::string_view diagnostic) noexcept {
-        LUISA_ASSERT(!artifact.streaming_scan_entry.empty() &&
-                         artifact.streaming_scan_source_offset < metadata.source.size(),
-                     "Streaming fallback lost the original source prefix.");
-        metadata.source.resize(artifact.streaming_scan_source_offset);
-        artifact.streaming_scan_entry.clear();
-        artifact.streaming_scan_guard = {};
-        artifact.streaming_scan_diagnostic.assign(diagnostic.data(), diagnostic.size());
+        if (!artifact.partition_entry.empty()) {
+            LUISA_ASSERT(artifact.streaming_scan_entry.empty() && artifact.partition_source_offset < metadata.source.size(),
+                         "Program partition fallback lost the original source prefix.");
+            metadata.source.resize(artifact.partition_source_offset);
+            artifact.partition_entry.clear();
+            artifact.partition_guard = {};
+            artifact.partition_grid = {1u, 1u, 1u};
+            artifact.partition_original_rows = 0u;
+            artifact.partition_diagnostic.assign(diagnostic.data(), diagnostic.size());
+        } else {
+            LUISA_ASSERT(!artifact.streaming_scan_entry.empty() &&
+                             artifact.streaming_scan_source_offset < metadata.source.size(),
+                         "Streaming fallback lost the original source prefix.");
+            metadata.source.resize(artifact.streaming_scan_source_offset);
+            artifact.streaming_scan_entry.clear();
+            artifact.streaming_scan_guard = {};
+            artifact.streaming_scan_diagnostic.assign(diagnostic.data(), diagnostic.size());
+        }
     };
+    auto has_optional_entry = [&]() noexcept { return !artifact.streaming_scan_entry.empty() || !artifact.partition_entry.empty(); };
     auto compile_source = [&]() noexcept {
         return compile_native_tile_ir(context().runtime_directory(), metadata.source,
                                       _handle.compute_capability(), option.enable_debug_info);
     };
     auto binary = compile_source();
-    if (!binary.valid() && !artifact.streaming_scan_entry.empty()) {
-        auto diagnostic = luisa::format("optional streaming compilation failed: {}", binary.error);
+    if (!binary.valid() && has_optional_entry()) {
+        auto diagnostic = luisa::format("optional {} compilation failed: {}",
+                                        artifact.partition_entry.empty() ? "streaming" : "program partition", binary.error);
         restore_original(diagnostic);
         binary = compile_source();
     }
@@ -790,14 +821,26 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 return nullptr;
             }
         }
+        CUfunction partition_function{};
+        if (!artifact.partition_entry.empty()) {
+            status = cuModuleGetFunction(&partition_function, module, artifact.partition_entry.c_str());
+            if (status != CUDA_SUCCESS) {
+                auto cleanup = cuModuleUnload(module);
+                metadata.error = luisa::format("CUDA Tile partition entry lookup failed (CUDA {}, module cleanup {})",
+                                               static_cast<int>(status), static_cast<int>(cleanup));
+                return nullptr;
+            }
+        }
         return new_with_allocator<CUDAShaderTile>(module, function, std::move(artifact.entry),
                                                   artifact.grid, std::move(bindings), std::move(usages),
                                                   aligned16_function, artifact.aligned16_buffer_mask,
-                                                  streaming_scan_function, artifact.streaming_scan_guard);
+                                                  streaming_scan_function, artifact.streaming_scan_guard,
+                                                  partition_function, artifact.partition_grid, artifact.partition_guard);
     };
     auto shader = with_handle(load_shader);
-    if (shader == nullptr && !artifact.streaming_scan_entry.empty()) {
-        auto diagnostic = luisa::format("optional streaming module load failed: {}", metadata.error);
+    if (shader == nullptr && has_optional_entry()) {
+        auto diagnostic = luisa::format("optional {} module load failed: {}",
+                                        artifact.partition_entry.empty() ? "streaming" : "program partition", metadata.error);
         restore_original(diagnostic);
         metadata.error.clear();
         binary = compile_source();
@@ -815,6 +858,20 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         } else {
             metadata.realization += "; streaming-scan-ineligible-or-unavailable: ";
             metadata.realization += artifact.streaming_scan_diagnostic;
+        }
+    }
+    if (program_rows != 0u) {
+        if (!artifact.partition_entry.empty()) {
+            metadata.realization += "; program-partition-available; host-selected-disjoint-program-rows-v1";
+            metadata.realization += luisa::format(
+                "; program-partition-input-slot={}; program-partition-output-slot={}; program-partition-input-bytes={}; program-partition-output-bytes={}"
+                "; program-partition-original-rows={}; program-partition-grid-x={}; program-partition-original-grid-x={}",
+                artifact.partition_guard.input_slot, artifact.partition_guard.output_slot,
+                artifact.partition_guard.input_bytes, artifact.partition_guard.output_bytes,
+                artifact.partition_original_rows, artifact.partition_grid[0u], artifact.grid[0u]);
+        } else {
+            metadata.realization += "; program-partition-ineligible-or-unavailable: ";
+            metadata.realization += artifact.partition_diagnostic;
         }
     }
     ShaderCreationInfo info{};

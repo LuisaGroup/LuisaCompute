@@ -555,14 +555,15 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                     ok = false;
                     return;
                 }
-                auto func = tile_shader == nullptr ? static_cast<CUfunction>(shader->handle()) :
-                                                     tile_shader->select_entry({tile_pointers.data(), tile_shader->parameter_count()});
+                auto func = static_cast<CUfunction>(shader->handle());
                 auto block_size = shader->block_size();
                 // The launch configuration _launch computes for this dispatch.
                 auto blocks = (dispatch_size + block_size - 1u) / block_size;
                 if (tile_shader != nullptr) {
-                    auto grid = tile_shader->grid();
-                    blocks = make_uint3(grid[0], grid[1], grid[2]);
+                    auto launch = tile_shader->select_launch({tile_pointers.data(), tile_shader->parameter_count()});
+                    func = launch.function;
+                    block_size = launch.block;
+                    blocks = make_uint3(launch.grid[0], launch.grid[1], launch.grid[2]);
                 }
                 // The kernel takes the packed Params struct by value, so the
                 // single kernelParams entry must point AT the packed buffer

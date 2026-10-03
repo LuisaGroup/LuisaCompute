@@ -36,6 +36,15 @@ struct Artifact {
     size_t streaming_scan_source_offset{0u};
     uint32_t streaming_scan_chunk_extent{0u};
     StreamingScanGuard streaming_scan_guard{};
+    // A separate row-partitioned realization has its own physical grid.
+    // Selection additionally requires disjoint final input/output intervals.
+    luisa::string partition_entry;
+    luisa::string partition_diagnostic;
+    size_t partition_source_offset{0u};
+    uint32_t partition_rows{0u};
+    uint32_t partition_original_rows{0u};
+    std::array<uint32_t, 3u> partition_grid{1u, 1u, 1u};
+    StreamingScanGuard partition_guard{};
     std::array<uint32_t, 3u> grid{1u, 1u, 1u};
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<BufferArgument> arguments;

@@ -63,11 +63,15 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
                                CUfunction aligned16_function,
                                uint32_t aligned16_buffer_mask,
                                CUfunction streaming_scan_function,
-                               native_tile::StreamingScanGuard streaming_scan_guard) noexcept
+                               native_tile::StreamingScanGuard streaming_scan_guard,
+                               CUfunction partition_function,
+                               std::array<uint32_t, 3u> partition_grid,
+                               native_tile::StreamingScanGuard partition_guard) noexcept
     : CUDAShader{nullptr, std::move(argument_usages)},
       _module{module}, _function{function}, _aligned16_function{aligned16_function},
       _aligned16_buffer_mask{aligned16_buffer_mask},
       _streaming_scan_function{streaming_scan_function}, _streaming_scan_guard{streaming_scan_guard},
+      _partition_function{partition_function}, _partition_grid{partition_grid}, _partition_guard{partition_guard},
       _entry{std::move(entry)},
       _grid{grid}, _block_size{1u, 1u, 1u},
       _buffer_arguments{std::move(buffer_arguments)} {
@@ -84,6 +88,14 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
                       _streaming_scan_guard.input_slot != _streaming_scan_guard.output_slot &&
                       _streaming_scan_guard.input_bytes != 0u && _streaming_scan_guard.output_bytes != 0u),
                  "Native Tile streaming entry has an invalid static range descriptor.");
+    LUISA_ASSERT(_partition_function == nullptr ||
+                     (_streaming_scan_function == nullptr && _aligned16_function == nullptr &&
+                      _partition_guard.input_slot < _buffer_arguments.size() &&
+                      _partition_guard.output_slot < _buffer_arguments.size() &&
+                      _partition_guard.input_slot != _partition_guard.output_slot &&
+                      _partition_guard.input_bytes != 0u && _partition_guard.output_bytes != 0u &&
+                      _partition_grid[0u] != 0u && _partition_grid[1u] == 1u && _partition_grid[2u] == 1u),
+                 "Native Tile partition entry has an invalid launch or static range descriptor.");
 }
 
 CUDAShaderTile::~CUDAShaderTile() noexcept {
@@ -110,17 +122,23 @@ bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
     return true;
 }
 
-CUfunction CUDAShaderTile::select_entry(luisa::span<const CUdeviceptr> pointers) const noexcept {
-    if (pointers.size() != _buffer_arguments.size()) { return _function; }
-    if (_streaming_scan_function != nullptr && native_tile::streaming_scan_disjoint(_streaming_scan_guard, pointers)) {
-        return _streaming_scan_function;
+CUDAShaderTile::Launch CUDAShaderTile::select_launch(luisa::span<const CUdeviceptr> pointers) const noexcept {
+    auto launch = Launch{_function, _grid, _block_size};
+    if (pointers.size() != _buffer_arguments.size()) { return launch; }
+    if (_partition_function != nullptr && native_tile::streaming_scan_disjoint(_partition_guard, pointers)) {
+        return Launch{_partition_function, _partition_grid, _block_size};
     }
-    if (_aligned16_function == nullptr) { return _function; }
+    if (_streaming_scan_function != nullptr && native_tile::streaming_scan_disjoint(_streaming_scan_guard, pointers)) {
+        launch.function = _streaming_scan_function;
+        return launch;
+    }
+    if (_aligned16_function == nullptr) { return launch; }
     CUdeviceptr alignment_bits = 0u;
     for (auto slot = size_t{0u}; slot < pointers.size(); slot++) {
         if ((_aligned16_buffer_mask & (uint32_t{1u} << slot)) != 0u) { alignment_bits |= pointers[slot]; }
     }
-    return (alignment_bits & 15u) == 0u ? _aligned16_function : _function;
+    if ((alignment_bits & 15u) == 0u) { launch.function = _aligned16_function; }
+    return launch;
 }
 
 void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
@@ -147,11 +165,12 @@ void CUDAShaderTile::_launch(CUDACommandEncoder &encoder,
         kernel_parameters[slot] = &pointers[slot];
     }
 
-    auto block = _block_size;
+    auto launch = select_launch({pointers.data(), parameter_count});
+    auto block = launch.block;
     auto stream = encoder.stream()->handle();
     LUISA_CHECK_CUDA(cuLaunchKernel(
-        select_entry({pointers.data(), parameter_count}),
-        _grid[0], _grid[1], _grid[2],
+        launch.function,
+        launch.grid[0], launch.grid[1], launch.grid[2],
         block.x, block.y, block.z,
         0u, stream, kernel_parameters.data(), nullptr));
 }

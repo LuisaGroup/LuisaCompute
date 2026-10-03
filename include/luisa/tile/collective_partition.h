@@ -1,0 +1,73 @@
+#pragma once
+
+#include <luisa/tile/collective_plan.h>
+
+namespace luisa::compute::tile {
+
+struct IndependentPartitionRequest {
+    // Unspecified identities infer the unique admitted collective/axis.
+    uint64_t collective_operation_id{~uint64_t{0u}};
+    Dim independent_axis;
+    uint64_t target_extent_per_program{1u};
+};
+
+struct RootViewInterval {
+    uint32_t argument_index{0u};
+    uint64_t byte_offset{0u};
+    uint64_t byte_count{0u};
+};
+
+struct DisjointRequirement {
+    RootViewInterval input;
+    RootViewInterval output;
+};
+
+struct CollectiveCandidateGeometry {
+    uint64_t programs{0u};
+    uint64_t independent_extent_per_program{0u};
+    uint64_t full_programs{0u};
+    // Zero means there is no partial program.
+    uint64_t tail_valid_extent{0u};
+};
+
+// A conditional realization recipe for a closed, single-axis FP32 SUM/MAXIMUM.
+// Dimension/operation identities borrow the unmodified function. This is not
+// a device schedule, a cost score, a noalias declaration or an SSA rewrite.
+// The input/output ranges MUST be disjoint at invocation after binding offsets
+// are applied; otherwise use the original realization and original geometry.
+struct IndependentCollectivePlan {
+    luisa::string error;
+    const Function *function{nullptr};
+    uint64_t parallel_operation_id{0u};
+    uint64_t collective_operation_id{0u};
+    uint64_t load_operation_id{0u};
+    uint64_t store_operation_id{0u};
+    CollectiveKind kind{CollectiveKind::SUM};
+    ScalarType input_storage{ScalarType::INVALID};
+    ScalarType output_storage{ScalarType::INVALID};
+    Dim independent_axis;
+    Dim contribution_axis;
+    uint32_t input_independent_axis{0u};
+    uint32_t input_contribution_axis{0u};
+    uint32_t output_independent_axis{0u};
+    uint32_t output_rank{0u};
+    uint64_t logical_independent_extent{0u};
+    uint64_t logical_contribution_extent{0u};
+    uint64_t tile_contribution_extent{0u};
+    // Optional exact coordinate < logical_contribution_extent selection of
+    // the FP32 source versus the reducer identity. Preserve it if present;
+    // unmasked zero-padded MAXIMUM is intentionally not changed to -infinity.
+    bool contribution_identity_mask{false};
+    CollectiveCandidateGeometry original;
+    CollectiveCandidateGeometry candidate;
+    DisjointRequirement disjoint;
+    [[nodiscard]] bool ok() const noexcept { return error.empty() && function != nullptr; }
+};
+
+// Reexamines the actual verified IR, not a supplied logical-work receipt.
+// Semantic partitioning accepts any positive proper divisor of the original
+// independent extent. Device-specific extent/grid/layout limits are separate.
+[[nodiscard]] LUISA_TILE_API IndependentCollectivePlan plan_independent_collective(
+    const Function &function, IndependentPartitionRequest request = {}) noexcept;
+
+}// namespace luisa::compute::tile
