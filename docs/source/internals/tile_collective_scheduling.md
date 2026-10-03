@@ -332,3 +332,20 @@ The independent reproducer checks included bytes and timing arithmetic; large
 tensor binaries are retained locally rather than bundled. V4's host, finite
 GPU and exceptional-value checks pass, including actual graph function and
 argument observation. These correctness results do not establish a speedup.
+
+The separate {download}`aligned-load isolation checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-streamed-sum-alignment/README.md>`
+tests the existing structured-load realization against plain loads for the
+original and both V4 carry widths. All 16 aligned streamed candidates are
+slower than their same-carry plain controls, by 1.54--2.41 times. Every timed
+graph's actual entry and final pointers were checked. The aligned variants
+report 8 or 16 KiB of static shared memory versus 16 bytes for plain loads;
+this is an observed resource difference, not a proven explanation.
+
+The original whole-row kernels behave differently: several FP16 cases improve
+by about 6--9%, whereas BF16 3x16384 becomes about 82% slower even though its
+register count falls from 137 to 46. Register count alone is therefore not a
+sufficient selection criterion. The packet retains all 56 measurements and
+392 primary samples, including regressions and both plain controls. Its Torch
+appendix contains static generated-code observations from the earlier run;
+it supplies no timing denominator for this cohort. Neither the load variant
+nor the streamed transformation becomes an automatic policy from these data.
