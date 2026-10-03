@@ -296,9 +296,20 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             return fail("Private CUDA shared-Tile materialization requires exact 0 or 1");
         }
         auto diagnostic_expensive_only = diagnostic_shared_tiles && *diagnostic_shared_tiles == "1";
-        auto lowered = diagnostic_expensive_only ?
-                           tile::bridge::tirx::lower(kernel, {.shared_tiles = tile::bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY}) :
-                           tile::bridge::tirx::lower(kernel);
+        auto diagnostic_div_sqrt = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_FAST_DIV_SQRT");
+        if (diagnostic_div_sqrt && *diagnostic_div_sqrt != "0" && *diagnostic_div_sqrt != "1") {
+            return fail("Private CUDA FP32 DIV/SQRT policy requires exact 0 or 1");
+        }
+        auto fast_div_sqrt = diagnostic_div_sqrt && *diagnostic_div_sqrt == "1";
+        if (fast_div_sqrt && !option.enable_fast_math) {
+            return fail("Private CUDA FP32 DIV/SQRT policy requires enable_fast_math=true");
+        }
+        tile::bridge::tirx::LowerOptions lower_options;
+        if (diagnostic_expensive_only) {
+            lower_options.shared_tiles = tile::bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY;
+        }
+        lower_options.allow_fp32_div_sqrt_reassociation = fast_div_sqrt;
+        auto lowered = tile::bridge::tirx::lower(kernel, lower_options);
         if (!lowered) { return fail(lowered.error); }
         auto root = kernel.body().block(0u);
         for (auto &arg : root->arguments()) {
@@ -413,6 +424,9 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         if (diagnostic_shared_tiles) {
             metadata.realization += luisa::format("; diagnostic-tirx-shared-tiles={}",
                                                   diagnostic_expensive_only ? "expensive-only" : "preserve");
+        }
+        if (diagnostic_div_sqrt) {
+            metadata.realization += luisa::format("; diagnostic-tirx-fast-div-sqrt={}", fast_div_sqrt);
         }
         auto cuda_subgroup_plans = uint64_t{0u};
         if (options.planner.cuda_subgroup_reductions) {

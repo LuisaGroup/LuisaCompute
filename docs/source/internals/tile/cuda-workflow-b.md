@@ -682,3 +682,72 @@ rerunning omitted tensor or GPU validation. The local full audit is
 that packet is not bundled with the source. Saved snapshots and the executed
 helper closure define the measured cohort; current mutable source or DLL
 files are not substituted for those execution-time receipts.
+
+## 15. Explicit fast DIV/SQRT reassociation
+
+`LowerOptions::allow_fp32_div_sqrt_reassociation` defaults to false. The
+private CUDA switch `LUISA_DIAGNOSTIC_TIRX_FAST_DIV_SQRT=1` grants the
+existing fast-math strategy only when fast math is already enabled:
+direct FP32 `x / sqrt(y)` may become `x * rsqrt(y)`. Unset or `0` keeps the
+former lowering; other values and `1` with strict math are rejected before
+compilation. Other backends retain the default permission. Matching does
+not cross a cast, load or arithmetic node. Original SQRT consumers,
+operand-axis projections, load snapshots, guards and reduction contracts
+remain intact. This adds no DSL primitive and is not enabled by default.
+
+This fixed cohort used LayerNorm 128 x 1024 BF16 at T128/P2 and RMSNorm
+32 x 4096 FP16 at T256/P1. Both retained fast math, PRESERVE, L1/U64,
+vector and coordinate forwarding disabled, integer extrema disabled,
+cachefalse and pad64. Each fixture ran flag0, flag1, fresh Torch, then
+flag0 recheck. Torch used the initial manifest and fresh caches. The
+protocol remained seven 100 ms samples, 500 ms warmup, 100-node graphs
+and four-core affinity `0x15400`.
+
+| Fixture | Initial us | Candidate us | Recheck us | Fresh Torch us | Candidate / first | Candidate / last | Candidate / Torch | Control drift |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| LayerNorm BF16 128 x 1024 | 1.861933 | 1.851314 | 1.840030 | 1.754377 | 0.994297 | 1.006133 | 1.055255 | -1.1763% |
+| RMSNorm FP16 32 x 4096 | 1.596306 | 1.595887 | 1.592182 | 1.701622 | 0.999737 | 1.002327 | 0.937862 | -0.2584% |
+
+Neither candidate improved against its final control: LayerNorm was
+0.613% slower and RMSNorm 0.233% slower. LayerNorm's candidate range was
+1.848914--1.858240 us versus 1.839696--1.840551 us for its final control;
+RMSNorm's ranges were 1.588053--1.603703 and 1.583211--1.593435 us and
+overlapped. Both candidate ranges overlapped their initial controls.
+These are descriptive ranges, not confidence intervals. This round
+provides no robust performance gain or basis for a default change;
+RMSNorm's fresh Torch comparison does not establish a native improvement.
+
+All eight processes passed: six native and two Torch, with 56 primary
+samples, 600 actual native graph nodes and ten complete saved logical
+outputs. Independent CPU replay checked all 1,310,720 values against the
+unchanged original FP64 references and bounds. Fixture, source, actual
+function/grid/block/pointer and resource checks also passed. Candidate
+sources matched the admitted sources and contained `rsqrtf`; both
+flag0 rechecks matched their initial sources byte for byte. Registers,
+shared bytes and local bytes remained 40/80/0 for LayerNorm and 39/32/0
+for RMSNorm. Source and graph identity are not executed-instruction traces.
+
+LLVM 22 and LLVM 23 MSVC full builds and the host suite's 10202 assertions
+in 19 groups passed. The bounded admission retained 14 numerical passes
+and two separate prelaunch rejections. Default CUDA, vector CUDA and Metal
+sources and 12 ordered callbacks matched the earlier bound capture exactly
+after removing only the known complete diagnostic log records.
+
+The separate 1046-input direct-expression special-value probe retained
+81 output-bit differences and no classification differences between the
+two fast expressions. Its checked normal/special domains passed, but
+subnormal inputs and output underflow/overflow were observations without
+an independent classification gate. It does not prove strict equivalence,
+Tile snapshot safety or performance. The full norm oracle was not loosened.
+
+Whole-stage telemetry includes compilation and warmup, not individual
+timing samples. No clock, power or thermal cause is assigned. Physical
+guard/read-only checks retain runtime reports separately from saved
+logical-output replay. All negatives and control drift remain in the
+[56 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-fast-div-sqrt/samples.csv),
+which support recomputing medians and ratios, not omitted GPU/tensor
+validation. The local audit checkpoint is
+`.deps/oct04-tirx-fast-div-sqrt-pairs-summary-v1/checkpoint.json`, SHA256
+`89ba88dd800954ad3b44dfe1f2f3b37742633f976a6332888ad150835d1dcbff`.
+Saved snapshots and executed helper receipts define the timed cohort;
+later mutable sources and DLLs are not substituted for them.

@@ -545,7 +545,31 @@ private:
         return {};
     }
 
+    // This permission is explicit and separate from reduction reassociation.
+    // Match the SSA producer; do not see through a cast, load or view rewrite.
+    [[nodiscard]] const Value *_fast_div_sqrt_argument(const Operation &operation) const noexcept {
+        if (!_options.allow_fp32_div_sqrt_reassociation ||
+            operation.elementwise_op() != ElementwiseOp::DIV ||
+            operation.operand_count() != 2u || operation.result_count() != 1u ||
+            operation.result(0u)->type().scalar_type() != ScalarType::FLOAT32 ||
+            operation.operand(0u)->type().scalar_type() != ScalarType::FLOAT32 ||
+            operation.operand(1u)->type().scalar_type() != ScalarType::FLOAT32) { return nullptr; }
+        auto denominator = operation.operand(1u);
+        auto root = denominator->defining_operation();
+        if (root == nullptr || root->kind() != OperationKind::ELEMENTWISE ||
+            root->elementwise_op() != ElementwiseOp::SQRT || root->operand_count() != 1u ||
+            root->result_count() != 1u || root->result(0u) != denominator ||
+            root->operand(0u)->type().scalar_type() != ScalarType::FLOAT32) { return nullptr; }
+        return root->operand(0u);
+    }
+
     [[nodiscard]] tvm::PrimExpr _elementwise(const Operation &operation) {
+        if (auto argument = _fast_div_sqrt_argument(operation)) {
+            auto numerator = _expression(operation.operand(0u));
+            auto source = _expression(argument);
+            if (!numerator.defined() || !source.defined()) { return {}; }
+            return tvm::mul(numerator, tvm::rsqrt(source));
+        }
         luisa::vector<tvm::PrimExpr> operands;
         for (auto i = 0u; i < operation.operand_count(); i++) {
             auto operand = _expression(operation.operand(i));
@@ -583,6 +607,46 @@ private:
             Indices projected;
             for (auto [index, broadcast] : projection) { projected.push_back(broadcast ? tvm::IntImm::Int64(0) : indices[index]); }
             return expression(projected);
+        };
+    }
+
+    [[nodiscard]] TileExpression _fast_tile_div_sqrt(
+        const Operation &operation, const Value *argument) {
+        auto denominator = operation.operand(1u);
+        auto &domain = *operation.result(0u)->type().index_space();
+        auto numerator = _in_domain(operation.operand(0u), domain);
+        if (!numerator) { return {}; }
+        TileExpression reciprocal;
+        if (denominator->type().is_tile()) {
+            // Preserve both original named-axis projections: argument -> SQRT
+            // producer, then producer -> DIV consumer. Singleton axes use zero.
+            auto &producer_domain = *denominator->type().index_space();
+            auto source = _in_domain(argument, producer_domain);
+            if (!source) { return {}; }
+            luisa::vector<std::pair<size_t, bool>> projection;
+            for (auto &&axis : producer_domain.axes()) {
+                auto index = domain.axis_index(axis.dimension);
+                if (!index) {
+                    _fail("Tile operand dimensions are absent from the expression domain");
+                    return {};
+                }
+                auto broadcast = axis.extent.is_constant() && axis.extent.constant_value() == 1u;
+                projection.emplace_back(*index, broadcast);
+            }
+            reciprocal = [source = std::move(source), projection = std::move(projection)](const Indices &indices) {
+                Indices projected;
+                for (auto [index, broadcast] : projection) {
+                    projected.push_back(broadcast ? tvm::IntImm::Int64(0) : indices[index]);
+                }
+                return tvm::rsqrt(source(projected));
+            };
+        } else {
+            auto source = _expression(argument);
+            if (!source.defined()) { return {}; }
+            reciprocal = [source = std::move(source)](const Indices &) { return tvm::rsqrt(source); };
+        }
+        return [numerator = std::move(numerator), reciprocal = std::move(reciprocal)](const Indices &indices) {
+            return tvm::mul(numerator(indices), reciprocal(indices));
         };
     }
 
@@ -688,6 +752,10 @@ private:
             for (auto &&input : inputs) { elements.emplace_back(input(indices)); }
             return _apply_elementwise(op, elements, type);
         };
+        if (auto argument = _fast_div_sqrt_argument(operation)) {
+            expression = _fast_tile_div_sqrt(operation, argument);
+            if (!expression) { return; }
+        }
         // A multi-use Tile is one logical SSA definition. Preserve that
         // sharing in structural TIRx instead of irreversibly cloning its
         // producer into every consumer. Target planners may compact this

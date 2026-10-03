@@ -22,6 +22,10 @@ enum class SharedTileMaterialization : uint8_t {
 
 struct LowerOptions {
     SharedTileMaterialization shared_tiles{SharedTileMaterialization::PRESERVE};
+    // Explicit FP32 numerical permission: x / sqrt(y) may become
+    // x * rsqrt(y). Default lowering, reductions and casts are unchanged.
+    // CUDA Runtime enables this only for its opt-in fast-math experiment.
+    bool allow_fp32_div_sqrt_reassociation{false};
 };
 
 struct NativeFunction {

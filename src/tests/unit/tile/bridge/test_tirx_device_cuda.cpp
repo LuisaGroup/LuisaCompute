@@ -1866,6 +1866,226 @@ void snapshot_order() {
 }
 }// namespace coordinate_tests
 
+namespace fast_div_sqrt_tests {
+namespace ir = tvm::tirx;
+
+[[nodiscard]] size_t calls(const ir::PrimFunc &function, const char *name) {
+    auto op = tvm::Op::Get(name);
+    size_t count = 0u;
+    ir::PostOrderVisit(function->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto call = node.as<tvm::CallNode>()) { count += call->op.same_as(op); }
+    });
+    return count;
+}
+
+// An independent structural witness: undo ONLY the introduced expression.
+// Matching the original PrimFunc checks real axes, masks, casts and reductions.
+class Restore final : public ir::StmtExprMutator {
+private:
+    [[nodiscard]] tvm::Expr VisitExpr_(const ir::MulNode *node) final {
+        auto expression = StmtExprMutator::VisitExpr_(node);
+        if (auto mul = expression.as<ir::MulNode>()) {
+            if (auto call = mul->b.as<tvm::CallNode>(); call &&
+                call->op.same_as(tvm::Op::Get("tirx.rsqrt")) && call->args.size() == 1u) {
+                auto argument = call->args[0u].as<tvm::PrimExpr>();
+                expect(argument.has_value());
+                if (argument) { return tvm::div(mul->a, tvm::sqrt(argument.value())); }
+            }
+        }
+        return expression;
+    }
+public:
+    [[nodiscard]] ir::PrimFunc run(ir::PrimFunc function) {
+        function.CopyOnWrite()->body = operator()(function->body);
+        return function;
+    }
+};
+
+void shared_tile_sqrt() {
+    auto definition = tile_kernel("cuda_fast_div_sqrt_shared_tile", [](TensorView<const float, 1> input,
+                                                                        TensorView<float, 1> output,
+                                                                        TensorView<float, 1> other) {
+        auto element = axis("element", 7);
+        auto value = input.tile(coord(0), shape(element)).load();
+        auto root = sqrt(value);
+        output(coord(0), shape(element)).store(value / root);
+        other(coord(0), shape(element)).store(root);
+    });
+    auto kernel = definition.capture(tensor_shape(5), tensor_shape(5), tensor_shape(5));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    for (auto sharing : {SharedTileMaterialization::PRESERVE, SharedTileMaterialization::EXPENSIVE_ONLY}) {
+        auto ordinary = lower(kernel.function(), {.shared_tiles = sharing});
+        auto candidate = lower(kernel.function(), {.shared_tiles = sharing, .allow_fp32_div_sqrt_reassociation = true});
+        expect(ordinary.ok()) << ordinary.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!ordinary || !candidate) { continue; }
+        expect(eq(calls(ordinary.value, "tirx.sqrt"), size_t{1u}));
+        expect(eq(calls(candidate.value, "tirx.sqrt"), size_t{1u}));
+        expect(eq(calls(candidate.value, "tirx.rsqrt"), size_t{1u}));
+        // The other consumer still reads the original materialized SQRT.
+        // Inverting this case must read that storage, not clone another SQRT.
+        class SharedRestore final : public ir::StmtExprMutator {
+        private:
+            ir::BufferVar _snapshot;
+            ir::BufferVar _root;
+            [[nodiscard]] tvm::Expr VisitExpr_(const ir::MulNode *node) final {
+                auto expression = StmtExprMutator::VisitExpr_(node);
+                if (auto mul = expression.as<ir::MulNode>()) {
+                    if (auto call = mul->b.as<tvm::CallNode>(); call && call->op.same_as(tvm::Op::Get("tirx.rsqrt"))) {
+                        expect(eq(call->args.size(), size_t{1u}));
+                        if (call->args.size() != 1u) { return expression; }
+                        auto load = call->args[0u].as<ir::BufferLoadNode>();
+                        expect(load != nullptr);
+                        if (!load) { return expression; }
+                        expect(load->buffer.same_as(_snapshot));
+                        return tvm::div(mul->a, ir::BufferLoad{_root, load->indices});
+                    }
+                }
+                return expression;
+            }
+        public:
+            SharedRestore(ir::BufferVar snapshot, ir::BufferVar root)
+                : _snapshot{std::move(snapshot)}, _root{std::move(root)} {}
+            ir::PrimFunc run(ir::PrimFunc function) {
+                function.CopyOnWrite()->body = operator()(function->body);
+                return function;
+            }
+        };
+        ir::BufferVar root, snapshot;
+        ir::PostOrderVisit(candidate.value->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto store = node.as<ir::BufferStoreNode>()) {
+                if (auto call = store->value.as<tvm::CallNode>(); call &&
+                    call->op.same_as(tvm::Op::Get("tirx.sqrt")) && call->args.size() == 1u) {
+                    if (auto load = call->args[0u].as<ir::BufferLoadNode>()) {
+                        expect(!root.defined());
+                        root = store->buffer;
+                        snapshot = load->buffer;
+                    }
+                }
+            }
+        });
+        expect(root.defined() && snapshot.defined());
+        if (root.defined() && snapshot.defined()) {
+            auto restored = SharedRestore{snapshot, root}.run(candidate.value);
+            expect(tvm::ffi::StructuralEqual{}(ordinary.value, restored));
+        }
+    }
+}
+
+void compare(const Kernel &kernel, bool eligible, bool compile_cuda = false) {
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    for (auto sharing : {SharedTileMaterialization::PRESERVE, SharedTileMaterialization::EXPENSIVE_ONLY}) {
+        LowerOptions options{.shared_tiles = sharing};
+        auto ordinary = lower(kernel.function(), options);
+        options.allow_fp32_div_sqrt_reassociation = true;
+        auto fast = lower(kernel.function(), options);
+        expect(ordinary.ok()) << ordinary.error;
+        expect(fast.ok()) << fast.error;
+        if (!ordinary || !fast) { continue; }
+        expect(eq(calls(ordinary.value, "tirx.rsqrt"), size_t{0u}));
+        expect(eq(calls(fast.value, "tirx.rsqrt") != 0u, eligible));
+        auto restored = Restore{}.run(fast.value);
+        expect(tvm::ffi::StructuralEqual{}(ordinary.value, restored));
+        // Lowering must not mutate the original Tile graph or the ordinary IR.
+        options.allow_fp32_div_sqrt_reassociation = false;
+        auto repeated = lower(kernel.function(), options);
+        expect(repeated.ok());
+        if (repeated) { expect(tvm::ffi::StructuralEqual{}(ordinary.value, repeated.value)); }
+        if (!compile_cuda) { continue; }
+        auto compiled_options = cuda_subgroup_options();
+        compiled_options.planner.threads_per_group = 128u;
+        compiled_options.planner.reduction_programs_per_group = 2u;
+        auto original = compile_device(ordinary.value, kernel.function().name(), compiled_options);
+        auto candidate = compile_device(fast.value, kernel.function().name(), compiled_options);
+        auto control = compile_device(repeated.value, kernel.function().name(), compiled_options);
+        expect(static_cast<bool>(original)) << original.error;
+        expect(static_cast<bool>(candidate)) << candidate.error;
+        expect(static_cast<bool>(control)) << control.error;
+        if (!original || !candidate || !control) { continue; }
+        expect(original.artifact.source == control.artifact.source);
+        expect(original.artifact.buffer_arguments == candidate.artifact.buffer_arguments);
+        expect(original.artifact.grid == candidate.artifact.grid);
+        expect(original.artifact.block == candidate.artifact.block);
+        auto source = luisa::string_view{candidate.artifact.source.data(), candidate.artifact.source.size()};
+        expect(source.find("rsqrtf(") != luisa::string_view::npos);
+        expect(source.find("__luisa_tile_cuda_reduce_add(") != luisa::string_view::npos);
+        expect(source.find("add.rn.f32") != luisa::string_view::npos);
+        expect(eq(original.plans.size(), candidate.plans.size()));
+        if (!original.plans.empty() && original.plans.size() == candidate.plans.size()) {
+            expect(eq(original.plans[0u].reduction_operations, candidate.plans[0u].reduction_operations));
+            expect(eq(original.plans[0u].group_barrier_sites_after, candidate.plans[0u].group_barrier_sites_after));
+        }
+    }
+}
+
+template<typename T>
+void reduced() {
+    // Original zero-fill and output bounds, row-only denominator broadcast,
+    // packed physical tail and FP16 rounding all remain in the actual IR.
+    auto reduced = tile_kernel("cuda_fast_div_sqrt_reduced", [](TensorView<const T, 2> x,
+                                                               TensorView<T, 2> out) {
+        auto one = axis("one", 1), feature = axis("feature", 65);
+        for (auto &nest : parallel(shape(3))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = cast<float>(x.tile(origin, shape(one, feature)).load());
+            auto mean = reduce(value * value, feature, add) / 65.0f;
+            out(origin, shape(one, feature)).store(cast<T>(value / sqrt(mean + 1e-5f)));
+        }
+    });
+    compare(reduced.capture(tensor_shape(3, 63), tensor_shape(3, 63)), true, true);
+}
+
+void run() {
+    shared_tile_sqrt();
+    // Equal axis names with different Dim identities, reversed operand order,
+    // and a real singleton extent. Restore must recover exact original indices.
+    auto projected = tile_kernel("cuda_fast_div_sqrt_axes", [](TensorView<const float, 2> x,
+                                                               TensorView<const float, 2> y,
+                                                               TensorView<float, 2> out) {
+        auto row = axis("same", 3), column = axis("same", 7);
+        std::array denominator_axes{IndexAxis{column.dimension(), Extent::constant(7u)},
+                                    IndexAxis{row.dimension(), Extent::constant(1u)}};
+        auto denominator_space = IndexSpace{denominator_axes};
+        auto input = x.tile(coord(0, 0), shape(row, column)).load();
+        auto divisor = sqrt(y.tile(coord(0, 0), denominator_space).load());
+        out(coord(0, 0), shape(row, column)).store(input / divisor);
+    });
+    compare(projected.capture(tensor_shape(3, 7), tensor_shape(7, 1), tensor_shape(3, 7)), true);
+
+    for (auto mode : {0u, 1u, 2u}) {
+        auto scalar = tile_kernel("cuda_fast_div_sqrt_scalar", [mode](TensorView<const float, 1> x,
+                                                                      TensorView<float, 1> out,
+                                                                      TensorView<float, 1> other) {
+            for (auto &nest : parallel(shape(37))) {
+                auto index = nest.index();
+                auto value = x(index).load();
+                auto root = sqrt(value);
+                // Keep another live SQRT user; no global producer rewrite.
+                other(index).store(root);
+                if (mode == 0u) { out(index).store(value / root); }
+                if (mode == 1u) { out(index).store(value / cast<float>(cast<luisa::half>(root))); }
+                if (mode == 2u) { out(index).store(value / (root + 1.0f)); }
+            }
+        });
+        compare(scalar.capture(tensor_shape(37), tensor_shape(37), tensor_shape(37)), mode == 0u);
+    }
+
+    auto narrow = tile_kernel("cuda_fast_div_sqrt_narrow", [](TensorView<const luisa::half, 1> x,
+                                                              TensorView<luisa::half, 1> out) {
+        for (auto &nest : parallel(shape(9))) {
+            auto value = x(nest.index()).load();
+            out(nest.index()).store(value / sqrt(value));
+        }
+    });
+    compare(narrow.capture(tensor_shape(9), tensor_shape(9)), false);
+
+    reduced<luisa::half>();
+    reduced<bfloat16>();
+}
+}// namespace fast_div_sqrt_tests
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1873,6 +2093,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_coordinate_fixed_point_and_math"_test = coordinate_tests::fixed_point_and_math;
     "tile_tirx_coordinate_rejection_boundaries"_test = coordinate_tests::rejection_boundaries;
     "tile_tirx_coordinate_snapshot_order"_test = coordinate_tests::snapshot_order;
+    "tile_tirx_cuda_fast_div_sqrt"_test = fast_div_sqrt_tests::run;
     "tile_tirx_cuda_elementwise_artifact"_test = test_cuda_elementwise_artifact;
     "tile_tirx_cuda_reduction_artifact"_test = test_cuda_reduction_artifact;
     "tile_tirx_cuda_matmul_artifact"_test = test_cuda_matmul_artifact;
