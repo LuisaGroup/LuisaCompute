@@ -503,3 +503,93 @@ or tensor validation. The local full audit is
 `e255a41fc602843d3fb859cc9fa8ab3d7e996cec7973a485bb4b788f417fccb2`;
 that packet is not bundled with the source. Saved execution receipts,
 rather than current mutable source/DLL files, define the measured cohort.
+
+## 13. Existing materialization policy
+
+A private runtime switch compared the existing `EXPENSIVE_ONLY` lowering
+policy with the original policy on the two normalization fixtures from
+section 11. `LUISA_DIAGNOSTIC_TIRX_EXPENSIVE_ONLY` unset or `0` preserves
+`PRESERVE`; `1` selects the existing `EXPENSIVE_ONLY` policy. Other values
+were rejected in preflight. This reused the existing lowering option; it
+introduced no DSL primitive or default-policy change. Each fixture retained separate L1 scalar
+and L4 vector controls before and after the candidates. Fresh Torch used
+only the first L1 control's exact manifest and new per-case caches. All
+processes used seven 100 ms samples, 500 ms warmup and 100-node graphs with
+the same four-core CPU affinity.
+
+The table records all four control pairs and this cohort's Torch medians,
+in microseconds. Each drift compares that control's last and first median.
+
+| Fixture | Control T/P/L | Initial | Recheck | Control drift | Fresh Torch |
+|---|---|---:|---:|---:|---:|
+| LayerNorm BF16 128 x 1024 | 128/2/1 scalar | 1.857500 | 1.850320 | -0.387% | 1.825069 |
+| LayerNorm BF16 128 x 1024 | 128/2/4 vector | 2.348995 | 2.354546 | +0.236% | 1.825069 |
+| RMSNorm FP16 32 x 4096 | 256/1/1 scalar | 1.599437 | 1.602866 | +0.214% | 1.821111 |
+| RMSNorm FP16 32 x 4096 | 256/1/4 vector | 1.597751 | 1.596501 | -0.078% | 1.821111 |
+
+All six policy candidates are retained below. Ratios use the final controls
+and fresh Torch from this cohort; values below one are faster.
+
+| Fixture | Policy candidate T/P/L | Median us | Seven-sample range us | / last L1 | / last L4 | / fresh Torch |
+|---|---|---:|---|---:|---:|---:|
+| LayerNorm BF16 | 128/2/1 scalar | 1.883140 | 1.873530--1.890343 | 1.017738 | 0.799789 | 1.031818 |
+| LayerNorm BF16 | 128/2/4 vector | 2.523756 | 2.518016--2.547874 | 1.363956 | 1.071865 | 1.382827 |
+| RMSNorm FP16 | 256/1/1 scalar | 1.706482 | 1.703707--1.708809 | 1.064644 | 1.068888 | 0.937055 |
+| RMSNorm FP16 | 256/1/4 vector | 1.583888 | 1.580878--1.586274 | 0.988160 | 0.992099 | 0.869737 |
+| RMSNorm FP16 | 128/4/1 scalar | 4.278119 | 4.276278--4.279062 | 2.669043 | 2.679685 | 2.349182 |
+| RMSNorm FP16 | 128/4/4 vector | 3.411975 | 3.407180--3.415509 | 2.128671 | 2.137158 | 1.873568 |
+
+The L1 comparisons isolate the lowering-policy request: coordinate
+forwarding remains disabled and geometry is unchanged. They regressed
+1.77% for LayerNorm and 6.46% for RMSNorm against their final L1 controls.
+For L4, the original policy used coordinate forwarding enabled, while the
+candidate disabled it. RMSNorm's 0.79% improvement against its final L4
+control therefore changes both requests and cannot establish a policy-only
+gain. LayerNorm L4 was 7.19% slower than its final L4 control. The RMSNorm
+T128/P4 candidates became admissible, but were still 166.90% and 112.87%
+slower than the final L1 control. Their original-policy counterparts remain
+separate unsupported admissions, without numerical passes or timing ratios.
+
+Fresh Torch RMSNorm was 1.821111 us, compared with 1.498414 us in section 11.
+That change is not native progress, and the earlier denominator is not reused.
+The saved selected configuration changed from XBLOCK=1, R0_BLOCK=4096 to
+XBLOCK=2, R0_BLOCK=2048; both used 16 warps and one stage. Both rounds have
+a null Triton cache hash, so these are saved compiler-selection observations,
+not a unique binding to the timed cubin or a causal explanation.
+The observed candidate ranges and control drifts are preserved without a
+cross-session stability claim, a new fit or a promoted default.
+
+All 16 formal processes passed: 14 native and two Torch, yielding 112
+primary samples, 1400 actual native graph nodes and 18 complete saved
+logical outputs. Independent CPU replay checked all 2,359,296 output
+elements against the original FP64 references and per-element bounds,
+exact fixture and admitted-source identities, policy markers, graph
+bindings, final pointers and resources. All four final control sources
+matched their corresponding initial sources byte for byte. The original
+fast-math settings, seed, U64, BR1 capture, pad64, storage budget and
+integer-extrema-disabled request were retained. The invalid policy value
+was separately rejected before the formal cohort.
+
+LLVM 22 and LLVM 23 MSVC full builds passed. The LLVM 23 host suite passed
+1196 assertions in 17 groups; LLVM 22 had passed the same host suite before
+this factory switch. The 13-line factory integration was covered by 17
+admission/preflight requests, retaining unsupported cases separately.
+
+Native resource records reported 39 or 40 registers and zero local bytes;
+shared memory was 80 bytes for LayerNorm, 32 bytes for RMSNorm T256/P1 and
+zero for RMSNorm T128/P4. These counts do not establish a performance cause.
+Whole-stage driver telemetry recorded software power/thermal reason samples,
+but includes setup, compilation and warmup and is not synchronized to each
+timing sample. Runtime physical guard/read-only reports remain separate from
+the independently replayed logical outputs; no internal vector branch,
+physical memory traffic or uniquely bound timed cubin is inferred.
+
+The [112 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-materialization-policy/samples.csv)
+include all candidates, four control pairs, fresh Torch, request flags and
+resource observations. They permit recomputing medians and ratios, not
+rerunning the omitted GPU or tensor validation. The local full audit is
+`.deps/oct04-tirx-expensive-only-pairs-summary-v1/checkpoint.json`, SHA256
+`d3e04e0f73c5cc0221dc6cc6ce57ac36b10570829ab9981180ccccaa29991a66`;
+that packet is not bundled with the source. Saved snapshots and the
+executed helper closure define the measured cohort, rather than current
+mutable source or DLL files.

@@ -291,7 +291,14 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         }
         if (!attached) { return fail("Tile function must belong to its owning module"); }
 
-        auto lowered = tile::bridge::tirx::lower(kernel);
+        auto diagnostic_shared_tiles = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_EXPENSIVE_ONLY");
+        if (diagnostic_shared_tiles && *diagnostic_shared_tiles != "0" && *diagnostic_shared_tiles != "1") {
+            return fail("Private CUDA shared-Tile materialization requires exact 0 or 1");
+        }
+        auto diagnostic_expensive_only = diagnostic_shared_tiles && *diagnostic_shared_tiles == "1";
+        auto lowered = diagnostic_expensive_only ?
+                           tile::bridge::tirx::lower(kernel, {.shared_tiles = tile::bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY}) :
+                           tile::bridge::tirx::lower(kernel);
         if (!lowered) { return fail(lowered.error); }
         auto root = kernel.body().block(0u);
         for (auto &arg : root->arguments()) {
@@ -403,6 +410,10 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 "TIRx -> CUDA C -> NVRTC PTX -> Luisa Runtime" :
                 "TIRx -> NVPTX PTX -> Luisa Runtime",
             threads, compiled.plans.size(), option.enable_fast_math);
+        if (diagnostic_shared_tiles) {
+            metadata.realization += luisa::format("; diagnostic-tirx-shared-tiles={}",
+                                                  diagnostic_expensive_only ? "expensive-only" : "preserve");
+        }
         auto cuda_subgroup_plans = uint64_t{0u};
         if (options.planner.cuda_subgroup_reductions) {
             for (auto &&plan : compiled.plans) {
