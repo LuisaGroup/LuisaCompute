@@ -1,0 +1,57 @@
+#include <cuda_tile.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+namespace ct = cuda::tiles;
+extern "C" __tile_global__ void luisa_tile_main(float *buffer0, float *buffer1, float *buffer2, float *buffer3) {
+    auto v4 = ct::element_cast<long long>(ct::bid().x);
+    auto v5 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto map2_lane = ct::iota<ct::tile<long long, ct::shape<1>>>();
+    auto v7 = (map2_lane / 1ll) % 1ll;
+    auto v6 = ct::full<ct::tile<float, ct::shape<1>>>(0);
+    auto v8 = ct::element_cast<float>(ct::element_bitcast<double>(0x0000000000000000ull));
+    auto yield4_0 = ct::broadcast(v8, ct::shape<1>{});
+    v6 = yield4_0;
+    auto v9 = v6;
+    for (long long v10 = 0ll; v10 < 4ll; ++v10) {
+        auto v12 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000800ull));
+        auto v13 = ct::element_cast<long long>((v10 * v12));
+        auto mem8_lane = ct::iota<ct::tile<long long, ct::shape<1, 2048>>>();
+        auto mem8_c0 = v4 + (mem8_lane / 2048ll) % 1ll;
+        auto mem8_c1 = v13 + (mem8_lane / 1ll) % 2048ll;
+        auto mem8_ptr = buffer0 + ((((0ll) * 3ll + mem8_c0)) * 8192ll + mem8_c1);
+        auto v14 = ct::load(mem8_ptr);
+        auto v15 = ct::element_cast<float>(ct::element_cast<float>(ct::broadcast(ct::reshape(v14, ct::shape<1, 2048>{}), ct::shape<1, 2048>{})));
+        auto map10_lane = ct::iota<ct::tile<long long, ct::shape<1>>>();
+        auto v17 = (map10_lane / 1ll) % 1ll;
+        auto v16 = ct::full<ct::tile<float, ct::shape<1>>>(0);
+        auto v18 = ct::element_cast<float>(ct::element_bitcast<double>(0x0000000000000000ull));
+        auto v19 = ct::add(v18, ct::broadcast(ct::reshape(ct::reshape(ct::sum(v15, ct::integral_constant<1>{}, ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{}), ct::shape<1>{}), ct::shape<1>{}), ct::shape<1>{}), ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{});
+        auto yield16_0 = ct::broadcast(v19, ct::shape<1>{});
+        v16 = yield16_0;
+        auto v24 = ct::element_cast<float>(ct::add(ct::broadcast(ct::reshape(v9, ct::shape<1>{}), ct::shape<1>{}), ct::broadcast(ct::reshape(v16, ct::shape<1>{}), ct::shape<1>{}), ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{}));
+        auto yield18_0 = v24;
+        v9 = yield18_0;
+    }
+    auto map19_lane = ct::iota<ct::tile<long long, ct::shape<1>>>();
+    auto v26 = (map19_lane / 1ll) % 1ll;
+    auto v25 = ct::full<ct::tile<float, ct::shape<1>>>(0);
+    auto v27 = ct::element_cast<float>(ct::element_bitcast<double>(0x0000000000000000ull));
+    auto v28 = ct::broadcast(ct::reshape(ct::extract(v9, ct::shape<1>{}, 0ull), ct::shape<1>{}), ct::shape<1>{});
+    auto yield22_0 = ct::broadcast(v28, ct::shape<1>{});
+    v25 = yield22_0;
+    auto v29 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto v30 = ct::element_cast<float>(ct::element_cast<float>(ct::broadcast(ct::reshape(v25, ct::shape<1>{}), ct::shape<1>{})));
+    auto map25_lane = ct::iota<ct::tile<long long, ct::shape<1, 1>>>();
+    auto v32 = (map25_lane / 1ll) % 1ll;
+    auto v33 = (map25_lane / 1ll) % 1ll;
+    auto v31 = ct::full<ct::tile<float, ct::shape<1, 1>>>(0);
+    auto v34 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto v35 = ct::broadcast(ct::reshape(ct::extract(v30, ct::shape<1>{}, static_cast<unsigned long long>(v34)), ct::shape<1, 1>{}), ct::shape<1, 1>{});
+    auto yield28_0 = ct::broadcast(v35, ct::shape<1, 1>{});
+    v31 = yield28_0;
+    auto mem29_lane = ct::iota<ct::tile<long long, ct::shape<1, 1>>>();
+    auto mem29_c0 = v4 + (mem29_lane / 1ll) % 1ll;
+    auto mem29_c1 = v29 + (mem29_lane / 1ll) % 1ll;
+    auto mem29_ptr = buffer3 + ((((0ll) * 3ll + mem29_c0)) * 1ll + mem29_c1);
+    ct::store(mem29_ptr, v31);
+}

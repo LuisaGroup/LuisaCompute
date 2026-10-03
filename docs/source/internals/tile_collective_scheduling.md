@@ -110,6 +110,12 @@ entity, provide a minimal example and demonstrate why the existing primitives
 cannot express its semantics correctly and efficiently. The candidates below
 operate on existing IR and require no new DSL entities.
 
+An inefficient lowering in one backend is not by itself such a counterexample.
+First check whether a transformation of existing execution nests, a different
+memory layout, or a backend implementation choice can remove the limitation.
+Keep logical work and state facts separate from physical resource measurements;
+neither a smaller Tile nor fewer collective calls alone proves a faster plan.
+
 1. **Repartition independent rows into more programs.** Prove the complete SSA
    expression, memory operands and result independently separable along a named
    axis. Candidate records original rows/program, target rows/program, original
@@ -297,3 +303,32 @@ the original Torch process failure followed by an independent retry. Neither
 report claims that all operations close the Torch performance gap.
 
 The source and generated-artifact paths in the evidence are provenance labels; those local files are not bundled. Their SHA256 values refer to the original bytes. The compact evidence projection has a distinct receipt in its own directory. No new program-partition measurements are included in this source review.
+
+## Existing-IR streamed SUM prototypes
+
+The separate {download}`streamed SUM checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-streamed-sum/README.md>`
+tests two owned-IR transformations using existing SERIAL, Tile carries and
+REDUCE. V3 reduces each contribution chunk and carries a scalar. V4 carries an
+FP32 chunk-shaped Tile through the loop and performs one final reduction. Both
+preserve the original unordered FP32 policy, root ABI, logical tail checks and
+row-only epilogue; a full input/output range-disjoint check guards the experiment.
+Ordered reducers, escaping full-width values and unsupported effects reject.
+Neither prototype adds a DSL primitive or changes production defaults.
+
+All 24 V3 candidates were slower than their same-round original recheck, up to
+2.369 times its time. V4 improves small-row FP32 by about 4--6%, while most
+128-row cases remain close to the original. It also regresses: BF16 3x16384 with
+a 2048-element carry takes 2.177 us versus the original recheck's 1.405 us.
+Reducing collective calls and logical state therefore does not suffice as a
+selection model. No automatic streamed-SUM policy is installed from these data.
+
+The packet retains all 96 native measurements, 12 fresh Torch measurements,
+756 primary graph samples, generated source, fixture manifests and correctness
+receipts. Fresh Torch consumes the exact V4 inputs and original FP64 bounds,
+after the four native stages. Original native code is faster in nine cases;
+three remain slower. Torch's two large FP32/FP16 cases are particularly slow in
+this round, so these ratios alone do not establish stable cross-run superiority.
+The independent reproducer checks included bytes and timing arithmetic; large
+tensor binaries are retained locally rather than bundled. V4's host, finite
+GPU and exceptional-value checks pass, including actual graph function and
+argument observation. These correctness results do not establish a speedup.
