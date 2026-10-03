@@ -450,3 +450,56 @@ rerunning GPU validation. The local full audit is
 `32740135f857fc9245d2bdfb6c82a7c67da3710a4419265996d46e82fa2833eb`;
 that packet is not bundled with the source. No current mutable source or
 DLL receipt replaces the saved execution-time evidence.
+
+## 12. Larger SUM thread groups
+
+The next independent cohort tested T512/P1 and T1024/P1, each with L1
+scalar or L4 vector storage, against the original L1 controls from section
+10. It retained the same three fixtures, math policies, FP64 bounds, U64,
+BR1 capture, pad64 and coordinate forwarding disabled. Initial controls,
+11 admitted candidates, fresh Torch and final controls ran with seven
+100 ms samples, 500 ms warmup and 100-node graphs on the same CPU affinity.
+No earlier Torch timing was used as a denominator.
+
+All 11 timed candidates were slower than their final original controls by
+median. The table shows the post-hoc lowest candidate per fixture; times
+are microseconds. It does not select or promote a new policy.
+
+| SUM fixture | Original T/P | L1 initial | Lowest candidate T/P/L | Candidate | L1 recheck | Fresh Torch | Candidate / recheck | Control drift |
+|---|---|---:|---|---:|---:|---:|---:|---:|
+| FP16 129 x 2048, fast | 128/1 | 1.351827 | 512/1/1 scalar | 1.994251 | 1.338158 | 1.403007 | 1.490295 | -1.011% |
+| BF16 128 x 8192, strict | 128/2 | 2.735928 | 512/1/4 vector | 2.747457 | 2.587798 | 2.475620 | 1.061697 | -5.414% |
+| FP32 3 x 8192, strict | 256/1 | 1.328337 | 512/1/1 scalar | 1.316313 | 1.314930 | 1.355308 | 1.001052 | -1.009% |
+
+FP32 T512/P1/L1 was effectively tied with the final control, not a
+demonstrated improvement: it was 0.105% slower, with overlapping sample
+ranges of 1.315104--1.316954 us and 1.314522--1.333487 us. Its lower median
+than the initial control cannot be separated from the -1.009% control
+drift. FP16 large groups lost substantially: T512/P1/L1 was 49.03% slower
+than the final control and T1024/P1/L1 was 197.07% slower.
+
+BF16's controls drifted -5.414%. Its lowest candidate remained 6.17% slower
+than the final control, and its full seven-sample range was
+2.699217--4.920616 us. The 4.92 us spike is retained in the CSV; no trimming
+or thermal/power explanation is applied. Whole-stage driver telemetry
+includes setup and warmup and cannot identify the cause of that sample.
+
+The separate admission run rejected FP16 T1024/P1/L4 vector before
+dispatch because it had no eligible storage-pack phase. That result remains
+unsupported, with no numerical pass or timing; no zero timing or performance
+ratio is substituted. The formal cohort contained 20 successful processes:
+17 native and three Torch, with 140 primary samples, 1700 actual native graph nodes and
+23 complete saved logical outputs (1951 elements). Its independent audit
+replayed the original full FP64 checks, fixture/source identities, graph
+bindings and resources, and initial/recheck source equality. Runtime
+physical guard/read-only reports remain separate from saved logical output
+checks; no internal vector branch or uniquely bound timed cubin is inferred.
+
+The [140 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-sum-large-groups/samples.csv)
+include all 11 candidates, both controls, fresh Torch and every outlier.
+They permit recomputing medians and ratios, not rerunning the omitted GPU
+or tensor validation. The local full audit is
+`.deps/oct04-tirx-sum-large-groups-summary-v1/checkpoint.json`, SHA256
+`e255a41fc602843d3fb859cc9fa8ab3d7e996cec7973a485bb4b788f417fccb2`;
+that packet is not bundled with the source. Saved execution receipts,
+rather than current mutable source/DLL files, define the measured cohort.
