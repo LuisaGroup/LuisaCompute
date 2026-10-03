@@ -121,6 +121,10 @@ struct PlannerOptions {
     // Partial unrolling of each worker's ordered stripe. Does not introduce
     // independent accumulators or change its floating-point recurrence order.
     // A bounded code-size choice, not a hardware vector-width promise.
+    // Metal accepts 1..16; opt-in CUDA-source subgroup reductions accept
+    // 1..64. Non-default values require the respective subgroup capability.
+    // Each stripe uses min(requested factor, actual chunks); the existing
+    // private-stripe budget is separate and is not increased by unrolling.
     uint32_t reduction_unroll_factor{1u};
     // Consecutive logical elements owned by one worker before advancing to
     // the next worker (1, 2, 4 or 8). An ownership layout, not a vector ISA

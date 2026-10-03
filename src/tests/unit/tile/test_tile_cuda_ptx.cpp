@@ -793,10 +793,10 @@ void test_tile_patch_retry(Device &, tile::CompileOptions options) {
     if (second_ptx) { expect(*second_ptx == patched_bytes); }
 }
 
-void test_cuda_subgroup_special_values(Device &device) {
+void test_cuda_subgroup_special_values(Device &device, int64_t columns = 512, uint32_t unroll = 1u) {
     using namespace tile;
-    constexpr int64_t rows = 13, columns = 512;
-    auto kernel = tile_kernel("cuda_subgroup_special_values", [](TensorView<const float, 2> x,
+    constexpr int64_t rows = 13;
+    auto kernel = tile_kernel("cuda_subgroup_special_values", [=](TensorView<const float, 2> x,
                                                                  TensorView<float, 1> sums,
                                                                  TensorView<float, 1> minima,
                                                                  TensorView<float, 1> maxima) {
@@ -844,9 +844,9 @@ void test_cuda_subgroup_special_values(Device &device) {
     }
     // Dyadic finite fixtures have exact sums for every legal tree. NaN payloads
     // are deliberately unspecified. Extrema retain the original +/-inf seed.
-    std::array expected_sum{std::bit_cast<float>(uint32_t{0x00000200u}), std::bit_cast<float>(uint32_t{0x80000200u}),
+    std::array expected_sum{std::bit_cast<float>(static_cast<uint32_t>(columns)), std::bit_cast<float>(static_cast<uint32_t>(columns) | 0x80000000u),
                             0.0f, 0.0f, inf, -inf, nan, nan, nan,
-                            64.0f, std::bit_cast<float>(uint32_t{0x04800000u}), 0.0f, 0.5f};
+                            static_cast<float>(columns) * 0.125f, static_cast<float>(std::ldexp(static_cast<double>(columns), -127)), 0.0f, 0.5f};
     std::array expected_min{tiny, -tiny, -0.0f, -0.0f, inf, -inf, 0.0f, inf, -inf,
                             0.125f, half_normal, -100.0f, 0.0f};
     std::array expected_max{tiny, -tiny, 0.0f, -0.0f, inf, -inf, 0.0f, -inf, inf,
@@ -863,12 +863,16 @@ void test_cuda_subgroup_special_values(Device &device) {
     auto xv = x.view(input_pad, rows * columns);
     auto av = a.view(output_pad, rows), bv = b.view(output_pad, rows), cv = c.view(output_pad, rows);
     for (auto geometry : {std::array{64u, 1u}, std::array{128u, 2u}, std::array{128u, 4u}}) {
+        // The added regression is one 32-worker/program layout: 2048 / 32
+        // gives 64 real lane1 chunks, plus a packed tail at row 13.
+        if (unroll == 64u && geometry != std::array{128u, 4u}) { continue; }
         for (auto fast : {false, true}) {
             tile::bridge::tirx::CompileOptions bridge;
             bridge.planner.cuda_subgroup_reductions = true;
             bridge.planner.threads_per_group = geometry[0u];
             bridge.planner.reduction_programs_per_group = geometry[1u];
-            bridge.planner.reduction_lane_elements = 8u;
+            bridge.planner.reduction_lane_elements = unroll == 64u ? 1u : 8u;
+            bridge.planner.reduction_unroll_factor = unroll;
             bridge.planner.cache_reduction_inputs = true;
             auto shader = tile::compile(device, kernel, {.lowering = Lowering::TIRX, .tirx = &bridge},
                                         {.enable_cache = false, .enable_fast_math = fast});
@@ -876,6 +880,11 @@ void test_cuda_subgroup_special_values(Device &device) {
             if (!shader) { continue; }
             expect(shader.metadata().disjoint_writes);
             expect(shader.metadata().realization.find("cuda-subgroup-plans=1") != string::npos);
+            auto plan = luisa::format("cuda-subgroup-plan=threads{}:programs{}:warps{}:lane-elements{}:reductions3:unroll{}",
+                                      geometry[0u], geometry[1u], geometry[0u] / geometry[1u] / 32u,
+                                      bridge.planner.reduction_lane_elements, unroll);
+            expect(shader.metadata().realization.find(plan) != string::npos);
+            expect(shader.block_size().x == geometry[0u] && shader.block_size().y == 1u && shader.block_size().z == 1u);
             vector<float> sa(a.size(), guard), sb(b.size(), guard), sc(c.size(), guard), after(input.size());
             stream << x.copy_from(span{input}) << a.copy_from(span{sa}) << b.copy_from(span{sb}) << c.copy_from(span{sc})
                    << shader(xv, av, bv, cv).dispatch()
@@ -889,6 +898,129 @@ void test_cuda_subgroup_special_values(Device &device) {
             for (auto output : {span{sa}, span{sb}, span{sc}}) {
                 for (auto i = size_t{0}; i < output_pad; i++) {
                     expect(equal_value(output[i], guard) && equal_value(output[output_pad + rows + i], guard));
+                }
+            }
+        }
+    }
+}
+
+void test_cuda_subgroup_partial_tree_values(Device &device) {
+    using namespace tile;
+    constexpr auto rows = 17u;
+    constexpr auto input_pad = size_t{65}, output_pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    auto tiny = std::bit_cast<float>(uint32_t{1u});
+    auto half_normal = std::bit_cast<float>(uint32_t{0x00400000u});
+    auto inf = std::numeric_limits<float>::infinity();
+    auto nan = std::bit_cast<float>(uint32_t{0x7fc01234u});
+    auto signaling_nan = std::bit_cast<float>(uint32_t{0xff800001u});
+    auto equal_value = [](float actual, float expected) {
+        auto a = std::bit_cast<uint32_t>(actual), e = std::bit_cast<uint32_t>(expected);
+        return (e & 0x7fffffffu) > 0x7f800000u ? (a & 0x7fffffffu) > 0x7f800000u : a == e;
+    };
+    for (auto geometry : {std::array{2u, 2u}, std::array{3u, 3u}, std::array{4u, 2u},
+                          std::array{8u, 2u}, std::array{16u, 2u}, std::array{17u, 1u},
+                          std::array{32u, 1u}}) {
+        auto [subgroups, packing] = geometry;
+        auto threads = 32u * subgroups * packing;
+        // Each worker consumes eight real values, then the next chunk has one
+        // real value. Every partial matters, including S=17/32; S=3/P=3
+        // also has one inactive packed program in the last block (17 rows).
+        auto columns = 32u * subgroups * 8u + 1u;
+        auto count = size_t{rows} * columns;
+        auto kernel = tile_kernel("cuda_subgroup_partial_tree_values", [=](TensorView<const float, 2> x,
+                                                                          TensorView<float, 2> sums,
+                                                                          TensorView<float, 2> minima,
+                                                                          TensorView<float, 2> maxima) {
+            auto one = axis("one", 1), feature = axis("feature", columns);
+            for (auto &program : parallel(shape(rows))) {
+                auto origin = coord(program.index(), 0);
+                auto value = x.tile(origin, shape(one, feature)).load();
+                sums(origin, shape(one, feature)).store(reduce(value, feature, add));
+                minima(origin, shape(one, feature)).store(reduce(value, feature, minimum));
+                maxima(origin, shape(one, feature)).store(reduce(value, feature, maximum));
+            }
+        }).capture(tensor_shape(rows, columns), tensor_shape(rows, columns),
+                   tensor_shape(rows, columns), tensor_shape(rows, columns));
+        expect(kernel.valid());
+        if (!kernel.valid()) { continue; }
+        vector<float> input(input_pad + count + input_pad, guard);
+        auto samples = span{input}.subspan(input_pad, count);
+        for (auto row = 0u; row < rows; row++) {
+            for (auto column = 0u; column < columns; column++) {
+                auto value = 0.0f;
+                switch (row) {
+                    case 0: value = tiny; break;
+                    case 1: value = -tiny; break;
+                    case 2: value = column % 2 == 0 ? -0.0f : 0.0f; break;
+                    case 3: value = -0.0f; break;
+                    case 4: value = inf; break;
+                    case 5: value = -inf; break;
+                    case 6: value = column == columns / 2u ? nan : 0.0f; break;
+                    case 7: value = nan; break;
+                    case 8: value = column == 0u ? inf : column == columns - 1u ? -inf : 0.0f; break;
+                    case 9: value = 0.125f; break;
+                    case 10: value = half_normal; break;
+                    case 11: value = column % 2 == 0 ? 100.0f : -100.0f; break;
+                    case 12: value = column == columns - 1u ? 0.5f : 0.0f; break;
+                    case 13: value = column == columns - 1u ? inf : 0.0f; break;
+                    case 14: value = column == columns / 2u ? -inf : 0.0f; break;
+                    case 15: value = column == columns - 1u ? signaling_nan : 0.0f; break;
+                    case 16: value = 0.0f; break;
+                    default: break;
+                }
+                samples[size_t{row} * columns + column] = value;
+            }
+        }
+        // Exact dyadic sums are independent of reassociation here. NaN
+        // payloads are not compared. The original +/-inf extrema seeds and
+        // +0 sum seed determine all-NaN and signed-zero expectations.
+        std::array expected_sum{std::bit_cast<float>(columns), std::bit_cast<float>(columns | 0x80000000u),
+                                0.0f, 0.0f, inf, -inf, nan, nan, nan,
+                                static_cast<float>(columns) * 0.125f,
+                                static_cast<float>(std::ldexp(static_cast<double>(columns), -127)),
+                                100.0f, 0.5f, inf, -inf, nan, 0.0f};
+        std::array expected_min{tiny, -tiny, -0.0f, -0.0f, inf, -inf, 0.0f, inf, -inf,
+                                0.125f, half_normal, -100.0f, 0.0f, 0.0f, -inf, 0.0f, 0.0f};
+        std::array expected_max{tiny, -tiny, 0.0f, -0.0f, inf, -inf, 0.0f, -inf, inf,
+                                0.125f, half_normal, 100.0f, 0.5f, inf, 0.0f, 0.0f, 0.0f};
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto x = device.create_buffer<float>(input.size());
+        auto a = device.create_buffer<float>(count + 2u * output_pad);
+        auto b = device.create_buffer<float>(count + 2u * output_pad);
+        auto c = device.create_buffer<float>(count + 2u * output_pad);
+        auto xv = x.view(input_pad, count);
+        auto av = a.view(output_pad, count), bv = b.view(output_pad, count), cv = c.view(output_pad, count);
+        for (auto fast : {false, true}) {
+            tile::bridge::tirx::CompileOptions bridge;
+            bridge.planner.cuda_subgroup_reductions = true;
+            bridge.planner.threads_per_group = threads;
+            bridge.planner.reduction_programs_per_group = packing;
+            bridge.planner.reduction_lane_elements = 8u;
+            bridge.planner.cache_reduction_inputs = true;
+            auto shader = tile::compile(device, kernel, {.lowering = Lowering::TIRX, .tirx = &bridge},
+                                        {.enable_cache = false, .enable_fast_math = fast});
+            expect(static_cast<bool>(shader)) << "S=" << subgroups << " P=" << packing << " fast=" << fast << " " << shader.metadata().error;
+            if (!shader) { continue; }
+            expect(shader.metadata().disjoint_writes);
+            expect(shader.block_size().x == threads && shader.block_size().y == 1u && shader.block_size().z == 1u);
+            expect(shader.metadata().realization.find("cuda-subgroup-plans=1") != string::npos);
+            auto actual_plan = luisa::format("threads{}:programs{}:warps{}:lane-elements8:reductions3", threads, packing, subgroups);
+            expect(shader.metadata().realization.find(actual_plan) != string::npos);
+            vector<float> sa(a.size(), guard), sb(b.size(), guard), sc(c.size(), guard), after(input.size());
+            stream << x.copy_from(span{input}) << a.copy_from(span{sa}) << b.copy_from(span{sb}) << c.copy_from(span{sc})
+                   << shader(xv, av, bv, cv).dispatch()
+                   << a.copy_to(span{sa}) << b.copy_to(span{sb}) << c.copy_to(span{sc}) << x.copy_to(span{after}) << synchronize();
+            expect(std::memcmp(input.data(), after.data(), input.size() * sizeof(float)) == 0);
+            for (auto i = size_t{0}; i < count; i++) {
+                auto row = i / columns;
+                expect(equal_value(sa[output_pad + i], expected_sum[row])) << "SUM S=" << subgroups << " row=" << row << " col=" << i % columns << " fast=" << fast;
+                expect(equal_value(sb[output_pad + i], expected_min[row])) << "MIN S=" << subgroups << " row=" << row << " col=" << i % columns << " fast=" << fast;
+                expect(equal_value(sc[output_pad + i], expected_max[row])) << "MAX S=" << subgroups << " row=" << row << " col=" << i % columns << " fast=" << fast;
+            }
+            for (auto output : {span{sa}, span{sb}, span{sc}}) {
+                for (auto i = size_t{0}; i < output_pad; i++) {
+                    expect(equal_value(output[i], guard) && equal_value(output[output_pad + count + i], guard));
                 }
             }
         }
@@ -925,7 +1057,11 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ptx_attention_and_rows"_test = [&] { test_attention_and_rows_tirx(device, options); };
     "tile_cuda_ptx_cache_round_trip"_test = [&] { test_tile_cache_round_trip(device, options); };
     "tile_cuda_ptx_patch_retry"_test = [&] { test_tile_patch_retry(device, options); };
-    "tile_cuda_ptx_subgroup_special_values"_test = [&] { test_cuda_subgroup_special_values(device); };
+    "tile_cuda_ptx_subgroup_special_values"_test = [&] {
+        test_cuda_subgroup_special_values(device);
+        test_cuda_subgroup_special_values(device, 2048, 64u);
+    };
+    "tile_cuda_ptx_subgroup_partial_tree_values"_test = [&] { test_cuda_subgroup_partial_tree_values(device); };
 #else
     "tile_cuda_ptx_fail_closed_without_bridge"_test = [&] { run_fail_closed_without_tirx(device); };
 #endif

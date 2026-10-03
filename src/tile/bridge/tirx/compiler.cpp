@@ -573,9 +573,17 @@ public:
         (lane_elements != 1u && !subgroup_reductions)) {
         return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and subgroup reductions when non-default", module);
     }
-    if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > 16u ||
+    // Only the opt-in CUDA-source family admits longer ordered stripes.
+    // The mapper clamps each unrolled group to the actual chunk count; its
+    // independent private-stripe budget and all capability gates still apply.
+    auto cuda_unroll = cuda_subgroup_reductions && target->kind->name == "cuda";
+    auto maximum_unroll_factor = cuda_unroll ? 64u : 16u;
+    if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > maximum_unroll_factor ||
         (options.planner.reduction_unroll_factor != 1u && !subgroup_reductions)) {
-        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and subgroup reductions when non-default", module);
+        return diagnostic.reject(cuda_unroll ?
+                                     "CUDA subgroup reduction unrolling requires a factor in [1,64]" :
+                                     "reduction unrolling requires a factor in [1,16] and subgroup reductions when non-default",
+                                 module);
     }
     if (options.planner.reduction_programs_per_group != 0u &&
         (!subgroup_reductions || options.planner.reduction_programs_per_group > 8u)) {

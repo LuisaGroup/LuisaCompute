@@ -70,10 +70,16 @@ are rejected. The [reduction mapping reference](reductions.md#explicit-packing-o
 owns the exact admission and ownership contract. This remains an explicit
 candidate family: the [fixed replay](../../performance/tile/reductions.md#cooperating-program-packing)
 does not justify expanding automatic defaults. Invalid combinations fail
-instead of silently falling back. `reduction_unroll_factor` in `[1,16]` controls
-bounded partial unrolling of ordered worker stripes, with a separate tail;
-it creates no extra accumulators and does not reassociate their recurrence.
-The default remains one because measurements show mixed effects.
+instead of silently falling back. `reduction_unroll_factor` controls bounded
+partial unrolling of ordered worker stripes, with a separate tail. Metal
+retains `[1,16]`; the opt-in CUDA-source subgroup family accepts `[1,64]`.
+Each stripe clamps the factor to its actual chunk count. This creates no
+extra accumulators and does not reassociate their recurrence. The existing
+private-stripe storage budget is unchanged; larger unroll factors offer
+constant-index scalarization opportunities, not a guarantee of register
+allocation or faster execution. The default remains one because measurements
+show mixed effects. CUDA's larger bound does not enable the family on NVPTX,
+CPU, or a CUDA request without the subgroup capability.
 
 The benchmark's staged/JIT Cartesian product can now include thread count,
 packing, unrolling and materialization. Every candidate and fresh winner is

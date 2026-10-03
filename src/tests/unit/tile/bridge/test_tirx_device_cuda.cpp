@@ -426,6 +426,139 @@ void expect_cuda_subgroup_source(const DeviceArtifact &artifact) {
     }
 }
 
+void cuda_subgroup_unroll_boundaries() {
+    // Small domains exercise min(chunks, U); 4096/64 exercises a complete
+    // 64-chunk stripe. These are CUDA-source artifacts, not NVRTC/GPU tests.
+    for (auto [columns, factor] : {std::pair{37u, 16u}, {37u, 17u}, {37u, 32u}, {37u, 64u}, {4096u, 64u}}) {
+        auto definition = tile_kernel("cuda_subgroup_unroll_boundary", [=](TensorView<const float, 2> input,
+                                                                           TensorView<float, 1> output) {
+            auto one = axis("one", 1), column = axis("column", columns);
+            for (auto &nest : parallel(shape(3))) {
+                auto x = input.tile(coord(nest.index(), 0), shape(one, column)).load();
+                output(coord(nest.index()), shape(one)).store(reduce(x, column, add));
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(3, columns), tensor_shape(3));
+        expect(kernel.valid());
+        auto native = lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        auto options = cuda_subgroup_options();
+        options.planner.threads_per_group = 64u;
+        options.planner.reduction_programs_per_group = 1u;
+        options.planner.reduction_unroll_factor = factor;
+        auto result = compile_device(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(result)) << "N=" << columns << " U=" << factor << " " << result.error;
+        if (!result) { continue; }
+        expect_cuda_subgroup_source(result.artifact);
+        expect(result.artifact.grid == (std::array<uint32_t, 3u>{3u, 1u, 1u}));
+        expect(result.artifact.block == (std::array<uint32_t, 3u>{64u, 1u, 1u}));
+        expect(result.artifact.buffer_arguments.size() == 2u);
+        expect(result.plans.size() == 1u);
+        if (result.plans.size() == 1u) {
+            auto &plan = result.plans.front();
+            expect(plan.reduction_unroll_factor == factor);
+            expect(plan.reduction_lane_elements == 1u);
+            expect(plan.reduction_operations == 1u);
+            expect(plan.striped_storage_scalars_per_worker <= options.planner.max_reduction_striped_scalars_per_worker);
+        }
+    }
+
+    // A reused narrow snapshot forces an actual private stripe. Inspect the
+    // resulting typed artifact rather than guessing scalarization from the
+    // requested GroupPlan field or generated C++ string count.
+    {
+        auto definition = tile_kernel("cuda_subgroup_unroll_private_indices", [](TensorView<const bfloat16, 2> input,
+                                                                                  TensorView<bfloat16, 2> output) {
+            auto one = axis("one", 1), feature = axis("feature", 4096);
+            for (auto &nest : parallel(shape(3))) {
+                auto origin = coord(nest.index(), 0);
+                auto x = cast<float>(input.tile(origin, shape(one, feature)).load());
+                auto total = reduce(x * x, feature, add);
+                output(origin, shape(one, feature)).store(cast<bfloat16>(x / sqrt(total + 1e-5f)));
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(3, 4096), tensor_shape(3, 4096));
+        expect(kernel.valid());
+        auto native = lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (native) {
+            auto options = cuda_subgroup_options();
+            options.planner.threads_per_group = 64u;
+            options.planner.reduction_programs_per_group = 1u;
+            options.planner.reduction_unroll_factor = 64u;
+            auto result = compile_device(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(result)) << result.error;
+            if (result) {
+                expect(result.plans.size() == 1u);
+                if (result.plans.size() == 1u) {
+                    expect(result.plans.front().reduction_unroll_factor == 64u);
+                    expect(result.plans.front().striped_storage_scalars_per_worker == 64u);
+                }
+                auto local_accesses = 0u, nonconstant_indices = 0u;
+                auto inspect = [&](const auto &buffer, const auto &indices) {
+                    if (buffer.scope() != "local") { return; }
+                    local_accesses++;
+                    for (auto &index : indices) {
+                        nonconstant_indices += index.template as<tvm::IntImmNode>() == nullptr;
+                    }
+                };
+                tvm::tirx::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { inspect(load->buffer, load->indices); }
+                    if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { inspect(store->buffer, store->indices); }
+                });
+                expect(nonconstant_indices == 0u) << "local accesses=" << local_accesses;
+                // Zero remaining local accesses is also valid if preceding
+                // scalarization has removed every private Buffer object.
+                expect_cuda_subgroup_source(result.artifact);
+            }
+        }
+    }
+
+    auto kernel = cuda_subgroup_sum_kernel();
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    for (auto factor : {0u, 65u, UINT32_MAX}) {
+        auto options = cuda_subgroup_options();
+        options.planner.reduction_unroll_factor = factor;
+        auto rejected = compile_device(native.value, kernel.function().name(), options);
+        expect(!static_cast<bool>(rejected));
+        expect(rejected.error.find("[1,64]") != luisa::string::npos) << rejected.error;
+    }
+    // Metal rejects the new range during mapping, before requesting a Metal
+    // code generator. This negative needs neither a Metal device nor runtime.
+    for (auto factor : {17u, 64u}) {
+        auto options = cuda_subgroup_options();
+        options.target = R"({"kind":"metal","thread_warp_size":32,"max_num_threads":1024,"max_shared_memory_per_block":32768})";
+        options.planner.cuda_subgroup_reductions = false;
+        options.planner.metal_subgroup_reductions = true;
+        options.planner.reduction_unroll_factor = factor;
+        auto rejected = compile_device(native.value, kernel.function().name(), options);
+        expect(!static_cast<bool>(rejected));
+        expect(rejected.error.find("[1,16]") != luisa::string::npos) << rejected.error;
+    }
+    for (auto mode = 0u; mode != 5u; mode++) {
+        auto options = cuda_subgroup_options();
+        options.planner.reduction_unroll_factor = 64u;
+        if (mode == 0u) { options.planner.cuda_subgroup_reductions = false; }
+        if (mode == 1u) { options.target = nvptx_target(); }
+        if (mode == 2u) { options.noalias = false; }
+        if (mode == 3u) { options.planner.enabled = false; }
+        if (mode == 4u) {
+            options.target = R"({"kind":"cuda","thread_warp_size":16,"max_num_threads":1024,"max_shared_memory_per_block":98304})";
+        }
+        auto rejected = compile_device(native.value, kernel.function().name(), options);
+        expect(!static_cast<bool>(rejected)) << "mode=" << mode;
+        expect(!rejected.error.empty());
+    }
+    auto options = cuda_subgroup_options();
+    options.planner.reduction_unroll_factor = 64u;
+    auto non_device = luisa::compute::tile::bridge::tirx::compile(native.value, kernel.function().name(), options);
+    expect(!non_device.ok());
+    expect(!non_device.error().empty());
+}
+
 void test_cuda_subgroup_target_contract() {
     auto kernel = cuda_subgroup_sum_kernel();
     expect(kernel.valid());
@@ -479,6 +612,7 @@ void test_cuda_subgroup_target_contract() {
     expect(!conflicting_targets.error.empty());
     // The existing test_cuda_fail_closed_options remains unchanged, including
     // its separate rejection of metal_subgroup_reductions on a CUDA target.
+    cuda_subgroup_unroll_boundaries();
 }
 
 template<typename T>
@@ -589,6 +723,7 @@ void test_cuda_subgroup_resource_rejections() {
             options.planner.threads_per_group = 32u;
             options.planner.reduction_lane_elements = 8u;
             options.planner.max_reduction_striped_scalars_per_worker = 1u;
+            options.planner.reduction_unroll_factor = 64u;
         }
         if (mode == 4u) {
             options.target = R"({"kind":"cuda","thread_warp_size":32,"max_num_threads":1024,"max_shared_memory_per_block":1})";
