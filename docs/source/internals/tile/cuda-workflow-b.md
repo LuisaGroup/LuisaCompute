@@ -336,3 +336,61 @@ include both controls and the negative results. The local independent audit
 is `.deps/oct04-tirx-sum-contribution-pairs-summary-v1/checkpoint.json`, SHA256
 `d15128c8eb4fb35fb5cf17944013e28a2884d466948f69408999b61778399d6f`;
 that full local packet is not bundled with the source.
+
+## 10. Measured SUM geometry choices
+
+A second cohort compared 29 candidates across the same three SUM fixtures.
+It varied threads per group (`T`), programs per group (`P`), lane width (`L`)
+and scalar/vector storage, retaining U64, BR1 capture, the original math
+policy, inputs and FP64 bounds. The original L1 configuration ran before and
+after the candidates; Torch used that first control's exact fixture and new
+per-case caches. Each process retained seven 100 ms graph-event samples,
+500 ms warmup and 100 nodes per graph, with the same four-core CPU affinity.
+No model was fitted or production selection policy changed.
+
+The table reports medians in microseconds. "Lowest candidate" is a post-hoc
+minimum within this cohort, not a separately validated schedule choice.
+
+| SUM fixture | Original T/P | L1 initial | Lowest candidate T/P/L | Candidate | L1 recheck | Fresh Torch | Candidate / recheck | Control drift |
+|---|---|---:|---|---:|---:|---:|---:|---:|
+| FP16 129 x 2048, fast | 128/1 | 1.354865 | 32/1/4 vector | 1.349508 | 1.348166 | 1.458718 | 1.000995 | -0.49% |
+| BF16 128 x 8192, strict | 128/2 | 2.724686 | 64/1/4 vector | 2.421356 | 2.594069 | 2.664875 | 0.933420 | -4.79% |
+| FP32 3 x 8192, strict | 256/1 | 1.329793 | 256/1/4 vector | 1.335910 | 1.311057 | 1.281319 | 1.018956 | -1.41% |
+
+BF16's lowest candidate was 6.66% faster than the final control, with sample
+ranges of 2.420887--2.431987 us and 2.592768--2.594816 us respectively. Its
+11.13% improvement against the initial control includes a -4.79% control
+drift, so the larger percentage must not be presented as a stable gain.
+FP16 candidates all lost to the final L1 control; FP32 candidates all lost
+to both L1 controls and fresh Torch. Negative schedules remain in the data:
+BF16 T64/P2/L1 was 30.45% slower than its final control, and FP32 T128/P4/L1
+was 122.57% slower. These results do not justify a uniform geometry rule.
+
+The fresh Torch selection also changed. Its FP16 record moved from
+XBLOCK=1, R0_BLOCK=64, two warps in section 9 to XBLOCK=4, R0_BLOCK=512,
+four warps here; FP32 moved from R0_BLOCK=4096 to 1024 with 16 warps.
+Consequently, beating this cohort's FP16 Torch median does not demonstrate
+native improvement. Ratios use only this cohort's denominator. The retained
+selection records have no Triton cache hash and do not establish a uniquely
+bound timed cubin or a cause for the timing changes.
+
+All 38 processes passed: 35 native and three Torch, with 266 primary samples,
+3500 actual native graph nodes and 41 complete saved logical outputs (3636
+elements). Independent CPU replay checked every saved output against the
+original FP64 reference and bounds, fixture hashes, admission source bytes,
+actual graph bindings and resources, and byte-identical first/last control
+source. Runtime guard and read-only reports remain distinct from the saved
+logical outputs; physical allocation contents are not bundled. All native
+resource records reported zero local bytes, which alone does not explain
+their performance differences. Whole-stage telemetry includes setup and
+warmup and cannot assign a thermal or power cause to individual samples.
+
+The [266 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-sum-geometry/samples.csv)
+include every candidate, both controls, fresh Torch and sample outliers.
+They permit recomputing medians and ratios, not rerunning GPU correctness.
+The local independent audit is
+`.deps/oct04-tirx-sum-geometry-pairs-summary-v1/checkpoint.json`, SHA256
+`9a7e7da723698de43b8722c26da8b2a56d5d5bb2fb24a749c8d33db3cb002abc`.
+That full packet is not bundled with the source. Historical execution
+receipts bind the saved source, helper closure and before/after snapshots;
+current mutable source or DLL files are not substituted for that evidence.
