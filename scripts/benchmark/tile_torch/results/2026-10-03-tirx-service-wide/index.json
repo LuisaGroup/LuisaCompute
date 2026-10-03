@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "raw_summary": {
+    "reference": ".deps/oct03-tirx-service-wide-summary-v1/checkpoint.json",
+    "sha256": "93c72c8919d9b4694c7be5b667f493d314bb78250c1ff94f3563ce398b3a0945",
+    "bytes": 1777189
+  },
+  "public_projection": "evidence.json",
+  "transform": "Selected exact recorded values, with repository paths made relative; projection is not byte-identical to the original summary.",
+  "files": {
+    "evidence.json": {
+      "sha256": "fb85de659e03105065c9377e2a3afed741952821ad468f0d9911c66bfdbd3ebd",
+      "bytes": 746520
+    },
+    "README.md": {
+      "sha256": "fb9573fb5c46e8ffbbc98cc27e27386d3d53033ea5eff7a942d06917a7d1f1ba",
+      "bytes": 8508
+    },
+    "reproduce.py": {
+      "sha256": "b5a82ccafb3f3166895208c074e792b46f534025d67aac23fedb03d3c8482d58",
+      "bytes": 14516
+    },
+    ".gitattributes": {
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    }
+  }
+}
