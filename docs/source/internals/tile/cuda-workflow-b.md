@@ -751,3 +751,111 @@ validation. The local audit checkpoint is
 `89ba88dd800954ad3b44dfe1f2f3b37742633f976a6332888ad150835d1dcbff`.
 Saved snapshots and executed helper receipts define the timed cohort;
 later mutable sources and DLLs are not substituted for them.
+
+## 16. BF16 conversion and vector-phase eligibility
+
+This is the retained first experiment with globally eager BF16 conversion,
+not the final implementation. This compiler package made LayerNorm's
+gamma/beta loads and output stores eligible for the existing L2/L4 vector
+phases. The round-to-BF16 expression used a pure UInt32 Select, TVM generated the
+condition SSA value with its own type, and the phase audit admitted bounded
+pure scalar bitcasts. Original rounding, NaN quieting, guards and numerical
+bounds remained the contract; no DSL primitive was added. L8 retained a
+scalar BF16 epilogue while its independent input phase remained eligible.
+This round compares the complete old/new bridge and TVM packages, not the
+isolated effect of any one change.
+
+The fixed fixture was LayerNorm 128 x 1024 BF16, fast math, BR1,
+T128/P2/U64, cachefalse and pad64. PRESERVE, FAST_DIV_SQRT=0,
+terminal-row=0 and integer-extrema=0 stayed fixed. L1 used scalar accesses
+and coordinates0; L2/L4 used vector1 and coordinates1. The order was old
+L1/L2/L4, new L1/L2/L4, one fresh Torch run, then three matching old
+rechecks. Torch used only the first old L1 manifest and fresh caches.
+Seven 100 ms samples, 500 ms warmup, graph100 and four-core affinity
+`0x15400` were retained.
+
+| Lane configuration | Old initial us | New us | Old recheck us | New / first | New / last | New / fresh Torch | Old control drift |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| L1 scalar | 1.846940 | 1.880563 | 1.848300 | 1.018204 | 1.017455 | 1.072418 | +0.0736% |
+| L2 vector | 1.935488 | 1.820869 | 1.926592 | 0.940780 | 0.945125 | 1.038377 | -0.4597% |
+| L4 vector | 2.355609 | 1.807418 | 2.357904 | 0.767283 | 0.766536 | 1.030706 | +0.0974% |
+
+Fresh Torch's median was 1.753573 us. Although new L2/L4 were 5.488% and
+23.346% faster than their own old final controls, those old vector paths
+were weaker than old L1. Against the strong old L1 final control, new L2
+improved by only 1.484% and new L4 by 2.212%. New L1 regressed by 1.746%.
+Every new configuration remained slower than this round's Torch. These
+negatives rule out presenting the 23.346% figure as a general native gain
+or a reason to promote the globally changed scalar lowering by default.
+A later implementation restricted to the vector copy, with the original
+lazy scalar lowering restored, requires separate validation and a new
+cohort; it must not replace these results.
+
+| Lane | Old initial seven-sample range us | New range us | Old recheck range us |
+|---|---|---|---|
+| L1 | 1.846021--1.871508 | 1.873307--1.892070 | 1.848000--1.848680 |
+| L2 | 1.924393--1.955391 | 1.803890--1.836702 | 1.924436--1.927462 |
+| L4 | 2.351012--2.370956 | 1.795491--1.823961 | 2.348891--2.359056 |
+
+Torch's range was 1.749882--1.754695 us. These are descriptive ranges,
+not confidence intervals or evidence of cross-session stability. Its saved
+selection was X2/R1024, eight warps and one stage, with a null
+`triton_cache_hash`; that compiler observation does not uniquely identify
+the timed cubin. No historical Torch denominator is substituted.
+
+All ten processes passed: nine native and one Torch, with 70 primary
+samples, 900 actual native graph nodes and eleven complete saved logical
+outputs. Independent CPU replay checked all 1,441,792 values against the
+unchanged original FP64 references and per-element bounds. Physical
+guard/read-only checks remain runtime reports, separately from replay of
+saved logical outputs. Each native graph retained the actual function,
+grid, block and all four final argument pointers. Registers/shared/local
+bytes were 40/80/0 for every native process; these are Driver resource
+observations, not occupancy or a performance explanation.
+
+The new L2/L4 sources contain guarded `ushort2`/`ushort4` gamma and beta
+loads and output stores, with scalar fallbacks. Their joint epilogue
+alignment predicate covers the final gamma, beta and output pointers;
+the input vector phase has its own guard. This is generated-source
+evidence, not proof of the executed branch, machine instruction width or
+memory traffic. All sources matched their admitted anchors, including
+the freshly captured old L2 source, and each old recheck matched its
+same-lane initial source byte for byte.
+
+Both packages used the same private executable and fixed backend/common
+dependencies. Observations before and after each native run verified the
+unique loaded bridge and TVM compiler paths in the selected package,
+their module bases within that process, and the observed common modules.
+The archived package files and common files matched the saved execution
+receipts during audit. This does not hash loaded memory or substitute
+current production sources for historical build evidence.
+
+LLVM 22/23 MSVC full builds and 12804 host assertions in 22 groups passed;
+the CUDA runtime suite passed 2184696 assertions in 12 groups. The bounded
+admission passed all 17 cases, with 1700 actual graph nodes and 1,323,776
+saved output values independently checked. A separate generated-source
+BF16 probe passed 129360 exact output-bit comparisons across scalar,
+two-lane and four-lane strict/fast routes, including special raw FP32
+patterns and allocation guard/read-only checks. That conversion probe
+does not replace the complete LayerNorm oracle. The three existing
+default CUDA/vector-CUDA/Metal captures and twelve ordered callbacks
+retained exact parity after removing only known diagnostic log records;
+this is bounded capture parity, not a claim that globally changed BF16
+scalar lowering preserves every source.
+
+Whole-stage telemetry includes setup, compilation and warmup and is not
+aligned to individual timing samples. Software power-cap and thermal
+slowdown reasons were reported active during parts of the run; no thermal
+or power cause is assigned. The Torch-stage 588.21 W reading is retained
+as untrusted anomalous telemetry, not evidence that the GPU consumed that
+power. Hardware thermal/power-brake, application-clock and board-limit
+reasons were reported inactive.
+
+The [70 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-bfloat-vector/samples.csv)
+include every native and Torch result, matched-control ratios and native
+resource observations. They support recomputing medians and ratios, not
+rerunning omitted tensor or GPU validation. The local audit checkpoint is
+`.deps/oct04-tirx-bfloat-select-pairs-summary-v1/checkpoint.json`, SHA256
+`3523bc66f943dfc7e63cd2c37bb58ec24eaee53fcb462b4a1881b3b13d48c1af`.
+Saved execution snapshots and the executed helper closure define this
+cohort; later mutable sources and DLLs are not substituted for them.
