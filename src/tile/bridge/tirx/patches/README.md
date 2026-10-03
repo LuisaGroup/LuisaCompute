@@ -96,6 +96,54 @@ misaligned views, inactive rows and CUDA memory checking. These integration
 checks are separate from the source-only regressions and establish no
 performance guarantee.
 
+## CUDA Select condition temporaries
+
+`cuda-select-condition-type-v1.patch` fixes CUDA source generation for an
+existing vector `Select` in Apache TVM
+`46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. When the boolean condition requires
+a new SSA temporary, the CUDA emitter previously declared it with the
+Select result's type. A dynamic Bool2 broadcast selecting UInt32 values could
+therefore emit `uint2 mask = make_ushort2(...)`. A condition already emitted as
+an identifier can hide the defect.
+
+The one-line fix passes the condition's own type to the existing SSA helper.
+Bool2/4 retain their existing `ushort2/4` representation and per-lane boolean
+selection. Arm expressions, scalar Select, statement guards and numeric
+operations are unchanged. Bool8 remains unsupported by the CUDA type printer;
+this patch adds no packed-mask representation, Tile operation, BF16 rounding
+policy, memory speculation permission or vectorization default.
+
+The patch is independent of the pointer-storage and wide-broadcast patches:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/cuda-select-condition-type-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+Use the rebuilt TVM compiler and its matching runtime. CMake does not patch
+the dependency automatically. Five source-only regressions cover UInt32 and
+Float32 results with Bool2/4 masks, preservation of the enclosing statement
+guard, and the existing Bool8 rejection:
+
+```sh
+TVM_COMPILE_FORCE_FALLBACK=1 python -m pytest src/ext/tvm/tests/python/tirx/codegen/test_codegen_cuda.py -k test_cuda_select_condition_ -q
+```
+
+Set the environment variable before launching Python (use the corresponding
+syntax on Windows). The tests call `target.build.cuda` directly, force its
+source fallback and reject a source-postprocessing callback. They inspect
+CUDA text without NVRTC, a CUDA context, LLVM JIT or a device launch. They
+verify source types and scope; they do not establish BF16 numerical behavior,
+generated instruction widths or a performance benefit.
+
+The patch applies independently to the pinned source, and the Python additions
+parse successfully; the Python suite was not run in the local environment.
+An equivalent MSVC C++ source-only diagnostic used the same executable with
+the old and rebuilt compiler DLLs, recording their loaded paths. The old
+compiler failed all four positive type checks; the rebuilt compiler passed
+all four. Both retained the Bool8 rejection. The full configured TVM build
+passed. These checks do not compile or execute the generated CUDA.
+
 ## Ordered reduction arithmetic
 
 `metal-precise-math-v1.patch` is independent of the MPP extensions below. It

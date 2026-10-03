@@ -1,0 +1,84 @@
+--- a/src/backend/cuda/codegen/codegen_cuda.cc
++++ b/src/backend/cuda/codegen/codegen_cuda.cc
+@@ -1921,7 +1921,7 @@
+   this->PrintType(op_ty, stream);
+   stream << ' ' << r_var << ";\n";
+   {
+-    std::string c_var = SSAGetID(PrintExpr(op->condition), op_ty);
++    std::string c_var = SSAGetID(PrintExpr(op->condition), op->condition.ty());
+     std::string t_var = SSAGetID(PrintExpr(op->true_value), op_ty);
+     std::string f_var = SSAGetID(PrintExpr(op->false_value), op_ty);
+ 
+--- a/tests/python/tirx/codegen/test_codegen_cuda.py
++++ b/tests/python/tirx/codegen/test_codegen_cuda.py
+@@ -70,6 +70,70 @@
+     if next_helper == -1:
+         return src[start:]
+     return src[start:next_helper]
++
++
++def _cuda_select_condition_source(monkeypatch, dtype, lanes):
++    # Direct source generation only. The forced fallback returns before the
++    # CUDA runtime factory; no NVRTC, CUDA context or device launch is needed.
++    monkeypatch.setenv("TVM_COMPILE_FORCE_FALLBACK", "1")
++    assert tvm.get_global_func("tvm_callback_cuda_postproc", allow_missing=True) is None
++    assert tvm.backend.cuda.codegen.header_generator is not None
++    output = tvm.tirx.decl_buffer((lanes,), dtype, name="output")
++    data = tvm.tirx.Var("output_data", tvm.tirx.buffer_data_pointer_type(output))
++    condition = tvm.tirx.Var("condition", "bool")
++    yes, no = tvm.tirx.Var("yes", dtype), tvm.tirx.Var("no", dtype)
++    gate = tvm.tirx.Var("gate", "int32")
++    # A comparison already materialized to an SSA identifier can hide the
++    # defect. This dynamic Broadcast forces Select to declare the mask SSA.
++    value = tvm.tirx.Select(
++        tvm.tirx.Broadcast(condition, lanes),
++        tvm.tirx.Broadcast(yes, lanes),
++        tvm.tirx.Broadcast(no, lanes),
++    )
++    store = tvm.tirx.BufferStore(output, value, [tvm.tirx.Ramp(0, 1, lanes)])
++    body = tvm.tirx.SeqStmt([
++        tvm.tirx.DeclBuffer(output, data=data),
++        tvm.tirx.IfThenElse(gate != 0, store),
++    ])
++    func = tvm.tirx.PrimFunc([condition, yes, no, gate, data], body).with_attr(
++        "global_symbol", "main"
++    )
++    target = tvm.target.Target({"kind": "cuda", "arch": "sm_80"})
++    return tvm.get_global_func("target.build.cuda")(
++        tvm.IRModule.from_expr(func), target
++    ).inspect_source()
++
++
++@pytest.mark.parametrize("dtype", ["uint32", "float32"])
++@pytest.mark.parametrize("lanes", [2, 4])
++def test_cuda_select_condition_ssa_type_source(monkeypatch, dtype, lanes):
++    source = _cuda_select_condition_source(monkeypatch, dtype, lanes)
++    definition = re.search(r'extern "C" __(?:device|global)__ void main\([^;]*?\) \{', source)
++    assert definition is not None
++    body = source[definition.end():]
++    arguments = r"\s*,\s*".join(["condition"] * lanes)
++    mask = re.search(rf"\bushort{lanes}\s+(\w+)\s*=\s*make_ushort{lanes}\({arguments}\);", body)
++    assert mask is not None, body
++    assert body.count(f"make_ushort{lanes}(") == 1
++    guard = body.index("if (")
++    begin = body.index("{", guard)
++    depth, end = 1, begin + 1
++    while depth:
++        depth += (body[end] == "{") - (body[end] == "}")
++        end += 1
++    assert begin < mask.start() < end
++    for component in "xyzw"[:lanes]:
++        selected = re.search(rf"\(bool\({mask[1]}\.{component}\)\?\w+\.{component}:\w+\.{component}\)", body)
++        assert selected is not None and begin < selected.start() < end
++    assert "output_data" in body[begin:end]
++
++
++def test_cuda_select_condition_bool8_unsupported_source(monkeypatch):
++    # Bool8 has no CUDA representation in this backend. Fixing its Select
++    # consumer's SSA type must not invent ushort8 or packed-mask support.
++    with pytest.raises(tvm.error.InternalError, match="Cannot convert type .* to CUDA type") as error:
++        _cuda_select_condition_source(monkeypatch, "uint32", 8)
++    assert "bool" in str(error.value)
+ 
+ 
+ @pytest.mark.gpu

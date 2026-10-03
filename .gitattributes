@@ -2,3 +2,4 @@ src/ext/llvm-downgrade-llvm22-air.patch -whitespace
 src/backends/metal4/metal-tex-compress/** -whitespace
 src/tile/bridge/tirx/patches/pointer-storage-legalize-v1.patch text eol=lf -whitespace
 src/tile/bridge/tirx/patches/cuda-wide-broadcast-v1.patch text eol=lf -whitespace
+src/tile/bridge/tirx/patches/cuda-select-condition-type-v1.patch text eol=lf -whitespace
