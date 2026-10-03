@@ -857,6 +857,53 @@ int native_cuda_header_callback(void *, const TVMFFIAny *args, int32_t count, TV
 
 }// namespace
 
+[[nodiscard]] luisa::string_view native_cuda_subgroup_helpers() noexcept {
+    // Explicit PTX protects every reduction merge from NVRTC's global FTZ/FMA
+    // options. Ordinary elementwise arithmetic keeps its own math policy.
+    // No .NaN: min/max suppress a single NaN and order -0 below +0.
+    return R"LC_CUDA_SUBGROUP(
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_add(float a, float b) {
+    float result;
+    asm("add.rn.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_min(float a, float b) {
+    float result;
+    asm("min.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_max(float a, float b) {
+    float result;
+    asm("max.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+// The planner proves complete 32-lane participation at every call. Tail input
+// lanes contribute the original identity; a partial active mask is forbidden.
+// XOR butterflies return the total to every lane, as later epilogues require.
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_sum(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_add(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_min(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_min(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_max(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_max(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+)LC_CUDA_SUBGROUP";
+}
+
 void initialize_native_cuda_codegen() {
     static std::once_flag initialized;
     std::call_once(initialized, [] {

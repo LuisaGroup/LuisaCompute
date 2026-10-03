@@ -327,22 +327,23 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             _handle.device()));
         auto shared_bytes = compute_max_shared_memory_size();
         auto options = tile_options.tirx ? *tile_options.tirx : tile::bridge::tirx::CompileOptions{};
-        // The CUDA device-artifact route realizes every Tile tensor operator
-        // through the reference SIMT expansion. Cooperative matrices and the
-        // Metal-only planning knobs are hard errors, never silently ignored.
+        // CUDA subgroup reductions are an optional realization of the existing
+        // proved program. Metal capabilities remain target-specific errors.
         if (options.cooperative_matrix) { return fail("CUDA Tile kernels do not support cooperative matrices; Tile MMA uses the reference multiply/add realization"); }
         if (options.metal_mpp) { return fail("Metal MPP memory atoms are not available on CUDA Tile kernels"); }
         if (options.planner.metal_subgroup_reductions ||
-            options.planner.reduction_programs_per_group != 0u ||
-            options.planner.reduction_unroll_factor != 1u ||
-            options.planner.reduction_lane_elements != 1u ||
-            options.planner.cache_reduction_inputs) {
+            (!options.planner.cuda_subgroup_reductions &&
+             (options.planner.reduction_programs_per_group != 0u ||
+              options.planner.reduction_unroll_factor != 1u ||
+              options.planner.reduction_lane_elements != 1u ||
+              options.planner.cache_reduction_inputs))) {
             return fail("Metal SIMD-group reduction policies are not available on CUDA Tile kernels; REDUCE keeps the reference realization");
         }
         if (options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u) {
             return fail("program-order traversal is a Metal group-program option and is not available on CUDA Tile kernels");
         }
-        if (options.planner.threads_per_group != 0u && tile_options.threads_per_group == 0u) {
+        if (!options.planner.cuda_subgroup_reductions &&
+            options.planner.threads_per_group != 0u && tile_options.threads_per_group == 0u) {
             return fail("Exact TIRx planner thread counts are not available on the CUDA reference Tile mapper; pass threads_per_group through tile::CompileOptions and match the generated block");
         }
         options.cooperative_matrix = false;
@@ -402,6 +403,33 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 "TIRx -> CUDA C -> NVRTC PTX -> Luisa Runtime" :
                 "TIRx -> NVPTX PTX -> Luisa Runtime",
             threads, compiled.plans.size(), option.enable_fast_math);
+        auto cuda_subgroup_plans = uint64_t{0u};
+        if (options.planner.cuda_subgroup_reductions) {
+            for (auto &&plan : compiled.plans) {
+                if (plan.reduction_subgroups_per_program != 0u) {
+                    cuda_subgroup_plans++;
+                    metadata.realization += luisa::format(
+                        "; cuda-subgroup-plan=threads{}:programs{}:warps{}:lane-elements{}:reductions{}:unroll{}",
+                        plan.threads, plan.reduction_programs_per_group,
+                        plan.reduction_subgroups_per_program, plan.reduction_lane_elements,
+                        plan.reduction_operations, plan.reduction_unroll_factor);
+                }
+            }
+            metadata.realization += luisa::format("; cuda-subgroup-plans={}", cuda_subgroup_plans);
+            if (cuda_subgroup_plans != 0u) {
+                // Describe the emitted ABI, including removed/reordered input
+                // slots. Diagnostics can check it against the actual graph
+                // without compiling a second, potentially different artifact.
+                metadata.realization += luisa::format("; cuda-subgroup-entry={}; cuda-subgroup-bindings=", artifact.entry);
+                for (auto i = size_t{0u}; i < artifact.buffer_arguments.size(); i++) {
+                    if (i != 0u) { metadata.realization += ','; }
+                    metadata.realization += luisa::format("{}", artifact.buffer_arguments[i]);
+                }
+                metadata.realization += option.enable_fast_math ?
+                                            "; cuda-subgroup-math=fast-elements-preserved-reductions-v1" :
+                                            "; cuda-subgroup-math=strict-no-contract-v1";
+            }
+        }
 
         // ---- CUDA compiler/cache metadata (shares the DSL sidecar format) ----
         auto use_user_path = !option.name.empty();
@@ -485,6 +513,15 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             option_storage.emplace_back("-w");
             option_storage.emplace_back("-ewp");
             if (option.enable_fast_math) { option_storage.emplace_back("--use_fast_math"); }
+            if (cuda_subgroup_plans != 0u && !option.enable_fast_math) {
+                // The new strict realization must not inherit NVRTC's default
+                // FMA contraction. Reducer local/warp merges also use explicit
+                // non-FTZ PTX helpers when elementwise fast math is requested.
+                option_storage.emplace_back("--ftz=false");
+                option_storage.emplace_back("--fmad=false");
+                option_storage.emplace_back("--prec-div=true");
+                option_storage.emplace_back("--prec-sqrt=true");
+            }
             if (option.enable_debug_info) { option_storage.emplace_back("-lineinfo"); }
             if (option.max_registers != 0u) {
                 option_storage.emplace_back(luisa::format(

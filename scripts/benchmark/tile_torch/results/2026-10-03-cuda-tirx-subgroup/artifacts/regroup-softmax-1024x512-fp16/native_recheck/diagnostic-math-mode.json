@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "row_block": 1,
+  "fast_math": true,
+  "math_policy": "elementwise-fp32-approx-ftz-rsqrt-v2",
+  "stage": 0
+}

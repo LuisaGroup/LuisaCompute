@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "baseline_fixture_tile": [
+    1,
+    4096,
+    1
+  ],
+  "actual_capture_tile": [
+    1,
+    4096,
+    1
+  ],
+  "logical_rows": 7,
+  "width": 2051,
+  "actual_final_ranges_disjoint": true,
+  "live_input_slots": [
+    0,
+    1
+  ],
+  "output_slot": 3,
+  "disjoint_checked_input_slots": [
+    0,
+    1,
+    2
+  ],
+  "minimum_host_bytes": [
+    28714,
+    4102,
+    4102,
+    28714
+  ],
+  "final_host_pointers": [
+    47328526464,
+    47328555648,
+    47328560256,
+    47328564864
+  ]
+}

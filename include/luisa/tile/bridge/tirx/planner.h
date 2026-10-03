@@ -106,6 +106,11 @@ struct PlannerOptions {
     // never widened by this switch. The language default is unordered_tree;
     // target availability/noalias contracts are still explicit here.
     bool metal_subgroup_reductions{false};
+    // Opt-in ordinary CUDA-source realization of the same proved FP32
+    // reduction programs. Requires compile_device, noalias and warp size 32;
+    // never enables NVPTX or Metal. Exact packing/lane/cache knobs below are
+    // shared. Narrow immutable snapshots retain their original storage type.
+    bool cuda_subgroup_reductions{false};
     // Zero retains the automatic family's incumbent (packing only single-
     // subgroup programs). Nonzero fixes independent logical programs per
     // group; threads_per_group is the TOTAL physical group width and must be

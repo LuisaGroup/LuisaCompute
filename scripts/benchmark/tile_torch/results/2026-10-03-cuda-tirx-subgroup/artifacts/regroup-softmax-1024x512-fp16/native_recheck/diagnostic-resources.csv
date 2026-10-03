@@ -1,0 +1,5 @@
+entry,module,function,attribute,value,known,cuda_status
+luisa_tile_main,0000011FBF5CEA20,0000011FBF4F1F80,registers,18,1,0
+luisa_tile_main,0000011FBF5CEA20,0000011FBF4F1F80,static_shared_bytes,16,1,0
+luisa_tile_main,0000011FBF5CEA20,0000011FBF4F1F80,local_bytes,0,1,0
+luisa_tile_main,0000011FBF5CEA20,0000011FBF4F1F80,max_threads,1024,1,0

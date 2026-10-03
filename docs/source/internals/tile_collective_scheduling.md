@@ -349,3 +349,36 @@ sufficient selection criterion. The packet retains all 56 measurements and
 appendix contains static generated-code observations from the earlier run;
 it supplies no timing denominator for this cohort. Neither the load variant
 nor the streamed transformation becomes an automatic policy from these data.
+
+## Optional CUDA subgroup realization through TIRx
+
+`planner.cuda_subgroup_reductions` enables the existing proved reduction-program
+mapper on the CUDA-source device-artifact route. It is off by default and adds
+no Tile DSL operation or execution-nest primitive. The existing packing,
+lane-elements, stripe-cache and unroll controls describe the physical mapping.
+They are experimental constraints, not a calibrated CUDA cost model.
+
+The initial scope is unordered FP32 SUM/MIN/MAX with recognized identities,
+supported typed snapshots, proved ownership, complete 32-lane participation and
+uniform block synchronization. FP16/BF16 storage retains its explicit conversion
+points. The enabled planner, CUDA-source target and noalias contract are required;
+NVPTX, conflicting Metal capabilities and unproved mappings reject. Runtime
+dispatch retains full buffer-range alias checks, including nonzero view offsets.
+
+Strict subgroup compilation disables FTZ and contraction and requests precise
+division/square root. Explicit fast math retains CUDA's elementwise policy;
+local and warp reduction merges use non-FTZ PTX in both modes. MIN/MAX suppress
+a single NaN, preserve signed-zero ordering and retain their original infinity
+identities for all-NaN inputs. NaN payload preservation is not promised. Existing
+default CUDA and Metal realizations do not enable this capability implicitly.
+
+Host tests cover target/resource rejection, typed fused programs, reordered
+bindings and synchronization counterexamples. CUDA runtime tests additionally
+check subnormals, signed zeros, infinities, NaNs, packed tails and offset views.
+The first six-case RMSNorm/softmax experiment used exact T128/P2/lane8/unroll1,
+without input caching. All six candidates were slower than the same-round native
+recheck, by 1.33--3.00 times, with native drift below 2%. This is a correctness
+baseline for further lowering work, not a selection policy or performance win.
+The original sources, all 168 primary timing samples and actual graph/resource
+observations are retained in the
+{download}`CUDA subgroup checkpoint <../../../scripts/benchmark/tile_torch/results/2026-10-03-cuda-tirx-subgroup/README.md>`.

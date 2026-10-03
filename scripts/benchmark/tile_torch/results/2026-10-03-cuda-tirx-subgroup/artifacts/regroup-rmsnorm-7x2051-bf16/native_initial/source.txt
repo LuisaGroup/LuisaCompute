@@ -1,0 +1,60 @@
+#include <cuda_tile.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+namespace ct = cuda::tiles;
+extern "C" __tile_global__ void luisa_tile_main(__nv_bfloat16 *buffer0, __nv_bfloat16 *buffer1, __nv_bfloat16 *buffer2, __nv_bfloat16 *buffer3) {
+    auto v4 = ct::element_cast<long long>(ct::bid().x);
+    auto v5 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto mem2_lane = ct::iota<ct::tile<long long, ct::shape<1, 4096>>>();
+    auto mem2_zero = ct::full<ct::tile<long long, ct::shape<1, 4096>>>(0ll);
+    auto mem2_c0 = v4 + (mem2_lane / 4096ll) % 1ll;
+    auto mem2_c1 = v5 + (mem2_lane / 1ll) % 4096ll;
+    auto mem2_mask = ((true && (mem2_c0 >= 0ll) && (mem2_c0 < 7ll)) && (mem2_c1 >= 0ll) && (mem2_c1 < 2051ll));
+    auto mem2_ptr = buffer0 + ct::select(mem2_mask, ((((0ll) * 7ll + ct::select((mem2_c0 >= 0ll) && (mem2_c0 < 7ll), mem2_c0, mem2_zero))) * 2051ll + ct::select((mem2_c1 >= 0ll) && (mem2_c1 < 2051ll), mem2_c1, mem2_zero)), mem2_zero);
+    auto v6 = ct::load_masked(mem2_ptr, mem2_mask, ct::element_cast<__nv_bfloat16>(0));
+    auto v7 = ct::element_cast<float>(ct::element_cast<float>(ct::broadcast(ct::reshape(v6, ct::shape<1, 4096>{}), ct::shape<1, 4096>{})));
+    auto map4_lane = ct::iota<ct::tile<long long, ct::shape<4096>>>();
+    auto v9 = (map4_lane / 1ll) % 4096ll;
+    auto v8 = ct::full<ct::tile<long long, ct::shape<4096>>>(0);
+    auto v10 = ct::element_cast<long long>(ct::element_cast<long long>(v9));
+    auto yield6_0 = ct::broadcast(v10, ct::shape<4096>{});
+    v8 = yield6_0;
+    auto v11 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000803ull));
+    auto v12 = ct::element_cast<bool>((ct::broadcast(ct::reshape(v8, ct::shape<4096>{}), ct::shape<4096>{}) < v11));
+    auto v13 = ct::element_cast<float>(ct::mul(ct::broadcast(ct::reshape(v7, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::broadcast(ct::reshape(v7, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::round_ties_to_even_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v14 = ct::element_cast<float>(ct::element_bitcast<double>(0x0000000000000000ull));
+    auto v15 = ct::element_cast<float>(ct::select(ct::broadcast(ct::reshape(v12, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::broadcast(ct::reshape(v13, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::full<ct::tile<float, ct::shape<1, 4096>>>(v14)));
+    auto map12_lane = ct::iota<ct::tile<long long, ct::shape<1>>>();
+    auto v17 = (map12_lane / 1ll) % 1ll;
+    auto v16 = ct::full<ct::tile<float, ct::shape<1>>>(0);
+    auto v18 = ct::element_cast<float>(ct::element_bitcast<double>(0x0000000000000000ull));
+    auto v29 = ct::add(v18, ct::broadcast(ct::reshape(ct::reshape(ct::sum(v15, ct::integral_constant<1>{}, ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{}), ct::shape<1>{}), ct::shape<1>{}), ct::shape<1>{}), ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{});
+    auto yield25_0 = ct::broadcast(v29, ct::shape<1>{});
+    v16 = yield25_0;
+    auto v31 = ct::element_cast<float>(ct::element_bitcast<double>(0x40a0060000000000ull));
+    auto v32 = ct::element_cast<float>(ct::div(ct::broadcast(ct::reshape(v16, ct::shape<1>{}), ct::shape<1>{}), v31, ct::round_approximate_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v33 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto v34 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto mem30_lane = ct::iota<ct::tile<long long, ct::shape<1, 4096>>>();
+    auto mem30_zero = ct::full<ct::tile<long long, ct::shape<1, 4096>>>(0ll);
+    auto mem30_c0 = v33 + (mem30_lane / 4096ll) % 1ll;
+    auto mem30_c1 = v34 + (mem30_lane / 1ll) % 4096ll;
+    auto mem30_mask = ((true && (mem30_c0 >= 0ll) && (mem30_c0 < 1ll)) && (mem30_c1 >= 0ll) && (mem30_c1 < 2051ll));
+    auto mem30_ptr = buffer1 + ct::select(mem30_mask, ((((0ll) * 1ll + ct::select((mem30_c0 >= 0ll) && (mem30_c0 < 1ll), mem30_c0, mem30_zero))) * 2051ll + ct::select((mem30_c1 >= 0ll) && (mem30_c1 < 2051ll), mem30_c1, mem30_zero)), mem30_zero);
+    auto v35 = ct::load_masked(mem30_ptr, mem30_mask, ct::element_cast<__nv_bfloat16>(0));
+    auto v36 = ct::element_cast<float>(ct::element_cast<float>(ct::broadcast(ct::reshape(v35, ct::shape<1, 4096>{}), ct::shape<1, 4096>{})));
+    auto v37 = ct::element_cast<float>(ct::element_bitcast<double>(0x3ee4f8b580000000ull));
+    auto v38 = ct::element_cast<float>(ct::add(ct::broadcast(ct::reshape(v32, ct::shape<1>{}), ct::shape<1>{}), v37, ct::round_ties_to_even_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v39 = ct::element_cast<float>(ct::sqrt(ct::broadcast(ct::reshape(v38, ct::shape<1>{}), ct::shape<1>{}), ct::round_approximate_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v40 = ct::element_cast<float>(ct::mul(ct::broadcast(ct::reshape(v7, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::broadcast(ct::reshape(ct::rsqrt(ct::broadcast(ct::reshape(v38, ct::shape<1>{}), ct::shape<1>{}), ct::round_subnormals_to_zero_t{}), ct::shape<1, 1>{}), ct::shape<1, 4096>{}), ct::round_ties_to_even_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v41 = ct::element_cast<float>(ct::mul(ct::broadcast(ct::reshape(v40, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::broadcast(ct::reshape(v36, ct::shape<1, 4096>{}), ct::shape<1, 4096>{}), ct::round_ties_to_even_t{}, ct::round_subnormals_to_zero_t{}));
+    auto v42 = ct::element_cast<long long>(ct::element_bitcast<long long>(0x0000000000000000ull));
+    auto v43 = ct::element_cast<__nv_bfloat16>(ct::element_cast<__nv_bfloat16>(ct::broadcast(ct::reshape(v41, ct::shape<1, 4096>{}), ct::shape<1, 4096>{})));
+    auto mem39_lane = ct::iota<ct::tile<long long, ct::shape<1, 4096>>>();
+    auto mem39_zero = ct::full<ct::tile<long long, ct::shape<1, 4096>>>(0ll);
+    auto mem39_c0 = v4 + (mem39_lane / 4096ll) % 1ll;
+    auto mem39_c1 = v42 + (mem39_lane / 1ll) % 4096ll;
+    auto mem39_mask = ((true && (mem39_c0 >= 0ll) && (mem39_c0 < 7ll)) && (mem39_c1 >= 0ll) && (mem39_c1 < 2051ll));
+    auto mem39_ptr = buffer3 + ct::select(mem39_mask, ((((0ll) * 7ll + ct::select((mem39_c0 >= 0ll) && (mem39_c0 < 7ll), mem39_c0, mem39_zero))) * 2051ll + ct::select((mem39_c1 >= 0ll) && (mem39_c1 < 2051ll), mem39_c1, mem39_zero)), mem39_zero);
+    ct::store_masked(mem39_ptr, v43, mem39_mask);
+}

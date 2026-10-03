@@ -22,6 +22,8 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -791,6 +793,108 @@ void test_tile_patch_retry(Device &, tile::CompileOptions options) {
     if (second_ptx) { expect(*second_ptx == patched_bytes); }
 }
 
+void test_cuda_subgroup_special_values(Device &device) {
+    using namespace tile;
+    constexpr int64_t rows = 13, columns = 512;
+    auto kernel = tile_kernel("cuda_subgroup_special_values", [](TensorView<const float, 2> x,
+                                                                 TensorView<float, 1> sums,
+                                                                 TensorView<float, 1> minima,
+                                                                 TensorView<float, 1> maxima) {
+                      auto one = axis("one", 1), feature = axis("feature", columns);
+                      for (auto &program : parallel(shape(rows))) {
+                          auto row = program.index();
+                          auto value = x.tile(coord(row, 0), shape(one, feature)).load();
+                          sums(coord(row), shape(one)).store(reduce(value, feature, add));
+                          minima(coord(row), shape(one)).store(reduce(value, feature, minimum));
+                          maxima(coord(row), shape(one)).store(reduce(value, feature, maximum));
+                      }
+                  })
+                      .capture(tensor_shape(rows, columns), tensor_shape(rows), tensor_shape(rows), tensor_shape(rows));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    constexpr auto input_pad = size_t{65}, output_pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    auto tiny = std::bit_cast<float>(uint32_t{1u});
+    auto half_normal = std::bit_cast<float>(uint32_t{0x00400000u});
+    auto inf = std::numeric_limits<float>::infinity();
+    auto nan = std::bit_cast<float>(uint32_t{0x7fc01234u});
+    vector<float> input(input_pad + rows * columns + input_pad, guard);
+    auto samples = span{input}.subspan(input_pad, rows * columns);
+    for (auto row = int64_t{0}; row < rows; row++) {
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto value = 0.0f;
+            switch (row) {
+                case 0: value = tiny; break;
+                case 1: value = -tiny; break;
+                case 2: value = column % 2 == 0 ? -0.0f : 0.0f; break;
+                case 3: value = -0.0f; break;
+                case 4: value = inf; break;
+                case 5: value = -inf; break;
+                case 6: value = column == 257 ? nan : 0.0f; break;
+                case 7: value = nan; break;
+                case 8: value = column == 0 ? inf : column == columns - 1 ? -inf : 0.0f; break;
+                case 9: value = 0.125f; break;
+                case 10: value = half_normal; break;
+                case 11: value = column % 2 == 0 ? 100.0f : -100.0f; break;
+                case 12: value = column == columns - 1 ? 0.5f : 0.0f; break;
+                default: break;
+            }
+            samples[row * columns + column] = value;
+        }
+    }
+    // Dyadic finite fixtures have exact sums for every legal tree. NaN payloads
+    // are deliberately unspecified. Extrema retain the original +/-inf seed.
+    std::array expected_sum{std::bit_cast<float>(uint32_t{0x00000200u}), std::bit_cast<float>(uint32_t{0x80000200u}),
+                            0.0f, 0.0f, inf, -inf, nan, nan, nan,
+                            64.0f, std::bit_cast<float>(uint32_t{0x04800000u}), 0.0f, 0.5f};
+    std::array expected_min{tiny, -tiny, -0.0f, -0.0f, inf, -inf, 0.0f, inf, -inf,
+                            0.125f, half_normal, -100.0f, 0.0f};
+    std::array expected_max{tiny, -tiny, 0.0f, -0.0f, inf, -inf, 0.0f, -inf, inf,
+                            0.125f, half_normal, 100.0f, 0.5f};
+    auto equal_value = [](float actual, float expected) {
+        auto a = std::bit_cast<uint32_t>(actual), e = std::bit_cast<uint32_t>(expected);
+        return (e & 0x7fffffffu) > 0x7f800000u ? (a & 0x7fffffffu) > 0x7f800000u : a == e;
+    };
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto x = device.create_buffer<float>(input.size());
+    auto a = device.create_buffer<float>(rows + 2u * output_pad);
+    auto b = device.create_buffer<float>(rows + 2u * output_pad);
+    auto c = device.create_buffer<float>(rows + 2u * output_pad);
+    auto xv = x.view(input_pad, rows * columns);
+    auto av = a.view(output_pad, rows), bv = b.view(output_pad, rows), cv = c.view(output_pad, rows);
+    for (auto geometry : {std::array{64u, 1u}, std::array{128u, 2u}, std::array{128u, 4u}}) {
+        for (auto fast : {false, true}) {
+            tile::bridge::tirx::CompileOptions bridge;
+            bridge.planner.cuda_subgroup_reductions = true;
+            bridge.planner.threads_per_group = geometry[0u];
+            bridge.planner.reduction_programs_per_group = geometry[1u];
+            bridge.planner.reduction_lane_elements = 8u;
+            bridge.planner.cache_reduction_inputs = true;
+            auto shader = tile::compile(device, kernel, {.lowering = Lowering::TIRX, .tirx = &bridge},
+                                        {.enable_cache = false, .enable_fast_math = fast});
+            expect(static_cast<bool>(shader)) << shader.metadata().error;
+            if (!shader) { continue; }
+            expect(shader.metadata().disjoint_writes);
+            expect(shader.metadata().realization.find("cuda-subgroup-plans=1") != string::npos);
+            vector<float> sa(a.size(), guard), sb(b.size(), guard), sc(c.size(), guard), after(input.size());
+            stream << x.copy_from(span{input}) << a.copy_from(span{sa}) << b.copy_from(span{sb}) << c.copy_from(span{sc})
+                   << shader(xv, av, bv, cv).dispatch()
+                   << a.copy_to(span{sa}) << b.copy_to(span{sb}) << c.copy_to(span{sc}) << x.copy_to(span{after}) << synchronize();
+            expect(std::memcmp(input.data(), after.data(), input.size() * sizeof(float)) == 0);
+            for (auto row = size_t{0}; row < rows; row++) {
+                expect(equal_value(sa[output_pad + row], expected_sum[row])) << "SUM row=" << row << " fast=" << fast;
+                expect(equal_value(sb[output_pad + row], expected_min[row])) << "MIN row=" << row << " fast=" << fast;
+                expect(equal_value(sc[output_pad + row], expected_max[row])) << "MAX row=" << row << " fast=" << fast;
+            }
+            for (auto output : {span{sa}, span{sb}, span{sc}}) {
+                for (auto i = size_t{0}; i < output_pad; i++) {
+                    expect(equal_value(output[i], guard) && equal_value(output[output_pad + rows + i], guard));
+                }
+            }
+        }
+    }
+}
+
 #endif// LUISA_TEST_TILE_CUDA_TIRX
 
 }// namespace
@@ -821,6 +925,7 @@ int main(int argc, char *argv[]) {
     "tile_cuda_ptx_attention_and_rows"_test = [&] { test_attention_and_rows_tirx(device, options); };
     "tile_cuda_ptx_cache_round_trip"_test = [&] { test_tile_cache_round_trip(device, options); };
     "tile_cuda_ptx_patch_retry"_test = [&] { test_tile_patch_retry(device, options); };
+    "tile_cuda_ptx_subgroup_special_values"_test = [&] { test_cuda_subgroup_special_values(device); };
 #else
     "tile_cuda_ptx_fail_closed_without_bridge"_test = [&] { run_fail_closed_without_tirx(device); };
 #endif

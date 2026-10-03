@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "worker_warps_hint": 0,
+  "buffer_mask": 0,
+  "selected_entry": "luisa_tile_main",
+  "actual_graph_nodes_checked": 100,
+  "same_module_function_identity_checked": true,
+  "actual_final_pointers_checked": true,
+  "grid": [
+    1024,
+    1,
+    1
+  ],
+  "block": [
+    1,
+    1,
+    1
+  ],
+  "shared_bytes": 0,
+  "final_argument_mod16": [
+    0,
+    0,
+    0,
+    0
+  ]
+}

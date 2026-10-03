@@ -10,6 +10,9 @@
 #include <tvm/ffi/error.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/string.h>
+#include <tvm/tirx/builtin.h>
+#include <tvm/tirx/op.h>
+#include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/string.h>
 #include <luisa/core/mathematics.h>
@@ -191,6 +194,13 @@ void test_cuda_nvptx_elementwise_artifact() {
     options.target = nvptx_target();
     options.noalias = true;
     auto result = compile_device(native.value, kernel.function().name(), options);
+    if (!tvm::ffi::Function::GetGlobal("target.build.nvptx")) {
+        // NVPTX is optional in the linked TVM build. Its absence must still
+        // produce an explicit error, never a substituted CUDA-source artifact.
+        expect(!static_cast<bool>(result));
+        expect(result.error.find("target.build.nvptx") != luisa::string::npos) << result.error;
+        return;
+    }
     expect(static_cast<bool>(result)) << result.error;
     if (!result) { return; }
     auto &artifact = result.artifact;
@@ -231,6 +241,11 @@ void test_cuda_nvptx_reduction_artifact_warp_aligned() {
     options.target = nvptx_target();
     options.noalias = true;
     auto result = compile_device(native.value, kernel.function().name(), options);
+    if (!tvm::ffi::Function::GetGlobal("target.build.nvptx")) {
+        expect(!static_cast<bool>(result));
+        expect(result.error.find("target.build.nvptx") != luisa::string::npos) << result.error;
+        return;
+    }
     expect(static_cast<bool>(result)) << result.error;
     if (!result) { return; }
     auto &artifact = result.artifact;
@@ -380,6 +395,287 @@ void test_cuda_fail_closed_options() {
     expect(!static_cast<bool>(result));
 }
 
+// CUDA source-only coverage for the opt-in shared reduction mapper. Numerical
+// execution, CUDA compiler acceptance, and physical resources are separate tests.
+[[nodiscard]] CompileOptions cuda_subgroup_options() {
+    CompileOptions options;
+    options.target = cuda_target();
+    options.noalias = true;
+    options.planner.cuda_subgroup_reductions = true;
+    return options;
+}
+
+[[nodiscard]] Kernel cuda_subgroup_sum_kernel() {
+    auto definition = tile_kernel("cuda_subgroup_contract", [](TensorView<const float, 2> input,
+                                                               TensorView<float, 1> output) {
+        auto one = axis("one", 1), column = axis("column", 37);
+        for (auto &nest : parallel(shape(3))) {
+            auto x = input.tile(coord(nest.index(), 0), shape(one, column)).load();
+            output(coord(nest.index()), shape(one)).store(reduce(x, column, add));
+        }
+    });
+    return definition.capture(tensor_shape(3, 37), tensor_shape(3));
+}
+
+void expect_cuda_subgroup_source(const DeviceArtifact &artifact) {
+    expect(artifact.format == DeviceArtifact::Format::CUDA_SOURCE);
+    expect(!artifact.requires_metal4);
+    auto source = luisa::string_view{artifact.source.data(), artifact.source.size()};
+    for (auto forbidden : {"metal.", "simdgroup", "simd_sum(", "simd_max(", "simd_min(", "threadgroup_barrier("}) {
+        expect(source.find(forbidden) == luisa::string_view::npos) << forbidden;
+    }
+}
+
+void test_cuda_subgroup_target_contract() {
+    auto kernel = cuda_subgroup_sum_kernel();
+    expect(kernel.valid());
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+
+    // Default reference behavior is not an implicit request for this family.
+    CompileOptions reference;
+    reference.target = cuda_target();
+    reference.noalias = true;
+    expect(!reference.planner.cuda_subgroup_reductions);
+    auto original = compile_device(native.value, kernel.function().name(), reference);
+    expect(static_cast<bool>(original)) << original.error;
+    if (original) {
+        expect_cuda_subgroup_source(original.artifact);
+        for (auto &plan : original.plans) { expect(plan.reduction_subgroups_per_program == 0u); }
+        expect(original.artifact.source.find("__luisa_tile_cuda_warp_") == luisa::string::npos);
+    }
+
+    auto options = cuda_subgroup_options();
+    options.planner.threads_per_group = 64u;
+    options.planner.reduction_programs_per_group = 1u;
+    auto accepted = compile_device(native.value, kernel.function().name(), options);
+    expect(static_cast<bool>(accepted)) << accepted.error;
+    if (accepted) {
+        expect_cuda_subgroup_source(accepted.artifact);
+        expect(accepted.artifact.source.find("__luisa_tile_cuda_warp_sum") != luisa::string::npos);
+        expect(accepted.artifact.block[0] == 64u);
+        expect(accepted.artifact.grid[0] == 3u);
+        expect(accepted.plans.size() == 1u);
+        if (accepted.plans.size() == 1u) { expect(accepted.plans.front().reduction_operations == 1u); }
+    }
+
+    options.noalias = false;
+    auto aliased = compile_device(native.value, kernel.function().name(), options);
+    expect(!static_cast<bool>(aliased));
+    expect(!aliased.error.empty());
+    options.noalias = true;
+    options.target = nvptx_target();
+    auto nvptx = compile_device(native.value, kernel.function().name(), options);
+    expect(!static_cast<bool>(nvptx));
+    expect(!nvptx.error.empty());
+    options.target = cuda_target();
+    auto unsupported_module = luisa::compute::tile::bridge::tirx::compile(native.value, kernel.function().name(), options);
+    expect(!unsupported_module.ok());
+    expect(!unsupported_module.error().empty());
+    options.planner.metal_subgroup_reductions = true;
+    auto conflicting_targets = compile_device(native.value, kernel.function().name(), options);
+    expect(!static_cast<bool>(conflicting_targets));
+    expect(!conflicting_targets.error.empty());
+    // The existing test_cuda_fail_closed_options remains unchanged, including
+    // its separate rejection of metal_subgroup_reductions on a CUDA target.
+}
+
+template<typename T>
+void cuda_subgroup_fused_artifacts_typed() {
+    // rows, columns, workers/program, programs/group. Cover one inactive packed
+    // program, a nondivisible tail, and the single-subgroup no-shared path.
+    for (auto dimensions : {std::array<uint32_t, 4u>{1u, 33u, 64u, 2u},
+                            {5u, 257u, 64u, 3u},
+                            {7u, 129u, 32u, 3u}}) {
+        auto [rows, columns, workers, packing] = dimensions;
+        for (auto rms : {false, true}) {
+            // Output is deliberately slot 1; gamma is slot 3 and slot 2 unused.
+            // Device argument extraction must not assume a two-buffer or
+            // output-last ABI when the repeated gamma root is forwarded.
+            auto definition = tile_kernel("cuda_subgroup_fused", [=](TensorView<const T, 2> input,
+                                                                    TensorView<T, 2> output,
+                                                                    TensorView<const T, 2> unused,
+                                                                    TensorView<const T, 2> gamma) {
+                static_cast<void>(unused);
+                auto one = axis("one", 1), feature = axis("feature", columns);
+                for (auto &nest : parallel(shape(rows))) {
+                    auto origin = coord(nest.index() + 1, 0);
+                    auto x = cast<float>(input.tile(origin, shape(one, feature)).load());
+                    if (rms) {
+                        auto variance = reduce(x * x, feature, add) / static_cast<float>(columns);
+                        auto scale = cast<float>(gamma.tile(coord(0, 0), shape(one, feature)).load());
+                        output(origin, shape(one, feature)).store(cast<T>(x / sqrt(variance + 1e-5f) * scale));
+                    } else {
+                        auto shifted = exp(x - reduce(x, feature, maximum));
+                        output(origin, shape(one, feature)).store(cast<T>(shifted / reduce(shifted, feature, add)));
+                    }
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(rows + 2u, columns), tensor_shape(rows + 2u, columns),
+                                             tensor_shape(1, columns), tensor_shape(1, columns));
+            expect(kernel.valid());
+            auto native = lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            auto options = cuda_subgroup_options();
+            options.planner.threads_per_group = workers * packing;
+            options.planner.reduction_programs_per_group = packing;
+            options.planner.reduction_lane_elements = rows == 1u ? 8u : 4u;
+            options.planner.cache_reduction_inputs = true;
+            auto result = compile_device(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(result)) << "rows=" << rows << " N=" << columns << " rms=" << rms << " " << result.error;
+            if (!result) { continue; }
+            expect_cuda_subgroup_source(result.artifact);
+            expect(result.artifact.grid == (std::array<uint32_t, 3u>{ceil_div(rows, packing), 1u, 1u}));
+            expect(result.artifact.block == (std::array<uint32_t, 3u>{workers * packing, 1u, 1u}));
+            expect(result.plans.size() == 1u);
+            if (result.plans.size() == 1u) {
+                auto &plan = result.plans.front();
+                auto reductions = rms ? 1u : 2u;
+                auto partial_bytes = workers > 32u ? reductions * (workers / 32u) * packing * sizeof(float) : size_t{0u};
+                expect(plan.reduction_operations == reductions);
+                expect(plan.striped_storage_scalars_per_worker > 0u);
+                expect(plan.reduction_subgroups_per_program == workers / 32u);
+                expect(plan.reduction_programs_per_group == packing);
+                expect(plan.reduction_threadgroups == ceil_div(rows, packing));
+                expect(plan.shared_memory_bytes == partial_bytes);
+                expect(plan.group_barrier_sites_after == (workers > 32u ? reductions : 0u));
+            }
+            std::array<bool, 4u> seen{};
+            for (auto index : result.artifact.buffer_arguments) {
+                expect(index < seen.size());
+                if (index < seen.size()) {
+                    expect(!seen[index]);
+                    seen[index] = true;
+                }
+            }
+            expect(seen[0u] && seen[1u]);
+            if (rms) { expect(seen[3u]); }
+        }
+    }
+}
+
+void test_cuda_subgroup_fused_artifacts() {
+    cuda_subgroup_fused_artifacts_typed<float>();
+    cuda_subgroup_fused_artifacts_typed<luisa::half>();
+    cuda_subgroup_fused_artifacts_typed<bfloat16>();
+}
+
+void test_cuda_subgroup_resource_rejections() {
+    auto definition = tile_kernel("cuda_subgroup_budget", [](TensorView<const float, 2> input,
+                                                             TensorView<float, 2> output) {
+        auto one = axis("one", 1), feature = axis("feature", 33);
+        for (auto &nest : parallel(shape(5))) {
+            auto x = input.tile(coord(nest.index(), 0), shape(one, feature)).load();
+            auto shifted = exp(x - reduce(x, feature, maximum));
+            output(coord(nest.index(), 0), shape(one, feature)).store(shifted / reduce(shifted, feature, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(5, 33), tensor_shape(5, 33));
+    expect(kernel.valid());
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    for (auto mode = 0u; mode != 5u; mode++) {
+        auto options = cuda_subgroup_options();
+        options.planner.reduction_programs_per_group = 3u;
+        options.planner.threads_per_group = 192u;
+        if (mode == 0u) { options.planner.threads_per_group = 160u; }
+        if (mode == 1u) { options.planner.threads_per_group = 1056u; }
+        if (mode == 2u) { options.planner.reduction_lane_elements = 3u; }
+        if (mode == 3u) {
+            options.planner.reduction_programs_per_group = 1u;
+            options.planner.threads_per_group = 32u;
+            options.planner.reduction_lane_elements = 8u;
+            options.planner.max_reduction_striped_scalars_per_worker = 1u;
+        }
+        if (mode == 4u) {
+            options.target = R"({"kind":"cuda","thread_warp_size":32,"max_num_threads":1024,"max_shared_memory_per_block":1})";
+        }
+        auto result = compile_device(native.value, kernel.function().name(), options);
+        expect(!static_cast<bool>(result)) << "mode=" << mode;
+        expect(!result.error.empty());
+    }
+}
+
+void test_cuda_subgroup_packing_proofs() {
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode = 0u; mode != 11u; mode++) {
+        auto input = tvm::tirx::decl_buffer({i64(5), i64(257)}, tvm::PrimType::Float(32), "input");
+        auto output = tvm::tirx::decl_buffer({i64(5)}, tvm::PrimType::Float(32), "output");
+        auto carry = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
+        auto temporary = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "next", "local");
+        auto p = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto k = tvm::tirx::PrimVar{"reduction", tvm::PrimType::Int(64)};
+        auto e = tvm::tirx::PrimVar{"output_element", tvm::PrimType::Int(64)};
+        auto step = tvm::tirx::PrimVar{"step", tvm::PrimType::Int(64)};
+        auto update = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+            tvm::tirx::AllocBuffer{temporary},
+            tvm::tirx::BufferStore{temporary, tvm::tirx::BufferLoad{carry, {i64(0)}} + tvm::tirx::BufferLoad{input, {p - i64(2), k}}, {i64(0)}},
+            tvm::tirx::BufferStore{carry, tvm::tirx::BufferLoad{temporary, {i64(0)}}, {i64(0)}}});
+        auto reduction = tvm::tirx::For{k, i64(0), i64(257), tvm::tirx::ForKind::kSerial, std::move(update), {}, {{"luisa.tile.contract.reduction", i64(1)}}};
+        // Body/identity provenance alone is not numerical permission. Keep
+        // the original packing counterexamples and independently test absent
+        // permission, ordered trees, and both explicit fold directions.
+        if (mode != 6u) {
+            auto policy = mode == 7u ? reduction::ordered_tree :
+                          mode == 8u ? reduction::fold_left :
+                          mode == 9u ? reduction::fold_right :
+                                       reduction::unordered_tree;
+            reduction.CopyOnWrite()->annotations.Set("luisa.tile.reduction_policy", i64(static_cast<int64_t>(policy)));
+        }
+        auto destination = mode == 4u ? input : output;
+        auto indices = mode == 4u ? tvm::ffi::Array<tvm::PrimExpr>{p - i64(2), e} : tvm::ffi::Array<tvm::PrimExpr>{p - i64(2) + e};
+        auto store = tvm::tirx::For{e, i64(0), i64(1), tvm::tirx::ForKind::kSerial, tvm::tirx::BufferStore{destination, tvm::tirx::BufferLoad{carry, {i64(0)}}, indices}, {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        tvm::tirx::Stmt body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+            tvm::tirx::AllocBuffer{carry}, tvm::tirx::BufferStore{carry, f32(0.0f), {i64(0)}}, reduction, store});
+        if (mode >= 1u && mode <= 3u) {
+            // A unit wrapper is safe. Repeated partial reuse and row-varying
+            // fence counts are distinct proof failures, even without a tail.
+            tvm::PrimExpr count = mode == 3u ? p - i64(1) : i64(mode);
+            body = tvm::tirx::For{step, i64(0), count, tvm::tirx::ForKind::kSerial, std::move(body)};
+        }
+        // Multiple subgroups also need phase-reuse proof when P is one.
+        if (mode == 10u) { body = tvm::tirx::For{step, i64(0), i64(2), tvm::tirx::ForKind::kSerial, std::move(body)}; }
+        body = tvm::tirx::For{p, i64(2), i64(5), tvm::tirx::ForKind::kSerial, std::move(body), {}, {{"luisa.tile.logical_parallel", i64(1)}}};
+        CompileOptions options;
+        options.target = cuda_target();
+        options.noalias = true;
+        options.planner.cuda_subgroup_reductions = true;
+        options.planner.reduction_programs_per_group = mode == 10u ? 1u : 3u;
+        options.planner.threads_per_group = mode == 10u ? 64u : mode == 5u ? 1056u : 288u;
+        auto compiled = compile_device(tvm::tirx::PrimFunc{{input, output}, body}, "packing_proof", options);
+        expect(eq(static_cast<bool>(compiled), mode <= 1u)) << "mode=" << mode << " " << compiled.error;
+        if (!compiled) { continue; }
+        class FenceAudit final : public tvm::tirx::StmtExprVisitor {
+        private:
+            uint32_t _branch_depth{0u};
+            void VisitStmt_(const tvm::tirx::IfThenElseNode *branch) final {
+                _branch_depth++;
+                StmtExprVisitor::VisitStmt_(branch);
+                _branch_depth--;
+            }
+            void VisitExpr_(const tvm::CallNode *call) final {
+                if (call->op.same_as(tvm::tirx::builtin::tvm_storage_sync())) {
+                    fences++;
+                    uniform &= _branch_depth == 0u;
+                }
+                StmtExprVisitor::VisitExpr_(call);
+            }
+        public:
+            uint32_t fences{0u};
+            bool uniform{true};
+        } audit;
+        audit(compiled.artifact.function->body);
+        expect(eq(audit.fences, 1u));
+        expect(audit.uniform);
+        expect(eq(compiled.artifact.block[0u], 288u));
+        expect(eq(compiled.artifact.grid[0u], 2u));
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -392,4 +688,8 @@ int main(int argc, char *argv[]) {
     "tile_tirx_cuda_ragged_reordered_gemm_artifact"_test = test_cuda_ragged_reordered_gemm_artifact;
     "tile_tirx_cuda_permutation_unroll_budget"_test = test_cuda_permutation_unroll_budget;
     "tile_tirx_cuda_fail_closed_options"_test = test_cuda_fail_closed_options;
+    "tile_tirx_cuda_subgroup_target_contract"_test = test_cuda_subgroup_target_contract;
+    "tile_tirx_cuda_subgroup_fused_artifacts"_test = test_cuda_subgroup_fused_artifacts;
+    "tile_tirx_cuda_subgroup_resource_rejections"_test = test_cuda_subgroup_resource_rejections;
+    "tile_tirx_cuda_subgroup_packing_proofs"_test = test_cuda_subgroup_packing_proofs;
 }

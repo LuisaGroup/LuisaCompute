@@ -126,7 +126,7 @@ struct StripedMaterialization {
 };
 
 [[nodiscard]] luisa::optional<StripedMaterialization>
-match_striped_materialization(const tvm::tirx::ForNode *outer) {
+match_striped_materialization(const tvm::tirx::ForNode *outer, bool allow_narrow_storage) {
     auto contract =
         outer->annotations.Get(materialized_pure_tile_annotation);
     auto version = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
@@ -141,9 +141,13 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
         return luisa::nullopt;
     }
     auto buffer = store->buffer;
+    auto supported_type = buffer->dtype == tvm::PrimType::Float(32) ||
+                          (allow_narrow_storage &&
+                           (buffer->dtype == tvm::PrimType::Float(16) ||
+                            buffer->dtype == tvm::PrimType::BFloat(16)));
     auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
-    if (buffer.scope() != "local" ||
-        buffer->dtype != tvm::PrimType::Float(32) ||
+    if (buffer.scope() != "local" || !supported_type ||
+        store->value.ty() != buffer->dtype ||
         buffer->shape.size() != domain->axes.size() ||
         !buffer->strides.empty() || buffer->layout ||
         !buffer->allocated_addr.empty() || offset == nullptr ||
@@ -665,7 +669,7 @@ public:
 
 [[nodiscard]] luisa::unordered_map<BufferKey, StripedMaterialization>
 striped_materializations(const tvm::tirx::Stmt &body,
-                         const ReductionAnalysis &reductions) {
+                         const ReductionAnalysis &reductions, bool allow_narrow_storage) {
     luisa::unordered_map<BufferKey, StripedMaterialization> candidates;
     luisa::unordered_set<BufferKey> duplicates;
     tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
@@ -674,7 +678,7 @@ striped_materializations(const tvm::tirx::Stmt &body,
             !loop->annotations.count(materialized_pure_tile_annotation)) {
             return;
         }
-        if (auto matched = match_striped_materialization(loop)) {
+        if (auto matched = match_striped_materialization(loop, allow_narrow_storage)) {
             auto key = matched->buffer.get();
             if (!candidates.emplace(key, std::move(*matched)).second) {
                 duplicates.emplace(key);
@@ -959,6 +963,7 @@ private:
     uint64_t _subgroups;
     uint32_t _unroll_factor;
     uint32_t _lane_elements;
+    SubgroupReductionTarget _target;
     const ReductionAnalysis &_analysis;
     const luisa::unordered_map<const tvm::tirx::ForNode *,
                                tvm::tirx::BufferVar> &_partials;
@@ -1060,7 +1065,14 @@ private:
         auto current = tvm::tirx::BufferLoad{
             match.carry, {tvm::IntImm::Int64(0)}};
         tvm::PrimExpr combined;
-        if (match.kind == reduction_add_contract) {
+        if (_target == SubgroupReductionTarget::CUDA) {
+            // Reduction arithmetic keeps subnormals even when the separately
+            // compiled pointwise math uses FTZ. The helper owns this contract.
+            auto combine = match.kind == reduction_add_contract ? "__luisa_tile_cuda_reduce_add" :
+                           match.kind == reduction_max_contract ? "__luisa_tile_cuda_reduce_max" :
+                                                                  "__luisa_tile_cuda_reduce_min";
+            combined = tvm::Call{tvm::PrimType::Float(32), tvm::tirx::builtin::call_pure_extern(), {tvm::tirx::StringImm{combine}, current, contribution}};
+        } else if (match.kind == reduction_add_contract) {
             combined = current + contribution;
         } else if (match.kind == reduction_max_contract) {
             combined = tvm::max(current, contribution);
@@ -1070,11 +1082,13 @@ private:
         tvm::tirx::Stmt update = tvm::tirx::BufferStore{
             match.carry, std::move(combined), {tvm::IntImm::Int64(0)}};
         auto striped = _distributed_loop(chunk, element, match.elements, std::move(update));
-        auto intrinsic = match.kind == reduction_add_contract ?
-                             "simd_sum" :
-                         match.kind == reduction_max_contract ?
-                             "simd_max" :
-                             "simd_min";
+        auto intrinsic = _target == SubgroupReductionTarget::CUDA ?
+                             (match.kind == reduction_add_contract ? "__luisa_tile_cuda_warp_sum" :
+                              match.kind == reduction_max_contract ? "__luisa_tile_cuda_warp_max" :
+                                                                     "__luisa_tile_cuda_warp_min") :
+                             (match.kind == reduction_add_contract ? "simd_sum" :
+                              match.kind == reduction_max_contract ? "simd_max" :
+                                                                     "simd_min");
         tvm::PrimExpr collective = tvm::Call{
             tvm::PrimType::Float(32),
             tvm::tirx::builtin::call_pure_extern(),
@@ -1241,7 +1255,7 @@ public:
         tvm::PrimExpr subgroup, tvm::PrimExpr partial_base,
         tvm::ffi::Optional<tvm::PrimExpr> program_active,
         uint64_t workers, uint64_t subgroups, uint32_t unroll_factor, uint32_t lane_elements,
-        const ReductionAnalysis &analysis,
+        SubgroupReductionTarget target, const ReductionAnalysis &analysis,
         const luisa::unordered_map<const tvm::tirx::ForNode *,
                                    tvm::tirx::BufferVar> &partials,
         const luisa::unordered_map<BufferKey,
@@ -1250,7 +1264,7 @@ public:
         : DiagnosticStmtExprMutator{diagnostic}, _worker{std::move(worker)}, _lane{std::move(lane)},
           _subgroup{std::move(subgroup)}, _partial_base{std::move(partial_base)},
           _program_active{std::move(program_active)}, _workers{workers},
-          _subgroups{subgroups}, _unroll_factor{unroll_factor}, _lane_elements{lane_elements}, _analysis{analysis}, _partials{partials},
+          _subgroups{subgroups}, _unroll_factor{unroll_factor}, _lane_elements{lane_elements}, _target{target}, _analysis{analysis}, _partials{partials},
           _striped_buffers{striped_buffers} {}
 };
 
@@ -1370,16 +1384,19 @@ tvm::tirx::Stmt try_metal_reduction_tile(
                           tvm::tirx::ForKind::kSerial, std::move(body)};
 }
 
-tvm::tirx::Stmt try_map_metal_subgroup_reduction(
+tvm::tirx::Stmt try_map_subgroup_reduction(
     const tvm::tirx::For &loop, uint32_t max_threads,
     uint64_t shared_memory_limit,
-    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic) {
+    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic,
+    SubgroupReductionTarget target) {
     auto groups = static_extent(loop->extent, true);
     auto minimum = loop->min.as<tvm::IntImmNode>();
     auto scope = loop->annotations.Get(execution_scope_annotation);
     auto scope_name = scope ? scope.value().as<tvm::ffi::String>() :
                               tvm::ffi::Optional<tvm::ffi::String>{};
-    if (!options.metal_subgroup_reductions ||
+    auto cuda = target == SubgroupReductionTarget::CUDA;
+    auto enabled = cuda ? options.cuda_subgroup_reductions : options.metal_subgroup_reductions;
+    if (!enabled ||
         options.max_reduction_striped_scalars_per_worker == 0u ||
         !unit_serial_loop(loop.get()) ||
         !groups || minimum == nullptr || loop->loop_var.ty() != tvm::PrimType::Int(64) ||
@@ -1400,7 +1417,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     DistributedLocalAudit ownership{analysis};
     ownership(loop->body);
     if (!ownership.valid()) { return {}; }
-    auto materializations = striped_materializations(loop->body, analysis);
+    auto materializations = striped_materializations(loop->body, analysis, cuda);
     DistributedAccessAnalysis accesses{analysis};
     accesses(loop->body);
     accesses.finish();
@@ -1511,6 +1528,10 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             auto threads = subgroups * packed * subgroup_size;
             if (threads > max_threads ||
                 partial_bytes > shared_memory_limit / packed ||
+                // Every cooperating CUDA program must finish reading its
+                // shared partials before a later iteration could overwrite
+                // them. The current mapper emits only the publication fence.
+                (cuda && multi && !packing_audit.uniform_fences) ||
                 (multi && packed > 1u &&
                  (!packing_audit.uniform_fences ||
                   (*groups % packed != 0u && !packing_audit.replayable_tail())))) {
@@ -1600,7 +1621,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup, partial_base, program_active,
         program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor, options.reduction_lane_elements,
-        analysis, partials, striped_buffers, diagnostic}(loop->body);
+        target, analysis, partials, striped_buffers, diagnostic}(loop->body);
     if (diagnostic.failed()) { return {}; }
     if (!allocations.empty()) {
         allocations.push_back(std::move(body));

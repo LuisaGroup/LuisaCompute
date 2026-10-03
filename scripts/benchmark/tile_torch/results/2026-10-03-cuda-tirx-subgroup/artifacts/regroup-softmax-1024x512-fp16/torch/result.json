@@ -1,0 +1,356 @@
+{
+  "status": "passed",
+  "started": "2026-10-03T18:55:01.170241+08:00",
+  "options": {
+    "manifest": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\manifest.json",
+    "output": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts",
+    "check_inputs": false,
+    "precision": "fp16",
+    "mode": "max-autotune",
+    "ranking_contract": "standard",
+    "eager": false,
+    "samples": 7,
+    "sample_ms": 100.0,
+    "warmup_ms": 500.0,
+    "graph_batch": 100,
+    "threads": 4
+  },
+  "source": {
+    "path": "${REPO}\\scripts\\benchmark\\tile_torch\\cuda_torch_baseline.py",
+    "sha256": "45eefa4f467433277d57c2fd841982fb52981575ed60a88f57da3ffc7e604b6d"
+  },
+  "manifest": {
+    "schema": 1,
+    "backend": "cuda",
+    "lowering": "native",
+    "operation": "softmax",
+    "precision": "fp16",
+    "seed": 20261003,
+    "pattern": "random",
+    "dimensions": [
+      1024,
+      512
+    ],
+    "tile": [
+      1,
+      512,
+      1
+    ],
+    "fast_math": true,
+    "graph_batch": 100,
+    "algorithm": "whole_row_tile_fp32_compute",
+    "endianness": "little",
+    "inputs": [
+      {
+        "name": "input0",
+        "path": "input0.f16",
+        "storage_dtype": "float16",
+        "shape": [
+          1024,
+          512
+        ]
+      },
+      {
+        "name": "input1",
+        "path": "input1.f16",
+        "storage_dtype": "float16",
+        "shape": [
+          1024,
+          512
+        ]
+      },
+      {
+        "name": "input2",
+        "path": "input2.f16",
+        "storage_dtype": "float16",
+        "shape": [
+          1024,
+          512
+        ]
+      }
+    ],
+    "output": {
+      "path": "output.f16",
+      "storage_dtype": "float16",
+      "shape": [
+        1024,
+        512
+      ]
+    },
+    "expected": {
+      "path": "expected.f64",
+      "bound_path": "per_element_bound.f64",
+      "storage_dtype": "float64"
+    },
+    "semantics": {
+      "epsilon": 9.999999747378752e-06,
+      "affine": true,
+      "rope_pairing": "half_split",
+      "softmax_axis": -1,
+      "mask": "none",
+      "scan_policy": "unordered_tree",
+      "scan": "inclusive_sum",
+      "descending": true,
+      "stable": true,
+      "tie_break": "original_index_ascending",
+      "accumulation": "float32",
+      "gelu_approximation": "tanh",
+      "causal": true,
+      "query_positions": "last_Q_in_K",
+      "attention_scale": 1,
+      "input_quantization": "round_to_nearest_even_before_fp64_oracle",
+      "output_rounding": "round_to_nearest_even",
+      "contraction": "not_applicable",
+      "logical_view_offset_elements": 64,
+      "logical_view_offset_bytes": 128,
+      "output_preallocated": true,
+      "graph_contract": "Native: N complete identical workloads including every pipeline stage; same inputs/output/scratch allocations and hazard-DAG ordering. Independent pipeline stages may overlap across calls. R complete graph replays per timed sample, divided by N*R complete workloads; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract."
+    },
+    "validation": {
+      "reference": "host_fp64",
+      "bound": "per_element_bound.f64",
+      "require_finite": true,
+      "output_guard_elements": 128,
+      "readonly_inputs_checked": true
+    }
+  },
+  "input_sha256": {
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\manifest.json": "2f2c479ce9a8d6715c371f552ec581aea9c1b376998fdb7cba5a4bcd911190e2",
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\input0.f16": "ff97efc5fbe3aff4c6dc0b8fd4e2e25984280d47043b67c352cc629cd00943bd",
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\input1.f16": "fbac363e57a4abf4413c8f154de86aba9e07fb766014c8a0e7bce949c8f8a7b2",
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\input2.f16": "c70631966ba36c059be7ddd7d08bc79b5ac07e0cf6c75722c9099e24f546683b",
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\expected.f64": "d953d430054c32b0f639f03c1fd1e72db5fe5b4a675eee10931d9999e0a81730",
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\per_element_bound.f64": "65bdce441c1e0621e445ae6606d8567e7f170e888f54a428c7b3e63444073f9e"
+  },
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "executable": "${REPO}\\.deps\\torch-cuda-venv\\Scripts\\python.exe",
+  "packages": {
+    "torch": "2.14.1+cu130",
+    "numpy": "2.3.5",
+    "triton-windows": "3.8.0.post29"
+  },
+  "environment": {
+    "CUDA_PATH": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.4",
+    "CUDA_PATH_V13_4": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.4",
+    "NVIDIA_TF32_OVERRIDE": "0",
+    "OMP_NUM_THREADS": "4",
+    "TORCHINDUCTOR_COMPILE_THREADS": "1",
+    "TORCHINDUCTOR_CACHE_DIR": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache",
+    "TRITON_CACHE_DIR": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\triton-cache"
+  },
+  "device": "_CudaDeviceProperties(name='NVIDIA GeForce RTX 4060 Laptop GPU', major=8, minor=9, total_memory=8187MB, multi_processor_count=24, uuid=21bb7a3c-76a3-a8a9-a376-23b961415603, pci_bus_id=7, pci_device_id=0, pci_domain_id=0, L2_cache_size=32MB)",
+  "torch_version": "2.14.1+cu130",
+  "torch_git_version": "5c4886908584029761b579af026dcfb627c84070",
+  "torch_cuda_version": "13.0",
+  "torch_config": "PyTorch built with:\n  - C++ Version: 202002\n  - MSVC 194234444\n  - Intel(R) oneAPI Math Kernel Library Version 2026.1-Product Build 20260612 for Intel(R) 64 architecture applications\n  - Intel(R) MKL-DNN v3.12.0 (Git Hash 80afa71049cd69a3df32adcccb623b12cd7baa22)\n  - OpenMP 2019\n  - LAPACK is enabled (usually provided by MKL)\n  - CPU capability usage: AVX2\n  - CUDA Runtime 13.0\n  - NVCC architecture flags: -gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_90,code=sm_90;-gencode;arch=compute_100,code=sm_100;-gencode;arch=compute_120,code=sm_120\n  - CuDNN 92.4  (built against CUDA 13.3)\n  - Magma 2.5.4\n  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, COMMIT_SHA=5c4886908584029761b579af026dcfb627c84070, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xcompiler /Zc:__cplusplus -Xcompiler /Zc:preprocessor -Xcompiler /w -w -Xcompiler /FS -Xfatbin -compress-all -DONNX_NAMESPACE=onnx_torch --use-local-env -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_100,code=sm_100 -gencode arch=compute_120,code=sm_120 -Xcudafe --diag_suppress=cc_clobber_ignored,--diag_suppress=field_without_dll_interface,--diag_suppress=base_class_has_different_dll_interface,--diag_suppress=dll_interface_conflict_none_assumed,--diag_suppress=dll_interface_conflict_dllexport_assumed,--diag_suppress=bad_friend_decl --Werror cross-execution-space-call --no-host-device-move-forward --expt-relaxed-constexpr --expt-extended-lambda -Xfatbin -compress-all -Xcompiler=/wd4819,/wd4503,/wd4190,/wd4244,/wd4251,/wd4275,/wd4522 -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__, CUDA_VERSION=13.0, CUDNN_VERSION=9.24.0, CXX_COMPILER=C:/actions-runner/_work/pytorch/pytorch/.ci/pytorch/windows/tmp_bin/sccache-cl.exe, CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /Zc:__cplusplus /bigobj /FS /utf-8 -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DHAS_CUPTI -DSYMBOLICATE_MOBILE_DEBUG_HANDLE /wd4624 /wd4068 /wd4067 /wd4267 /wd4661 /wd4717 /wd4244 /wd4804 /wd4273, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, TORCH_VERSION=2.14.1, USE_CUDA=1, USE_CUDNN=ON, USE_CUSPARSELT=OFF, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=OFF, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+  "expression": "functional softmax, FP32 arithmetic/reductions and declared precision output",
+  "numerical_policy": {
+    "input_storage": "float16",
+    "output_storage": "float16",
+    "compute_precision": "float32 accumulation",
+    "matmul_fp32_precision": "ieee",
+    "fp16_reduced_precision_reduction": false,
+    "bf16_reduced_precision_reduction": false
+  },
+  "allocation_policy": "Functional return; allocations included in stream timing, graph capture pool reused on replay",
+  "ranking_contract": "standard",
+  "compile_options": {
+    "max_autotune": true,
+    "triton.cudagraphs": false,
+    "coordinate_descent_tuning": true
+  },
+  "compile_requested_mode": "max-autotune",
+  "phase": "complete",
+  "cold_compile_first_call_ms": 10984.2093,
+  "cold_scope": "torch.compile creation, first full-graph compile and one execution; device initialization and upload excluded",
+  "compiler_evidence": {
+    "backend": "inductor",
+    "fullgraph": true,
+    "suppress_errors": false,
+    "counters": {
+      "stats": {
+        "calls_captured": 3,
+        "unique_graphs": 1
+      },
+      "aot_autograd": {
+        "total": 1,
+        "autograd_cache_miss": 1,
+        "autograd_cache_saved": 1,
+        "ok": 1
+      },
+      "inductor": {
+        "fxgraph_cache_miss": 1,
+        "pattern_matcher_count": 1,
+        "pattern_matcher_nodes": 4,
+        "async_compile_cache_miss": 1,
+        "triton_bundler_save_kernel": 16,
+        "triton_bundler_save_static_autotuner": 1,
+        "benchmarking.InductorBenchmarker.benchmark": 7,
+        "benchmarking.InductorBenchmarker.benchmark_gpu": 7,
+        "coordesc_tuning_bench": 5
+      }
+    },
+    "generated_kernel_count": 1,
+    "cuda_wrappers": [
+      "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\3s\\c3supej2niktnn27ypcvbiqshd3umpu6arh4wgvs66bulg75slmx.py",
+      "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\qp\\cqpxc4kplafkexfumgc3rtbiorcjt4vfzqzmbpxfj7vpra723egv.py"
+    ],
+    "triton_wrappers": [
+      "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\3s\\c3supej2niktnn27ypcvbiqshd3umpu6arh4wgvs66bulg75slmx.py"
+    ],
+    "external_call_wrappers": [],
+    "artifacts": [
+      {
+        "path": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\3s\\c3supej2niktnn27ypcvbiqshd3umpu6arh4wgvs66bulg75slmx.py",
+        "sha256": "086625bdc25feb3a553c53fe5c29fcee8d98870d6e8494b13793b0cf99473505",
+        "bytes": 9100
+      },
+      {
+        "path": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\qp\\cqpxc4kplafkexfumgc3rtbiorcjt4vfzqzmbpxfj7vpra723egv.py",
+        "sha256": "41d37ee61efc311bec570eff64ec9e2402c9eb3a06008c1c9c6e5e05af8454ce",
+        "bytes": 3544
+      }
+    ],
+    "interpretation": "Full-graph Inductor may call cuBLAS/ATen GPU operators; external calls are recorded and are not claimed as generated Triton kernels"
+  },
+  "compiled_outputs_before": [
+    {
+      "path": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\compiled-first-output.f16",
+      "sha256": "6fa680cc766db1c275d1d42a18731a9783f83111512be7e966a0a4fa7c329efe",
+      "storage_dtype": "float16"
+    }
+  ],
+  "compiled_correctness_before": {
+    "elements": 524288,
+    "failed_elements": 0,
+    "max_abs_error": 1.907556598988898e-06,
+    "max_allowed_bound": 5.267903952208171e-05,
+    "oracle": "complete exported FP64 reference and per-element bound; no tolerance override"
+  },
+  "compiled_stream": {
+    "repetitions": 1250,
+    "warmup_calls": 4905,
+    "synchronized_host_wall_us": {
+      "samples": [
+        74.36944,
+        72.30736,
+        71.09568,
+        67.84048,
+        66.88391999999999,
+        63.3608,
+        60.7476
+      ],
+      "median": 67.84048,
+      "minimum": 60.7476,
+      "maximum": 74.36944
+    },
+    "scope": "Python/framework dispatch, functional allocations, operator execution and final synchronization"
+  },
+  "compiled_graph": {
+    "batch": 100,
+    "capture_ms": 5.6337,
+    "warmup_target_ms": 500.0,
+    "warmup_actual_ms": 500.2848,
+    "warmup_replays": 795,
+    "warmup_scope": "Synchronized replays after the first replay primes both events; capture, priming, calibration and samples excluded",
+    "event_priming_protocol": "untimed_first_replay_before_warmup_v1",
+    "event_priming_replays": 1,
+    "event_priming_wall_ms": 1.4211,
+    "prime_event_ms": 1.3527040481567383,
+    "graph_protocol": "adaptive_replay_span_v2",
+    "replays_per_sample": 298,
+    "operations_per_sample": 29800,
+    "sample_target_ms": 100.0,
+    "replay_cap": 65536,
+    "operation_cap": 10000000,
+    "calibration": [
+      {
+        "replays": 1,
+        "event_span_ms": 0.33587199449539185,
+        "host_wall_ms": 0.4201
+      },
+      {
+        "replays": 298,
+        "event_span_ms": 95.25247955322266,
+        "host_wall_ms": 95.3035
+      }
+    ],
+    "calibration_target_reached": true,
+    "event_span_ms": {
+      "samples": [
+        95.13983917236328,
+        95.55865478515625,
+        95.70201873779297,
+        96.33689880371094,
+        96.3983383178711,
+        96.49971008300781,
+        96.83865356445312
+      ],
+      "median": 96.33689880371094,
+      "minimum": 95.13983917236328,
+      "maximum": 96.83865356445312
+    },
+    "host_span_ms": {
+      "samples": [
+        95.2238,
+        95.6336,
+        95.7963,
+        96.4425,
+        96.5087,
+        96.6735,
+        96.9467
+      ],
+      "median": 96.4425,
+      "minimum": 95.2238,
+      "maximum": 96.9467
+    },
+    "event_us_per_operation": {
+      "samples": [
+        3.1926120527638684,
+        3.2066662679582634,
+        3.211477138852113,
+        3.232781839050703,
+        3.234843567713795,
+        3.23824530479892,
+        3.2496192471292993
+      ],
+      "median": 3.232781839050703,
+      "minimum": 3.1926120527638684,
+      "maximum": 3.2496192471292993
+    },
+    "host_wall_us_per_operation": {
+      "samples": [
+        3.1954295302013422,
+        3.2091812080536917,
+        3.2146409395973157,
+        3.2363255033557046,
+        3.238546979865772,
+        3.2440771812080538,
+        3.2532449664429532
+      ],
+      "median": 3.2363255033557046,
+      "minimum": 3.1954295302013422,
+      "maximum": 3.2532449664429532
+    },
+    "scope": "Two CUDA events around R whole graph replays, each containing N sequential calls on one capture stream; only final output retained; event and host spans divided by N*R; submission gaps can remain",
+    "allocation_policy": "Normal functional returns, capture-aware memory pool reuse, no forced copy or N-output retention",
+    "capture_stream": 2151756051744,
+    "internal_inductor_cudagraphs": false
+  },
+  "compiled_correctness_after": {
+    "elements": 524288,
+    "failed_elements": 0,
+    "max_abs_error": 1.907556598988898e-06,
+    "max_allowed_bound": 5.267903952208171e-05,
+    "oracle": "complete exported FP64 reference and per-element bound; no tolerance override"
+  },
+  "compiled_outputs": [
+    {
+      "path": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\compiled-output.f16",
+      "sha256": "6fa680cc766db1c275d1d42a18731a9783f83111512be7e966a0a4fa7c329efe",
+      "storage_dtype": "float16"
+    }
+  ],
+  "finished": "2026-10-03T18:55:23.545737+08:00"
+}

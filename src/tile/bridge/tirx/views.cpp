@@ -85,9 +85,13 @@ protected:
     void VisitStmt_(const tvm::tirx::TilePrimitiveCallNode *) final { opaque = true; }
 };
 
-[[nodiscard]] bool compact_buffer(const tvm::tirx::BufferVar &buffer) {
+[[nodiscard]] bool compact_buffer(const tvm::tirx::BufferVar &buffer, bool allow_narrow_storage) {
+    auto supported_type = buffer->dtype == tvm::PrimType::Float(32) ||
+                          (allow_narrow_storage &&
+                           (buffer->dtype == tvm::PrimType::Float(16) ||
+                            buffer->dtype == tvm::PrimType::BFloat(16)));
     auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
-    if (buffer->dtype != tvm::PrimType::Float(32) || buffer->shape.empty() || !buffer->strides.empty() ||
+    if (!supported_type || buffer->shape.empty() || !buffer->strides.empty() ||
         buffer->layout || !buffer->allocated_addr.empty() || offset == nullptr || offset->value != 0) { return false; }
     return std::all_of(buffer->shape.begin(), buffer->shape.end(), [](auto &&dimension) {
         auto extent = dimension.template as<tvm::IntImmNode>();
@@ -208,6 +212,7 @@ private:
     Domain _domain;
     bool _preserve_guards;
     bool _cache_reused_inputs;
+    bool _allow_narrow_storage;
 
     [[nodiscard]] luisa::optional<ForwardedView> _copy(const tvm::tirx::Stmt &statement, const tvm::tirx::BufferVar &buffer) const {
         auto body = statement;
@@ -243,7 +248,8 @@ private:
             value = conditional->args[1].as_or_throw<tvm::PrimExpr>();
         }
         auto source = value.as<tvm::tirx::BufferLoadNode>();
-        if (source == nullptr || source->predicate || !_inputs.contains(source->buffer.get()) || !compact_buffer(source->buffer)) { return {}; }
+        if (source == nullptr || source->predicate || !_inputs.contains(source->buffer.get()) || !compact_buffer(source->buffer, _allow_narrow_storage) || source->buffer->dtype != buffer->dtype ||
+            value.ty() != buffer->dtype || store->value.ty() != buffer->dtype) { return {}; }
         auto source_bounds = in_bounds(source->buffer, source->indices);
         auto unconditional = prove_in_loop_domain(guard && source_bounds, domain);
         auto expression = unconditional ? value : store->value;
@@ -276,7 +282,7 @@ protected:
             auto allocation = parts[i].as<tvm::tirx::AllocBufferNode>();
             if (allocation == nullptr || !allocation->annotations.empty()) { continue; }
             auto buffer = allocation->buffer;
-            if (buffer.scope() != "local" || !compact_buffer(buffer) || views.contains(buffer.get())) { continue; }
+            if (buffer.scope() != "local" || !compact_buffer(buffer, _allow_narrow_storage) || views.contains(buffer.get())) { continue; }
             auto &access = _access.buffers.at(buffer.get());
             if (access.allocations != 1u || access.stores != 1u || access.loads == 0u || access.escapes) { continue; }
             for (auto j = i + 1u; j < parts.size(); j++) {
@@ -307,8 +313,8 @@ public:
     luisa::unordered_set<const tvm::tirx::StmtNode *> removed;
     luisa::unordered_set<BufferKey> cached;
     luisa::unordered_set<const tvm::tirx::StmtNode *> cached_copies;
-    ViewAnalysis(const InputAccess &access, const luisa::unordered_set<BufferKey> &inputs, bool preserve_guards, bool cache_reused_inputs)
-        : _access{access}, _inputs{inputs}, _preserve_guards{preserve_guards}, _cache_reused_inputs{cache_reused_inputs} {}
+    ViewAnalysis(const InputAccess &access, const luisa::unordered_set<BufferKey> &inputs, bool preserve_guards, bool cache_reused_inputs, bool allow_narrow_storage)
+        : _access{access}, _inputs{inputs}, _preserve_guards{preserve_guards}, _cache_reused_inputs{cache_reused_inputs}, _allow_narrow_storage{allow_narrow_storage} {}
 };
 
 class ViewRewriter final : public tvm::tirx::StmtExprMutator {
@@ -343,7 +349,7 @@ public:
 
 }// namespace
 
-ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards, bool cache_reused_inputs) {
+ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards, bool cache_reused_inputs, bool allow_narrow_storage) {
     ReadonlyViews result{function->body, {}};
     if (!noalias) { return result; }
     auto current = function;
@@ -357,12 +363,12 @@ ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, b
             if (parameter->ty.as<tvm::tirx::BufferTypeNode>() == nullptr) { continue; }
             auto buffer = tvm::tirx::BufferVar{parameter};
             auto iter = access.buffers.find(buffer.get());
-            if (buffer.scope() == "global" && compact_buffer(buffer) && iter != access.buffers.end() &&
+            if (buffer.scope() == "global" && compact_buffer(buffer, allow_narrow_storage) && iter != access.buffers.end() &&
                 iter->second.allocations == 0u && iter->second.stores == 0u && !iter->second.escapes) {
                 inputs.emplace(buffer.get());
             }
         }
-        ViewAnalysis analysis{access, inputs, preserve_guards, cache_reused_inputs};
+        ViewAnalysis analysis{access, inputs, preserve_guards, cache_reused_inputs, allow_narrow_storage};
         analysis(current->body);
         if (analysis.views.empty()) { break; }
         for (auto &&[buffer, view] : analysis.views) { forwarded_inputs.emplace(view.source->buffer.get()); }

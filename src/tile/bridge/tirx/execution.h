@@ -103,7 +103,9 @@ struct ReadonlyViews {
 // Cooperative memory-input atoms require valid physical rectangles. The MPP
 // bounded-K candidate transactionally checks preserved guards against that
 // stronger atom contract; otherwise it retains strict snapshot forwarding.
-[[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false);
+// Narrow storage is an explicit CUDA-source capability; the default preserves
+// the existing FP32-only forwarding and materialization set.
+[[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false, bool allow_narrow_storage = false);
 
 // Fuse one automatic root and a same-domain, pointwise SSA graph with disjoint
 // output domains into a bijective GPU grid. Compiler Tiles become per-worker scalar
@@ -173,10 +175,16 @@ struct ReadonlyViews {
 // revalidates canonical reducer bodies, identities, effect placement and
 // uniform collective control flow. Undefined means that the ordinary worker
 // realization remains applicable.
-[[nodiscard]] tvm::tirx::Stmt try_map_metal_subgroup_reduction(
+enum class SubgroupReductionTarget : uint8_t {
+    METAL,
+    CUDA
+};
+
+[[nodiscard]] tvm::tirx::Stmt try_map_subgroup_reduction(
     const tvm::tirx::For &loop, uint32_t max_threads,
     uint64_t shared_memory_limit,
-    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic);
+    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic,
+    SubgroupReductionTarget target = SubgroupReductionTarget::METAL);
 
 // A closed reduction Tile inside an already bound cooperative group. Each
 // output is owned by one whole subgroup; only its leader publishes the result.

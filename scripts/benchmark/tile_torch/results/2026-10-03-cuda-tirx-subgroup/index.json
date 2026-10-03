@@ -1,0 +1,1504 @@
+{
+  "schema": 1,
+  "closed_summary_sha256": "11c0f651c352e35fbdfda0a969d27944d96f26ae02b4e27a42f928cbcca36056",
+  "closed_summary_bytes": 420321,
+  "scope": "Complete V1 results/source/actual launch evidence with portable JSON paths; tensor payloads omitted, original validation receipts retained.",
+  "files": {
+    "results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-summary-v1\\checkpoint.json",
+      "raw_sha256": "11c0f651c352e35fbdfda0a969d27944d96f26ae02b4e27a42f928cbcca36056",
+      "raw_bytes": 420321,
+      "public_sha256": "840ba7be99f7122c32fd6fc6f3fb99221b16d9b88b1217794a62c1c62e1f73a6",
+      "public_bytes": 403841,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "provenance/queue.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\queue.json",
+      "raw_sha256": "7f07ac73fc787af6dd1fd885d2ce43b2a1aba4fb5239669af109020bf4fce8c7",
+      "raw_bytes": 13631,
+      "public_sha256": "5065a82a07dd1c01cfb1b2d2f5e9129c6cfa95dbb09c17c6bbe4bb64b8b06833",
+      "public_bytes": 12972,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "provenance/source-snapshot.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\snapshot.json",
+      "raw_sha256": "8229ad25b4ccc6be494ba71117ddb883b393a96f65aff017fb62e25ce8d8b60e",
+      "raw_bytes": 53343,
+      "public_sha256": "a66ea2956282b8dd527d99266e78f2c7751957bf5ee6fadbbf16a95e6efacd11",
+      "public_bytes": 42285,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "a5b87f5016f58279602196d38a60080724e1aebc99fa31d9f8ae87b96a6022de",
+      "raw_bytes": 5155,
+      "public_sha256": "a5b87f5016f58279602196d38a60080724e1aebc99fa31d9f8ae87b96a6022de",
+      "public_bytes": 5155,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "b1371633d122c3f5773de985cd7add4b1fcf901f6f0c9fe067ed3ea9a81567e0",
+      "raw_bytes": 4566,
+      "public_sha256": "86ebb43884c069b0540f0344d1ddd9fdf9882d3efbee50acaf982607c6cf9f58",
+      "public_bytes": 5401,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "a6210c7ecd2a8d2611a34f0f91e02c9ab06914866ea2483d6b049e0c618c8143",
+      "raw_bytes": 1835,
+      "public_sha256": "48091c28b48a75b94ec1801b06069218f62824f5e834ed70ee091c9fe2d2e912",
+      "public_bytes": 2371,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "89d3f5de58062d83a03c6bef1b2099327207f0bb03c686b12be46c321d1908e1",
+      "raw_bytes": 355,
+      "public_sha256": "f332d23b79930633f6e0f848eb6b5c28d8488d8050b6701315df7956dfeec6fb",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "9f8c051977c723534ed3271fd3b747ce9a599727e51c44c05043d418cf74b0db",
+      "raw_bytes": 283,
+      "public_sha256": "ea27695e95b26d24472bde0a17cdd60d9e14604161f6ee363a03706c2c7d88fc",
+      "public_bytes": 388,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "db8438c715a1be9603433129ea1ddf2d348a5b966daf8dc9593d750543c59567",
+      "raw_bytes": 10109,
+      "public_sha256": "db8438c715a1be9603433129ea1ddf2d348a5b966daf8dc9593d750543c59567",
+      "public_bytes": 10109,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "71a8fd5e7eae12d2de5855c9b8fc04c8c6002d26021f79dda1e2232ea8de9ae0",
+      "raw_bytes": 344,
+      "public_sha256": "71a8fd5e7eae12d2de5855c9b8fc04c8c6002d26021f79dda1e2232ea8de9ae0",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "6e672a9f51dc60c9e74ab14e20650ec008732c91eccea33a20c0c09dc7c2979d",
+      "raw_bytes": 826,
+      "public_sha256": "abd81b4377d329a5663154e7aea788250e0f5f9ebcf4fdc5ab90c5ede675df4a",
+      "public_bytes": 884,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "b32c3c749f1ffb458931503cd59f21410d44223d88e6fbf45923ea293c5d445a",
+      "raw_bytes": 30683,
+      "public_sha256": "b32c3c749f1ffb458931503cd59f21410d44223d88e6fbf45923ea293c5d445a",
+      "public_bytes": 30683,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "058a55f25ff0937f666e980d70e2d4435767cb3199dad1bdbf6f8e20b7c02c2c",
+      "raw_bytes": 3438,
+      "public_sha256": "a281ffe18ff01a5f5a303b739191229ffec27ac460e38765dbbeabb288ee5f74",
+      "public_bytes": 3825,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "13f67a669237ee2f7f7deebf858f72afbb37bb569982ab85a67f77cbd96fa89e",
+      "raw_bytes": 1833,
+      "public_sha256": "cafce99f97a96b5f7fd78efb8d2b13eab39086231f9d218110b928c9f0609c32",
+      "public_bytes": 2369,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "789256ad9eacc2733271ea8d63eb6a2131d51326fa82716a69314f877363421e",
+      "raw_bytes": 347,
+      "public_sha256": "fa56af0796e5c34eda7112f14e1a5c5a3cd867586255c783eefdf3407def0bf2",
+      "public_bytes": 506,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "aa921c7df761718eb8315c5892e00f6cf8302e412f5e51d95b9cbc8e10e07353",
+      "raw_bytes": 508,
+      "public_sha256": "ce3cbc576ec0ed392b74bc2abae6387707e57afe706678811f6037930d837697",
+      "public_bytes": 640,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "24e4cc8897cdf8a6dd6f64c1ca85f67077e0726a350ee9b814a9b7137c92eecd",
+      "raw_bytes": 9312,
+      "public_sha256": "24e4cc8897cdf8a6dd6f64c1ca85f67077e0726a350ee9b814a9b7137c92eecd",
+      "public_bytes": 9312,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "5555f2489b36a1f8c451be2ef2f83cc59b89e87eb3fd7c5135ebf70cbe09630e",
+      "raw_bytes": 363,
+      "public_sha256": "5555f2489b36a1f8c451be2ef2f83cc59b89e87eb3fd7c5135ebf70cbe09630e",
+      "public_bytes": 363,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "595db402d92aa55c1fe17cc799f5d9fbb4a727a4b7cd1dd2226efa01d9877393",
+      "raw_bytes": 812,
+      "public_sha256": "620243ecf3ca99bbcb2004214d4d8d957c9497893931ab40dde2718787251e3a",
+      "public_bytes": 884,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "a5b87f5016f58279602196d38a60080724e1aebc99fa31d9f8ae87b96a6022de",
+      "raw_bytes": 5155,
+      "public_sha256": "a5b87f5016f58279602196d38a60080724e1aebc99fa31d9f8ae87b96a6022de",
+      "public_bytes": 5155,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "01296227ef55dd1fd0fef03d5979eb3d453edbb4ffdaf7f1b1d767e4a8b5ca53",
+      "raw_bytes": 4605,
+      "public_sha256": "d4eaab44d9791b900febe72cc045a933c9cb4b989986a6e3bcf06f574a380445",
+      "public_bytes": 5445,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "a6210c7ecd2a8d2611a34f0f91e02c9ab06914866ea2483d6b049e0c618c8143",
+      "raw_bytes": 1835,
+      "public_sha256": "48091c28b48a75b94ec1801b06069218f62824f5e834ed70ee091c9fe2d2e912",
+      "public_bytes": 2371,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "89d3f5de58062d83a03c6bef1b2099327207f0bb03c686b12be46c321d1908e1",
+      "raw_bytes": 355,
+      "public_sha256": "f332d23b79930633f6e0f848eb6b5c28d8488d8050b6701315df7956dfeec6fb",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "9f8c051977c723534ed3271fd3b747ce9a599727e51c44c05043d418cf74b0db",
+      "raw_bytes": 283,
+      "public_sha256": "ea27695e95b26d24472bde0a17cdd60d9e14604161f6ee363a03706c2c7d88fc",
+      "public_bytes": 388,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "623434f0d30fa3f203f36ec3a5b619ffe365449e56a71c4ca5740921ec11a9c9",
+      "raw_bytes": 10109,
+      "public_sha256": "623434f0d30fa3f203f36ec3a5b619ffe365449e56a71c4ca5740921ec11a9c9",
+      "public_bytes": 10109,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "a81ecc0db07ed619e722f63832aa24137a2fdb6b7d466e4daece413e20cb0496",
+      "raw_bytes": 344,
+      "public_sha256": "a81ecc0db07ed619e722f63832aa24137a2fdb6b7d466e4daece413e20cb0496",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "08bec5beecbfa5ed682140a47c65f62843842d802824735eb06aa4b86866a50a",
+      "raw_bytes": 826,
+      "public_sha256": "b29487ec4c4f3dd1b7dd97cfa87d10e4aa69288b07fb12890ef7e0dd01fa4c34",
+      "public_bytes": 884,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-128x1024-bf16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\torch\\artifacts\\result.json",
+      "raw_sha256": "cb341c86863a31248a1c011c154d3db155320c05c1cfc3bddac481edd63f2d66",
+      "raw_bytes": 17472,
+      "public_sha256": "cf85366004105f926b7bf5a8477c52cc75bbdb5b25dd9db277fd2a33165e50b6",
+      "public_bytes": 16505,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\torch\\artifacts\\inductor-cache\\cg\\ccgzvhf5z7f7oxp6tllsfnfwwk22bcj3wx5r2pthi3pxbztc74z3.py",
+      "raw_sha256": "4c170becdf7ca9bb35eb46d844d891c2d58672101e3d407a5aeca061af666422",
+      "raw_bytes": 3609,
+      "public_sha256": "4c170becdf7ca9bb35eb46d844d891c2d58672101e3d407a5aeca061af666422",
+      "public_bytes": 3609,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-128x1024-bf16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-128x1024-bf16\\torch\\artifacts\\inductor-cache\\l3\\cl37pcsitq5n6oactuvzunmtpulouuk272hsopbkirjsr4lhd2cl.py",
+      "raw_sha256": "c97a2ebc58054284642c8ed478f2e879d30c52d9b2b58c7cc0aabd25480c6f6c",
+      "raw_bytes": 9999,
+      "public_sha256": "c97a2ebc58054284642c8ed478f2e879d30c52d9b2b58c7cc0aabd25480c6f6c",
+      "public_bytes": 9999,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "b2ebd16938afb4ee21f6307c6e1c7fa76b956753ce9b0a5c9a20ffa92ce8c349",
+      "raw_bytes": 6301,
+      "public_sha256": "b2ebd16938afb4ee21f6307c6e1c7fa76b956753ce9b0a5c9a20ffa92ce8c349",
+      "public_bytes": 6301,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "ffadcf8f1a6c127bb80f120519e762f7a326810b3553679296533660729126d1",
+      "raw_bytes": 4613,
+      "public_sha256": "243d46fa6244f82a5b4339246eaf0e712ce17d285db397e11ce6ffaf78a3b115",
+      "public_bytes": 5420,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "1680a9999963fdcc54abfb239f35c4bc4755ab22a5f46926f17eccb01a08ac13",
+      "raw_bytes": 1827,
+      "public_sha256": "7625fe9c140d8a2a08bd22db5c19c4a531fa964c871c7f0fad4851bb6b0165ad",
+      "public_bytes": 2363,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "c0385c3293352d7434740176033b594eb55d5468f2673c5e711566a4eb735f82",
+      "raw_bytes": 355,
+      "public_sha256": "bfa39fce6dca030ca5c23bb319bb6c4953dd19588127c7756ca7b5a9a9b85131",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "7727fb00a05c55f0b2f56eab7351c57e48cb79df04c137d6c592cd64e39744a7",
+      "raw_bytes": 283,
+      "public_sha256": "8b6d2c36a0b0a116b10c5d33b67f1f75f2e0fd16e10cc66fb385a5914456295e",
+      "public_bytes": 388,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "f5a1045086e130610591073a293bcf6794340d6c78657e266d7b23946318212c",
+      "raw_bytes": 10109,
+      "public_sha256": "f5a1045086e130610591073a293bcf6794340d6c78657e266d7b23946318212c",
+      "public_bytes": 10109,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "1f6771b7145d24ef76b30fb001de0cf9cfc30a8709cdde3239901c004dbd9c85",
+      "raw_bytes": 344,
+      "public_sha256": "1f6771b7145d24ef76b30fb001de0cf9cfc30a8709cdde3239901c004dbd9c85",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "4c71b1d1e400f5c2507e526cb7c4158c49943449cfe321756154013cbaa76e90",
+      "raw_bytes": 813,
+      "public_sha256": "80e776c4736cea398d73311bd0f7605e29972778db3a2dbf285faacdfba88a2d",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "10423a3ea85c2b2b2d7c6fae35948e11fcc5793b84d75b269648a84f9a699daf",
+      "raw_bytes": 21588,
+      "public_sha256": "10423a3ea85c2b2b2d7c6fae35948e11fcc5793b84d75b269648a84f9a699daf",
+      "public_bytes": 21588,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "59e444f408a8cfccb7b576dac7b97b7133f39a0a9b7aa2ba750f0b949c0290f2",
+      "raw_bytes": 3504,
+      "public_sha256": "3fdac1f083dedef309d9da7e7d408874add7981b39db4462bc3181f7a5ac96d8",
+      "public_bytes": 3852,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "7d5b2b1d48857dd40638aa35e0fdcf65bcd89b36d3020bd5506ed8575d748f3b",
+      "raw_bytes": 1825,
+      "public_sha256": "a35341a9e53389f48962ac733bb220ddc8806f7838cd630bc4028a835d53f954",
+      "public_bytes": 2361,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "2c54db1927f01f162e2d43eaa9d5da7422c3c0a180256ab0420bd755d9ffae91",
+      "raw_bytes": 347,
+      "public_sha256": "90a81dc3023ee83a674308fb69f81d9b1b3a57102427893c2350ea3dce5b3df3",
+      "public_bytes": 506,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "9ae7f81b886917d675a659f51ebbe4e966986e5ef74e1251d548dda1bb161c89",
+      "raw_bytes": 509,
+      "public_sha256": "f26bd4480941b06686c85b14f88548908991afa4f1ccbd689865016e6eb766c0",
+      "public_bytes": 641,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "0fee8ab586fcd47ced06884a17342b2cf906589121d1ab777d5d0c5c8e7a927d",
+      "raw_bytes": 9412,
+      "public_sha256": "0fee8ab586fcd47ced06884a17342b2cf906589121d1ab777d5d0c5c8e7a927d",
+      "public_bytes": 9412,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "89888d4fcc20fb15f1ed7fb2da94b97a190052e9e5704e17e0f0ef1949c63807",
+      "raw_bytes": 363,
+      "public_sha256": "89888d4fcc20fb15f1ed7fb2da94b97a190052e9e5704e17e0f0ef1949c63807",
+      "public_bytes": 363,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "ba56222ed911387950651741cc33ca6a6978d3d1fe55f9e0b16bd67107dbea2b",
+      "raw_bytes": 827,
+      "public_sha256": "3e9140ef1143de2d1a9fdca78c476594700e282356a32ca0623bb944898e8435",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "b2ebd16938afb4ee21f6307c6e1c7fa76b956753ce9b0a5c9a20ffa92ce8c349",
+      "raw_bytes": 6301,
+      "public_sha256": "b2ebd16938afb4ee21f6307c6e1c7fa76b956753ce9b0a5c9a20ffa92ce8c349",
+      "public_bytes": 6301,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "30795be19e53b6297799d7d61b275d7eaa9f2c945955c742a330f8ef42603c64",
+      "raw_bytes": 4604,
+      "public_sha256": "49536bfa13f96cbc30962af3aa73050d039df7a8d73ea16b36e56ce8312f213b",
+      "public_bytes": 5436,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "1680a9999963fdcc54abfb239f35c4bc4755ab22a5f46926f17eccb01a08ac13",
+      "raw_bytes": 1827,
+      "public_sha256": "7625fe9c140d8a2a08bd22db5c19c4a531fa964c871c7f0fad4851bb6b0165ad",
+      "public_bytes": 2363,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "c0385c3293352d7434740176033b594eb55d5468f2673c5e711566a4eb735f82",
+      "raw_bytes": 355,
+      "public_sha256": "bfa39fce6dca030ca5c23bb319bb6c4953dd19588127c7756ca7b5a9a9b85131",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "7727fb00a05c55f0b2f56eab7351c57e48cb79df04c137d6c592cd64e39744a7",
+      "raw_bytes": 283,
+      "public_sha256": "8b6d2c36a0b0a116b10c5d33b67f1f75f2e0fd16e10cc66fb385a5914456295e",
+      "public_bytes": 388,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "ff3084f9f16cc5fec1a2bcaf42480a11a06537d848b809bf9d51d329f5595e77",
+      "raw_bytes": 10109,
+      "public_sha256": "ff3084f9f16cc5fec1a2bcaf42480a11a06537d848b809bf9d51d329f5595e77",
+      "public_bytes": 10109,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "439bd025e29074c0ffb174bcd7fed8d86e45e5d5847341ec40714b8fee81a401",
+      "raw_bytes": 344,
+      "public_sha256": "439bd025e29074c0ffb174bcd7fed8d86e45e5d5847341ec40714b8fee81a401",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "0f36df3f0dd89bc99ed605dbf3b029fbc7afe7865365777d9c679e94901e752a",
+      "raw_bytes": 827,
+      "public_sha256": "9506e751686a0c95f44e53d8db84ad9e2378ed57da381efbe8243024be421224",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-256x1536-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\torch\\artifacts\\result.json",
+      "raw_sha256": "877f28e9a7b05becfbe0b6f2b0cad074b5681418c77fd4a852acbd199add5aee",
+      "raw_bytes": 17409,
+      "public_sha256": "482356ca9f9a39c4404a21706af7dc5b6b6c3455ecfe6c75a42891ad3b10d5b4",
+      "public_bytes": 16442,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\torch\\artifacts\\inductor-cache\\6o\\c6ornlluzctz3ga3x67hswenfrgi5s676eaczudjd5kxbjzqw6rd.py",
+      "raw_sha256": "192c7502f47d00074128dce16abe54dcf308e4f08b65774184d04eceb367cd9b",
+      "raw_bytes": 10648,
+      "public_sha256": "192c7502f47d00074128dce16abe54dcf308e4f08b65774184d04eceb367cd9b",
+      "public_bytes": 10648,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-256x1536-fp16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-256x1536-fp16\\torch\\artifacts\\inductor-cache\\es\\ces77gp6372el25ypu5ou4p4evqjiqf2j2mbg4tetxzxlz33sahh.py",
+      "raw_sha256": "93ceac07a8f57026006efe0fca49709a95cd1e79aa999842aa6ba431a6b0f954",
+      "raw_bytes": 4265,
+      "public_sha256": "93ceac07a8f57026006efe0fca49709a95cd1e79aa999842aa6ba431a6b0f954",
+      "public_bytes": 4265,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "eadcf5f3660371726491baff125f49ac44fc703f9136e23dfccea02d6bb42278",
+      "raw_bytes": 6345,
+      "public_sha256": "eadcf5f3660371726491baff125f49ac44fc703f9136e23dfccea02d6bb42278",
+      "public_bytes": 6345,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "4f47e451db4061550b4f4f974ae160408454e08ff43ca1c9a78ab4c8f8d52992",
+      "raw_bytes": 4560,
+      "public_sha256": "93b4de2383f3ca4ddff8106d35bb47ebae7c464c3d2b119a34549eacbfdb085a",
+      "public_bytes": 5395,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "ab2b55fecc6e5f8daade2ae6f3be181f3dd3def543e95f82eaa8dbba99612b34",
+      "raw_bytes": 1829,
+      "public_sha256": "f6e11f42e01aa1fcf45bf23f3acfe10bcef8bb3c6235bf8f3433e430314285a1",
+      "public_bytes": 2365,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "23d3723870811c7f53694a570d660075340e99a3ff2624b6dd8d8193bb2dcca6",
+      "raw_bytes": 349,
+      "public_sha256": "6d56fd8b6f2ecfc076efa686e97dcf4a5426e7e89508c29a81beb7bed04848f0",
+      "public_bytes": 510,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "7dd08c0aeb2745e050015143cf511f9132b15e19c578a0f844a4cf7801d08133",
+      "raw_bytes": 281,
+      "public_sha256": "4572ffe22952b5221ece49b17894364dc8edecffc6d8e231a6ecd61e552a98fc",
+      "public_bytes": 386,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "873ba2a5fc50db76124a8106f026c5210a48bcbc5ddc9c5905073f3cfb1f0ec1",
+      "raw_bytes": 9909,
+      "public_sha256": "873ba2a5fc50db76124a8106f026c5210a48bcbc5ddc9c5905073f3cfb1f0ec1",
+      "public_bytes": 9909,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "b4ef21d8e795b6a38d55240cf651075dde84a7237f5331457d804c03570635f9",
+      "raw_bytes": 343,
+      "public_sha256": "b4ef21d8e795b6a38d55240cf651075dde84a7237f5331457d804c03570635f9",
+      "public_bytes": 343,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "e0b0f23114b39f0591cae7cc5e391f7677dedc7e8d03ad6c4966005ae948d1db",
+      "raw_bytes": 827,
+      "public_sha256": "a68c75ca061ed9a7337377d983a9a86a2b879cbee11f6ef38c54b4aa37d5f160",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "71ca3344af42325cb6b1e74c0648fb2afa635eb5a4fe8576b8726f2acb5e22ac",
+      "raw_bytes": 34746,
+      "public_sha256": "71ca3344af42325cb6b1e74c0648fb2afa635eb5a4fe8576b8726f2acb5e22ac",
+      "public_bytes": 34746,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "8fa9f272dec9ecd5a28024390160bf8416e0d8862413e69823842238c88b38d8",
+      "raw_bytes": 3424,
+      "public_sha256": "88f21191912821a61da3dd168f2d72abe8e44ee0f6d22b543b5ebc7c675f1926",
+      "public_bytes": 3881,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "e537ec8803a8de260d0640f4134d33a902c401b1afdb7154c02d9968706d82da",
+      "raw_bytes": 1827,
+      "public_sha256": "9aeaa6153fe6af820227335ca7ea6fd0f35e88a10c8c81280177aee2e1c69acd",
+      "public_bytes": 2363,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "c10fc1255d858edcf3ed6a31b45664efb9467824d2b9cfb723d0afd223a53cb8",
+      "raw_bytes": 343,
+      "public_sha256": "080ab32600ec03e4c0605342eec49d18132ed9a058d75def1c043f2c0326e667",
+      "public_bytes": 502,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "f6475d1ed3a33fc0a41afddbd0f00d70c24d1dc50de0bb4a47fa744f2bb3e537",
+      "raw_bytes": 507,
+      "public_sha256": "6c3c95deba79cfab08a78ec2b30730b2cdb120367802118f7ba28e41fa5557b4",
+      "public_bytes": 639,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "e71e2ca80d4a8d56b246c7279c3eb5b442956745ba7e11a5b40fc716b8690c9f",
+      "raw_bytes": 9212,
+      "public_sha256": "e71e2ca80d4a8d56b246c7279c3eb5b442956745ba7e11a5b40fc716b8690c9f",
+      "public_bytes": 9212,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "fb4a63dea17987e7a88eeb01cac9852c54610958370a437fe7688cde426491a8",
+      "raw_bytes": 365,
+      "public_sha256": "fb4a63dea17987e7a88eeb01cac9852c54610958370a437fe7688cde426491a8",
+      "public_bytes": 365,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "b24ea50c5644d862568124d13022572cf31942aeda2778a40ebed90eca314232",
+      "raw_bytes": 827,
+      "public_sha256": "ac9a6bb37b73704241e32904749c228a804fb7596b710346d7d4031ca0e20c43",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\source.txt",
+      "raw_sha256": "eadcf5f3660371726491baff125f49ac44fc703f9136e23dfccea02d6bb42278",
+      "raw_bytes": 6345,
+      "public_sha256": "eadcf5f3660371726491baff125f49ac44fc703f9136e23dfccea02d6bb42278",
+      "public_bytes": 6345,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\results.json",
+      "raw_sha256": "a73dc05e0e52829c93e692de2e65f448af44fa0837bb645fa61b8c5c2d6c47a9",
+      "raw_bytes": 4575,
+      "public_sha256": "cd9ec9d95aa20d12b96c3033d016808676b86045f07f2c860034bd27a7908669",
+      "public_bytes": 5442,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "ab2b55fecc6e5f8daade2ae6f3be181f3dd3def543e95f82eaa8dbba99612b34",
+      "raw_bytes": 1829,
+      "public_sha256": "f6e11f42e01aa1fcf45bf23f3acfe10bcef8bb3c6235bf8f3433e430314285a1",
+      "public_bytes": 2365,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "23d3723870811c7f53694a570d660075340e99a3ff2624b6dd8d8193bb2dcca6",
+      "raw_bytes": 349,
+      "public_sha256": "6d56fd8b6f2ecfc076efa686e97dcf4a5426e7e89508c29a81beb7bed04848f0",
+      "public_bytes": 510,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "7dd08c0aeb2745e050015143cf511f9132b15e19c578a0f844a4cf7801d08133",
+      "raw_bytes": 281,
+      "public_sha256": "4572ffe22952b5221ece49b17894364dc8edecffc6d8e231a6ecd61e552a98fc",
+      "public_bytes": 386,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "1497f3b6cb22722c57b2bc20f79af8220531d0b531697006f641502a794f9154",
+      "raw_bytes": 9909,
+      "public_sha256": "1497f3b6cb22722c57b2bc20f79af8220531d0b531697006f641502a794f9154",
+      "public_bytes": 9909,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "7dfc235e6fc0d695cf1a58ba5a33762428a08cb1717e89159403359d57df8cd5",
+      "raw_bytes": 343,
+      "public_sha256": "7dfc235e6fc0d695cf1a58ba5a33762428a08cb1717e89159403359d57df8cd5",
+      "public_bytes": 343,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "825f0167bb56f316fd54ad0bacef20147045cfab4e066a2acecb6b8b84bbc820",
+      "raw_bytes": 827,
+      "public_sha256": "9361c58b79f1dfaba1b38f021b677c52d985dab00023fae150efe6828b6a74da",
+      "public_bytes": 885,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-rmsnorm-7x2051-bf16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\torch\\artifacts\\result.json",
+      "raw_sha256": "f1342cace09fcf5394b71de456aec7f0ec7b0aee2c1a56e84910fa4b4d9f4e86",
+      "raw_bytes": 17385,
+      "public_sha256": "36e0a98492538586365e691b71a68811e5a016bbef3aa0f8ba38d8670cc2fdb5",
+      "public_bytes": 16418,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\torch\\artifacts\\inductor-cache\\7a\\c7aqgfjdompgtso47h2ydckamppk4wli2fw4jc6evpg5ld6w73b6.py",
+      "raw_sha256": "5a91c824e372f5604b4efe8f7d2cda482d6827d839e8cf56a45b4ca5e72bdc61",
+      "raw_bytes": 10582,
+      "public_sha256": "5a91c824e372f5604b4efe8f7d2cda482d6827d839e8cf56a45b4ca5e72bdc61",
+      "public_bytes": 10582,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-rmsnorm-7x2051-bf16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-rmsnorm-7x2051-bf16\\torch\\artifacts\\inductor-cache\\ex\\cexfmnbttiaigpwuawiefxmso6csp54ytdad43yeo4cxnphfzsdi.py",
+      "raw_sha256": "115280507d4ef2ef8fdd986c997328280402a211281dfb8521fe2aea8d3ce32a",
+      "raw_bytes": 4224,
+      "public_sha256": "115280507d4ef2ef8fdd986c997328280402a211281dfb8521fe2aea8d3ce32a",
+      "public_bytes": 4224,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "e337116b3d59082688c1e4b1e43f12d5abd9b249062aea8666860d0e84791804",
+      "raw_bytes": 4455,
+      "public_sha256": "e337116b3d59082688c1e4b1e43f12d5abd9b249062aea8666860d0e84791804",
+      "public_bytes": 4455,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "645b6936d3198a3c228ca815f9ea40eca7fe83da1f3d8eea68e91dae684b1857",
+      "raw_bytes": 4662,
+      "public_sha256": "61425ace7bd9a744add9aec64bfc9def083b76be2566300b473f3d398f588846",
+      "public_bytes": 5465,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "2f2c479ce9a8d6715c371f552ec581aea9c1b376998fdb7cba5a4bcd911190e2",
+      "raw_bytes": 1830,
+      "public_sha256": "30229acfa5177b179184e36be0e71bb005e952e35368a5ff29ac3a50edc9c6a1",
+      "public_bytes": 2366,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "b1334e0eff8f9d94023c548123b0212abd8fa462e62731d35506a7f9af105854",
+      "raw_bytes": 360,
+      "public_sha256": "0314f8d8cc0a4530359316abbf4ce2bd59a5d4ae7f4f87fec0cb35e09b3550cc",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "ab40697dabb0e29a04116317e0f17faaf26381d37470e617b984b558976e8bac",
+      "raw_bytes": 284,
+      "public_sha256": "414fb3ff46ae8fdcc13dff93afbe99facb80f758dfcefda510b20331fea74420",
+      "public_bytes": 389,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "4d76f4c7a87e7399d111b4a85b425b71c53e9650ed887c752f7ce04828b2f2c4",
+      "raw_bytes": 10209,
+      "public_sha256": "4d76f4c7a87e7399d111b4a85b425b71c53e9650ed887c752f7ce04828b2f2c4",
+      "public_bytes": 10209,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "60d47b710bce42ed7789b48c7b720c6b96fb49bac77693a3eed5f43ac0130950",
+      "raw_bytes": 344,
+      "public_sha256": "60d47b710bce42ed7789b48c7b720c6b96fb49bac77693a3eed5f43ac0130950",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "89733f2d498b9dcd61178ddb8dbffdcf18fc0e9ad2f5fa2d976e5f09f1a13b50",
+      "raw_bytes": 1006,
+      "public_sha256": "0b95e0091848dc390f1324887da262024233a9a2dd79a320f8f2ecbeb5f41c2f",
+      "public_bytes": 1136,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "f2ab5ada24b2f1aac40b54cafb9180ae1a6c181c5ee2e1ab2a958f89e66a4020",
+      "raw_bytes": 18905,
+      "public_sha256": "f2ab5ada24b2f1aac40b54cafb9180ae1a6c181c5ee2e1ab2a958f89e66a4020",
+      "public_bytes": 18905,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "d2448bc5e7dc13c5bf82ba94c255b9a48755be26033ce72ccf40653b24f5ce75",
+      "raw_bytes": 3487,
+      "public_sha256": "c9993ee911f8b4907518eb0324d091adcde038a250a46a72083efe4864490505",
+      "public_bytes": 3889,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "641f058c5565decf7c90b187319c5e17f09211da07fce7995e885599824fc1bb",
+      "raw_bytes": 1828,
+      "public_sha256": "fcb9916d556c6f14d05efe63b23fa7dff57afee6a331a4d53133ed7cac03e704",
+      "public_bytes": 2364,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "0893bf85e931cff13456ca8c24febce369bd119f7f4ac36095aafea30ac7bcd5",
+      "raw_bytes": 351,
+      "public_sha256": "6de532e68f3efb97f27be009ac7216765fe4fdb5ed8e526a82333d9941389aeb",
+      "public_bytes": 505,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "8fac7d2e418ddb3d86983ab5c2226c77b6b97100cc883b2cc639e61c90f43471",
+      "raw_bytes": 507,
+      "public_sha256": "2b5d6a2a55f9f0260c772d7fd94b6df6d819f88a8fa88b9596bdf5800b243550",
+      "public_bytes": 634,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "fc6aef15c834bce53fa730a858f812e3c4e6f616a5e22d368e532662809e66c0",
+      "raw_bytes": 8202,
+      "public_sha256": "fc6aef15c834bce53fa730a858f812e3c4e6f616a5e22d368e532662809e66c0",
+      "public_bytes": 8202,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "81eb34e0df543e366e09793023e2a719c417bbb86f0792ccf6a918b40f19717e",
+      "raw_bytes": 363,
+      "public_sha256": "81eb34e0df543e366e09793023e2a719c417bbb86f0792ccf6a918b40f19717e",
+      "public_bytes": 363,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "a25c799960bf0375adba540a596ef349933fc238ae31859404ac11a7ab7e8d77",
+      "raw_bytes": 1006,
+      "public_sha256": "4544473510b64f5bd2ec013247fc4883ad59bbf70c0cc45d50e34dfad3dd9aea",
+      "public_bytes": 1136,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "e337116b3d59082688c1e4b1e43f12d5abd9b249062aea8666860d0e84791804",
+      "raw_bytes": 4455,
+      "public_sha256": "e337116b3d59082688c1e4b1e43f12d5abd9b249062aea8666860d0e84791804",
+      "public_bytes": 4455,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "defeed554a19b7a5cc517b25236ba5753f9854cb0a0a174a8366711974a0a3d3",
+      "raw_bytes": 4603,
+      "public_sha256": "694c111ea0210e2157f5b1216b2612035938ba06acdc7cacbb1c6bdc074b4115",
+      "public_bytes": 5471,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "2f2c479ce9a8d6715c371f552ec581aea9c1b376998fdb7cba5a4bcd911190e2",
+      "raw_bytes": 1830,
+      "public_sha256": "30229acfa5177b179184e36be0e71bb005e952e35368a5ff29ac3a50edc9c6a1",
+      "public_bytes": 2366,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "b1334e0eff8f9d94023c548123b0212abd8fa462e62731d35506a7f9af105854",
+      "raw_bytes": 360,
+      "public_sha256": "0314f8d8cc0a4530359316abbf4ce2bd59a5d4ae7f4f87fec0cb35e09b3550cc",
+      "public_bytes": 516,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "ab40697dabb0e29a04116317e0f17faaf26381d37470e617b984b558976e8bac",
+      "raw_bytes": 284,
+      "public_sha256": "414fb3ff46ae8fdcc13dff93afbe99facb80f758dfcefda510b20331fea74420",
+      "public_bytes": 389,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "09e951847924f03fa9e37b8d038e6214b723b2e48b73b7e25c5fa42d9a7d31b7",
+      "raw_bytes": 10209,
+      "public_sha256": "09e951847924f03fa9e37b8d038e6214b723b2e48b73b7e25c5fa42d9a7d31b7",
+      "public_bytes": 10209,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "73614986512884abf913aaae1ab997e65ea00154b109d998e5c5f9355a4f1bf6",
+      "raw_bytes": 344,
+      "public_sha256": "73614986512884abf913aaae1ab997e65ea00154b109d998e5c5f9355a4f1bf6",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "e933044ece877fef882f1491375ceef3fc19bcf736a04791becf55cc8b64735a",
+      "raw_bytes": 1006,
+      "public_sha256": "c7ff1cb28b8ab072c7fe619c2502eaf58dd9e968762132b984ca83794556ffec",
+      "public_bytes": 1136,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-1024x512-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\result.json",
+      "raw_sha256": "70c3c232ad979577b17d29b9cb5d8e1afa3c033b7a6c42b23b9d737cb66b09df",
+      "raw_bytes": 17295,
+      "public_sha256": "88183e7dda63b08f3e1e9364fb01be6d2414e5de4da8f6ea0c8da59024790023",
+      "public_bytes": 16331,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\3s\\c3supej2niktnn27ypcvbiqshd3umpu6arh4wgvs66bulg75slmx.py",
+      "raw_sha256": "086625bdc25feb3a553c53fe5c29fcee8d98870d6e8494b13793b0cf99473505",
+      "raw_bytes": 9100,
+      "public_sha256": "086625bdc25feb3a553c53fe5c29fcee8d98870d6e8494b13793b0cf99473505",
+      "public_bytes": 9100,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-1024x512-fp16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-1024x512-fp16\\torch\\artifacts\\inductor-cache\\qp\\cqpxc4kplafkexfumgc3rtbiorcjt4vfzqzmbpxfj7vpra723egv.py",
+      "raw_sha256": "41d37ee61efc311bec570eff64ec9e2402c9eb3a06008c1c9c6e5e05af8454ce",
+      "raw_bytes": 3544,
+      "public_sha256": "41d37ee61efc311bec570eff64ec9e2402c9eb3a06008c1c9c6e5e05af8454ce",
+      "public_bytes": 3544,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "cf89736208128ef660339cf47889bfa37a66cff493e0539e251a8573a6c79f2e",
+      "raw_bytes": 4451,
+      "public_sha256": "cf89736208128ef660339cf47889bfa37a66cff493e0539e251a8573a6c79f2e",
+      "public_bytes": 4451,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "8b45374111a30b6e576137580f3c286a2086e50092fa47608e7523803146c58e",
+      "raw_bytes": 4620,
+      "public_sha256": "b336da60606c5261f9ad5b391736a67369046bef22e6ed9e5ac2ceaa25b123f9",
+      "public_bytes": 5468,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "0ccde62922149a930de87bbb75e2c7fad98b35b2b8353d112f06e6ca0e7dac07",
+      "raw_bytes": 1820,
+      "public_sha256": "c9c6b7afac56e3b46c72bf8bb5429b9b9f62d77a6115825a084198a9f312b1ef",
+      "public_bytes": 2356,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "a06e2fad9b382c0a6396e9cd27fcb4d5b5b870e7c71400b8500eb5f91fd71a27",
+      "raw_bytes": 348,
+      "public_sha256": "4303496e86037bc4b22737e3730b41806134988696bc0913c013be387c77bece",
+      "public_bytes": 504,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "9a8942dcaf64da251c5b16792b617e44188d8aa1245d34b5046c9e98650debec",
+      "raw_bytes": 282,
+      "public_sha256": "43d6ab39000091964525e17dfb7eeb528052b6fae7217919fb4af90812799287",
+      "public_bytes": 387,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "537f5d788c762226c4d2422523c05474f7d37e5c48c0b458f151419e877373c9",
+      "raw_bytes": 10009,
+      "public_sha256": "537f5d788c762226c4d2422523c05474f7d37e5c48c0b458f151419e877373c9",
+      "public_bytes": 10009,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "454b39caec00822e3cd01daee2e2d545f8fde6c2f1d4d761ca8eed6b58287f41",
+      "raw_bytes": 344,
+      "public_sha256": "454b39caec00822e3cd01daee2e2d545f8fde6c2f1d4d761ca8eed6b58287f41",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "fd333e2cdea8020e46074e54e82e40b6962656dbc9a87b6ad1b8bf5435d7685e",
+      "raw_bytes": 1004,
+      "public_sha256": "a85a9edfbc218d746ad3c7bce111509284080481e15e0aa81195904bbe31d266",
+      "public_bytes": 1133,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "f2ab5ada24b2f1aac40b54cafb9180ae1a6c181c5ee2e1ab2a958f89e66a4020",
+      "raw_bytes": 18905,
+      "public_sha256": "f2ab5ada24b2f1aac40b54cafb9180ae1a6c181c5ee2e1ab2a958f89e66a4020",
+      "public_bytes": 18905,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "89a75a4decd54a4365934cdcab00dcf09aacc789226718b3579018b163bce13f",
+      "raw_bytes": 3446,
+      "public_sha256": "711567aad0ef3f0ec1ac6f1a59e9c8e0c7f9aabcaadf62a663cce7e8fd593f98",
+      "public_bytes": 3899,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "8514c1717bc70b72644d2fcfb38cd369b87273edd51559dcaa31aa4faf40f961",
+      "raw_bytes": 1818,
+      "public_sha256": "f6bd512cc62854122185552ffacea799a1ea545e3c08b6f3b80dda54abb11d93",
+      "public_bytes": 2354,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "25886572d9f7bb0f9672d83dab1ae1cc57dcab9013050948f5169e3da37f6e27",
+      "raw_bytes": 341,
+      "public_sha256": "fd794273f34a906e707b75333900ed9b495a87fdd2d19e2bccb283285c36328b",
+      "public_bytes": 495,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "66cd85cb2b7be8652f6a717d8ef03ba2934d261b498837eb86d372075fc39f2e",
+      "raw_bytes": 506,
+      "public_sha256": "73b49d253871e6547856642f83379b5c2a8d43361859a733a53f53d3e7f6e980",
+      "public_bytes": 633,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "2c9d4c2bd3a88608cc8108fc947ace35bd75657a49b5ac7f7662974a39aca1e5",
+      "raw_bytes": 8102,
+      "public_sha256": "2c9d4c2bd3a88608cc8108fc947ace35bd75657a49b5ac7f7662974a39aca1e5",
+      "public_bytes": 8102,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "8f6053703851d352a83860353b2476c44a5482a6e4500a309009fb549013376f",
+      "raw_bytes": 363,
+      "public_sha256": "8f6053703851d352a83860353b2476c44a5482a6e4500a309009fb549013376f",
+      "public_bytes": 363,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "6bf030649b5a24b0426ef87e37f9fa078118d456e972761abf674f904be4cc9b",
+      "raw_bytes": 990,
+      "public_sha256": "95ff9fb9d08945b27061b8634d433f90a85ff476e21907849687a1e1246b7913",
+      "public_bytes": 1134,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "cf89736208128ef660339cf47889bfa37a66cff493e0539e251a8573a6c79f2e",
+      "raw_bytes": 4451,
+      "public_sha256": "cf89736208128ef660339cf47889bfa37a66cff493e0539e251a8573a6c79f2e",
+      "public_bytes": 4451,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "ccc6bc8e213fdfec0fe7eff885e04d0e9e95fc6966a7bebb5a3f555806c724c9",
+      "raw_bytes": 4571,
+      "public_sha256": "082791081f4d38974ee9b9373be4cc0bb4e0548ac49ba880bdbc7b3cc6f500a5",
+      "public_bytes": 5344,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "0ccde62922149a930de87bbb75e2c7fad98b35b2b8353d112f06e6ca0e7dac07",
+      "raw_bytes": 1820,
+      "public_sha256": "c9c6b7afac56e3b46c72bf8bb5429b9b9f62d77a6115825a084198a9f312b1ef",
+      "public_bytes": 2356,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "a06e2fad9b382c0a6396e9cd27fcb4d5b5b870e7c71400b8500eb5f91fd71a27",
+      "raw_bytes": 348,
+      "public_sha256": "4303496e86037bc4b22737e3730b41806134988696bc0913c013be387c77bece",
+      "public_bytes": 504,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "9a8942dcaf64da251c5b16792b617e44188d8aa1245d34b5046c9e98650debec",
+      "raw_bytes": 282,
+      "public_sha256": "43d6ab39000091964525e17dfb7eeb528052b6fae7217919fb4af90812799287",
+      "public_bytes": 387,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "c221a496532e8a54d4079e9e54bd92f6965374afed578234ab8f2a832c74b219",
+      "raw_bytes": 10009,
+      "public_sha256": "c221a496532e8a54d4079e9e54bd92f6965374afed578234ab8f2a832c74b219",
+      "public_bytes": 10009,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "7c0e0a30a2a28c2057f541597d5ff9b9b299b01d784d04c320eb1a8619b6d7b4",
+      "raw_bytes": 344,
+      "public_sha256": "7c0e0a30a2a28c2057f541597d5ff9b9b299b01d784d04c320eb1a8619b6d7b4",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "b1c4f963e2704893b04de5df6a32bc678617fb9fab465d1c61a0c98f4f9cc82a",
+      "raw_bytes": 1004,
+      "public_sha256": "1fac9045a8290fc80527de43545260b622948087ff9e98ad1758a3b3cd7b9e4c",
+      "public_bytes": 1134,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-32x512-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\torch\\artifacts\\result.json",
+      "raw_sha256": "0eec8bf1b728216078f40003867e369f6cc84985d4b34c8d60e5895643a06d1b",
+      "raw_bytes": 17335,
+      "public_sha256": "5f739b27995e08814f702ef23b8a00f174949e1ae98dfd44062df65fde1ef885",
+      "public_bytes": 16371,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\torch\\artifacts\\inductor-cache\\sg\\csgnvx3gl7txkbiz7i3e3zxnkjwhyz5q4lpnkx2xdj5hugg2xxlz.py",
+      "raw_sha256": "fc69b60faef8741228ed1cc013c57f49f5e68a66e65c188583ac5745618fc4e6",
+      "raw_bytes": 3538,
+      "public_sha256": "fc69b60faef8741228ed1cc013c57f49f5e68a66e65c188583ac5745618fc4e6",
+      "public_bytes": 3538,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-32x512-fp16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-32x512-fp16\\torch\\artifacts\\inductor-cache\\u3\\cu3tejipzojkorrw3f2r5pzq2f4qsz3x47r3tywkyfu7ykof4jvl.py",
+      "raw_sha256": "fb4c050efd871a24b432c8fb3f17f667e4ce0a0f13372f00f2b7700077689528",
+      "raw_bytes": 9064,
+      "public_sha256": "fb4c050efd871a24b432c8fb3f17f667e4ce0a0f13372f00f2b7700077689528",
+      "public_bytes": 9064,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "7346d1f69989500744aeee8f1a81cbd3f00d9953b521655aeb2acd83e5767241",
+      "raw_bytes": 5251,
+      "public_sha256": "7346d1f69989500744aeee8f1a81cbd3f00d9953b521655aeb2acd83e5767241",
+      "public_bytes": 5251,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "90e2fa7f34259aa68545b07c35e253db90befac9d426013186a05a2b8854b276",
+      "raw_bytes": 4652,
+      "public_sha256": "e6bfac0957cdc15a2d4d9eec5555da56ec5e6188105dfa2f20e8167b415b9d11",
+      "public_bytes": 5447,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "74b0275e763a1dc4ac9cec176274cbb588fdc846c4b51b76dcebaaab3704ce80",
+      "raw_bytes": 1816,
+      "public_sha256": "51d3d7f16c78422bcb8b3f7381dce998dcaa5c2bf0d279168993b57fe5867ee7",
+      "public_bytes": 2352,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "32ca8af48832ca378a9652afad40f7f416cd625d84e2cd95fca7916f3f96aa41",
+      "raw_bytes": 348,
+      "public_sha256": "b3ad7a77872d4023d5500e90b3e547897c442c2b7767d0ccb5cbe3fcdcc9081a",
+      "public_bytes": 504,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "c3230d0795360db94474fde1f3393c179f61776cba58a3d061f50ea563ce84b2",
+      "raw_bytes": 281,
+      "public_sha256": "c6ea482e5a3cd2c47a28ecd3ae26d8befcc0973d4dde42016d7a584634d02889",
+      "public_bytes": 386,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "cc7a3e2ac8e1bc4ea95f98790110b91a913c7ea91d47d060193929a93ec89229",
+      "raw_bytes": 9909,
+      "public_sha256": "cc7a3e2ac8e1bc4ea95f98790110b91a913c7ea91d47d060193929a93ec89229",
+      "public_bytes": 9909,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "dfe669fb8290b4a5f8d3a5742f5c4de684b8591046598f3deeb41b9a457a062d",
+      "raw_bytes": 344,
+      "public_sha256": "dfe669fb8290b4a5f8d3a5742f5c4de684b8591046598f3deeb41b9a457a062d",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "86d6aeb892360b574dc936a70c6c8868375cbfa7e2847b9f9c53b7f1ed434bc7",
+      "raw_bytes": 1009,
+      "public_sha256": "18a6f5526589902e3986b52cb8ce3ef27b76bccf75fdc04926c9fd3796cacb1c",
+      "public_bytes": 1139,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_initial/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "3601e58946cf97166acdbabbd49a4bed6a5cb71e5e7edc78e93d8cd60a745962",
+      "raw_bytes": 29774,
+      "public_sha256": "3601e58946cf97166acdbabbd49a4bed6a5cb71e5e7edc78e93d8cd60a745962",
+      "public_bytes": 29774,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "39465a3ed831ee8d97b07da5206f4a1ab45c9814f810fb07bd9c024150ec0309",
+      "raw_bytes": 3444,
+      "public_sha256": "5f884b40db5bb97f26e8a4b81e23de13621b9dace685e5960bc163765c1bfb3b",
+      "public_bytes": 3884,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "523dd4852a653b5542edd10a61843f87482ffe5ddb18b7d976bb6bd17d0f0665",
+      "raw_bytes": 1814,
+      "public_sha256": "15c399894cb99b0a0599a6aead92a9b71a301f11d97899fdeaa7aa2d65d61f7d",
+      "public_bytes": 2350,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/diagnostic-ranges.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-ranges.json",
+      "raw_sha256": "47b0331fbec7c4985dea44f6445d4e00602e2dafa3b6501b3f72bca62931ab65",
+      "raw_bytes": 342,
+      "public_sha256": "71400d7f7f22933466f116d55265bb33a24c13eeffcc6b59df1edcaf81bac5c9",
+      "public_bytes": 496,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "8528d76bc3f42c0dc81b3eb15553537419066fc7a76414abbc8f6d0b02e5474f",
+      "raw_bytes": 505,
+      "public_sha256": "1fca6a653688b27e7a3fdc10525ae222fbeabb0b03d7a9ad8faab491672cfe1e",
+      "public_bytes": 632,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "1f256326ef36b7798bc74e5e0daad8409f105a75647fce7f0cdd48d0aed1d287",
+      "raw_bytes": 8002,
+      "public_sha256": "1f256326ef36b7798bc74e5e0daad8409f105a75647fce7f0cdd48d0aed1d287",
+      "public_bytes": 8002,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "6bac9057361176981743c705d3b3659566b1caa77e95717441b7a879b6a6c92f",
+      "raw_bytes": 363,
+      "public_sha256": "6bac9057361176981743c705d3b3659566b1caa77e95717441b7a879b6a6c92f",
+      "public_bytes": 363,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/subgroup/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\subgroup\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "9f344e18c831cbb656be1a52ea3e81ef03f8788c96c2eb5a769febf6200af70d",
+      "raw_bytes": 1009,
+      "public_sha256": "6d592740999e242bde32e802f464d7c1c7ee31d03a62af24f70dd2451454121a",
+      "public_bytes": 1139,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/source.txt": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\source.txt",
+      "raw_sha256": "7346d1f69989500744aeee8f1a81cbd3f00d9953b521655aeb2acd83e5767241",
+      "raw_bytes": 5251,
+      "public_sha256": "7346d1f69989500744aeee8f1a81cbd3f00d9953b521655aeb2acd83e5767241",
+      "public_bytes": 5251,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/results.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\results.json",
+      "raw_sha256": "716ee2fc6876dd2ce22592ef6be8a6f934fd2980d2c58d393b3512f7fc0c5cfa",
+      "raw_bytes": 4624,
+      "public_sha256": "5014e670177f557cc0f3cf7e40b38244be88131005ee388f82d93966f535d923",
+      "public_bytes": 5454,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/manifest.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\manifest.json",
+      "raw_sha256": "74b0275e763a1dc4ac9cec176274cbb588fdc846c4b51b76dcebaaab3704ce80",
+      "raw_bytes": 1816,
+      "public_sha256": "51d3d7f16c78422bcb8b3f7381dce998dcaa5c2bf0d279168993b57fe5867ee7",
+      "public_bytes": 2352,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-row-regroup.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-row-regroup.json",
+      "raw_sha256": "32ca8af48832ca378a9652afad40f7f416cd625d84e2cd95fca7916f3f96aa41",
+      "raw_bytes": 348,
+      "public_sha256": "b3ad7a77872d4023d5500e90b3e547897c442c2b7767d0ccb5cbe3fcdcc9081a",
+      "public_bytes": 504,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-observation.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-observation.json",
+      "raw_sha256": "c3230d0795360db94474fde1f3393c179f61776cba58a3d061f50ea563ce84b2",
+      "raw_bytes": 281,
+      "public_sha256": "c6ea482e5a3cd2c47a28ecd3ae26d8befcc0973d4dde42016d7a584634d02889",
+      "public_bytes": 386,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-graph.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-graph.csv",
+      "raw_sha256": "424226e3f02ca37d58cff6a304cce000ae642fbee14711c28cd992353aeba97c",
+      "raw_bytes": 9909,
+      "public_sha256": "424226e3f02ca37d58cff6a304cce000ae642fbee14711c28cd992353aeba97c",
+      "public_bytes": 9909,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-resources.csv": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-resources.csv",
+      "raw_sha256": "b0ed3201492405e6303c6de6cd4dc76974c5f30c8dee71555a2f85b04e74997c",
+      "raw_bytes": 344,
+      "public_sha256": "b0ed3201492405e6303c6de6cd4dc76974c5f30c8dee71555a2f85b04e74997c",
+      "public_bytes": 344,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-collective-work.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-collective-work.json",
+      "raw_sha256": "c9e61128d39593db3897618f5569855f6ec0b929f93fbfe5f2463f4cf4180b79",
+      "raw_bytes": 1009,
+      "public_sha256": "b5b2c2482edde34a6cd7ee3ec3365424fba451fa5443a0b1ef8138c215d2afb5",
+      "public_bytes": 1139,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/native_recheck/diagnostic-math-mode.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_recheck\\regroup-softmax-9x769-fp16\\native\\artifacts\\diagnostic-math-mode.json",
+      "raw_sha256": "600f9c918fcc6c9793d7cff9e7f7f137bcb9e83581a09a575b13cf186db8abc0",
+      "raw_bytes": 106,
+      "public_sha256": "83dc9b88f670fe3384ceacae66d7266f44713387e022d9757ae8d39f7c2a87b8",
+      "public_bytes": 128,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/torch/result.json": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\torch\\artifacts\\result.json",
+      "raw_sha256": "e7f76ed9dcc3e2906618937e7fcdfe495e9293a5f5e0b1d9e506b3a53e026e67",
+      "raw_bytes": 17309,
+      "public_sha256": "957a877487aba7a367b830f16eeb7e679aad37e8954cb517caa38ba7d5cbcd1a",
+      "public_bytes": 16345,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/torch/compiler-0.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\torch\\artifacts\\inductor-cache\\5b\\c5btlm6sr5v4rzt6ngysgpwmlkhzrooher6t24wfu2mj7byrdj3l.py",
+      "raw_sha256": "5350d6dd2a9f834f14859851a0ab14dd8d24b034d4344b48081bc7089271630d",
+      "raw_bytes": 3489,
+      "public_sha256": "5350d6dd2a9f834f14859851a0ab14dd8d24b034d4344b48081bc7089271630d",
+      "public_bytes": 3489,
+      "transform": "byte-exact"
+    },
+    "artifacts/regroup-softmax-9x769-fp16/torch/compiler-1.py": {
+      "raw_origin": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-norm-v1\\native_initial\\regroup-softmax-9x769-fp16\\torch\\artifacts\\inductor-cache\\vl\\cvlaivjncrgpqha2nobsoix3housc2c4ujrdy4upvkrbnyzu2y4q.py",
+      "raw_sha256": "9cd18847be21cf9dc4112d1ae73cf46b76ad63de1b243fe85491987d4764f27a",
+      "raw_bytes": 9000,
+      "public_sha256": "9cd18847be21cf9dc4112d1ae73cf46b76ad63de1b243fe85491987d4764f27a",
+      "public_bytes": 9000,
+      "transform": "byte-exact"
+    },
+    "source-packet/benchmark_cuda_tirx_subgroup.cpp": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\benchmark_cuda_tirx_subgroup.cpp",
+      "raw_sha256": "76a417cbe02df5c5d78af4a0e9e6dacffb89b2a642de46903c2b346becfa103a",
+      "raw_bytes": 70170,
+      "public_sha256": "76a417cbe02df5c5d78af4a0e9e6dacffb89b2a642de46903c2b346becfa103a",
+      "public_bytes": 70170,
+      "transform": "byte-exact"
+    },
+    "source-packet/diagnostic_subgroup.h": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_subgroup.h",
+      "raw_sha256": "a0ef38c71bde18669c7126744fe70a04b6806ddb293574e0cc45ec0c4c5d02f4",
+      "raw_bytes": 7902,
+      "public_sha256": "a0ef38c71bde18669c7126744fe70a04b6806ddb293574e0cc45ec0c4c5d02f4",
+      "public_bytes": 7902,
+      "transform": "byte-exact"
+    },
+    "source-packet/diagnostic_work.h": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_work.h",
+      "raw_sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "raw_bytes": 5844,
+      "public_sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "public_bytes": 5844,
+      "transform": "byte-exact"
+    },
+    "source-packet/tile_workload_test_utils.h": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\tile_workload_test_utils.h",
+      "raw_sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "raw_bytes": 44531,
+      "public_sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "public_bytes": 44531,
+      "transform": "byte-exact"
+    },
+    "source-packet/CMakeLists.txt": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\CMakeLists.txt",
+      "raw_sha256": "4293e4bde4f309d98bbf66ce5c33259e7a0fa6ebeec1f7f857061ffbda7259aa",
+      "raw_bytes": 4317,
+      "public_sha256": "4293e4bde4f309d98bbf66ce5c33259e7a0fa6ebeec1f7f857061ffbda7259aa",
+      "public_bytes": 4317,
+      "transform": "byte-exact"
+    },
+    "source-packet/cases6.json": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\cases6.json",
+      "raw_sha256": "55bf021934d4031161869dfb47c55567af032468a3e9760b3339ab9eb912b6bc",
+      "raw_bytes": 2053,
+      "public_sha256": "55bf021934d4031161869dfb47c55567af032468a3e9760b3339ab9eb912b6bc",
+      "public_bytes": 2053,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "source-packet/source-receipts.json": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\source-receipts.json",
+      "raw_sha256": "185b51d378326060be733ec407703ed0738364aae12c424adcdef6d23ae63b63",
+      "raw_bytes": 2492,
+      "public_sha256": "185b51d378326060be733ec407703ed0738364aae12c424adcdef6d23ae63b63",
+      "public_bytes": 2492,
+      "transform": "complete-json-with-portable-path-prefixes-and-LF"
+    },
+    "reproduce.py": {
+      "raw_origin": "${REPO}\\.deps\\cuda-tirx-subgroup-public-prep-v1\\reproduce.py",
+      "raw_sha256": "b698e5cbe1c00c0a021fe019c57abf149eba53b595dce797f4d8189ee1678a91",
+      "raw_bytes": 12058,
+      "public_sha256": "b698e5cbe1c00c0a021fe019c57abf149eba53b595dce797f4d8189ee1678a91",
+      "public_bytes": 12058,
+      "transform": "byte-exact"
+    },
+    "README.md": {
+      "raw_origin": "generated from the closed summary plus scope text",
+      "raw_sha256": null,
+      "raw_bytes": null,
+      "public_sha256": "427713e5ccd6c653609ad47cda3a268f9f12ff2a35d6e5bafc25d3642ee00e9c",
+      "public_bytes": 4397,
+      "transform": "generated-report"
+    },
+    ".gitattributes": {
+      "raw_origin": "Exact-byte public evidence checkout policy",
+      "raw_sha256": null,
+      "raw_bytes": null,
+      "public_sha256": "48747480eddba024928d03be9bf83dc579e5515768647507a767e8187a85c9ab",
+      "public_bytes": 9,
+      "transform": "generated-policy"
+    }
+  }
+}

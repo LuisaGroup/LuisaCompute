@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "scope": "Private CUDA TIRx subgroup diagnostic; no build/GPU run by preparation.",
+  "benchmark_exact_inverse": true,
+  "benchmark_edit_count": 7,
+  "helper_byte_identical_to_production": true,
+  "fixture_capture_br": 1,
+  "mapper": {
+    "threads": 128,
+    "programs_per_group": 2,
+    "lane_elements": 8,
+    "cache_inputs": false
+  },
+  "files": {
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/prepare.py": {
+      "sha256": "11e6b203005a3158665ace2dab814b67563faa43912d464bfb6c95b08b3dd735",
+      "bytes": 10434
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/benchmark_cuda_tirx_subgroup.cpp": {
+      "sha256": "76a417cbe02df5c5d78af4a0e9e6dacffb89b2a642de46903c2b346becfa103a",
+      "bytes": 70170
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/diagnostic_subgroup.h": {
+      "sha256": "a0ef38c71bde18669c7126744fe70a04b6806ddb293574e0cc45ec0c4c5d02f4",
+      "bytes": 7902
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/diagnostic_work.h": {
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/tile_workload_test_utils.h": {
+      "sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "bytes": 44531
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/CMakeLists.txt": {
+      "sha256": "4293e4bde4f309d98bbf66ce5c33259e7a0fa6ebeec1f7f857061ffbda7259aa",
+      "bytes": 4317
+    },
+    ".deps/cuda-tirx-subgroup-benchmark-prep-v1/cases6.json": {
+      "sha256": "55bf021934d4031161869dfb47c55567af032468a3e9760b3339ab9eb912b6bc",
+      "bytes": 2053
+    },
+    "src/tests/benchmark/benchmark_tile_workloads.cpp": {
+      "sha256": "81660894800d23bfc497e54ec17731bd72a5142db4790d69ea7ba784673c27cd",
+      "bytes": 65524
+    },
+    "src/tests/common/tile_workload_test_utils.h": {
+      "sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "bytes": 44531
+    },
+    ".deps/row-regroup-norm-prep-v1/diagnostic_work.h": {
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    ".deps/row-regroup-norm-prep-v1/CMakeLists.txt": {
+      "sha256": "c8a01f799c4c80e1ca2ec4b8662e4022410641337278f2a1ca5fab919b0979f7",
+      "bytes": 3773
+    },
+    ".deps/row-regroup-norm-prep-v1/cases6.json": {
+      "sha256": "3553cb564032520946034d893addbee4708afd0bfb73156fdd1bb9663020be62",
+      "bytes": 1999
+    }
+  }
+}

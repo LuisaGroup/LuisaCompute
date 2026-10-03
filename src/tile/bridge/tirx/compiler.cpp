@@ -381,15 +381,17 @@ protected:
             return tvm::ffi::GetRef<tvm::tirx::For>(loop);
         }
         auto pending_reduction_threads = false;
-        if (_target_name == "metal" && _planner.enabled && _planner.metal_subgroup_reductions &&
-            _logical_parallel_depth == 0u) {
+        auto subgroup_target = (_target_name == "metal" && _planner.metal_subgroup_reductions) ||
+                               (_target_name == "cuda" && _planner.cuda_subgroup_reductions);
+        if (subgroup_target && _planner.enabled && _logical_parallel_depth == 0u) {
             auto constraint = loop->annotations.Get(execution_scope_annotation);
             auto scope = constraint ? constraint.value().as<tvm::ffi::String>() : tvm::ffi::Optional<tvm::ffi::String>{};
             auto automatic_or_subgroup = !constraint || (scope && scope.value() == "subgroup");
             if (automatic_or_subgroup) {
-                auto mapped = try_map_metal_subgroup_reduction(
+                auto mapped = try_map_subgroup_reduction(
                     tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
-                    _shared_memory_limit, _planner, _plans, _diagnostic);
+                    _shared_memory_limit, _planner, _plans, _diagnostic,
+                    _target_name == "cuda" ? SubgroupReductionTarget::CUDA : SubgroupReductionTarget::METAL);
                 if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
                 if (mapped.defined()) { return mapped; }
                 if (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
@@ -557,27 +559,37 @@ public:
         (target->kind->name == "cuda" || target->kind->name == "nvptx")) {
         return diagnostic.reject("CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization", module);
     }
-    auto subgroup_reductions = options.planner.metal_subgroup_reductions;
+    auto metal_subgroup_reductions = options.planner.metal_subgroup_reductions;
+    auto cuda_subgroup_reductions = options.planner.cuda_subgroup_reductions;
+    if (metal_subgroup_reductions && cuda_subgroup_reductions) {
+        return diagnostic.reject("Metal and CUDA subgroup reduction capabilities are mutually exclusive", module);
+    }
+    auto subgroup_reductions = metal_subgroup_reductions || cuda_subgroup_reductions;
     if (options.planner.cache_reduction_inputs && !subgroup_reductions) {
-        return diagnostic.reject("input stripe caching requires Metal SIMD-group reductions", module);
+        return diagnostic.reject("input stripe caching requires subgroup reductions", module);
     }
     auto lane_elements = options.planner.reduction_lane_elements;
     if ((lane_elements != 1u && lane_elements != 2u && lane_elements != 4u && lane_elements != 8u) ||
         (lane_elements != 1u && !subgroup_reductions)) {
-        return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and Metal SIMD-group reductions when non-default", module);
+        return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and subgroup reductions when non-default", module);
     }
     if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > 16u ||
         (options.planner.reduction_unroll_factor != 1u && !subgroup_reductions)) {
-        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and Metal SIMD-group reductions when non-default", module);
+        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and subgroup reductions when non-default", module);
     }
     if (options.planner.reduction_programs_per_group != 0u &&
         (!subgroup_reductions || options.planner.reduction_programs_per_group > 8u)) {
-        return diagnostic.reject("exact reduction packing requires Metal SIMD-group reductions and 1..8 programs per group", module);
+        return diagnostic.reject("exact reduction packing requires subgroup reductions and 1..8 programs per group", module);
     }
-    if (subgroup_reductions &&
+    if (metal_subgroup_reductions &&
         (!options.planner.enabled || !options.noalias || target->kind->name != "metal" ||
          target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
         return diagnostic.reject("Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32", module);
+    }
+    if (cuda_subgroup_reductions &&
+        (!options.planner.enabled || !options.noalias || target->kind->name != "cuda" ||
+         target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
+        return diagnostic.reject("CUDA subgroup reductions require an enabled planner, noalias, and a CUDA-source target with thread_warp_size=32", module);
     }
     if (options.metal_mpp) {
         if (!cooperative_matrix || !options.planner.enabled) {
@@ -669,7 +681,7 @@ public:
         // load expression. MPP memory atoms are the stricter exception: their
         // address contract requires a fully in-bounds view before mapping.
         auto preserve_view_guards = !options.metal_mpp;
-        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs) : ReadonlyViews{mapped->body, {}};
+        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs, cuda_subgroup_reductions) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit, diagnostic,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
@@ -1034,10 +1046,11 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
                 return result;
             }
             if (options.planner.metal_subgroup_reductions ||
-                options.planner.reduction_programs_per_group != 0u ||
-                options.planner.reduction_unroll_factor != 1u ||
-                options.planner.reduction_lane_elements != 1u ||
-                options.planner.cache_reduction_inputs) {
+                (!options.planner.cuda_subgroup_reductions &&
+                 (options.planner.reduction_programs_per_group != 0u ||
+                  options.planner.reduction_unroll_factor != 1u ||
+                  options.planner.reduction_lane_elements != 1u ||
+                  options.planner.cache_reduction_inputs))) {
                 result.error = "Metal SIMD-group reduction policies are not available on the CUDA device-artifact route; REDUCE keeps the reference realization";
                 return result;
             }
@@ -1111,7 +1124,15 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
                 return result;
             }
             auto source = (*compiled)->InspectSource(tvm::ffi::String{inspect_source.data(), inspect_source.size()});
-            result.artifact.source.assign(source.data(), source.size());
+            if (options.planner.cuda_subgroup_reductions &&
+                std::any_of(result.plans.begin(), result.plans.end(), [](const auto &plan) noexcept {
+                    return plan.reduction_operations != 0u;
+                })) {
+                result.artifact.source = detail::native_cuda_subgroup_helpers();
+                result.artifact.source.append(source.data(), source.size());
+            } else {
+                result.artifact.source.assign(source.data(), source.size());
+            }
             if (source.empty()) {
                 result.error = std::string{target->kind->name} + " code generator returned no source artifact";
                 return result;
@@ -1130,6 +1151,9 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
 CompilationResult compile(tvm::IRModule module, const CompileOptions &options) noexcept {
     if (!module.defined()) { return CompilationResult{luisa::string{"cannot compile an undefined TIRx module"}}; }
     if (options.target.empty()) { return CompilationResult{luisa::string{"TIRx target must not be empty"}}; }
+    if (options.planner.cuda_subgroup_reductions) {
+        return CompilationResult{luisa::string{"CUDA subgroup reductions require the compile_device CUDA-source route"}};
+    }
     if (options.host.empty()) { return CompilationResult{luisa::string{"TIRx host target must not be empty"}}; }
     if (options.auto_vectorize && !options.vectorize) { return CompilationResult{luisa::string{"automatic vectorization requires vectorization to be enabled"}}; }
     detail::Diagnostic diagnostic;
