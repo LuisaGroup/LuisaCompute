@@ -29,6 +29,14 @@ separate realized behavior from the remaining design.
 | Machine TileIR | Add it only when several backends/passes need a common scheduled atom/resource/protocol form | Current bridge-local plans remain honest stepping stones; no premature backend instruction serialization |
 ```
 
+Apply Occam's razor to new core entities, especially execution-nest primitives.
+A proposal must show a concrete workload whose required semantics cannot be
+expressed by the existing primitives, or an unavoidable efficiency loss imposed
+by those semantics after legal scheduling and lowering. A missing optimization
+or a slow backend realization alone does not establish that need. First reuse
+the existing primitives through analysis, cost models, scheduling, and target
+lowering; width, packing, unrolling, and temporary storage are such choices.
+
 “Layout completeness” therefore has three separate meanings. The algebra is
 closed over the admitted typed finite maps and can embed the CuTe-style
 mixed-radix constructions used here; proof procedures intentionally return

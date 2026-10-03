@@ -1,0 +1,3259 @@
+{
+  "schema": 1,
+  "status": "compact_projection_of_validated_acceptance",
+  "scope": "Default T128/P2/L1; six fixed norm fixtures; U0/U64; strict and fast kept separate",
+  "interpretation": "U0 selected a sufficient source-index unroll factor. No speed, compile-time reduction, occupancy or spill-traffic claim is inferred.",
+  "implementation": {
+    "reported_source_commit": "cce8d442b",
+    "default_unroll_factor": 1,
+    "cuda_automatic_request": 0,
+    "manual_control": 64,
+    "unchanged_policy": "AnalyticExecutionCostPolicy",
+    "unknown_or_over_cap": "automatic candidate rejected",
+    "unroll_cap": 64,
+    "note": "The recorded target build and tested source bytes, rather than the later commit timestamp, establish build provenance."
+  },
+  "upstream": {
+    "summary": {
+      "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-summary-v2/checkpoint.json",
+      "sha256": "bc68167de69362de036cc47ae57d0791147664e136e9513c1080f9602404987e",
+      "bytes": 218806
+    },
+    "queue": {
+      "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/queue.json",
+      "sha256": "d8db3a11ba8687280d8ee830a0af6bd085a4da53fed8c7c73dbbba8c6e1c8349",
+      "bytes": 561687
+    },
+    "readiness": {
+      "reference": ".deps/oct03-cuda-tirx-subgroup-auto-unroll-readiness-v1.json",
+      "sha256": "4dcf1c717c6015549d6e960dfabce67184d053597cf4b93efc473b6256afdd9f",
+      "bytes": 77472
+    },
+    "targeted_evidence": {
+      "reference": ".deps/oct03-cuda-tirx-auto-unroll-targeted-evidence-v1.json",
+      "sha256": "890444dae3e72ad63a3a305ede97456ed88aab72d500c6bb7483d592736b8345",
+      "bytes": 11714
+    }
+  },
+  "reported_validation_counts": {
+    "admissions": 24,
+    "numerical_validations": 24,
+    "explicit_unsupported": 0,
+    "actual_graph_nodes": 2400
+  },
+  "build_validation": {
+    "scope": "LLVM22 targeted bridge and private tests; common production binaries retain prior full-build provenance",
+    "fresh_full_build": false,
+    "full_build_blocked_by": "Windows device-library embed helper execution policy",
+    "blocked_attempts": [
+      {
+        "reported_exit_code": 4551,
+        "log_receipt": {
+          "reference": ".deps/oct03-cuda-tirx-unroll64-full-build-v1.log",
+          "sha256": "88df1120ccba723d5bc8b83efb8e86eca5b1194dbe32c55fed4bd2f75028cbbf",
+          "bytes": 38627
+        }
+      },
+      {
+        "reported_exit_code": 4551,
+        "log_receipt": {
+          "reference": ".deps/oct03-cuda-tirx-unroll64-target-build-v1.log",
+          "sha256": "fac6fccc7fc8916684944f1fe1fed4ba79f013c43ca7ad250fb972a6c84b2937",
+          "bytes": 8661
+        }
+      }
+    ],
+    "bridge_log": {
+      "reference": ".deps/oct03-cuda-tirx-auto-unroll-bridge-build-v1.log",
+      "sha256": "8ebde35f13f70416aac11f80b1c2b51a69c75a3926e52e57f9a610602f286353",
+      "bytes": 37974
+    },
+    "tests": [
+      {
+        "role": "host",
+        "reported_exit_code": 0,
+        "assertions": 921,
+        "test_groups": 12,
+        "log_receipt": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-host-v1.log",
+          "sha256": "9d5fed5d966f260fe8709dfddb5076583965eea8de814c574a03f0c62f9064ae",
+          "bytes": 17420
+        }
+      },
+      {
+        "role": "planner",
+        "reported_exit_code": 0,
+        "assertions": 14429,
+        "test_groups": 14,
+        "log_receipt": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-planner-v1.log",
+          "sha256": "f671e545f9bb50d264783ce23a7af7d776f330100c7c2ea24e00f4a2a90c1fa1",
+          "bytes": 71
+        }
+      },
+      {
+        "role": "gpu",
+        "reported_exit_code": 0,
+        "assertions": 2184696,
+        "test_groups": 12,
+        "log_receipt": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-runtime-v1.log",
+          "sha256": "6ecc755979abdb2c9cc429969556f1f8b6d083060a8a186e7ceec1400a1b0b03",
+          "bytes": 17671
+        }
+      }
+    ],
+    "llvm23": "Additional bridge/host checks are outside this compact bundle; it does not claim LLVM23 GPU validation."
+  },
+  "preserved_failure": {
+    "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v1/queue.json",
+    "status": "failed",
+    "reason": "Relative child artifact path; runner resolved output absolutely before fresh v2. No failed v1 sample is admitted."
+  },
+  "pairs": [
+    {
+      "case": "regroup-rmsnorm-128x1024-bf16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 9,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        9
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        43534,
+        43534
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "34",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "34",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 9,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 128,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 16,
+              "reductions": 1,
+              "scalar_rounds": 64,
+              "unroll_factor": 9,
+              "lane_elements": 1,
+              "threadgroups": 64,
+              "scalar_elements": 4096,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 4096,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 20480,
+                "private_write_bytes": 12288
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 64,
+                "global_write_bytes": 32,
+                "private_read_bytes": 320,
+                "private_write_bytes": 192
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 76,
+                "concurrent_waves": 2,
+                "kernel_score": 152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 128,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 16,
+              "reductions": 1,
+              "scalar_rounds": 64,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 64,
+              "scalar_elements": 4096,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 4096,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 20480,
+                "private_write_bytes": 12288
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 64,
+                "global_write_bytes": 32,
+                "private_read_bytes": 320,
+                "private_write_bytes": 192
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 76,
+                "concurrent_waves": 2,
+                "kernel_score": 152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.bf16": "6f804778ec4ed2b6fc90bc7f279c559c8f505f84eb4ca1a23123a18b433a412d",
+        "input1.bf16": "06e32f4491d6640db954c908dac361283f041127a366c7138d094b2a71acdc6e",
+        "input2.bf16": "c7f128994436d58cb9c3650a57cc271c8a42dc910d64a8ef26892afd5337a093",
+        "expected.f64": "75ce413238cbbd92460f218b264ae6e35e075335721d3a6e74f6a641f18a1ba9",
+        "per_element_bound.f64": "9aa2bcdfe70d219702970d29fae7da884ebba5d2a34c4415064463fa26b140b2"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/000-regroup-rmsnorm-128x1024-bf16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "14fc714e906aac502bfa15bc9d177f23b6cbba0bd469ad3543048bbb60000aef",
+          "bytes": 43534
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/002-regroup-rmsnorm-128x1024-bf16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "14fc714e906aac502bfa15bc9d177f23b6cbba0bd469ad3543048bbb60000aef",
+          "bytes": 43534
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/000-regroup-rmsnorm-128x1024-bf16-t128p2-u0-math0/case.json",
+          "sha256": "9fa0a100ba95f7add71f4b2f1765e42000d13f3dee0d7cf3677abe1f8458af9f",
+          "bytes": 20241
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/002-regroup-rmsnorm-128x1024-bf16-t128p2-u64-math0/case.json",
+          "sha256": "07ba203020a2831d7e1db34534d6619ef0077905186cd5646585a1af910a98ea",
+          "bytes": 20265
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            64,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 9,
+          "actual_plan_unroll_factor": 9,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            64,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-rmsnorm-128x1024-bf16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 9,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        9
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        43534,
+        43534
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "39",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "39",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 9,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 128,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 16,
+              "reductions": 1,
+              "scalar_rounds": 64,
+              "unroll_factor": 9,
+              "lane_elements": 1,
+              "threadgroups": 64,
+              "scalar_elements": 4096,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 4096,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 20480,
+                "private_write_bytes": 12288
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 64,
+                "global_write_bytes": 32,
+                "private_read_bytes": 320,
+                "private_write_bytes": 192
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 76,
+                "concurrent_waves": 2,
+                "kernel_score": 152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 128,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 16,
+              "reductions": 1,
+              "scalar_rounds": 64,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 64,
+              "scalar_elements": 4096,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 4096,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 20480,
+                "private_write_bytes": 12288
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 64,
+                "global_write_bytes": 32,
+                "private_read_bytes": 320,
+                "private_write_bytes": 192
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 76,
+                "concurrent_waves": 2,
+                "kernel_score": 152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.bf16": "6f804778ec4ed2b6fc90bc7f279c559c8f505f84eb4ca1a23123a18b433a412d",
+        "input1.bf16": "06e32f4491d6640db954c908dac361283f041127a366c7138d094b2a71acdc6e",
+        "input2.bf16": "c7f128994436d58cb9c3650a57cc271c8a42dc910d64a8ef26892afd5337a093",
+        "expected.f64": "75ce413238cbbd92460f218b264ae6e35e075335721d3a6e74f6a641f18a1ba9",
+        "per_element_bound.f64": "9aa2bcdfe70d219702970d29fae7da884ebba5d2a34c4415064463fa26b140b2"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/001-regroup-rmsnorm-128x1024-bf16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "14fc714e906aac502bfa15bc9d177f23b6cbba0bd469ad3543048bbb60000aef",
+          "bytes": 43534
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/003-regroup-rmsnorm-128x1024-bf16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "14fc714e906aac502bfa15bc9d177f23b6cbba0bd469ad3543048bbb60000aef",
+          "bytes": 43534
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/001-regroup-rmsnorm-128x1024-bf16-t128p2-u0-math1/case.json",
+          "sha256": "025f62227d47f8d6f0866d694d0cd9453da0c19d4283c0850f5c3a50ba9893ea",
+          "bytes": 20225
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/003-regroup-rmsnorm-128x1024-bf16-t128p2-u64-math1/case.json",
+          "sha256": "3947b5bf3f29a452e88770a328f3dfbf26678e0db8ae5fc9d3a913af3860f85c",
+          "bytes": 20277
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            64,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 9,
+          "actual_plan_unroll_factor": 9,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            64,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-rmsnorm-256x1536-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 17,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        17
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        39502,
+        39502
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 17,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 256,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 32,
+              "reductions": 1,
+              "scalar_rounds": 128,
+              "unroll_factor": 17,
+              "lane_elements": 1,
+              "threadgroups": 128,
+              "scalar_elements": 8192,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 8192,
+                "global_write_bytes": 4096,
+                "private_read_bytes": 40960,
+                "private_write_bytes": 24576
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 128,
+                "global_write_bytes": 64,
+                "private_read_bytes": 640,
+                "private_write_bytes": 384
+              },
+              "source_constant_striped_index_min_unroll": 17,
+              "cost": {
+                "program_score": 140,
+                "concurrent_waves": 4,
+                "kernel_score": 560
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 256,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 32,
+              "reductions": 1,
+              "scalar_rounds": 128,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 128,
+              "scalar_elements": 8192,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 8192,
+                "global_write_bytes": 4096,
+                "private_read_bytes": 40960,
+                "private_write_bytes": 24576
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 128,
+                "global_write_bytes": 64,
+                "private_read_bytes": 640,
+                "private_write_bytes": 384
+              },
+              "source_constant_striped_index_min_unroll": 17,
+              "cost": {
+                "program_score": 140,
+                "concurrent_waves": 4,
+                "kernel_score": 560
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "c2b3250eca35b19ba2d7fe5a338d191428aa852ea5cd203b3cbd6f757a689151",
+        "input1.f16": "11e3a76d634e992f54421d87ed7b70e8e2f6f9848013bc8621bcb64ccf00c74e",
+        "input2.f16": "b15ae859d5e712da195b33ca8cb388ff5824d634f83ced74f5e24a840d4088e9",
+        "expected.f64": "4502be9851eb0b0cedee3d5d2d64a015066f70f158e290f5b5b141117ca72a59",
+        "per_element_bound.f64": "0fd01711db50c6fef1501bc90ddf698a9d2c740f256dfa992a93018589c8e9c5"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/004-regroup-rmsnorm-256x1536-fp16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "9ae03a35dafda9753f4a56605b82277062aa31cdc5ec49f0596c39d09e81503e",
+          "bytes": 39502
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/006-regroup-rmsnorm-256x1536-fp16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "9ae03a35dafda9753f4a56605b82277062aa31cdc5ec49f0596c39d09e81503e",
+          "bytes": 39502
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/004-regroup-rmsnorm-256x1536-fp16-t128p2-u0-math0/case.json",
+          "sha256": "e129031b82f0f0006967abd7f2476fcf868c81fbf742b62cfa27a631f61e6b89",
+          "bytes": 20251
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/006-regroup-rmsnorm-256x1536-fp16-t128p2-u64-math0/case.json",
+          "sha256": "ce61d2100ada30d1858918025a3071976ada195d80db0c34fd89cb1339c87c70",
+          "bytes": 20249
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            128,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 17,
+          "actual_plan_unroll_factor": 17,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            128,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-rmsnorm-256x1536-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 17,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        17
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        39502,
+        39502
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 17,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 256,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 32,
+              "reductions": 1,
+              "scalar_rounds": 128,
+              "unroll_factor": 17,
+              "lane_elements": 1,
+              "threadgroups": 128,
+              "scalar_elements": 8192,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 8192,
+                "global_write_bytes": 4096,
+                "private_read_bytes": 40960,
+                "private_write_bytes": 24576
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 128,
+                "global_write_bytes": 64,
+                "private_read_bytes": 640,
+                "private_write_bytes": 384
+              },
+              "source_constant_striped_index_min_unroll": 17,
+              "cost": {
+                "program_score": 140,
+                "concurrent_waves": 4,
+                "kernel_score": 560
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 256,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 32,
+              "reductions": 1,
+              "scalar_rounds": 128,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 128,
+              "scalar_elements": 8192,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 8192,
+                "global_write_bytes": 4096,
+                "private_read_bytes": 40960,
+                "private_write_bytes": 24576
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 128,
+                "global_write_bytes": 64,
+                "private_read_bytes": 640,
+                "private_write_bytes": 384
+              },
+              "source_constant_striped_index_min_unroll": 17,
+              "cost": {
+                "program_score": 140,
+                "concurrent_waves": 4,
+                "kernel_score": 560
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "c2b3250eca35b19ba2d7fe5a338d191428aa852ea5cd203b3cbd6f757a689151",
+        "input1.f16": "11e3a76d634e992f54421d87ed7b70e8e2f6f9848013bc8621bcb64ccf00c74e",
+        "input2.f16": "b15ae859d5e712da195b33ca8cb388ff5824d634f83ced74f5e24a840d4088e9",
+        "expected.f64": "4502be9851eb0b0cedee3d5d2d64a015066f70f158e290f5b5b141117ca72a59",
+        "per_element_bound.f64": "0fd01711db50c6fef1501bc90ddf698a9d2c740f256dfa992a93018589c8e9c5"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/005-regroup-rmsnorm-256x1536-fp16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "9ae03a35dafda9753f4a56605b82277062aa31cdc5ec49f0596c39d09e81503e",
+          "bytes": 39502
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/007-regroup-rmsnorm-256x1536-fp16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "9ae03a35dafda9753f4a56605b82277062aa31cdc5ec49f0596c39d09e81503e",
+          "bytes": 39502
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/005-regroup-rmsnorm-256x1536-fp16-t128p2-u0-math1/case.json",
+          "sha256": "14a92bdcba78f21708fde78ff178a6593b8eb0a26d0eb833310fd23a3b85eaab",
+          "bytes": 20263
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/007-regroup-rmsnorm-256x1536-fp16-t128p2-u64-math1/case.json",
+          "sha256": "22a04af4eea49422a11527229d1a47205d79480b59193f0b0bebcb4765298b01",
+          "bytes": 20266
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            128,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 17,
+          "actual_plan_unroll_factor": 17,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            128,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-rmsnorm-7x2051-bf16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 33,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        33
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        104976,
+        104976
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "54",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "54",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 33,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 7,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 64,
+              "reductions": 1,
+              "scalar_rounds": 256,
+              "unroll_factor": 33,
+              "lane_elements": 1,
+              "threadgroups": 4,
+              "scalar_elements": 16384,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 16384,
+                "global_write_bytes": 8192,
+                "private_read_bytes": 81920,
+                "private_write_bytes": 49152
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 256,
+                "global_write_bytes": 128,
+                "private_read_bytes": 1280,
+                "private_write_bytes": 768
+              },
+              "source_constant_striped_index_min_unroll": 33,
+              "cost": {
+                "program_score": 268,
+                "concurrent_waves": 1,
+                "kernel_score": 268
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 7,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 64,
+              "reductions": 1,
+              "scalar_rounds": 256,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 4,
+              "scalar_elements": 16384,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 16384,
+                "global_write_bytes": 8192,
+                "private_read_bytes": 81920,
+                "private_write_bytes": 49152
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 256,
+                "global_write_bytes": 128,
+                "private_read_bytes": 1280,
+                "private_write_bytes": 768
+              },
+              "source_constant_striped_index_min_unroll": 33,
+              "cost": {
+                "program_score": 268,
+                "concurrent_waves": 1,
+                "kernel_score": 268
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.bf16": "71acce2c7dfc059faff127966196ccf428c61286feec7f1dfe46106877886594",
+        "input1.bf16": "015ca9849725b76c99f04d2d26229de1d08ea2ca56de3076559b87f6c6821205",
+        "input2.bf16": "49a39151a2b5743987561f6bb8c16a4c542b3382ca9f38fdfe77b84f322394ca",
+        "expected.f64": "6020320e773c372b09e39a3b7a57ad0caed81fcdc0b37622daeef14512888ef8",
+        "per_element_bound.f64": "420d739a24c6a80490d9f5dd8a59cbfc7b5b4449e7b19fba8ad08f430276edf2"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/008-regroup-rmsnorm-7x2051-bf16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "c0f1aea147e2d7e5ae7c8408cee6da9043402da31ca37441e70863f5efb70384",
+          "bytes": 104976
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/010-regroup-rmsnorm-7x2051-bf16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "c0f1aea147e2d7e5ae7c8408cee6da9043402da31ca37441e70863f5efb70384",
+          "bytes": 104976
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/008-regroup-rmsnorm-7x2051-bf16-t128p2-u0-math0/case.json",
+          "sha256": "2b426441657ab080f25721faf0d52c4777eeef2470913d295caddd51c8bc5c5b",
+          "bytes": 20178
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/010-regroup-rmsnorm-7x2051-bf16-t128p2-u64-math0/case.json",
+          "sha256": "31913cff6ea4935c4611577466e2b62f5efacd97fd433705cacbdbd614857de5",
+          "bytes": 20210
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            4,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 33,
+          "actual_plan_unroll_factor": 33,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            4,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-rmsnorm-7x2051-bf16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 33,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        33
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        104976,
+        104976
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "56",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "56",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "16",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 33,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 7,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 64,
+              "reductions": 1,
+              "scalar_rounds": 256,
+              "unroll_factor": 33,
+              "lane_elements": 1,
+              "threadgroups": 4,
+              "scalar_elements": 16384,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 16384,
+                "global_write_bytes": 8192,
+                "private_read_bytes": 81920,
+                "private_write_bytes": 49152
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 256,
+                "global_write_bytes": 128,
+                "private_read_bytes": 1280,
+                "private_write_bytes": 768
+              },
+              "source_constant_striped_index_min_unroll": 33,
+              "cost": {
+                "program_score": 268,
+                "concurrent_waves": 1,
+                "kernel_score": 268
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 7,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 16,
+              "striped_scalars_per_worker": 64,
+              "reductions": 1,
+              "scalar_rounds": 256,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 4,
+              "scalar_elements": 16384,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 16384,
+                "global_write_bytes": 8192,
+                "private_read_bytes": 81920,
+                "private_write_bytes": 49152
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 256,
+                "global_write_bytes": 128,
+                "private_read_bytes": 1280,
+                "private_write_bytes": 768
+              },
+              "source_constant_striped_index_min_unroll": 33,
+              "cost": {
+                "program_score": 268,
+                "concurrent_waves": 1,
+                "kernel_score": 268
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.bf16": "71acce2c7dfc059faff127966196ccf428c61286feec7f1dfe46106877886594",
+        "input1.bf16": "015ca9849725b76c99f04d2d26229de1d08ea2ca56de3076559b87f6c6821205",
+        "input2.bf16": "49a39151a2b5743987561f6bb8c16a4c542b3382ca9f38fdfe77b84f322394ca",
+        "expected.f64": "6020320e773c372b09e39a3b7a57ad0caed81fcdc0b37622daeef14512888ef8",
+        "per_element_bound.f64": "420d739a24c6a80490d9f5dd8a59cbfc7b5b4449e7b19fba8ad08f430276edf2"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/009-regroup-rmsnorm-7x2051-bf16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "c0f1aea147e2d7e5ae7c8408cee6da9043402da31ca37441e70863f5efb70384",
+          "bytes": 104976
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/011-regroup-rmsnorm-7x2051-bf16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "c0f1aea147e2d7e5ae7c8408cee6da9043402da31ca37441e70863f5efb70384",
+          "bytes": 104976
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/009-regroup-rmsnorm-7x2051-bf16-t128p2-u0-math1/case.json",
+          "sha256": "8fde18bd7ccf3d2dbbd195618989fe7afcdb4037830475f82a0f58cc7829c632",
+          "bytes": 20194
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/011-regroup-rmsnorm-7x2051-bf16-t128p2-u64-math1/case.json",
+          "sha256": "608d8cee9f53f7460b223931e79a8496981836d072499c6727f2467ad5f7dec5",
+          "bytes": 20228
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            4,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 33,
+          "actual_plan_unroll_factor": 33,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            4,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            1,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-1024x512-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 5,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        5
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        19591,
+        19591
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "28",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "28",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 5,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 1024,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 5,
+              "lane_elements": 1,
+              "threadgroups": 512,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 16,
+                "kernel_score": 1152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 1024,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 512,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 16,
+                "kernel_score": 1152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "ff97efc5fbe3aff4c6dc0b8fd4e2e25984280d47043b67c352cc629cd00943bd",
+        "input1.f16": "fbac363e57a4abf4413c8f154de86aba9e07fb766014c8a0e7bce949c8f8a7b2",
+        "input2.f16": "c70631966ba36c059be7ddd7d08bc79b5ac07e0cf6c75722c9099e24f546683b",
+        "expected.f64": "d953d430054c32b0f639f03c1fd1e72db5fe5b4a675eee10931d9999e0a81730",
+        "per_element_bound.f64": "65bdce441c1e0621e445ae6606d8567e7f170e888f54a428c7b3e63444073f9e"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/012-regroup-softmax-1024x512-fp16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/014-regroup-softmax-1024x512-fp16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/012-regroup-softmax-1024x512-fp16-t128p2-u0-math0/case.json",
+          "sha256": "9dbc41e83703648af083442555ae524612b24c4ec9d973d731dc4a59262e787c",
+          "bytes": 20501
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/014-regroup-softmax-1024x512-fp16-t128p2-u64-math0/case.json",
+          "sha256": "f78735c2f8d293ab16803a2a82ffb9adf70b5617a135094225bfc05366b192d8",
+          "bytes": 20526
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            512,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 5,
+          "actual_plan_unroll_factor": 5,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            512,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-1024x512-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 5,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        5
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        19591,
+        19591
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "23",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "23",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 5,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 1024,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 5,
+              "lane_elements": 1,
+              "threadgroups": 512,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 16,
+                "kernel_score": 1152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 1024,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 512,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 16,
+                "kernel_score": 1152
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "ff97efc5fbe3aff4c6dc0b8fd4e2e25984280d47043b67c352cc629cd00943bd",
+        "input1.f16": "fbac363e57a4abf4413c8f154de86aba9e07fb766014c8a0e7bce949c8f8a7b2",
+        "input2.f16": "c70631966ba36c059be7ddd7d08bc79b5ac07e0cf6c75722c9099e24f546683b",
+        "expected.f64": "d953d430054c32b0f639f03c1fd1e72db5fe5b4a675eee10931d9999e0a81730",
+        "per_element_bound.f64": "65bdce441c1e0621e445ae6606d8567e7f170e888f54a428c7b3e63444073f9e"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/013-regroup-softmax-1024x512-fp16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/015-regroup-softmax-1024x512-fp16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/013-regroup-softmax-1024x512-fp16-t128p2-u0-math1/case.json",
+          "sha256": "3c37f5b84568badeefa0fe2e57c12ae2eaa71c3000ea636d28f8ca96b899c687",
+          "bytes": 20546
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/015-regroup-softmax-1024x512-fp16-t128p2-u64-math1/case.json",
+          "sha256": "91ff49b3a9c54668e4c1289bb6439199142160220aa27ef2609e73033c0d02c2",
+          "bytes": 20566
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            512,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 5,
+          "actual_plan_unroll_factor": 5,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            512,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-32x512-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 5,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        5
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        19591,
+        19591
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "28",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "28",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 5,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 32,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 5,
+              "lane_elements": 1,
+              "threadgroups": 16,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 1,
+                "kernel_score": 72
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 32,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 16,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 1,
+                "kernel_score": 72
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "7fe0a3acd8d7017d84e81c9d5371243b1cbee1ef3d912788326f5f1a7b9980b2",
+        "input1.f16": "fafaba60542a1b8108d765e390cb034b57f5c7ffbbb941eac93d4771972f9adc",
+        "input2.f16": "e878597b2d22ec2a0dcacb2cd0f3b9909fe9fbb38488ba7329a68e3f8859cb63",
+        "expected.f64": "88c4579aa214f789c61f7ca9300e9b6888f71a617e4a0d6d9a8914a63d95bcc3",
+        "per_element_bound.f64": "27573a787312187ae337a4a329563245711569f15a9f425d67518a7a6e057544"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/016-regroup-softmax-32x512-fp16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/018-regroup-softmax-32x512-fp16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/016-regroup-softmax-32x512-fp16-t128p2-u0-math0/case.json",
+          "sha256": "40e381a59ce1082b09322f52bfe19aed5fe621a33eda928ef9c3f81c67fcad1e",
+          "bytes": 20461
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/018-regroup-softmax-32x512-fp16-t128p2-u64-math0/case.json",
+          "sha256": "012690f28124deda02c4df00868647ef4c4c12906902667ff9ebf6d0615d272d",
+          "bytes": 20470
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            16,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 5,
+          "actual_plan_unroll_factor": 5,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            16,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-32x512-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 5,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        5
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        19591,
+        19591
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "23",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "23",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 5,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 32,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 5,
+              "lane_elements": 1,
+              "threadgroups": 16,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 1,
+                "kernel_score": 72
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 32,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 16,
+              "reductions": 2,
+              "scalar_rounds": 56,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 16,
+              "scalar_elements": 3584,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 1024,
+                "global_write_bytes": 1024,
+                "private_read_bytes": 17408,
+                "private_write_bytes": 8704
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 16,
+                "global_write_bytes": 16,
+                "private_read_bytes": 272,
+                "private_write_bytes": 136
+              },
+              "source_constant_striped_index_min_unroll": 5,
+              "cost": {
+                "program_score": 72,
+                "concurrent_waves": 1,
+                "kernel_score": 72
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "7fe0a3acd8d7017d84e81c9d5371243b1cbee1ef3d912788326f5f1a7b9980b2",
+        "input1.f16": "fafaba60542a1b8108d765e390cb034b57f5c7ffbbb941eac93d4771972f9adc",
+        "input2.f16": "e878597b2d22ec2a0dcacb2cd0f3b9909fe9fbb38488ba7329a68e3f8859cb63",
+        "expected.f64": "88c4579aa214f789c61f7ca9300e9b6888f71a617e4a0d6d9a8914a63d95bcc3",
+        "per_element_bound.f64": "27573a787312187ae337a4a329563245711569f15a9f425d67518a7a6e057544"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/017-regroup-softmax-32x512-fp16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/019-regroup-softmax-32x512-fp16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "d1e93e4b92197b8607de81769cec857a358d2abe193b40f3c99ace6f5e8a7511",
+          "bytes": 19591
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/017-regroup-softmax-32x512-fp16-t128p2-u0-math1/case.json",
+          "sha256": "a2c82f10741a46f535031743873a3bb77a7d4158750a947bb2459a6f7dac216b",
+          "bytes": 20576
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/019-regroup-softmax-32x512-fp16-t128p2-u64-math1/case.json",
+          "sha256": "e4b29b639e68cdfeaffd08a87eb133217090081bcb67368dbcea6fc6b347a906",
+          "bytes": 20479
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            16,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 5,
+          "actual_plan_unroll_factor": 5,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            16,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-9x769-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": false,
+      "auto_resolved_unroll": 9,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        9
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        30391,
+        30391
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "40",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 9,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 9,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 32,
+              "reductions": 2,
+              "scalar_rounds": 112,
+              "unroll_factor": 9,
+              "lane_elements": 1,
+              "threadgroups": 5,
+              "scalar_elements": 7168,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 2048,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 34816,
+                "private_write_bytes": 17408
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 32,
+                "global_write_bytes": 32,
+                "private_read_bytes": 544,
+                "private_write_bytes": 272
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 128,
+                "concurrent_waves": 1,
+                "kernel_score": 128
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 9,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 32,
+              "reductions": 2,
+              "scalar_rounds": 112,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 5,
+              "scalar_elements": 7168,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 2048,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 34816,
+                "private_write_bytes": 17408
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 32,
+                "global_write_bytes": 32,
+                "private_read_bytes": 544,
+                "private_write_bytes": 272
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 128,
+                "concurrent_waves": 1,
+                "kernel_score": 128
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "6af50767c4a729e5c4d1d9cbecae11ad9bdb8d4163e70514b2ba9b608af2b1a7",
+        "input1.f16": "d20aaeb46a6d84aa9b802ffe503c57bbf7ec8a2a736d79b1ad5e320031f4879a",
+        "input2.f16": "e5382150b25d10bd86a0591f03c1b32b17981c6ef368960b9d23805a0b28fdd6",
+        "expected.f64": "060f3f20f184682688b16e4534d0fa3f9d9ee60da3b1f428352213eeb5e54eae",
+        "per_element_bound.f64": "04d622f8d6804b97973bdf4e58f3d6486505c226aa16dfbb68b12dad552174e8"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/020-regroup-softmax-9x769-fp16-t128p2-u0-math0/native/artifacts/source.txt",
+          "sha256": "a578b8089fa7d73c5b7e1df508423147f0798ec74eafe935320fd59341b9597b",
+          "bytes": 30391
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/022-regroup-softmax-9x769-fp16-t128p2-u64-math0/native/artifacts/source.txt",
+          "sha256": "a578b8089fa7d73c5b7e1df508423147f0798ec74eafe935320fd59341b9597b",
+          "bytes": 30391
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/020-regroup-softmax-9x769-fp16-t128p2-u0-math0/case.json",
+          "sha256": "76d20c457ba009cec6a4c2120c325fb665b10aec8f449d98e1d72375b6a47b08",
+          "bytes": 20413
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/022-regroup-softmax-9x769-fp16-t128p2-u64-math0/case.json",
+          "sha256": "58b99b832c73fd359530625956d3b23e4d0dd420b99f4916aae0c72a8e2862a1",
+          "bytes": 20442
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            5,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 9,
+          "actual_plan_unroll_factor": 9,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            5,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "strict-no-contract-v1"
+        }
+      }
+    },
+    {
+      "case": "regroup-softmax-9x769-fp16",
+      "geometry": [
+        128,
+        2
+      ],
+      "fast_math": true,
+      "auto_resolved_unroll": 9,
+      "manual_resolved_unroll": 64,
+      "auto_min_unroll": [
+        9
+      ],
+      "source_bytes_equal": true,
+      "source_byte_lengths": [
+        30391,
+        30391
+      ],
+      "reported_resource_fields_equal": true,
+      "known_resource_values_equal": true,
+      "resources": {
+        "auto": {
+          "registers": {
+            "value": "31",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        },
+        "manual": {
+          "registers": {
+            "value": "31",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "static_shared_bytes": {
+            "value": "80",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "local_bytes": {
+            "value": "0",
+            "known": "1",
+            "cuda_status": "0"
+          },
+          "max_threads": {
+            "value": "128",
+            "known": "1",
+            "cuda_status": "0"
+          }
+        }
+      },
+      "candidates": {
+        "auto": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 0,
+          "selected_resolved_unroll": 9,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 9,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 32,
+              "reductions": 2,
+              "scalar_rounds": 112,
+              "unroll_factor": 9,
+              "lane_elements": 1,
+              "threadgroups": 5,
+              "scalar_elements": 7168,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 2048,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 34816,
+                "private_write_bytes": 17408
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 32,
+                "global_write_bytes": 32,
+                "private_read_bytes": 544,
+                "private_write_bytes": 272
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 128,
+                "concurrent_waves": 1,
+                "kernel_score": 128
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        },
+        "manual": {
+          "schema": 1,
+          "scope": "actual_ReductionCandidate_callback",
+          "policy": "unchanged_AnalyticExecutionCostPolicy",
+          "coefficient_override": false,
+          "requested_unroll": 64,
+          "selected_resolved_unroll": 64,
+          "overflow": false,
+          "records": [
+            {
+              "candidate_index": 0,
+              "programs": 9,
+              "threads": 128,
+              "subgroups_per_program": 2,
+              "programs_per_group": 2,
+              "shared_memory_bytes": 32,
+              "striped_scalars_per_worker": 32,
+              "reductions": 2,
+              "scalar_rounds": 112,
+              "unroll_factor": 64,
+              "lane_elements": 1,
+              "threadgroups": 5,
+              "scalar_elements": 7168,
+              "lane_utilization": 1,
+              "payload_accesses_known": true,
+              "payload_accesses_per_program": {
+                "global_read_bytes": 2048,
+                "global_write_bytes": 2048,
+                "private_read_bytes": 34816,
+                "private_write_bytes": 17408
+              },
+              "payload_accesses_per_worker": {
+                "global_read_bytes": 32,
+                "global_write_bytes": 32,
+                "private_read_bytes": 544,
+                "private_write_bytes": 272
+              },
+              "source_constant_striped_index_min_unroll": 9,
+              "cost": {
+                "program_score": 128,
+                "concurrent_waves": 1,
+                "kernel_score": 128
+              },
+              "analytic_coefficients": {
+                "scalar_round": 1,
+                "collective": 2,
+                "group_setup": 16,
+                "global_access_byte": 0,
+                "private_access_byte": 0,
+                "preferred_concurrent_programs": 64
+              }
+            }
+          ]
+        }
+      },
+      "fixture_sha256": {
+        "input0.f16": "6af50767c4a729e5c4d1d9cbecae11ad9bdb8d4163e70514b2ba9b608af2b1a7",
+        "input1.f16": "d20aaeb46a6d84aa9b802ffe503c57bbf7ec8a2a736d79b1ad5e320031f4879a",
+        "input2.f16": "e5382150b25d10bd86a0591f03c1b32b17981c6ef368960b9d23805a0b28fdd6",
+        "expected.f64": "060f3f20f184682688b16e4534d0fa3f9d9ee60da3b1f428352213eeb5e54eae",
+        "per_element_bound.f64": "04d622f8d6804b97973bdf4e58f3d6486505c226aa16dfbb68b12dad552174e8"
+      },
+      "source_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/021-regroup-softmax-9x769-fp16-t128p2-u0-math1/native/artifacts/source.txt",
+          "sha256": "a578b8089fa7d73c5b7e1df508423147f0798ec74eafe935320fd59341b9597b",
+          "bytes": 30391
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/023-regroup-softmax-9x769-fp16-t128p2-u64-math1/native/artifacts/source.txt",
+          "sha256": "a578b8089fa7d73c5b7e1df508423147f0798ec74eafe935320fd59341b9597b",
+          "bytes": 30391
+        }
+      },
+      "case_receipts": {
+        "auto": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/021-regroup-softmax-9x769-fp16-t128p2-u0-math1/case.json",
+          "sha256": "d58e983cc81b06ed66782dcc7228d0a32ad30afcc3cb20b7373bc111b1882e2e",
+          "bytes": 20457
+        },
+        "manual": {
+          "reference": ".deps/oct03-cuda-tirx-auto-unroll-smoke-v2/023-regroup-softmax-9x769-fp16-t128p2-u64-math1/case.json",
+          "sha256": "94761fbbb12785ddcb6515adff9ed98aeea80c948902e453f17211736f00c4cd",
+          "bytes": 20478
+        }
+      },
+      "reported_execution_observation": {
+        "auto": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            5,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 0,
+          "candidate_resolved_unroll_factor": 9,
+          "actual_plan_unroll_factor": 9,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        },
+        "manual": {
+          "entry": "workload_rows_kernel",
+          "grid": [
+            5,
+            1,
+            1
+          ],
+          "block": [
+            128,
+            1,
+            1
+          ],
+          "dynamic_shared_bytes": 0,
+          "device_slot_to_host_index": [
+            0,
+            3
+          ],
+          "actual_graph_nodes_checked": 100,
+          "same_module_function_identity_checked": true,
+          "actual_final_pointers_checked": true,
+          "requested_unroll_factor": 64,
+          "candidate_resolved_unroll_factor": 64,
+          "actual_plan_unroll_factor": 64,
+          "unroll_evidence": "actual_ReductionCandidate_and_emitted_GroupPlan",
+          "math_policy": "fast-elements-preserved-reductions-v1"
+        }
+      }
+    }
+  ]
+}
