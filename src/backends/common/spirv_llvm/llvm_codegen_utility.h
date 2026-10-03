@@ -48,9 +48,21 @@ class LLVMStateVisitor;
  * variable/function naming, constant management, and code generation
  * entry points.
  */
-class LLVMCodegenUtility {
-public:
-    vstd::unique_ptr<LLVMCodegenStackData> opt{};
+  // LLVM objects are always allocated with the global operator new (also
+  // when handed out by LLVM APIs like createTargetMachine). Release them with
+  // the matching operator delete: eastl::default_delete would route the
+  // deallocation through the EASTL allocator (mimalloc), which does not own
+  // these pointers.
+  template<typename T>
+  struct LLVMHeapDelete {
+      void operator()(T *p) const noexcept { delete p; }
+  };
+
+  class LLVMCodegenUtility {
+  public:
+      vstd::unique_ptr<LLVMCodegenStackData> opt{};
+
+  public:
 
     /// Main entry point for VK backend: codegen Function → SPIR-V result.
     /// Mirrors hlsl::CodegenUtility::Codegen() and
@@ -60,9 +72,9 @@ public:
         const ShaderOption &option);
 
 private:
-    luisa::unique_ptr<llvm::LLVMContext> _context;
-    luisa::unique_ptr<llvm::Module> _module;
-    luisa::unique_ptr<llvm::IRBuilder<>> _builder;
+      luisa::unique_ptr<llvm::LLVMContext, LLVMHeapDelete<llvm::LLVMContext>> _context;
+      luisa::unique_ptr<llvm::Module, LLVMHeapDelete<llvm::Module>> _module;
+      luisa::unique_ptr<llvm::IRBuilder<>, LLVMHeapDelete<llvm::IRBuilder<>>> _builder;
 
     // Current function being codegen'd (set during CodegenFunction)
     llvm::Function *_current_function{nullptr};
@@ -141,7 +153,7 @@ public:
 
 private:
     // LLVM SPIRV target machine
-    luisa::unique_ptr<llvm::TargetMachine> _target_machine;
+          luisa::unique_ptr<llvm::TargetMachine, LLVMHeapDelete<llvm::TargetMachine>> _target_machine;
 };
 
 } // namespace lc::llvm_codegen

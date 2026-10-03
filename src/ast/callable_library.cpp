@@ -386,8 +386,14 @@ Expression const *CallableLibrary::deser_value(std::byte const *&ptr, DeserPacka
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Expression::Tag>(ptr, pack);
     auto create_expr = [&]<typename T>() {
-        // Match the default deleter used by the builder's owning pointers.
-        auto expression = luisa::unique_ptr<T>{new T{}};
+          // Match the default deleter used by the builder's owning pointers.
+          // The node ctors are protected (CallableLibrary is a friend), so
+          // allocator-based placement new is used instead of make_unique.
+#ifdef LUISA_USE_SYSTEM_STL
+          auto expression = luisa::unique_ptr<T>{new T{}};
+#else
+          auto expression = luisa::unique_ptr<T>{new (luisa::allocate_with_allocator<T>()) T{}};
+#endif
         auto expr = expression.get();
         deser_ptr<T *>(expr, ptr, pack);
         expr->_type = type;
@@ -803,7 +809,12 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Statement::Tag>(ptr, pack);
     auto create_stmt = [&]<typename T, bool construct = true>() {
-        auto statement = luisa::unique_ptr<T>{new T{}};
+                  // See the expression site above for the allocator pairing.
+#ifdef LUISA_USE_SYSTEM_STL
+          auto statement = luisa::unique_ptr<T>{new T{}};
+#else
+          auto statement = luisa::unique_ptr<T>{new (luisa::allocate_with_allocator<T>()) T{}};
+#endif
         auto stmt = statement.get();
         stmt->_hash = hash;
         stmt->_hash_computed = true;

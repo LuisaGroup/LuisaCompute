@@ -67,7 +67,11 @@ namespace luisa::compute::optix {
         if (CM_Get_Device_ID_List_SizeA(&size, guid, flags))
             return nullptr;
 
-        luisa::unique_ptr<char[]> dev_names(new char[size]);
+        // Note: luisa::unique_ptr is eastl::unique_ptr; its default_delete for
+        // arrays expects the EASTL make_unique header layout and frees through
+        // the EASTL default allocator (mimalloc when EASTL_MIMALLOC_ENABLED).
+        // A raw `new char[]` would be freed with mi_free -> invalid pointer.
+        luisa::unique_ptr<char[]> dev_names = luisa::make_unique<char[]>(size);
         if (CM_Get_Device_ID_ListA(guid, dev_names.get(), size, flags))
             return nullptr;
 
@@ -84,7 +88,7 @@ namespace luisa::compute::optix {
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, 0, &size))
                 continue;
 
-            luisa::unique_ptr<char[]> path(new char[size + suffix_len]);
+            luisa::unique_ptr<char[]> path = luisa::make_unique<char[]>(size + suffix_len);
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, (LPBYTE)path.get(), &size))
                 continue;
 
