@@ -724,6 +724,12 @@ target_sources(test_tile_cuda_cub_scan_codegen PRIVATE
         ../backends/cuda/tile/cuda_tile_cub_scan.cpp)
 target_include_directories(test_tile_cuda_cub_scan_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
 target_link_libraries(test_tile_cuda_cub_scan_codegen PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_cuda_scan_cost unit/tile/test_tile_cuda_scan_cost.cpp LABELS "unit;unit_tile")
+target_sources(test_tile_cuda_scan_cost PRIVATE
+        ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_cub_scan.cpp)
+target_include_directories(test_tile_cuda_scan_cost PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
+target_link_libraries(test_tile_cuda_scan_cost PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_memory unit/tile/test_tile_memory.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_migrated unit/tile/test_tile_migrated.cpp LABELS "unit;unit_tile")

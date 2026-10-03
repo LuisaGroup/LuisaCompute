@@ -241,6 +241,56 @@ That capacity is not measured occupancy. The original Tile entry receives only
 static resource queries: its logical block `(1,1,1)` does not reveal physical
 workers and is not used to compute occupancy.
 
+`LUISA_CUDA_TILE_CUB_SCAN_COST=1` optionally chooses among the original and
+the four ordinary CUDA scan recipes. It uses the same shared closed-prefix
+proof and unchanged source generator, with no additional Tile DSL operation
+or execution nest. It is mutually exclusive with fixed-thread CUB and the
+other experimental scheduling options. It is off by default and currently
+admits only strict math on the frozen SM89/24-SM/CUDA 13.4 profile; other device
+or compiler versions retain the original.
+
+The ranking inputs are actual row/column extents and storage bytes from IR,
+physical threads and elements per thread from the candidate, and maximum
+resident CTA capacity queried from that candidate's live compiled function.
+For rows R, width N, SM count S, physical threads T, warp width w and queried
+capacity A, the CUB features are `[1, 4*R*N/(S*2^20), 8*H*J, H*J*ceil(T/w)]`,
+where J=N/(8*T) and H=ceil(R/(S*A)). H is a capacity-batch proxy, not observed
+execution waves. The original features are
+`[1, 4*R*N/(S*2^20), ceil(R/S)*N]`. Frozen nonnegative coefficients rank these
+features; benchmark names and current-dispatch timings are not inputs.
+The selected score must be strictly below 95% of the original score.
+Unknown resources, nonzero local memory or inconsistent launch facts exclude
+the candidate rather than becoming a zero cost.
+
+The original is compiled first. Cost mode visits at most four recipes,
+keeps at most the best module plus the current module, and unloads losers in
+their owning CUDA context. It installs the winner once. Every invocation still
+checks the final buffer alignment and disjoint intervals; a model prediction
+does not authorize aliasing changes. Only the installed winner receives an
+`installed-entry` resource receipt. Other resource records describe historical
+queries of a `loaded-candidate` and carry their final disposal status.
+The reported compiler-call count can include in-process PTX cache hits, and
+search time is host setup time excluding original Tile compilation; neither
+is a count of NVRTC cache misses or a dispatch measurement.
+
+The profile was frozen before independent shapes and a second selected-recipe
+measurement. Those measurements establish recipe ranking separately from
+automatic selection and graph tests. The policy is a local experimental model,
+not a claim that all scans or reductions beat Torch. Its provenance and measured
+scope are retained in the
+{download}`scan cost evidence <../../../scripts/benchmark/tile_torch/results/2026-10-03-cub-scan-cost/README.md>`.
+
+The separate
+{download}`automatic-mode measurements <../../../scripts/benchmark/tile_torch/results/2026-10-03-cub-scan-cost/README-automatic.md>`
+retain the subsequent real factory-search results. Their eight independent
+cases average about 45% of original Tile dispatch time and 69% of same-round
+Torch time, but two cases remain slower than Torch. A large scan also alternates
+between roughly 13 and 33 microseconds despite unchanged selected source and
+resources; the cause remains unresolved. These observations do not establish
+stable automatic/fixed-recipe performance parity. Candidate search adds seconds
+of host setup time, excluded from dispatch ratios. The failed eligibility
+control and all timing outliers remain recorded separately.
+
 The nine source-review observations above remain fixed to October 2;
 the separate calibration report retains its own October 3 denominators and
 the original Torch process failure followed by an independent retry. Neither

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -38,6 +39,26 @@ struct Environment {
     Environment(const char *n, const char *v) : name{n}, previous{get_environment_variable(n)} { set(n, v); }
     ~Environment() { set(name, previous ? previous->c_str() : nullptr); }
 };
+
+[[nodiscard]] bool cost_mode() {
+    auto value = get_environment_variable("LUISA_CUDA_TILE_CUB_SCAN_COST");
+    return value && *value == "1";
+}
+
+[[nodiscard]] uint32_t selected_threads(const tile::Shader &shader) {
+    auto text = string_view{shader.metadata().realization};
+    constexpr string_view marker = "; cub-scan-threads=";
+    auto position = text.find(marker);
+    LUISA_ASSERT(position != string_view::npos, "Missing CUB recipe metadata.");
+    auto value = text.substr(position + marker.size());
+    value = value.substr(0u, value.find(';'));
+    uint32_t threads{};
+    auto parsed = std::from_chars(value.data(), value.data() + value.size(), threads);
+    LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() &&
+                     (threads == 0u || threads == 128u || threads == 256u || threads == 512u || threads == 1024u),
+                 "Invalid CUB recipe metadata.");
+    return threads;
+}
 
 template<typename T>
 [[nodiscard]] auto bits(T value) {
@@ -111,15 +132,25 @@ template<typename T>
 [[nodiscard]] tile::Shader compile(Device &device, const tile::Kernel &kernel, uint32_t threads, bool available = true) {
     auto original = [&] {
         Environment off{"LUISA_CUDA_TILE_CUB_SCAN", nullptr};
+        Environment cost_off{"LUISA_CUDA_TILE_CUB_SCAN_COST", nullptr};
         return tile::compile(device, kernel, {.lowering = tile::Lowering::NATIVE}, {.enable_fast_math = false});
     }();
     auto shader = tile::compile(device, kernel, {.lowering = tile::Lowering::NATIVE}, {.enable_fast_math = false});
     LUISA_ASSERT(original && shader, "CUB scan compile failed: {}", shader.metadata().error);
     auto &&metadata = shader.metadata();
-    expect(metadata.realization.find(luisa::format("cub-scan-threads={}", threads)) != string::npos);
+    if (cost_mode()) {
+        expect(metadata.realization.find("cub-scan-cost-requested=1") != string::npos);
+        expect(metadata.realization.find("cub-scan-cost-fit=67127e819f80a395aeecae55cd999c8e3f8b1bcf894fdf0672c58611cca87f66") != string::npos);
+        expect(metadata.realization.find(luisa::format("cub-scan-cost-selected-threads={}", selected_threads(shader))) != string::npos);
+        expect((selected_threads(shader) != 0u) == available);
+    } else {
+        expect(selected_threads(shader) == threads);
+    }
     LUISA_ASSERT((metadata.realization.find("cub-scan-available;") != string::npos) == available,
                  "Unexpected CUB scan availability: {}", metadata.realization);
     expect(metadata.source == original.metadata().source);
+    expect(original.metadata().realization.find("cub-scan-requested") == string::npos);
+    expect(original.metadata().realization.find("cub-scan-cost-requested") == string::npos);
     expect(metadata.source.find("void luisa_tile_main(") != string::npos);
     expect(metadata.source.find("luisa_tile_cub_scan") == string::npos);
     return shader;
@@ -147,7 +178,7 @@ void disjoint_values(Device &device, uint32_t threads, size_t input_offset, size
     auto commands = [&] { CommandList list; list << command(); return list; };
     auto graph = ext->create_graph(commands());
     check_graph_entry(device, graph, available && input_offset % 8u == 0u && output_offset % 8u == 0u,
-                      static_cast<uint32_t>((rows + br - 1) / br), threads);
+                      static_cast<uint32_t>((rows + br - 1) / br), selected_threads(shader));
     auto executable = ext->instantiate(graph.handle().handle);
     LUISA_ASSERT(executable.handle().valid(), "CUB scan graph instantiation failed.");
     for (auto generation = 0u; generation < 3u; generation++) {
@@ -244,7 +275,7 @@ void snapshot_alias_and_update(Device &device, uint32_t threads) {
         stream << command(index) << synchronize();
         check();
         auto graph = ext->create_graph(commands(index));
-        check_graph_entry(device, graph, layouts[index].candidate, 1u, threads);
+        check_graph_entry(device, graph, layouts[index].candidate, 1u, selected_threads(shader));
         auto executable = ext->instantiate(graph.handle().handle);
         LUISA_ASSERT(executable.handle().valid(), "Alias graph instantiation failed.");
         upload(index, 1u);
@@ -252,14 +283,14 @@ void snapshot_alias_and_update(Device &device, uint32_t threads) {
         check();
     }
     auto graph = ext->create_graph(commands(0u));
-    check_graph_entry(device, graph, true, 1u, threads);
+    check_graph_entry(device, graph, true, 1u, selected_threads(shader));
     auto executable = ext->instantiate(graph.handle().handle);
     LUISA_ASSERT(executable.handle().valid(), "Update graph instantiation failed.");
     auto current = size_t{0u};
     auto accepted_updates = 0u, rejected_updates = 0u;
     for (auto index : {1u, 0u, 2u, 3u, 4u, 0u}) {
         auto requested = ext->create_graph(commands(index));
-        check_graph_entry(device, requested, layouts[index].candidate, 1u, threads);
+        check_graph_entry(device, requested, layouts[index].candidate, 1u, selected_threads(shader));
         if (ext->update(executable.handle().handle, commands(index))) {
             current = index;
             accepted_updates++;
@@ -288,6 +319,53 @@ void snapshot_alias_and_update(Device &device, uint32_t threads) {
     LUISA_INFO("CUB graph update attempts: accepted={}, rejected={} (old exec verified after each rejection).",
                accepted_updates, rejected_updates);
 }
+// Frozen-policy geometry witnesses. These expected recipes come from the
+// frozen independent profile evaluation, not a call into the tested scorer.
+// Nonuniform exact dyadic inputs expose stale width/grid/cache descriptors.
+template<typename T>
+void cost_geometry(Device &device, int64_t rows, int64_t columns, uint32_t expected_threads) {
+    auto shader = compile(device, capture<T>(rows, columns, 1), expected_threads);
+    expect(selected_threads(shader) == expected_threads);
+    constexpr size_t pad = 64u;
+    auto n = static_cast<size_t>(rows * columns), total = n + 2u * pad;
+    auto sentinel = T{-719.5f};
+    vector<T> before(total, sentinel), blank(total, sentinel), expected(total, sentinel), actual(total), readonly(total);
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto prefix = int64_t{0};
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto units = (row * 13 + column * 17) % 31 - 15;
+            auto offset = pad + static_cast<size_t>(row * columns + column);
+            before[offset] = T{static_cast<float>(units) * 0.0625f};
+            prefix += units;
+            expected[offset] = T{static_cast<float>(prefix) * 0.0625f};
+        }
+    }
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto input = device.create_buffer<T>(total), output = device.create_buffer<T>(total);
+    auto command = [&] { return shader(input.view(pad, n), output.view(pad, n)).dispatch(); };
+    auto upload = [&] { stream << input.copy_from(span{before}) << output.copy_from(span{blank}) << synchronize(); };
+    auto check = [&] {
+        stream << input.copy_to(span{readonly}) << output.copy_to(span{actual}) << synchronize();
+        for (auto i = size_t{0u}; i < total; i++) {
+            expect(bits(readonly[i]) == bits(before[i]));
+            expect(bits(actual[i]) == bits(expected[i])) << "cost geometry word=" << i;
+        }
+    };
+    upload();
+    stream << command() << synchronize();
+    check();
+    auto *ext = device.extension<CudaGraphExt>();
+    LUISA_ASSERT(ext != nullptr, "CUDA graph extension required.");
+    CommandList commands;
+    commands << command();
+    auto graph = ext->create_graph(std::move(commands));
+    check_graph_entry(device, graph, true, static_cast<uint32_t>(rows), expected_threads);
+    auto executable = ext->instantiate(graph.handle().handle);
+    LUISA_ASSERT(executable.handle().valid(), "Cost geometry graph instantiation failed.");
+    upload();
+    ext->launch(executable.handle().handle, stream.handle());
+    check();
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -300,10 +378,17 @@ int main(int argc, char *argv[]) {
     if (!opt_in) { return 2; }
     if (std::strcmp(opt_in->c_str(), "1") != 0) { return 2; }
     auto option = get_environment_variable("LUISA_CUDA_TILE_CUB_SCAN");
-    if (!option) { return 2; }
     uint32_t threads{};
-    for (auto candidate : {128u, 256u, 512u, 1024u}) {
-        if (*option == luisa::format("{}", candidate)) { threads = candidate; }
+    if (cost_mode()) {
+        if (option && *option != "0") { return 2; }
+        // Existing small value/alias witnesses use width 4096. The real graph
+        // block comes from the installed recipe, not this fixture size seed.
+        threads = 256u;
+    } else {
+        if (!option) { return 2; }
+        for (auto candidate : {128u, 256u, 512u, 1024u}) {
+            if (*option == luisa::format("{}", candidate)) { threads = candidate; }
+        }
     }
     if (threads == 0u) { return 2; }
     Environment streaming{"LUISA_CUDA_TILE_STREAMING_SCAN", nullptr};
@@ -336,6 +421,15 @@ int main(int argc, char *argv[]) {
         snapshot_alias_and_update<half>(device, threads);
         snapshot_alias_and_update<tile::bfloat16>(device, threads);
     };
+    if (cost_mode()) {
+        "tile_cuda_cub_cost_geometry"_test = [&] {
+            for (auto geometry : {std::array<int64_t, 3u>{3, 2048, 256}, {65, 4096, 512},
+                                  {129, 8192, 256}, {256, 16384, 128}}) {
+                cost_geometry<half>(device, geometry[0u], geometry[1u], static_cast<uint32_t>(geometry[2u]));
+                cost_geometry<tile::bfloat16>(device, geometry[0u], geometry[1u], static_cast<uint32_t>(geometry[2u]));
+            }
+        };
+    }
     "tile_cuda_cub_unsupported_original"_test = [&] {
         disjoint_values<float>(device, threads, 64u, 64u);
         disjoint_values<half>(device, threads, 64u, 64u, true);

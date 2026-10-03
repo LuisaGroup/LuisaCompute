@@ -452,15 +452,26 @@ int run(int argc, char *argv[]) {
         // An ordinary CUDA candidate is a different compilation unit. Preserve
         // it separately without changing the original Tile source receipt.
         auto realization = string_view{shader.metadata().realization};
-        constexpr string_view cub_source_marker = "cub-scan-source-file=";
-        if (auto source_position = realization.find(cub_source_marker); source_position != string_view::npos) {
-            auto source_path = realization.substr(source_position + cub_source_marker.size());
+        auto copy_candidate_source = [&](string_view marker, const std::string &name) {
+            auto source_position = realization.find(marker);
+            if (source_position == string_view::npos) { return true; }
+            auto source_path = realization.substr(source_position + marker.size());
             source_path = source_path.substr(0u, source_path.find(';'));
             std::ifstream candidate{std::filesystem::path{std::string{source_path}}, std::ios::binary};
             std::string text{std::istreambuf_iterator<char>{candidate}, std::istreambuf_iterator<char>{}};
-            auto candidate_name = "cub-source-stage" + std::to_string(stage) + ".cu";
-            if (!candidate || text.empty() || !write_text(directory / candidate_name, text)) {
-                return finish(options, directory, "failed", "CUB candidate source export failed", 1, compile_ms);
+            return candidate && !text.empty() && write_text(directory / name, text);
+        };
+        if (!copy_candidate_source("cub-scan-source-file=", "cub-source-stage" + std::to_string(stage) + ".cu")) {
+            return finish(options, directory, "failed", "CUB candidate source export failed", 1, compile_ms);
+        }
+        // Search attempts have independent compilation units, even when they
+        // lose or fail to compile. A missing marker means no source was built.
+        // The final winner also keeps the legacy cub-source-stageN.cu receipt.
+        for (auto threads : std::array{128u, 256u, 512u, 1024u}) {
+            auto marker = "cub-scan-cost-t" + std::to_string(threads) + "-source-file=";
+            auto name = "cub-cost-source-stage" + std::to_string(stage) + "-t" + std::to_string(threads) + ".cu";
+            if (!copy_candidate_source(marker, name)) {
+                return finish(options, directory, "failed", "CUB cost candidate source export failed", 1, compile_ms);
             }
         }
         if (!shader) {
@@ -691,7 +702,9 @@ int run(int argc, char *argv[]) {
             auto cub_grid = fact("cub-scan-grid-x=");
             auto cub_aligned = false, cub_disjoint = false;
             auto selected_block = make_uint3(1u);
-            cub_requested |= cub_threads != 0u;
+            // A cost request can retain the original with threads=0.
+            // Preserve its explicit unavailable final receipt as well.
+            cub_requested |= cub_threads != 0u || realization.find("; cub-scan-cost-requested=1;") != string_view::npos;
             if (cub_available) {
                 LUISA_ASSERT(cub_input < pointers.size() && cub_output < pointers.size() && cub_input != cub_output &&
                                  cub_input_bytes != 0u && cub_output_bytes != 0u &&
