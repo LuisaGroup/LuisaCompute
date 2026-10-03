@@ -593,3 +593,92 @@ rerunning the omitted GPU or tensor validation. The local full audit is
 that packet is not bundled with the source. Saved snapshots and the
 executed helper closure define the measured cohort, rather than current
 mutable source or DLL files.
+
+## 14. Terminal row-only collective
+
+The private `LUISA_DIAGNOSTIC_TIRX_ROW_ONLY_COLLECTIVE` switch tested a
+terminal scalar-output optimization on the three existing SUM fixtures.
+Unset or `0` retains the original source; `1` requests the proved terminal
+suffix, and other values are rejected. The first reduction tree and shared
+publication barrier remain collective. Only the second reduction tree and
+its closed scalar-output suffix run in the first full warp of each program;
+the external store still requires the active row's worker zero. A failed
+ownership proof retains the original implementation. This adds no DSL
+primitive, changes no numerical permission, and is not a promoted default.
+
+Four configurations were fixed before timing: the three original L1 scalar
+controls and the existing BF16 T64/P1/L4 vector configuration. Each had its
+own flag-0 initial and final control. Fresh Torch used only each fixture's
+first L1 manifest and new caches; the additional BF16 vector pair did not
+replace that fixture anchor. Original math policies, U64, BR1 capture,
+coordinate forwarding disabled, integer extrema enabled and pad64 remained
+fixed. The protocol used seven 100 ms samples, 500 ms warmup, 100-node
+graphs and four-core affinity `0x15400`.
+
+All four candidate requests applied. Times below are microseconds; ratios
+use the geometry-matched controls and fresh Torch from this cohort.
+
+| SUM fixture | T/P/L | Initial | Candidate | Recheck | Fresh Torch | Candidate / first | Candidate / last | Candidate / Torch | Control drift |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| FP16 129 x 2048, fast | 128/1/1 scalar | 1.352522 | 1.347481 | 1.340824 | 1.545497 | 0.996273 | 1.004965 | 0.871876 | -0.865% |
+| BF16 128 x 8192, strict | 128/2/1 scalar | 2.745064 | 2.586747 | 2.585420 | 2.455022 | 0.942327 | 1.000513 | 1.053655 | -5.816% |
+| FP32 3 x 8192, strict | 256/1/1 scalar | 1.329276 | 1.316123 | 1.307570 | 1.838534 | 0.990105 | 1.006541 | 0.715854 | -1.633% |
+| BF16 128 x 8192, strict | 64/1/4 vector | 2.413752 | 2.381131 | 2.400266 | 2.455022 | 0.986485 | 0.992028 | 0.969902 | -0.559% |
+
+None of the original L1 configurations improved against its final control.
+BF16 L1's apparent 5.77% gain against the initial control coincided with
+-5.816% control drift; it was 0.051% slower than the final control. The
+additional BF16 vector pair was 0.797% faster than its final control and
+1.352% faster than its initial control. This small gain in one paired cohort
+does not establish cross-session stability or justify a new default.
+
+| Configuration | Candidate seven-sample range us | Final control range us |
+|---|---|---|
+| FP16 128/1/1 | 1.346388--1.348652 | 1.336851--1.342041 |
+| BF16 128/2/1 | 2.585348--2.589601 | 2.583616--2.588361 |
+| FP32 256/1/1 | 1.308607--1.321630 | 1.304568--1.312355 |
+| BF16 64/1/4 vector | 2.379577--2.386506 | 2.397226--2.404737 |
+
+These ranges are descriptive, not confidence intervals. All samples and
+negative results remain. Fresh Torch belongs only to this round; a changed
+Torch denominator is not evidence of native progress.
+
+The saved current Torch selections were X/R/warps = 8/512/4 for FP16,
+2/64/2 for BF16 and 2/2048/16 for FP32, all with one stage. These differ
+from the corresponding earlier geometry and large-group rounds. All nine
+saved records across those three rounds have a null `triton_cache_hash`;
+the configurations are compiler-selection observations, not unique bindings
+to the timed cubins or a causal explanation for the timing differences.
+
+All 15 formal processes passed: 12 native and three Torch, with 105 primary
+samples, 1200 actual native graph nodes and 18 complete saved logical
+outputs. Independent CPU replay checked all 1684 output values against the
+original FP64 references and bounds, fixture and admitted-source identities,
+actual row-only receipts, graph bindings, final pointers and resources.
+All four recheck sources matched their corresponding initial sources byte
+for byte. The earlier admission had 25 numerical passes and 2500 graph
+nodes, plus one separate invalid-value rejection. LLVM 22 and LLVM 23 MSVC
+full builds and the host suite's 10008 assertions in 18 groups passed.
+The default CUDA, vector CUDA and Metal source captures and 12 ordered
+candidate callbacks were byte-identical to the bound earlier capture;
+only exact diagnostic log records were removed for that comparison.
+
+Native local memory remained zero. Registers/shared bytes were 25/16 for
+FP16, 39/16 to 38/16 for BF16 L1, 38/32 for FP32 and 40/8 for BF16 vector.
+Those observations do not establish the timing cause. Whole-stage driver
+telemetry includes compilation and warmup rather than individual timing
+samples. Its Torch stage contains an anomalous 590.01 W value, retained as
+an untrusted telemetry reading, not evidence that the GPU drew 590.01 W.
+No power or thermal cause is assigned. Physical guard/read-only checks
+retain runtime reports separately from saved logical-output replay; neither
+source text nor graph identity proves an internal branch or timed SASS.
+
+The [105 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-terminal-row/samples.csv)
+include every candidate, matched control, fresh Torch result, request flag
+and resource observation. They permit recomputing medians and ratios, not
+rerunning omitted tensor or GPU validation. The local full audit is
+`.deps/oct04-tirx-row-only-pairs-summary-v1/checkpoint.json`, SHA256
+`391059cc28559f41f9f54472fb2a8774f353bf5110e97fd6bf4ef8c139b635c9`;
+that packet is not bundled with the source. Saved snapshots and the executed
+helper closure define the measured cohort; current mutable source or DLL
+files are not substituted for those execution-time receipts.

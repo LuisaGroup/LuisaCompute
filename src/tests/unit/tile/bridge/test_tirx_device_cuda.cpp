@@ -7,6 +7,7 @@
 #include "ut/ut.hpp"
 #include "../../../../tile/bridge/tirx/execution.h"
 #include <tvm/ffi/extra/structural_equal.h>
+#include <tvm/arith/analyzer.h>
 
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/error.h>
@@ -30,6 +31,8 @@
 #include <string_view>
 #include <cstdlib>
 #include <cstdio>
+#include <limits>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -1270,6 +1273,328 @@ void test_cuda_subgroup_resource_rejections() {
     }
 }
 
+// Source/typed-IR only; this group does not execute a CUDA kernel.
+void test_cuda_subgroup_terminal_row_suffix() {
+    namespace ir = tvm::tirx;
+    constexpr auto flag = "LUISA_DIAGNOSTIC_TIRX_ROW_ONLY_COLLECTIVE";
+    auto set = [](const char *key, const char *value) noexcept {
+#ifdef _WIN32
+        return SetEnvironmentVariableA(key, value) != 0 || (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+        return value ? setenv(key, value, 1) == 0 : unsetenv(key) == 0;
+#endif
+    };
+    struct Restore {
+        decltype(set) setter;
+        std::array<luisa::optional<luisa::string>, 3u> old;
+        ~Restore() noexcept {
+            constexpr std::array keys{"LUISA_DIAGNOSTIC_TIRX_ROW_ONLY_COLLECTIVE", "LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS", "LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES"};
+            for (size_t i = 0; i < keys.size(); i++) { LUISA_ASSERT(setter(keys[i], old[i] ? old[i]->c_str() : nullptr)); }
+        }
+    } restore{set, {luisa::get_environment_variable(flag), luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS"), luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES")}};
+    expect(set("LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS", "0"));
+    expect(set("LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES", "0"));
+    auto i64 = [](int64_t n) { return tvm::IntImm::Int64(n); };
+    auto f32 = [](double n) { return tvm::FloatImm{tvm::PrimType::Float(32), n}; };
+    // SUM/MAX/MIN and three packed geometries use the same proof. The last
+    // cases exercise an actual distributed consumer, real-memory reread, and
+    // two terminal outputs; each must retain the original all-warp source.
+    struct Case { int64_t kind, mode; uint32_t packed, subgroups; bool changed; };
+    constexpr std::array cases{
+        Case{1, 0, 2, 2, true}, Case{2, 1, 4, 2, true}, Case{3, 0, 1, 2, true},
+        Case{1, 0, 2, 1, false}, Case{1, 2, 2, 2, false}, Case{1, 3, 2, 2, false}, Case{1, 4, 2, 2, false},
+        Case{1, 5, 2, 2, false}, Case{1, 6, 2, 2, false}, Case{1, 7, 2, 2, false},
+        Case{1, 8, 2, 2, false}, Case{1, 9, 2, 2, false}, Case{1, 10, 2, 2, false}, Case{1, 11, 2, 2, false},
+        Case{1, 12, 2, 2, true}, Case{1, 13, 2, 2, false}};
+    for (auto c : cases) {
+        auto input = ir::decl_buffer({i64(3), i64(65)}, tvm::PrimType::Float(32), "input");
+        auto narrow_type = c.mode >= 12 ? tvm::PrimType::BFloat(16) : tvm::PrimType::Float(16);
+        auto output = ir::decl_buffer({i64(12)}, narrow_type, "output");
+        auto carry = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
+        auto next = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "next", "local");
+        auto copy = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "copy", "local");
+        auto narrow = ir::decl_buffer({i64(1)}, narrow_type, "narrow", "local");
+        ir::PrimVar p{"program", tvm::PrimType::Int(64)}, k{"column", tvm::PrimType::Int(64)}, e{"element", tvm::PrimType::Int(64)}, once{"once", tvm::PrimType::Int(64)};
+        tvm::PrimExpr row = c.mode == 1 ? p + once - i64(7) : tvm::PrimExpr{p};
+        tvm::PrimExpr left = ir::BufferLoad{carry, {i64(0)}}, right = ir::BufferLoad{input, {row, k}};
+        if (c.mode == 7) {
+            auto type = ir::CopyBufferType(output);
+            type->elem_offset = tvm::if_then_else(left > f32(0.0), i64(0), i64(1));
+            output = ir::RebuildBufferVar(output, std::move(type));
+        }
+        tvm::PrimExpr combine = c.kind == 1 ? left + right : c.kind == 2 ? tvm::max(left, right) : tvm::min(left, right);
+        auto reduction_body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{
+            ir::AllocBuffer{next}, ir::BufferStore{next, combine, {i64(0)}},
+            ir::BufferStore{carry, ir::BufferLoad{next, {i64(0)}}, {i64(0)}}});
+        auto reduction_loop = ir::For{k, i64(0), i64(65), ir::ForKind::kSerial, reduction_body, {},
+            {{"luisa.tile.contract.reduction", i64(c.kind)}, {"luisa.tile.reduction_policy", i64(static_cast<int64_t>(reduction::unordered_tree))}}};
+        auto elements = [&](ir::Stmt body, int64_t count = 1) {
+            return ir::For{e, i64(0), i64(count), ir::ForKind::kSerial, std::move(body), {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        };
+        auto identity = c.kind == 1 ? 0.0 : c.kind == 2 ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+        tvm::ffi::Array<ir::Stmt> statements{ir::AllocBuffer{carry}, ir::BufferStore{carry, f32(identity), {i64(0)}}, reduction_loop};
+        // Unit wrapper has a nonzero min and is eliminated only along the
+        // cut path. Its variable is substituted in both resulting pieces.
+        if (c.mode == 1) {
+            statements = {ir::For{once, i64(7), i64(1), ir::ForKind::kSerial, ir::SeqStmt::Flatten(statements)}};
+        }
+        statements.push_back(ir::AllocBuffer{copy});
+        tvm::PrimExpr value = ir::BufferLoad{carry, {i64(0)}} * f32(0.5) + f32(1.0);
+        if (c.mode == 3) { value = value + ir::BufferLoad{input, {p, i64(0)}}; }
+        ir::Stmt copy_store = ir::BufferStore{copy, value, {i64(0)}};
+        // Deliberately non-dominating definition: this is a proof counterexample,
+        // never a numerical fixture. Later unconditional reads must not license it.
+        if (c.mode == 8) { copy_store = ir::IfThenElse{p < i64(1), std::move(copy_store)}; }
+        statements.push_back(std::move(copy_store));
+        if (c.mode == 2) {
+            statements.push_back(elements(ir::BufferStore{output, ir::Cast{tvm::PrimType::Float(16), ir::BufferLoad{copy, {i64(0)}}}, {p * i64(4) + e}}, 4));
+        } else {
+            statements.push_back(ir::AllocBuffer{narrow});
+            tvm::PrimExpr rounded_value = ir::Cast{narrow_type, ir::BufferLoad{copy, {i64(0)}}};
+            if (c.mode >= 12) {
+                // Exact current lower.cpp::_round_bfloat16 expression, fed by
+                // the already materialized FP32 scalar snapshot. Mode 12 is
+                // the positive BF16 RNE witness, including packed row tails.
+                auto u32 = tvm::PrimType::UInt(32);
+                auto word = [u32](uint32_t value) { return tvm::IntImm{u32, static_cast<int64_t>(value)}; };
+                auto bits = tvm::reinterpret(u32, ir::BufferLoad{copy, {i64(0)}});
+                if (c.mode == 13) { bits = tvm::bitwise_xor(bits, word(1u)); }
+                auto high = bits >> word(16u);
+                auto odd = tvm::bitwise_and(high, word(1u));
+                auto rounded = (bits + word(0x7fffu) + odd) >> word(16u);
+                auto nan = tvm::greater(tvm::bitwise_and(bits, word(0x7fffffffu)), word(0x7f800000u));
+                auto quiet = tvm::bitwise_or(high, word(0x40u));
+                auto storage = tvm::cast(tvm::PrimType::UInt(16), tvm::if_then_else(nan, quiet, rounded));
+                rounded_value = tvm::reinterpret(tvm::PrimType::BFloat(16), storage);
+            }
+            statements.push_back(elements(ir::BufferStore{narrow, rounded_value, {e}}));
+            tvm::PrimExpr destination = p + e;
+            if (c.mode == 6) { destination = p * i64(2) + tvm::if_then_else(left > f32(0.0), i64(0), i64(1)); }
+            ir::Stmt output_store = ir::BufferStore{output, ir::BufferLoad{narrow, {e}}, {destination}};
+            if (c.mode == 5) { output_store = ir::IfThenElse{left > f32(0.0), std::move(output_store)}; }
+            statements.push_back(elements(std::move(output_store)));
+            if (c.mode == 4) { statements.push_back(elements(ir::BufferStore{output, ir::BufferLoad{narrow, {e}}, {p + i64(3) + e}})); }
+        }
+        if (c.mode == 9) {
+            statements.push_back(ir::Evaluate{tvm::Call{tvm::PrimType::Float(32), ir::builtin::call_pure_extern(),
+                {ir::StringImm{"terminal_row_pointer_escape_witness"}, copy.data()}}});
+        }
+        if (c.mode == 11) {
+            auto another = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "later_carry", "local");
+            auto temporary = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "later_next", "local");
+            ir::PrimVar j{"later_column", tvm::PrimType::Int(64)};
+            statements.push_back(ir::AllocBuffer{another});
+            statements.push_back(ir::BufferStore{another, f32(0.0), {i64(0)}});
+            statements.push_back(ir::For{j, i64(0), i64(65), ir::ForKind::kSerial,
+                ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{ir::AllocBuffer{temporary},
+                    ir::BufferStore{temporary, ir::BufferLoad{another, {i64(0)}} + ir::BufferLoad{input, {p, j}}, {i64(0)}},
+                    ir::BufferStore{another, ir::BufferLoad{temporary, {i64(0)}}, {i64(0)}}}), {},
+                {{"luisa.tile.contract.reduction", i64(1)}, {"luisa.tile.reduction_policy", i64(static_cast<int64_t>(reduction::unordered_tree))}}});
+        }
+        ir::Stmt program = ir::SeqStmt::Flatten(statements);
+        if (c.mode == 10) { program = ir::For{once, i64(0), i64(2), ir::ForKind::kSerial, std::move(program)}; }
+        auto function = ir::PrimFunc{{input, output}, ir::For{p, i64(0), i64(3), ir::ForKind::kSerial,
+            std::move(program), {}, {{"luisa.tile.logical_parallel", i64(1)}}}};
+        auto options = cuda_subgroup_options();
+        options.planner.threads_per_group = c.packed * c.subgroups * 32u;
+        options.planner.reduction_programs_per_group = c.packed;
+        options.planner.reduction_lane_elements = 1u;
+        options.planner.reduction_unroll_factor = 1u;
+        options.planner.cache_reduction_inputs = false;
+        expect(set(flag, "0"));
+        auto original = compile_device(function, "terminal_row_probe", options);
+        expect(set(flag, "1"));
+        auto selected = compile_device(function, "terminal_row_probe", options);
+        // Malformed metadata/escape and repeated-fence witnesses may be rejected
+        // by an earlier proof. Distinguish that from a successful row-only rejection.
+        if (!original && (c.mode == 7 || c.mode == 9 || c.mode == 10)) {
+            expect(!static_cast<bool>(selected));
+            expect(selected.artifact.source.empty());
+            LUISA_INFO("Terminal-row witness mode={} rejected by original mapper/pipeline: {}", c.mode, original.error);
+            continue;
+        }
+        expect(static_cast<bool>(original)) << "mode=" << c.mode << " " << original.error;
+        expect(static_cast<bool>(selected)) << "mode=" << c.mode << " " << selected.error;
+        if (!original || !selected) { continue; }
+        expect((original.artifact.source != selected.artifact.source) == c.changed) << "kind=" << c.kind << " mode=" << c.mode;
+        expect(original.artifact.grid == selected.artifact.grid && original.artifact.block == selected.artifact.block &&
+               original.artifact.buffer_arguments == selected.artifact.buffer_arguments);
+        expect(original.plans.size() == 1u && selected.plans.size() == 1u);
+        if (original.plans.size() != 1u || selected.plans.size() != 1u) { continue; }
+        expect(original.plans.front().cost.kernel_score == selected.plans.front().cost.kernel_score);
+        if (c.changed) { expect(!selected.plans.front().reduction_payload_accesses_known); }
+        class Inspect final : public ir::StmtExprVisitor {
+        private:
+            tvm::PrimExpr _path{tvm::IntImm{tvm::PrimType::Bool(), 1}};
+            tvm::ffi::Map<ir::Var, tvm::Expr> _bindings;
+            uint32_t _depth{0u};
+            void VisitStmt_(const ir::AttrStmtNode *attribute) final {
+                if (attribute->attr_key == ir::attr::thread_extent) {
+                    auto axis = attribute->node.as<ir::IterVar>();
+                    auto extent = attribute->value.as<tvm::IntImmNode>();
+                    if (!axis || !extent || extent->value <= 0) { bindings_valid = false; }
+                    else if (axis.value()->thread_tag == "threadIdx.x") {
+                        thread_bindings++;
+                        thread_axis = axis.value()->var;
+                        thread_extent = extent->value;
+                    } else if (axis.value()->thread_tag == "blockIdx.x") {
+                        block_bindings++;
+                        block_axis = axis.value()->var;
+                        block_extent = extent->value;
+                    } else { bindings_valid = false; }
+                }
+                StmtExprVisitor::VisitStmt_(attribute);
+            }
+            void VisitStmt_(const ir::SeqStmtNode *sequence) final {
+                auto saved = _bindings;
+                StmtExprVisitor::VisitStmt_(sequence);
+                _bindings = std::move(saved);
+            }
+            void VisitStmt_(const ir::BindNode *binding) final {
+                StmtExprVisitor::VisitStmt_(binding);
+                // CSE definitions belong to the finalized artifact. Expand them
+                // in lexical order; never guess a variable's meaning by name.
+                _bindings.Set(binding->var, ir::Substitute(binding->value, _bindings));
+            }
+            void VisitStmt_(const ir::IfThenElseNode *branch) final {
+                VisitExpr(branch->condition);
+                auto saved = _path;
+                auto saved_bindings = _bindings;
+                auto condition = ir::Substitute(branch->condition, _bindings);
+                _depth++;
+                _path = saved && condition;
+                VisitStmt(branch->then_case);
+                _bindings = saved_bindings;
+                if (branch->else_case) { _path = saved && !condition; VisitStmt(branch->else_case.value()); }
+                _bindings = std::move(saved_bindings);
+                _path = saved;
+                _depth--;
+            }
+            void VisitStmt_(const ir::BufferStoreNode *store) final {
+                if (store->buffer.scope() == "global") { stores.push_back(_path); }
+                StmtExprVisitor::VisitStmt_(store);
+            }
+            void VisitExpr_(const tvm::CallNode *call) final {
+                if (call->op.same_as(ir::builtin::tvm_storage_sync())) { fences++; uniform &= _depth == 0u; }
+                if (call->op.same_as(ir::builtin::call_pure_extern()) && !call->args.empty()) {
+                    auto name = call->args[0].as<ir::StringImmNode>();
+                    if (name && std::string_view{name->value.data(), name->value.size()}.starts_with("__luisa_tile_cuda_warp_")) { collectives.push_back(_path); }
+                }
+                StmtExprVisitor::VisitExpr_(call);
+            }
+        public:
+            uint32_t fences{0u};
+            bool uniform{true};
+            bool bindings_valid{true};
+            uint32_t thread_bindings{0u}, block_bindings{0u};
+            int64_t thread_extent{0}, block_extent{0};
+            tvm::ffi::Optional<ir::PrimVar> thread_axis, block_axis;
+            std::vector<tvm::PrimExpr> collectives, stores;
+        } observed;
+        observed(selected.artifact.function->body);
+        auto reductions = c.mode == 11 ? 2u : 1u;
+        expect(observed.fences == (c.subgroups == 1u ? 0u : reductions) && observed.uniform);
+        expect(observed.collectives.size() == (c.subgroups == 1u ? 1u : 2u) * reductions);
+        // LowerIntrin has already turned integer AND/shift into builtin Calls.
+        // The arithmetic Analyzer does not fold every such literal Call. Fold
+        // only the nonnegative scalar integer cases used by physical indices;
+        // unknown operations/types and invalid shifts remain unproved.
+        class FoldPhysicalIndexCalls final : public ir::ExprMutator {
+        private:
+            [[nodiscard]] static bool supported(const tvm::IntImmNode *value) noexcept {
+                if (!value || value->value < 0) { return false; }
+                auto type = value->ty.as<tvm::PrimType>();
+                if (!type || !type.value().IsScalar() ||
+                    !type.value().MatchesCode(kDLInt, kDLUInt) ||
+                    (type.value().bits() != 32 && type.value().bits() != 64)) { return false; }
+                auto bits = type.value().bits();
+                auto maximum = bits == 64 ? static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) :
+                               type.value().code() == kDLInt ? uint64_t{0x7fffffff} : uint64_t{0xffffffff};
+                return static_cast<uint64_t>(value->value) <= maximum;
+            }
+            tvm::Expr VisitExpr_(const tvm::CallNode *original) final {
+                auto expression = ExprMutator::VisitExpr_(original);
+                auto call = expression.as<tvm::CallNode>();
+                if (!call || call->args.size() != 2u) { return expression; }
+                auto left = call->args[0].as<tvm::IntImmNode>();
+                auto right = call->args[1].as<tvm::IntImmNode>();
+                auto type = call->ty.as<tvm::PrimType>();
+                if (!supported(left) || !supported(right) || !type || !type.value().IsScalar()) { return expression; }
+                auto left_type = left->ty.as<tvm::PrimType>();
+                auto right_type = right->ty.as<tvm::PrimType>();
+                if (type.value().code() != left_type.value().code() || type.value().bits() != left_type.value().bits()) { return expression; }
+                auto a = static_cast<uint64_t>(left->value);
+                auto b = static_cast<uint64_t>(right->value);
+                if (call->op.same_as(ir::builtin::bitwise_and()) &&
+                    type.value().code() == right_type.value().code() && type.value().bits() == right_type.value().bits()) {
+                    return tvm::IntImm{type.value(), static_cast<int64_t>(a & b)};
+                }
+                if (call->op.same_as(ir::builtin::shift_right()) && b < static_cast<uint64_t>(type.value().bits())) {
+                    // Nonnegative signed and unsigned inputs have the same
+                    // right-shift result; no signed shift or overflow in C++.
+                    return tvm::IntImm{type.value(), static_cast<int64_t>(a >> b)};
+                }
+                return expression;
+            }
+        } fold_physical_indices;
+        auto truth_at = [&](const tvm::PrimExpr &predicate, uint32_t thread, uint32_t block) {
+            tvm::ffi::Map<ir::Var, tvm::Expr> substitutions;
+            auto known = true;
+            ir::PostOrderVisit(predicate, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto var = node.as<ir::VarNode>()) {
+                    auto type = var->ty.as<tvm::PrimType>();
+                    if (!type) { known = false; return; }
+                    if (observed.thread_axis && observed.thread_axis.value().get() == var) {
+                        substitutions.Set(tvm::ffi::GetRef<ir::Var>(var), tvm::IntImm{type.value(), thread});
+                    } else if (observed.block_axis && observed.block_axis.value().get() == var) {
+                        substitutions.Set(tvm::ffi::GetRef<ir::Var>(var), tvm::IntImm{type.value(), block});
+                    } else { known = false; }
+                }
+            });
+            tvm::arith::Analyzer analyzer;
+            auto folded = fold_physical_indices(ir::Substitute(predicate, substitutions)).as<tvm::PrimExpr>();
+            expect(folded.has_value());
+            if (!folded) { return false; }
+            auto result = analyzer->Simplify(folded.value());
+            auto literal = result.as<tvm::IntImmNode>();
+            expect(known && literal);
+            return known && literal && literal->value != 0;
+        };
+        if (c.changed && observed.collectives.size() == 2u) {
+            expect(observed.bindings_valid && observed.thread_bindings == 1u &&
+                   observed.thread_extent == selected.artifact.block[0]);
+            // A unit block binding may be removed by the normal simplifier.
+            expect((observed.block_bindings == 1u && observed.block_extent == selected.artifact.grid[0]) ||
+                   (observed.block_bindings == 0u && selected.artifact.grid[0] == 1u));
+            expect(observed.stores.size() == 1u);
+            // Enumerate real physical threads AND blocks, including inactive
+            // packed programs. First tree/barrier stay collective; second tree
+            // selects a full warp per program; external output remains worker0
+            // and logical-program-active, rather than every selected lane.
+            for (auto b = 0u; b < selected.artifact.grid[0]; b++) {
+                for (auto t = 0u; t < selected.artifact.block[0]; t++) {
+                    auto worker = t % (c.subgroups * 32u);
+                    auto program = b * c.packed + t / (c.subgroups * 32u);
+                    expect(truth_at(observed.collectives[0], t, b));
+                    expect(truth_at(observed.collectives[1], t, b) == (worker < 32u));
+                    for (auto &&predicate : observed.stores) { expect(truth_at(predicate, t, b) == (worker == 0u && program < 3u)); }
+                }
+            }
+        }
+        if (c.mode == 0 && c.kind == 1 && c.subgroups == 2) {
+            expect(set(flag, nullptr));
+            auto unset = compile_device(function, "terminal_row_probe", options);
+            expect(static_cast<bool>(unset));
+            if (unset) { expect(unset.artifact.source == original.artifact.source); }
+            expect(set(flag, "yes"));
+            auto invalid = compile_device(function, "terminal_row_probe", options);
+            expect(!static_cast<bool>(invalid));
+            expect(invalid.error.find("exactly 0 or 1") != luisa::string::npos);
+        }
+    }
+}
+
+
 void test_cuda_subgroup_packing_proofs() {
     auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
     auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
@@ -1562,4 +1887,5 @@ int main(int argc, char *argv[]) {
     "tile_tirx_cuda_subgroup_fused_artifacts"_test = test_cuda_subgroup_fused_artifacts;
     "tile_tirx_cuda_subgroup_resource_rejections"_test = test_cuda_subgroup_resource_rejections;
     "tile_tirx_cuda_subgroup_packing_proofs"_test = test_cuda_subgroup_packing_proofs;
+    "tile_tirx_cuda_subgroup_terminal_row_suffix"_test = test_cuda_subgroup_terminal_row_suffix;
 }

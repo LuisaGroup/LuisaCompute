@@ -3,6 +3,7 @@
 #include <numeric>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <optional>
 #include <string>
@@ -1520,6 +1521,314 @@ public:
         : _domain{domain} {}
 };
 
+// Private terminal-suffix proof. No output-name/shape or operation-name matching.
+// The marker is the actual second collective store constructed by the mapper.
+class TerminalRowSuffix {
+private:
+    using Stmt = tvm::tirx::Stmt;
+    using Array = tvm::ffi::Array<Stmt>;
+    const tvm::tirx::BufferStoreNode *_marker;
+    tvm::tirx::BufferVar _carry;
+    tvm::PrimExpr _worker;
+    tvm::arith::Analyzer _analyzer;
+    luisa::unordered_set<const tvm::tirx::VarNode *> _coordinates;
+    luisa::unordered_map<BufferKey, uint64_t> _allocations, _reads, _writes;
+    luisa::unordered_map<BufferKey, uint64_t> _suffix_reads;
+    luisa::unordered_set<BufferKey> _available;
+    luisa::unordered_map<BufferKey, tvm::PrimExpr> _ready;
+    tvm::PrimExpr _path{tvm::IntImm{tvm::PrimType::Bool(), 1}};
+    uint64_t _outputs{0u};
+    bool _valid{true};
+
+    [[nodiscard]] bool _contains(const Stmt &body) const {
+        auto found = false;
+        tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
+            found |= node.get() == _marker;
+        });
+        return found;
+    }
+
+    // Only the path to the marker is opened. A unit loop executes exactly once;
+    // substitute its bound variable in BOTH pieces before lifting its local cells.
+    [[nodiscard]] bool _split(const Stmt &body, Array &before, Array &after) const {
+        if (body.get() == _marker) { after.push_back(body); return true; }
+        if (auto sequence = body.as<tvm::tirx::SeqStmtNode>()) {
+            auto found = false;
+            for (auto &&statement : sequence->seq) {
+                if (found) { flatten_sequence(statement, after); }
+                else if (_contains(statement)) {
+                    if (!_split(statement, before, after)) { return false; }
+                    found = true;
+                } else { flatten_sequence(statement, before); }
+            }
+            return found;
+        }
+        if (auto loop = body.as<tvm::tirx::ForNode>(); loop && unit_serial_loop(loop) &&
+            static_extent(loop->extent) == 1u && loop->min.as<tvm::IntImmNode>() && loop->annotations.empty()) {
+            Array prefix, suffix;
+            if (!_split(loop->body, prefix, suffix)) { return false; }
+            auto append = [&](const Array &source, Array &destination) {
+                for (auto &&statement : source) {
+                    auto replaced = tvm::tirx::Substitute(statement,
+                        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, loop->min}});
+                    flatten_sequence(replaced, destination);
+                }
+            };
+            append(prefix, before);
+            append(suffix, after);
+            return true;
+        }
+        return false; // Never move a collective through a predicate/repeated loop.
+    }
+
+    [[nodiscard]] bool _implied(const tvm::PrimExpr &condition) {
+        // Canonicalize both sides under the same physical-thread bounds before
+        // adding the path constraint. A single packed program can simplify
+        // worker=thread%workers to thread; retaining only the former constraint
+        // would fail to prove a later canonicalized singleton-cell index.
+        auto path = _analyzer->Simplify(_path);
+        auto canonical = _analyzer->Simplify(condition);
+        tvm::With<tvm::arith::ConstraintContext> context{_analyzer, path};
+        return _analyzer->CanProve(canonical);
+    }
+
+    [[nodiscard]] bool _cell(const tvm::tirx::BufferVar &buffer,
+                             const tvm::ffi::Array<tvm::PrimExpr> &indices) {
+        auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+        if (buffer.scope() != "local" || !buffer->dtype.IsScalar() || buffer->layout ||
+            !buffer->strides.empty() || !buffer->allocated_addr.empty() || !offset || offset->value != 0 ||
+            buffer->shape.size() != indices.size() || _allocations[buffer.get()] != 1u) { return false; }
+        for (size_t i = 0u; i < indices.size(); i++) {
+            bool tainted = false;
+            if (!_expression(indices[i], true, tainted)) { return false; }
+            if (static_extent(buffer->shape[i]) != 1u ||
+                !_implied(tvm::equal(indices[i], tvm::IntImm::Int64(0)))) { return false; }
+        }
+        return !indices.empty();
+    }
+
+    // Strict scalar expression whitelist. No pointer expressions, unknown calls,
+    // real-memory reads, shared cells, or tainted address/predicate reads.
+    [[nodiscard]] bool _expression(const tvm::PrimExpr &expression, bool coordinate, bool &tainted) {
+        auto valid = true;
+        class Visit final : public tvm::tirx::ExprVisitor {
+        private:
+            TerminalRowSuffix &_owner;
+            bool _coordinate;
+            bool &_tainted;
+            void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+                auto found = _owner._ready.find(load->buffer.get());
+                if (_coordinate || load->predicate || !_owner._cell(load->buffer, load->indices) ||
+                    found == _owner._ready.end() || !_owner._implied(found->second)) {
+                    valid = false;
+                    return;
+                }
+                _owner._suffix_reads[load->buffer.get()]++;
+                _tainted = true;
+            }
+            void VisitExpr_(const tvm::tirx::VarNode *variable) final {
+                valid &= _owner._coordinates.contains(variable);
+            }
+            void VisitExpr_(const tvm::CallNode *call) final {
+                if (_coordinate) { valid = false; return; }
+                auto known = call->op.same_as(tvm::tirx::builtin::if_then_else()) ||
+                             call->op.same_as(tvm::tirx::builtin::reinterpret());
+                // BF16 RNE uses only total scalar UInt32 operations. Do not
+                // infer purity from an arbitrary intrinsic or admit shifts
+                // with unknown/out-of-range counts. Recurse into both operands
+                // so metadata, address and non-dominating reads stay rejected.
+                auto uint32 = [](const tvm::Expr &value) noexcept {
+                    auto type = value->ty.as<tvm::PrimType>();
+                    return type && type.value() == tvm::PrimType::UInt(32);
+                };
+                auto result_type = call->ty.as<tvm::PrimType>();
+                if (!known && result_type && result_type.value() == tvm::PrimType::UInt(32) &&
+                    call->args.size() == 2u && uint32(call->args[0]) && uint32(call->args[1])) {
+                    known = call->op.same_as(tvm::tirx::builtin::bitwise_and()) ||
+                            call->op.same_as(tvm::tirx::builtin::bitwise_or());
+                    if (call->op.same_as(tvm::tirx::builtin::shift_right())) {
+                        auto count = call->args[1].as<tvm::IntImmNode>();
+                        known = count && count->value >= 0 && count->value < 32;
+                    }
+                }
+                if (!known) { valid = false; return; }
+                ExprVisitor::VisitExpr_(call);
+            }
+            void VisitExpr_(const tvm::tirx::ProducerLoadNode *) final { valid = false; }
+        public:
+            bool valid{true};
+            Visit(TerminalRowSuffix &owner, bool coordinate, bool &tainted) noexcept
+                : _owner{owner}, _coordinate{coordinate}, _tainted{tainted} {}
+            void VisitExpr(const tvm::Expr &expr) final {
+                auto primitive = expr.as<tvm::PrimExpr>();
+                if (!primitive || !primitive.value().ty().IsScalar() ||
+                    (_coordinate && !primitive.value().ty().MatchesCode(DLDataTypeCode::kDLInt,
+                        DLDataTypeCode::kDLUInt, DLDataTypeCode::kDLBool))) { valid = false; return; }
+                // Allow the ordinary scalar arithmetic node family, but never
+                // let an unclassified expression (Let, address, shuffle) through.
+                auto ordinary = expr.as<tvm::IntImmNode>() || expr.as<tvm::FloatImmNode>() ||
+                    expr.as<tvm::tirx::VarNode>() || expr.as<tvm::tirx::BufferLoadNode>() ||
+                    expr.as<tvm::tirx::CastNode>() || expr.as<tvm::tirx::AddNode>() || expr.as<tvm::tirx::SubNode>() ||
+                    expr.as<tvm::tirx::MulNode>() || expr.as<tvm::tirx::DivNode>() || expr.as<tvm::tirx::FloorDivNode>() ||
+                    expr.as<tvm::tirx::FloorModNode>() || expr.as<tvm::tirx::MinNode>() || expr.as<tvm::tirx::MaxNode>() ||
+                    expr.as<tvm::tirx::LTNode>() || expr.as<tvm::tirx::LENode>() || expr.as<tvm::tirx::GTNode>() ||
+                    expr.as<tvm::tirx::GENode>() || expr.as<tvm::tirx::EQNode>() || expr.as<tvm::tirx::NENode>() ||
+                    expr.as<tvm::tirx::AndNode>() || expr.as<tvm::tirx::OrNode>() || expr.as<tvm::tirx::NotNode>() ||
+                    expr.as<tvm::CallNode>();
+                if (!ordinary) { valid = false; return; }
+                ExprVisitor::VisitExpr(expr);
+            }
+        } visitor{*this, coordinate, tainted};
+        visitor(expression);
+        valid &= visitor.valid;
+        return valid;
+    }
+
+    void _visit(const Stmt &body) {
+        if (!_valid) { return; }
+        if (auto sequence = body.as<tvm::tirx::SeqStmtNode>()) {
+            for (auto &&child : sequence->seq) { _visit(child); }
+        } else if (auto allocation = body.as<tvm::tirx::AllocBufferNode>()) {
+            tvm::ffi::Array<tvm::PrimExpr> zeros;
+            for (size_t i = 0; i < allocation->buffer->shape.size(); i++) { zeros.push_back(tvm::IntImm::Int64(0)); }
+            auto unconditional = _path.as<tvm::IntImmNode>();
+            _valid &= unconditional && unconditional->value != 0 && allocation->annotations.empty() && _cell(allocation->buffer, zeros);
+            _available.emplace(allocation->buffer.get());
+        } else if (auto loop = body.as<tvm::tirx::ForNode>()) {
+            if (!unit_serial_loop(loop) || static_extent(loop->extent) != 1u ||
+                !loop->min.as<tvm::IntImmNode>() || !loop->annotations.empty()) { _valid = false; return; }
+            _visit(tvm::tirx::Substitute(loop->body,
+                tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, loop->min}}));
+        } else if (auto branch = body.as<tvm::tirx::IfThenElseNode>()) {
+            bool tainted = false;
+            if (branch->else_case || !_expression(branch->condition, true, tainted)) { _valid = false; return; }
+            auto saved = _path;
+            _path = _path && branch->condition;
+            _visit(branch->then_case);
+            _path = std::move(saved);
+        } else if (auto store = body.as<tvm::tirx::BufferStoreNode>()) {
+            bool tainted = false;
+            if (store->predicate || !_expression(store->value, false, tainted) || !tainted) { _valid = false; return; }
+            if (store->buffer.scope() == "local") {
+                if (!_available.contains(store->buffer.get()) || !_cell(store->buffer, store->indices) || _ready.contains(store->buffer.get()) ||
+                    _writes[store->buffer.get()] != 1u) { _valid = false; return; }
+                _ready.emplace(store->buffer.get(), _path);
+            } else {
+                auto offset = store->buffer->elem_offset.as<tvm::IntImmNode>();
+                auto simple_root = store->buffer.scope() == "global" && _allocations[store->buffer.get()] == 0u &&
+                    store->buffer->dtype.IsScalar() && !store->buffer->layout && store->buffer->strides.empty() &&
+                    store->buffer->allocated_addr.empty() && offset && offset->value == 0;
+                for (auto &&extent : store->buffer->shape) { simple_root &= static_extent(extent, true).has_value(); }
+                if (!simple_root || ++_outputs != 1u ||
+                    !_implied(tvm::equal(_worker, tvm::IntImm::Int64(0)))) { _valid = false; return; }
+                for (auto &&index : store->indices) {
+                    bool index_tainted = false;
+                    _valid &= _expression(index, true, index_tainted);
+                }
+            }
+        } else if (auto evaluation = body.as<tvm::tirx::EvaluateNode>()) {
+            auto zero = evaluation->value.as<tvm::IntImmNode>();
+            _valid &= zero && zero->value == 0;
+        } else { _valid = false; }
+    }
+
+public:
+    TerminalRowSuffix(const tvm::tirx::BufferStoreNode *marker, tvm::PrimExpr worker,
+                      const tvm::tirx::PrimVar &thread, uint64_t threads,
+                      const tvm::tirx::PrimVar &lane, const tvm::tirx::PrimVar &block, const tvm::tirx::ForNode *program)
+        : _marker{marker}, _carry{marker->buffer}, _worker{std::move(worker)} {
+        _coordinates.emplace(thread.get());
+        _coordinates.emplace(lane.get());
+        _coordinates.emplace(block.get());
+        _coordinates.emplace(program->loop_var.get());
+        _analyzer->Bind(thread, tvm::Range::FromMinExtent(tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(threads))));
+        _analyzer->Bind(lane, tvm::Range::FromMinExtent(tvm::IntImm::Int64(0), tvm::IntImm::Int64(32)));
+    }
+
+    [[nodiscard]] tvm::ffi::Optional<Stmt> rewrite(const Stmt &body, const tvm::PrimExpr &subgroup) {
+        Array prefix, suffix;
+        if (!_split(body, prefix, suffix) || suffix.empty()) { return {}; }
+        // Count occurrences, not unique DAG nodes: an identical BufferLoad may
+        // occur before and after the marker and must not conceal an early use.
+        class Census final : public tvm::tirx::StmtExprVisitor {
+        private:
+            TerminalRowSuffix &_owner;
+            void VisitStmt_(const tvm::tirx::AllocBufferNode *alloc) final {
+                _owner._allocations[alloc->buffer.get()]++;
+                metadata_plain &= alloc->annotations.empty();
+                buffers.emplace(alloc->buffer.get(), alloc->buffer);
+            }
+            void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+                _owner._reads[load->buffer.get()]++;
+                buffers.emplace(load->buffer.get(), load->buffer);
+                StmtExprVisitor::VisitExpr_(load);
+            }
+            void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+                _owner._writes[store->buffer.get()]++;
+                buffers.emplace(store->buffer.get(), store->buffer);
+                external_stores += store->buffer.scope() == "global";
+                StmtExprVisitor::VisitStmt_(store);
+            }
+        public:
+            uint64_t external_stores{0u};
+            bool metadata_plain{true};
+            luisa::unordered_map<BufferKey, tvm::tirx::BufferVar> buffers;
+            explicit Census(TerminalRowSuffix &owner) noexcept : _owner{owner} {}
+        } census{*this};
+        census(body);
+        // Types/annotations are not ordinary expression children. Audit them
+        // explicitly rather than allowing a hidden carry read or local alias.
+        if (!census.metadata_plain) { return {}; }
+        for (auto &&[key, buffer] : census.buffers) {
+            if (buffer->layout || !buffer->allocated_addr.empty()) { return {}; }
+            bool tainted = false;
+            if (!_expression(buffer->elem_offset, true, tainted)) { return {}; }
+            for (auto &&extent : buffer->shape) { if (!_expression(extent, true, tainted)) { return {}; } }
+            for (auto &&stride : buffer->strides) { if (!_expression(stride, true, tainted)) { return {}; } }
+        }
+        for (auto &&statement : prefix) {
+            if (auto allocation = statement.as<tvm::tirx::AllocBufferNode>()) {
+                _available.emplace(allocation->buffer.get());
+            }
+        }
+        if (census.external_stores != 1u || !_available.contains(_carry.get()) ||
+            !_cell(_carry, {tvm::IntImm::Int64(0)})) { return {}; }
+        _ready.emplace(_carry.get(), tvm::IntImm{tvm::PrimType::Bool(), 1});
+        // The first item is the mapper-owned second collective itself, already
+        // proved by the reducer match. Its shared read is the sole exception.
+        for (size_t i = 1u; i < suffix.size(); i++) { _visit(suffix[i]); }
+        if (!_valid || _outputs != 1u) { return {}; }
+        for (auto &&[key, guard] : _ready) {
+            if (key != _carry.get() && _reads[key] != _suffix_reads[key]) { return {}; }
+        }
+        // A cell's address may not escape even in a prefix statement. Ordinary
+        // load/store operands do not expose their BufferVar as a pointer value.
+        class Escape final : public tvm::tirx::StmtExprVisitor {
+        private:
+            const luisa::unordered_map<BufferKey, tvm::PrimExpr> &_cells;
+            void VisitExpr_(const tvm::tirx::VarNode *var) final { valid &= !_cells.contains(var); }
+            void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+                for (auto &&index : load->indices) { VisitExpr(index); }
+                if (load->predicate) { VisitExpr(load->predicate.value()); }
+            }
+            void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+                VisitExpr(store->value);
+                for (auto &&index : store->indices) { VisitExpr(index); }
+                if (store->predicate) { VisitExpr(store->predicate.value()); }
+            }
+            void VisitStmt_(const tvm::tirx::AllocBufferNode *) final {}
+        public:
+            bool valid{true};
+            explicit Escape(const luisa::unordered_map<BufferKey, tvm::PrimExpr> &cells) noexcept : _cells{cells} {}
+        } escape{_ready};
+        escape(body);
+        if (!escape.valid) { return {}; }
+        prefix.push_back(tvm::tirx::IfThenElse{
+            tvm::equal(subgroup, tvm::IntImm::Int64(0)), tvm::tirx::SeqStmt::Flatten(suffix)});
+        return tvm::tirx::SeqStmt::Flatten(prefix);
+    }
+};
+
 class ReductionProgramMapper final : public DiagnosticStmtExprMutator {
 private:
     tvm::PrimExpr _worker;
@@ -1551,6 +1860,7 @@ private:
         &_striped_buffers;
     luisa::optional<tvm::PrimExpr> _striped_slot;
     uint32_t _lane_depth{0u};
+    const tvm::tirx::BufferStoreNode *_second_collective{nullptr};
 
     [[nodiscard]] luisa::vector<const tvm::tirx::ForNode *> _phase_proof_domain(
         const tvm::tirx::ForNode *chunk, const tvm::tirx::ForNode *element) const {
@@ -1796,8 +2106,10 @@ private:
             tvm::PrimType::Float(32),
             tvm::tirx::builtin::call_pure_extern(),
             {tvm::tirx::StringImm{intrinsic}, std::move(input)}};
-        statements.push_back(tvm::tirx::BufferStore{
-            match.carry, std::move(total), {tvm::IntImm::Int64(0)}});
+        auto second = tvm::tirx::BufferStore{
+            match.carry, std::move(total), {tvm::IntImm::Int64(0)}};
+        _second_collective = second.get();
+        statements.push_back(std::move(second));
         return tvm::tirx::SeqStmt::Flatten(statements);
     }
 
@@ -1989,6 +2301,7 @@ public:
           _contribution_storage_budget{contribution_storage_budget},
           _target{target}, _analysis{analysis}, _partials{partials}, _striped_buffers{striped_buffers} {}
 
+    [[nodiscard]] const tvm::tirx::BufferStoreNode *second_collective() const noexcept { return _second_collective; }
     [[nodiscard]] uint64_t contribution_storage_scalars() const noexcept { return _contribution_storage_scalars; }
     [[nodiscard]] uint64_t vector_phases() const noexcept { return _vector_phases; }
     [[nodiscard]] uint64_t scalar_phases() const noexcept { return _scalar_phases; }
@@ -2123,7 +2436,14 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     auto cuda = target == SubgroupReductionTarget::CUDA;
     auto enabled = cuda ? options.cuda_subgroup_reductions : options.metal_subgroup_reductions;
     auto vector_packs = false;
+    auto row_only = false;
     if (cuda) {
+        if (auto value = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_ROW_ONLY_COLLECTIVE")) {
+            if (*value == "1") { row_only = true; }
+            else if (*value != "0") {
+                return diagnostic.reject("private CUDA row-only collective must be exactly 0 or 1", tvm::tirx::Stmt{});
+            }
+        }
         if (auto value = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS")) {
             if (*value == "1") {
                 vector_packs = true;
@@ -2231,6 +2551,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         uint64_t vector_phases{0u};
         uint64_t scalar_phases{0u};
         bool vector_unsupported{false};
+        bool row_only_applied{false};
         // Deliberately incomplete. Empty records cannot mean free memory.
         const char *memory_coverage{"partial-independent-and-staged-load-phases"};
         bool whole_kernel_memory_known{false};
@@ -2314,7 +2635,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                 tvm::tirx::Evaluate{zero}};
         }
         auto mapper = ReductionProgramMapper{
-            std::move(worker), lane, subgroup, partial_base, program_active,
+            worker, lane, subgroup, partial_base, program_active,
             program_workers, multi_subgroup ? subgroups_per_program : 1u, candidate.unroll_factor, options.reduction_lane_elements,
             vector_packs, options.max_reduction_striped_scalars_per_worker - candidate.striped_storage_scalars,
             loop.get(), vector_thread_domain ? vector_thread_domain.value().get() : nullptr,
@@ -2322,6 +2643,13 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
             vector_packs ? &prepared.memory : nullptr};
         auto body = mapper(loop->body);
         if (local_diagnostic.failed()) { prepared.error = local_diagnostic.error(); return prepared; }
+        if (row_only && multi_subgroup && analysis.reductions.size() == 1u && mapper.second_collective()) {
+            TerminalRowSuffix suffix{mapper.second_collective(), worker, thread, threads, lane, block, loop.get()};
+            if (auto terminal = suffix.rewrite(body, subgroup)) {
+                body = terminal.value();
+                prepared.row_only_applied = true;
+            }
+        }
         if (vector_packs) {
             prepared.vector_unsupported = mapper.vector_phases() == 0u;
         }
@@ -2512,6 +2840,14 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         LUISA_INFO("Private CUDA vector packs: {} guarded phases, {} scalar phases; emitted vector instructions remain unverified.",
                    best_prepared->vector_phases, best_prepared->scalar_phases);
     }
+    if (row_only) {
+        LUISA_INFO("Private CUDA row-only collective: applied={}; unchanged full tree, uniform publication barrier; cost remains original.",
+                   best_prepared->row_only_applied);
+        // Explicit diagnostic requests need an admission receipt even when a
+        // benchmark suppresses ordinary informational logging.
+        std::fprintf(stderr, "[luisa-tile-row-only] applied=%u\n",
+                     best_prepared->row_only_applied ? 1u : 0u);
+    }
     auto body = std::move(best_prepared->body);
     auto subgroups_per_program = best.subgroups;
     auto multi_subgroup = subgroups_per_program > 1u;
@@ -2539,7 +2875,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     plan.reduction_lane_utilization = best.lane_utilization;
     // Existing demands describe the original graph. The new explicit staging
     // loads/stores are not included; do not advertise incomplete counts as known.
-    plan.reduction_payload_accesses_known = accesses.known && best_prepared->contribution_storage_scalars == 0u;
+    plan.reduction_payload_accesses_known = accesses.known && best_prepared->contribution_storage_scalars == 0u && !best_prepared->row_only_applied;
     plan.reduction_payload_accesses_per_program = accesses.demand();
     plan.reduction_payload_accesses_per_worker = accesses.demand(program_workers, options.reduction_lane_elements);
     plan.striped_storage_scalars_per_worker = striped_storage_scalars + best_prepared->contribution_storage_scalars;
