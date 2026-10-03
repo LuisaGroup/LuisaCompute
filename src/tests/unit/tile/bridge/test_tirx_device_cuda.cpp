@@ -15,6 +15,8 @@
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/string.h>
+#include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
@@ -24,6 +26,17 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <cstdlib>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -766,6 +779,118 @@ void cuda_subgroup_private_index_facts() {
     cuda_subgroup_automatic_unroll_gates();
 }
 
+void test_cuda_subgroup_integer_extrema() {
+    constexpr auto name = "LUISA_DIAGNOSTIC_TIRX_INTEGER_EXTREMA";
+    // Match the process-environment test: DLL-local CRT tables are insufficient
+    // on Windows, and an existing empty value must survive this test as empty.
+    auto set_value = [](const char *key, const char *value) noexcept {
+#ifdef _WIN32
+        return SetEnvironmentVariableA(key, value) != 0 ||
+               (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+        return value == nullptr ? unsetenv(key) == 0 : setenv(key, value, 1) == 0;
+#endif
+    };
+    struct RestoreEnvironment {
+        const char *name;
+        decltype(set_value) set;
+        luisa::optional<luisa::string> previous;
+        ~RestoreEnvironment() noexcept {
+            LUISA_ASSERT(set(name, previous ? previous->c_str() : nullptr),
+                         "Could not restore integer-extrema test environment.");
+        }
+    } restore{name, set_value, luisa::get_environment_variable(name)};
+
+    // Reuse the existing unordered SUM fixture. The generated helper prefix
+    // also contains MIN/MAX; their numerical use is covered by the GPU tests.
+    auto kernel = cuda_subgroup_sum_kernel();
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto options = cuda_subgroup_options();
+    options.planner.threads_per_group = 128u;
+    options.planner.reduction_programs_per_group = 2u;
+    auto compile = [&](const char *value) {
+        auto changed = set_value(name, value);
+        expect(changed);
+        if (!changed) { return DeviceCompilationResult{}; }
+        return compile_device(native.value, kernel.function().name(), options);
+    };
+    auto original = compile(nullptr);
+    auto zero = compile("0");
+    auto candidate = compile("1");
+    expect(static_cast<bool>(original)) << original.error;
+    expect(static_cast<bool>(zero)) << zero.error;
+    expect(static_cast<bool>(candidate)) << candidate.error;
+    if (!original || !zero || !candidate) { return; }
+    expect(zero.artifact.source == original.artifact.source);
+    expect(candidate.artifact.source != original.artifact.source);
+    expect(candidate.artifact.entry == original.artifact.entry);
+    expect(candidate.artifact.grid == original.artifact.grid);
+    expect(candidate.artifact.block == original.artifact.block);
+    expect(candidate.artifact.buffer_arguments == original.artifact.buffer_arguments);
+    expect(original.plans.size() == 1u && candidate.plans.size() == 1u);
+    if (original.plans.size() == 1u && candidate.plans.size() == 1u) {
+        auto &a = original.plans.front();
+        auto &b = candidate.plans.front();
+        expect(a.reduction_operations == b.reduction_operations);
+        expect(a.reduction_subgroups_per_program == b.reduction_subgroups_per_program);
+        expect(a.reduction_programs_per_group == b.reduction_programs_per_group);
+        expect(a.group_barrier_sites_after == b.group_barrier_sites_after);
+        expect(a.shared_memory_bytes == b.shared_memory_bytes);
+    }
+
+    auto helper = [](luisa::string_view source, luisa::string_view signature) {
+        auto start = source.find(signature);
+        if (start == luisa::string_view::npos) { return luisa::string_view{}; }
+        auto end = source.find("\n}\n", start);
+        return end == luisa::string_view::npos ? luisa::string_view{} : source.substr(start, end + 3u - start);
+    };
+    auto normalized = candidate.artifact.source;
+    for (auto kind : {"min", "max"}) {
+        auto signature = luisa::string{"static __device__ __forceinline__ float __luisa_tile_cuda_warp_"} + kind + "(float value) {";
+        auto before = helper(original.artifact.source, signature);
+        auto after = helper(normalized, signature);
+        expect(!before.empty() && !after.empty());
+        if (before.empty() || after.empty()) { return; }
+        auto intrinsic = luisa::string{"__reduce_"} + kind + "_sync(0xffffffffu, key)";
+        expect(before.find("__reduce_") == luisa::string_view::npos);
+        expect(after.find(intrinsic) != luisa::string_view::npos);
+        expect(after.find("#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)") != luisa::string_view::npos);
+        auto loop_position = before.find("#pragma unroll");
+        expect(loop_position != luisa::string_view::npos);
+        if (loop_position == luisa::string_view::npos) { return; }
+        auto old_loop = before.substr(loop_position);
+        old_loop.remove_suffix(2u);// final function brace; loop and return stay
+        expect(after.find(old_loop) != luisa::string_view::npos);
+        auto position = static_cast<size_t>(after.data() - normalized.data());
+        normalized.replace(position, after.size(), before.data(), before.size());
+    }
+    // Exact reverse normalization proves default helpers, SUM/local arithmetic,
+    // emitted kernel, bindings and all other source text stayed unchanged.
+    expect(normalized == original.artifact.source);
+
+    for (auto value : {"", "2", "true", "01", " 1"}) {
+        auto rejected = compile(value);
+        expect(!static_cast<bool>(rejected));
+        expect(rejected.error == "private CUDA integer extrema must be exactly 0 or 1");
+        expect(rejected.artifact.source.empty() && rejected.plans.empty());
+    }
+    auto changed = set_value(name, "1");
+    expect(changed);
+    if (!changed) { return; }
+    auto reference = options;
+    reference.planner.cuda_subgroup_reductions = false;
+    auto rejected = compile_device(native.value, kernel.function().name(), reference);
+    expect(!static_cast<bool>(rejected));
+    expect(rejected.error == "private CUDA integer extrema require CUDA subgroup reductions");
+    expect(rejected.artifact.source.empty() && rejected.plans.empty());
+    auto restored = compile(nullptr);
+    expect(static_cast<bool>(restored)) << restored.error;
+    if (restored) { expect(restored.artifact.source == original.artifact.source); }
+}
+
+
 void test_cuda_subgroup_target_contract() {
     auto kernel = cuda_subgroup_sum_kernel();
     expect(kernel.valid());
@@ -1032,6 +1157,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_cuda_permutation_unroll_budget"_test = test_cuda_permutation_unroll_budget;
     "tile_tirx_cuda_fail_closed_options"_test = test_cuda_fail_closed_options;
     "tile_tirx_cuda_subgroup_target_contract"_test = test_cuda_subgroup_target_contract;
+    "tile_tirx_cuda_subgroup_integer_extrema"_test = test_cuda_subgroup_integer_extrema;
     "tile_tirx_cuda_subgroup_fused_artifacts"_test = test_cuda_subgroup_fused_artifacts;
     "tile_tirx_cuda_subgroup_resource_rejections"_test = test_cuda_subgroup_resource_rejections;
     "tile_tirx_cuda_subgroup_packing_proofs"_test = test_cuda_subgroup_packing_proofs;

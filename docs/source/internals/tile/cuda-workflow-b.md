@@ -162,3 +162,94 @@ cases and 53,096 assertions on Windows with CUDA 13.4 and an RTX 4060 Laptop GPU
 The suite covers full FP64 GEMM oracles, transposes and tails, ordered FMA,
 BufferView offsets and guards, alias/snapshot behavior, negative origins,
 special-value copies, simultaneous loop carries, and rejected options.
+
+## 7. Opt-in integer warp extrema in CUDA TIRx
+
+`LUISA_DIAGNOSTIC_TIRX_INTEGER_EXTREMA=1` changes only the CUDA subgroup
+warp MIN/MAX helpers. Unset or exact `0` retains the original helper source;
+other values fail compilation. Exact `1` requires CUDA subgroup reduction
+planning. This is a private diagnostic switch, not a new Tile primitive,
+public compile option, cost policy, or default selection. Metal and NVPTX
+paths are unchanged.
+
+The existing mapper requires unordered FP32 extrema initialized with
+`+Inf` for MIN and `-Inf` for MAX. Its unchanged, non-FTZ `min.f32`/`max.f32`
+local chain suppresses a single NaN, so both warp call sites receive
+non-NaN values, including identity padding. For such values, flipping the
+sign bit of nonnegative encodings and complementing negative encodings
+gives an order-preserving unsigned key. Integer `__reduce_min_sync` or
+`__reduce_max_sync` uses the existing full-warp mask, then the inverse
+transform restores the exact FP32 bits. This preserves subnormals,
+infinities and `-0 < +0`; all-NaN rows retain the original seeded identity.
+It is not a general unseeded, NaN-preserving float collective. SUM, local
+arithmetic order, shared partials, barriers and elementwise math policy
+remain unchanged. SM80 and later use integer redux; lower targets retain
+the original shuffle implementation. See the [PTX redux contract](https://docs.nvidia.com/cuda/archive/13.2.0/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-redux-sync).
+
+The host regression `tile_tirx_cuda_subgroup_integer_extrema` checks exact
+default/zero source equality, reverses only the two changed helpers to
+recover the entire original source, checks launch/argument metadata, and
+rejects invalid values or an absent subgroup capability. Existing GPU
+special-value and partial-tree tests were also run with the switch enabled
+on SM89: 2,143,669 assertions across the two filters passed. After adding
+the host group, the full main build and the host suite passed, including
+59 assertions in the new group; the project no-throw scan passed. A separate
+strict/fast seeded helper probe checked 985,088 output words plus guards
+for T32/T128/T1024, including signed zeros, subnormals, infinities,
+quiet/signaling NaNs, random raw bits and identity tails. SM75 strict/fast
+compile-only probes emitted no redux. Current exact-source-key PTX has two
+unpredicated, full-mask MAX redux instructions before lane-zero publication
+and after partial/identity reconvergence, respectively; the ten SUM
+shuffles and two CTA barriers remain. This is cache inspection, not captured
+timed-JIT machine code or SASS.
+
+The 2026-10-04 closed paired cohort used FP16 softmax, fast elementwise math,
+T128/P2/U16, graph batches of 100, seven samples targeting 100 ms and 500 ms
+warmup. Each fixture kept its mapping fixed while toggling only the extrema
+switch. The small case used L1 scalar storage; the large case used the
+separate private L8 guarded storage/coordinate experiment, which this
+change does not enable.
+
+| Shape | Flag 0 initial, us | Flag 1, us | Flag 0 recheck, us | Fresh Torch, us | Flag 1 / recheck |
+|---|---:|---:|---:|---:|---:|
+| 32 x 512 | 1.129729 | 1.064617 | 1.124895 | 1.087499 | 0.946414 |
+| 1024 x 512 | 3.385967 | 2.839070 | 3.377445 | 4.307133 | 0.840597 |
+
+Lower is better. All six native and two fresh Torch processes passed:
+56 samples, 600 actual native graph nodes, and ten saved logical outputs
+(2,703,360 elements). Full saved logical outputs were independently checked
+against the original FP64 bounds; physical guards/read-only allocation
+checks remain runtime reports. All native entries reported 23 registers,
+80 static shared bytes and zero local bytes. Control drift was -0.43% and
+-0.25%; the candidate ranges did not overlap either control range in this
+cohort. This does not establish cross-session stability or a thermal
+explanation. Torch consumed the first control's exact fixture with fresh
+per-case caches; its XBLOCK1/W4 selection records had null cubin hashes, so
+no unique timed cubin identity is claimed.
+
+After a complete build of a tree with the TIRx bridge and CUDA enabled,
+these persisted tests can be run independently of the private benchmark:
+
+```powershell
+./build-msvc-llvm/bin/test_tirx_device_cuda.exe tile_tirx_cuda_subgroup_integer_extrema
+$env:LUISA_DIAGNOSTIC_TIRX_INTEGER_EXTREMA = '1'
+./build-msvc-llvm/bin/test_tile_cuda_ptx.exe cuda tile_cuda_ptx_subgroup_special_values
+./build-msvc-llvm/bin/test_tile_cuda_ptx.exe cuda tile_cuda_ptx_subgroup_partial_tree_values
+Remove-Item Env:LUISA_DIAGNOSTIC_TIRX_INTEGER_EXTREMA
+```
+
+The [56 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-integer-extrema/samples.csv)
+allow the table's medians and ratios to be recomputed without the private
+benchmark. They do not reproduce GPU execution, full tensor validation,
+source compilation or physical guard checks.
+
+The retained local audit is
+`.deps/oct04-tirx-integer-extrema-pairs-summary-v1/checkpoint.json`, SHA256
+`143756b7aaa1b052ae32c6f3955d4c69613eb7b583889667aefb170f662ef922`.
+It preserves both controls, all samples, source/helper identity, actual graph
+bindings, resources and whole-stage telemetry. Execution-time source/DLL
+hash checks are recorded by the passed frozen queue; after the source lock
+was released, the independent replay checked the saved snapshot and frozen
+validation helpers without pretending current mutable binaries were still
+the measurement binaries. This local packet is not bundled by this source
+change. The experiment remains opt-in.

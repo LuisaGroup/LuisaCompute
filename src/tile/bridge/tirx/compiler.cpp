@@ -17,6 +17,7 @@
 #include <tvm/tirx/stmt_functor.h>
 #include <tvm/tirx/transform.h>
 
+#include <luisa/core/platform.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -1034,6 +1035,21 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             return result;
         }
         tvm::Target target{tvm::ffi::String{options.target.data(), options.target.size()}};
+        auto integer_extrema = false;
+        if (target->kind->name == "cuda") {
+            if (auto value = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_INTEGER_EXTREMA")) {
+                if (*value == "1") {
+                    integer_extrema = true;
+                } else if (*value != "0") {
+                    result.error = "private CUDA integer extrema must be exactly 0 or 1";
+                    return result;
+                }
+            }
+            if (integer_extrema && !options.planner.cuda_subgroup_reductions) {
+                result.error = "private CUDA integer extrema require CUDA subgroup reductions";
+                return result;
+            }
+        }
         luisa::string_view inspect_source;
         auto format = detail::device_artifact_format(target, inspect_source);
         if (inspect_source.empty()) {
@@ -1136,7 +1152,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
                 std::any_of(result.plans.begin(), result.plans.end(), [](const auto &plan) noexcept {
                     return plan.reduction_operations != 0u;
                 })) {
-                result.artifact.source = detail::native_cuda_subgroup_helpers();
+                result.artifact.source = detail::native_cuda_subgroup_helpers(integer_extrema);
                 result.artifact.source.append(source.data(), source.size());
             } else {
                 result.artifact.source.assign(source.data(), source.size());

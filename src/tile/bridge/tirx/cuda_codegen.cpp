@@ -22,6 +22,8 @@
 // TVM's native CUDA emitter requires this callback even for plain FP32 kernels.
 #include "cuda_codegen.h"
 
+#include <luisa/core/logging.h>
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -857,11 +859,11 @@ int native_cuda_header_callback(void *, const TVMFFIAny *args, int32_t count, TV
 
 }// namespace
 
-[[nodiscard]] luisa::string_view native_cuda_subgroup_helpers() noexcept {
+[[nodiscard]] luisa::string_view native_cuda_subgroup_helpers(bool integer_extrema) noexcept {
     // Explicit PTX protects every reduction merge from NVRTC's global FTZ/FMA
     // options. Ordinary elementwise arithmetic keeps its own math policy.
     // No .NaN: min/max suppress a single NaN and order -0 below +0.
-    return R"LC_CUDA_SUBGROUP(
+    static constexpr luisa::string_view original = R"LC_CUDA_SUBGROUP(
 static __device__ __forceinline__ float __luisa_tile_cuda_reduce_add(float a, float b) {
     float result;
     asm("add.rn.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
@@ -902,6 +904,71 @@ static __device__ __forceinline__ float __luisa_tile_cuda_warp_max(float value) 
     return value;
 }
 )LC_CUDA_SUBGROUP";
+
+    if (!integer_extrema) { return original; }
+    static const auto integer_helpers = [] {
+        std::string source{original.data(), original.size()};
+        constexpr std::string_view from0 = R"LC_REDUX(static __device__ __forceinline__ float __luisa_tile_cuda_warp_min(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_min(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+)LC_REDUX";
+        constexpr std::string_view to0 = R"LC_REDUX(static __device__ __forceinline__ float __luisa_tile_cuda_warp_min(float value) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
+    // Both mapper call sites supply non-NaN, identity-seeded extrema.
+    // Unsigned bit arithmetic preserves subnormals, signed zero and infinities.
+    unsigned bits = __float_as_uint(value);
+    unsigned key = bits ^ ((bits & 0x80000000u) ? 0xffffffffu : 0x80000000u);
+    unsigned reduced = __reduce_min_sync(0xffffffffu, key);
+    unsigned restored = reduced ^ ((reduced & 0x80000000u) ? 0x80000000u : 0xffffffffu);
+    return __uint_as_float(restored);
+#else
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_min(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+#endif
+}
+)LC_REDUX";
+        auto position0 = source.find(from0);
+        LUISA_ASSERT(position0 != std::string::npos, "Private seeded extrema helper anchor missing.");
+        source.replace(position0, from0.size(), to0);
+        constexpr std::string_view from1 = R"LC_REDUX(static __device__ __forceinline__ float __luisa_tile_cuda_warp_max(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_max(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+)LC_REDUX";
+        constexpr std::string_view to1 = R"LC_REDUX(static __device__ __forceinline__ float __luisa_tile_cuda_warp_max(float value) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
+    // Both mapper call sites supply non-NaN, identity-seeded extrema.
+    // Unsigned bit arithmetic preserves subnormals, signed zero and infinities.
+    unsigned bits = __float_as_uint(value);
+    unsigned key = bits ^ ((bits & 0x80000000u) ? 0xffffffffu : 0x80000000u);
+    unsigned reduced = __reduce_max_sync(0xffffffffu, key);
+    unsigned restored = reduced ^ ((reduced & 0x80000000u) ? 0x80000000u : 0xffffffffu);
+    return __uint_as_float(restored);
+#else
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_max(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+#endif
+}
+)LC_REDUX";
+        auto position1 = source.find(from1);
+        LUISA_ASSERT(position1 != std::string::npos, "Private seeded extrema helper anchor missing.");
+        source.replace(position1, from1.size(), to1);
+        return source;
+    }();
+    return {integer_helpers.data(), integer_helpers.size()};
 }
 
 void initialize_native_cuda_codegen() {
