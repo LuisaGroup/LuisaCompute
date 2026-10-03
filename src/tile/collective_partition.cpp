@@ -310,4 +310,79 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     return plan;
 }
 
+IndependentCollectiveWorkFacts analyze_independent_collective_candidate(
+    const IndependentCollectivePlan &plan, IndependentCollectiveGeometryKind geometry_kind) noexcept {
+    IndependentCollectiveWorkFacts facts;
+    auto fail = [&](luisa::string_view reason) noexcept {
+        facts.error.assign(reason.data(), reason.size());
+        return std::move(facts);
+    };
+    if (!plan.ok() || (plan.kind != CollectiveKind::SUM && plan.kind != CollectiveKind::MAXIMUM) ||
+        !storage(plan.input_storage) || !storage(plan.output_storage) ||
+        !plan.independent_axis || !plan.contribution_axis || plan.independent_axis == plan.contribution_axis) {
+        return fail("requires a successful independent collective plan");
+    }
+    if (geometry_kind != IndependentCollectiveGeometryKind::ORIGINAL &&
+        geometry_kind != IndependentCollectiveGeometryKind::PARTITIONED) {
+        return fail("unknown independent collective geometry kind");
+    }
+    auto rows = plan.logical_independent_extent;
+    auto columns = plan.logical_contribution_extent;
+    auto width = plan.tile_contribution_extent;
+    auto original_extent = plan.original.independent_extent_per_program;
+    auto candidate_extent = plan.candidate.independent_extent_per_program;
+    if (rows == 0u || columns == 0u || width < columns || original_extent == 0u ||
+        candidate_extent == 0u || candidate_extent >= original_extent || original_extent % candidate_extent != 0u) {
+        return fail("inconsistent independent collective extents");
+    }
+    auto geometry_matches = [rows](const CollectiveCandidateGeometry &geometry) noexcept {
+        auto extent = geometry.independent_extent_per_program;
+        auto full = rows / extent;
+        auto tail = rows % extent;
+        return geometry.full_programs == full && geometry.tail_valid_extent == tail &&
+               geometry.programs == full + static_cast<uint64_t>(tail != 0u);
+    };
+    if (!geometry_matches(plan.original) || !geometry_matches(plan.candidate)) {
+        return fail("inconsistent independent collective program cover");
+    }
+    auto geometry = geometry_kind == IndependentCollectiveGeometryKind::ORIGINAL ? plan.original : plan.candidate;
+    auto extent = geometry.independent_extent_per_program;
+    auto input_bytes = static_cast<uint64_t>(scalar_type_size(plan.input_storage));
+    auto output_bytes = static_cast<uint64_t>(scalar_type_size(plan.output_storage));
+    if (!multiply(geometry.programs, extent, facts.padded_independent_elements) ||
+        !multiply(extent, width, facts.collective_input_elements_per_program) ||
+        !multiply(geometry.programs, facts.collective_input_elements_per_program, facts.collective_input_elements_total) ||
+        !multiply(rows, columns, facts.valid_input_elements) ||
+        !multiply(facts.valid_input_elements, input_bytes, facts.valid_input_bytes) ||
+        !multiply(rows, output_bytes, facts.valid_output_bytes) ||
+        !multiply(facts.collective_input_elements_per_program, input_bytes, facts.input_snapshot_bytes_per_program) ||
+        !multiply(facts.collective_input_elements_per_program, uint64_t{4u}, facts.fp32_source_bytes_per_program) ||
+        !multiply(extent, uint64_t{4u}, facts.fp32_result_bytes_per_program) ||
+        !multiply(extent, output_bytes, facts.output_value_bytes_per_program)) {
+        return fail("independent collective work arithmetic overflows");
+    }
+    if (plan.disjoint.input.argument_index == plan.disjoint.output.argument_index ||
+        plan.disjoint.input.byte_count != facts.valid_input_bytes || plan.disjoint.output.byte_count != facts.valid_output_bytes ||
+        plan.disjoint.input.byte_offset > std::numeric_limits<uint64_t>::max() - facts.valid_input_bytes ||
+        plan.disjoint.output.byte_offset > std::numeric_limits<uint64_t>::max() - facts.valid_output_bytes) {
+        return fail("independent collective root intervals disagree with work facts");
+    }
+    facts.geometry_kind = geometry_kind;
+    facts.kind = plan.kind;
+    facts.input_storage = plan.input_storage;
+    facts.output_storage = plan.output_storage;
+    facts.independent_axis = plan.independent_axis;
+    facts.contribution_axis = plan.contribution_axis;
+    facts.collective_operation_id = plan.collective_operation_id;
+    facts.geometry = geometry;
+    facts.logical_independent_extent = rows;
+    facts.logical_contribution_extent = columns;
+    facts.tile_contribution_extent = width;
+    facts.valid_output_elements = rows;
+    facts.independent_bounds_elidable = geometry.tail_valid_extent == 0u;
+    facts.contribution_bounds_elidable = columns == width;
+    facts.contribution_identity_mask = plan.contribution_identity_mask;
+    return facts;
+}
+
 }// namespace luisa::compute::tile

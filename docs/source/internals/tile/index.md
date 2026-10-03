@@ -24,6 +24,7 @@ calculus
 related-work
 planner
 cost-policy
+../tile_collective_scheduling
 matrix
 reductions
 cpu

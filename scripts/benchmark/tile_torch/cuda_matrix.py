@@ -143,7 +143,7 @@ def validate_case(row, default_seed):
     if op in ROWS:
         require(math.prod(dims) <= 2**24, "row input exceeds fixture allocation bound")
         blockable = op in {"scan", "reduce_sum", "reduce_max"}
-        require((tile[0] == 1 or (blockable and tile[0] in {4, 8})) and
+        require((tile[0] == 1 or (blockable and tile[0] in {2, 4, 8})) and
                 tile[2] == 1 and tile[1] <= 16384, "invalid row schedule")
         require(op != "rope" or dims[1] % 2 == 0, "RoPE width must be even")
         require(op in {"swiglu", "gelu_residual", "rope"} or tile[1] >= dims[1], "row tile does not cover the logical width")
@@ -457,21 +457,85 @@ def validate_native_program_rows(rows, aligned16=False, worker_warps=0, scan_chu
             "native program-rows is mutually exclusive with other schedule experiments")
 
 
-def program_partition_receipts(result, requested=0):
+def validate_native_partition_cost(requested, aligned16=False, worker_warps=0, scan_chunk=0,
+                                   independent_axis=0, streaming_scan=0, collective_cost=False, program_rows=0):
+    require(type(requested) is bool, "invalid native partition-cost request")
+    require(not requested or not any((aligned16, worker_warps, scan_chunk, independent_axis,
+                                      streaming_scan, collective_cost, program_rows)),
+            "native partition-cost is mutually exclusive with other schedule experiments")
+
+
+def partition_cost_receipts(result, requested=False):
+    validate_native_partition_cost(requested)
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    receipts = []
+    required = {"requested", "profile", "fit", "status", "reason", "original-rows", "selected-rows"}
+    for index, stage in enumerate(stages):
+        realization = stage.get("realization", "")
+        entries = re.findall(r"(?:^|[;\s])partition-cost-([a-z-]+)=([^;\s]+)(?=$|[;\s])", realization)
+        require(len(entries) == realization.count("partition-cost-"), "malformed partition-cost marker")
+        if not requested:
+            require(not entries, "unrequested partition-cost realization")
+            continue
+        fields = dict(entries)
+        require(len(fields) == len(entries) and required <= fields.keys() <= required | {"original-score", "selected-score"},
+                "missing, duplicate or unknown partition-cost marker")
+        require(fields["requested"] == "1" and fields["profile"] == "sm89-24-cuda134-partition-linear-v1" and
+                fields["fit"] == "63e0677c8554b46b707aa9f1fca3f29f223c653b1ec35fd57b5534b79595b6c2",
+                "unexpected partition-cost request/profile/fit")
+        status, reason = fields["status"], fields["reason"]
+        require(status in ("selected", "retained", "ineligible") and
+                re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", reason), "invalid partition-cost status/reason")
+        require(all(re.fullmatch(r"[0-9]+", fields[k]) for k in ("original-rows", "selected-rows")),
+                "invalid partition-cost row geometry")
+        original, selected = int(fields["original-rows"]), int(fields["selected-rows"])
+        scores = {}
+        for name in ("original-score", "selected-score"):
+            if name in fields:
+                require(re.fullmatch(r"[+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", fields[name]),
+                        "invalid partition-cost score")
+                scores[name] = float(fields[name])
+                require(math.isfinite(scores[name]) and scores[name] > 0, "nonpositive/nonfinite partition-cost score")
+        require(len(scores) in (0, 2), "partial partition-cost score pair")
+        if status == "ineligible":
+            require(not scores and original == selected and original in (0, 4, 8), "ineligible partition-cost has a scored candidate")
+        else:
+            require(len(scores) == 2 and original in (4, 8), "partition-cost decision lacks scores or original geometry")
+            if status == "selected":
+                require(selected in (1, 2) and selected < original and original % selected == 0 and
+                        scores["selected-score"] < .95 * scores["original-score"] and reason == "predicted-saving",
+                        "partition-cost selected candidate disagrees with frozen threshold")
+            else:
+                require(selected == original and scores["selected-score"] == scores["original-score"] and
+                        reason in ("predicted-original", "candidate-unavailable"), "partition-cost retained decision mismatch")
+        receipts.append(dict(stage=index, requested=True, profile=fields["profile"], fit=fields["fit"], status=status,
+                             reason=reason, original_rows=original, selected_rows=selected,
+                             original_score=scores.get("original-score"), selected_score=scores.get("selected-score")))
+    return receipts
+
+
+def program_partition_receipts(result, requested=0, cost_decisions=None):
     validate_native_program_rows(requested)
+    require(not cost_decisions or requested == 0, "partition-cost conflicts with explicit program rows")
     stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
     receipts = result.get("native_program_partition")
-    if receipts is None and not requested:
+    if receipts is None and not requested and not cost_decisions:
         require(all("program-partition-" not in stage.get("realization", "") for stage in stages), "missing program partition receipts")
         return []
     require(isinstance(receipts, list) and len(receipts) == len(stages), "missing per-stage program partition receipts")
+    require(cost_decisions is None or len(cost_decisions) == len(stages), "partition-cost/launch stage count mismatch")
     for index, (receipt, stage) in enumerate(zip(receipts, stages)):
+        effective_rows = requested
+        if cost_decisions is not None:
+            decision = cost_decisions[index]
+            require(decision["stage"] == index, "partition-cost launch stage mismatch")
+            effective_rows = decision["selected_rows"] if decision["status"] == "selected" else 0
         realization = stage.get("realization", "")
         require(receipt.get("stage") == index and type(receipt.get("rows_requested")) is int and
-                receipt["rows_requested"] == requested, "program partition request/stage mismatch")
+                receipt["rows_requested"] == effective_rows, "program partition request/stage mismatch")
         def values(name):
             return re.findall(r"(?:^|[;\s])program-partition-" + name + r"=([0-9]+)(?=$|[;\s])", realization)
-        require(values("rows") == ([str(requested)] if requested else []), "program partition rows metadata mismatch")
+        require(values("rows") == ([str(effective_rows)] if effective_rows else []), "program partition rows metadata mismatch")
         available, disjoint = receipt.get("available"), receipt.get("static_ranges_disjoint")
         require(type(available) is bool and type(disjoint) is bool and
                 available == ("; program-partition-available;" in realization), "invalid program partition availability")
@@ -485,9 +549,11 @@ def program_partition_receipts(result, requested=0):
             else:
                 require(type(value) is int and value == 0 and not values(field.replace("_", "-")), "unavailable partition contains plan metadata")
         if available:
-            require(requested > 0 and receipt["input_slot"] != receipt["output_slot"] and
-                    receipt["original_rows"] > requested and receipt["original_rows"] % requested == 0 and
+            require(effective_rows > 0 and receipt["input_slot"] != receipt["output_slot"] and
+                    receipt["original_rows"] > effective_rows and receipt["original_rows"] % effective_rows == 0 and
                     receipt["grid_x"] >= receipt["original_grid_x"], "invalid program partition geometry")
+            if cost_decisions is not None:
+                require(receipt["original_rows"] == decision["original_rows"], "partition-cost original geometry mismatch")
         original_grid, selected_grid = receipt.get("original_grid"), receipt.get("expected_selected_grid")
         require(isinstance(original_grid, list) and len(original_grid) == 3 and
                 all(type(x) is int and x > 0 for x in original_grid), "missing original partition launch grid")
@@ -500,14 +566,14 @@ def program_partition_receipts(result, requested=0):
                 "program partition selected grid mismatch")
         require((receipt.get("expected_selected_entry") == "luisa_tile_partition") == selected,
                 "program partition expected entry mismatch")
-        if requested:
+        if effective_rows:
             require(selected, "program partition calibration did not select an available disjoint candidate")
     return receipts
 
 
 def route_environment(environment, route, native_aligned16=False, native_worker_warps=0,
                       native_scan_chunk=0, native_independent_axis=0, native_streaming_scan=0,
-                      native_collective_cost=False, native_program_rows=0):
+                      native_collective_cost=False, native_program_rows=0, native_partition_cost=False):
     # Never inherit experimental specialization into a control or another
     # route. Only an explicit native request may set the exact opt-in value.
     result = dict(environment)
@@ -519,6 +585,10 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
     result.pop("LUISA_CUDA_TILE_STREAMING_SCAN", None)
     result.pop("LUISA_CUDA_TILE_COLLECTIVE_COST", None)
     result.pop("LUISA_CUDA_TILE_PROGRAM_ROWS", None)
+    result.pop("LUISA_CUDA_TILE_PARTITION_COST", None)
+    validate_native_partition_cost(native_partition_cost, native_aligned16, native_worker_warps,
+                                   native_scan_chunk, native_independent_axis, native_streaming_scan,
+                                   native_collective_cost, native_program_rows)
     validate_native_program_rows(native_program_rows, native_aligned16, native_worker_warps,
                                  native_scan_chunk, native_independent_axis, native_streaming_scan, native_collective_cost)
     validate_native_collective_cost(native_collective_cost, native_aligned16, native_worker_warps,
@@ -541,6 +611,8 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
             result["LUISA_CUDA_TILE_COLLECTIVE_COST"] = "1"
         if native_program_rows:
             result["LUISA_CUDA_TILE_PROGRAM_ROWS"] = str(native_program_rows)
+        if native_partition_cost:
+            result["LUISA_CUDA_TILE_PARTITION_COST"] = "1"
     return result
 
 
@@ -627,13 +699,21 @@ def native_result(process, path, row, args, route):
     streaming_receipts = []
     cost_receipts = []
     partition_receipts = []
+    partition_cost_records = []
     if result["status"] == "passed":
+        partition_cost_requested = getattr(args, "native_partition_cost", False) if route == "native" else False
+        validate_native_partition_cost(partition_cost_requested, getattr(args, "native_aligned16", False),
+            getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
+            getattr(args, "native_independent_axis", 0), getattr(args, "native_streaming_scan", 0),
+            getattr(args, "native_collective_cost", False), getattr(args, "native_program_rows", 0))
+        partition_cost_records = partition_cost_receipts(result, partition_cost_requested)
         program_rows = getattr(args, "native_program_rows", 0) if route == "native" else 0
         validate_native_program_rows(program_rows, getattr(args, "native_aligned16", False),
             getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
             getattr(args, "native_independent_axis", 0), getattr(args, "native_streaming_scan", 0),
             getattr(args, "native_collective_cost", False))
-        partition_receipts = program_partition_receipts(result, program_rows)
+        partition_receipts = program_partition_receipts(result, program_rows,
+                                                       partition_cost_records if partition_cost_requested else None)
         cost_requested = getattr(args, "native_collective_cost", False) if route == "native" else False
         validate_native_collective_cost(cost_requested, getattr(args, "native_aligned16", False),
             getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
@@ -706,7 +786,8 @@ def native_result(process, path, row, args, route):
     return dict(status=result["status"], process=process, result=result, result_path=str(path), pipeline_sources=artifacts,
                 generated_sources=generated_sources,
                 native_worker_warps=worker_receipts, native_structure=structure_receipts, native_streaming=streaming_receipts,
-                native_collective_cost=cost_receipts, native_program_partition=partition_receipts)
+                native_collective_cost=cost_receipts, native_program_partition=partition_receipts,
+                native_partition_cost=partition_cost_records)
 
 
 def torch_result(process, path, row, args):
@@ -785,6 +866,8 @@ def main(argv=None):
                         help="native streaming prefix chunk; requires a proved disjoint available candidate")
     parser.add_argument("--native-program-rows", type=int, choices=(0, 1, 2, 4), default=0,
                         help="independent rows per native reduction program; requires a proved disjoint candidate")
+    parser.add_argument("--native-partition-cost", action="store_true",
+                        help="frozen experimental independent-program cost model; excludes other schedule experiments")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -799,6 +882,9 @@ def main(argv=None):
     parser.add_argument("--path-prefix", type=Path, action="append", default=[], help="additional CUDA/TVMx DLL directory; repeatable")
     parser.add_argument("--telemetry-ms", type=int, default=1000)
     args = parser.parse_args(argv)
+    validate_native_partition_cost(args.native_partition_cost, args.native_aligned16, args.native_worker_warps,
+                                    args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
+                                    args.native_collective_cost, args.native_program_rows)
     validate_native_collective_cost(args.native_collective_cost, args.native_aligned16, args.native_worker_warps,
                                     args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
     validate_native_structure(args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan)
@@ -856,6 +942,7 @@ def main(argv=None):
                ROOT / "include/luisa/tile/collective_cost.h", ROOT / "src/tile/collective_cost.cpp",
                ROOT / "include/luisa/tile/collective_partition.h", ROOT / "src/tile/collective_partition.cpp",
                ROOT / "src/backends/cuda/tile/cuda_tile_partition_codegen.h",
+               ROOT / "src/backends/cuda/tile/cuda_tile_partition_cost.h",
                ROOT / "src/backends/cuda/tile/cuda_tile_collective_cost.h"]
     files = [executable, python, baseline, Path(__file__).resolve(), HERE / "windows_affinity.py", marker, build / "CMakeCache.txt"] + sources
     files += list((build / "bin").glob("luisa*.dll"))
@@ -916,7 +1003,7 @@ def main(argv=None):
                         command += ["--graph-batch", args.graph_batch]
                     child_environment = route_environment(environment, route, args.native_aligned16, args.native_worker_warps,
                                                           args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
-                                                          args.native_collective_cost, args.native_program_rows)
+                                                          args.native_collective_cost, args.native_program_rows, args.native_partition_cost)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
@@ -931,10 +1018,12 @@ def main(argv=None):
                     item["runs"][route]["native_streaming_scan_requested"] = args.native_streaming_scan if route == "native" else 0
                     item["runs"][route]["native_collective_cost_requested"] = route == "native" and args.native_collective_cost
                     item["runs"][route]["native_program_rows_requested"] = args.native_program_rows if route == "native" else 0
+                    item["runs"][route]["native_partition_cost_requested"] = route == "native" and args.native_partition_cost
                     item["runs"][route]["environment_overrides"] = {
                         key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS",
                                                                "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN",
-                                                               "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS") if key in child_environment}
+                                                               "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS",
+                                                               "LUISA_CUDA_TILE_PARTITION_COST") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:
@@ -954,6 +1043,7 @@ def main(argv=None):
                     item["runs"]["torch"] = dict(status="not_requested", requested=False,
                         reason="--native-only calibration: no Torch child was run", native_worker_warps_requested=0,
                         native_scan_chunk_requested=0, native_independent_axis_requested=0, native_collective_cost_requested=False,
+                        native_partition_cost_requested=False, native_program_rows_requested=0,
                         environment_overrides={})
                     item["comparison_status"] = "absent_native_only_calibration"
                 elif canonical is None:
@@ -977,6 +1067,8 @@ def main(argv=None):
                         item["runs"]["torch"] = dict(status="failed", process=process, error=str(error), traceback=traceback.format_exc())
                     item["runs"]["torch"]["native_worker_warps_requested"] = 0
                     item["runs"]["torch"]["native_collective_cost_requested"] = False
+                    item["runs"]["torch"]["native_partition_cost_requested"] = False
+                    item["runs"]["torch"]["native_program_rows_requested"] = 0
                     item["runs"]["torch"]["native_scan_chunk_requested"] = 0
                     item["runs"]["torch"]["native_independent_axis_requested"] = 0
                     item["runs"]["torch"]["environment_overrides"] = {}

@@ -342,10 +342,10 @@ template<typename T = float>
         auto logical_width = op == "rope" ? width / 2 : width;
         auto independent_rows = op == "scan" || op == "reduce_sum" || op == "reduce_max";
         auto pointwise = op == "swiglu" || op == "gelu_residual" || op == "rope";
-        auto valid_row_block = o.tile[0] == 1 || (independent_rows && (o.tile[0] == 4 || o.tile[0] == 8));
+        auto valid_row_block = o.tile[0] == 1 || (independent_rows && (o.tile[0] == 2 || o.tile[0] == 4 || o.tile[0] == 8));
         if (!valid_row_block || o.tile[2] != 1 || o.tile[1] <= 0 || (!pointwise && o.tile[1] < logical_width) || o.tile[1] > 16384 ||
             (op == "rope" && width % 2 != 0) || (op == "scan_ordered" && o.tile[1] > 1024)) {
-            f.error = "row schedule requires BR1 (or BR4/8 for scan/sum/max), positive BD (full width except swiglu/gelu_residual/rope) and K=1; ordered scan width <=1024 and RoPE width even";
+            f.error = "row schedule requires BR1 (or BR2/4/8 for scan/sum/max), positive BD (full width except swiglu/gelu_residual/rope) and K=1; ordered scan width <=1024 and RoPE width even";
             return f;
         }
         if (o.backend == "cuda" && pointwise && ceil_div(logical_width, o.tile[1]) > 65535) {

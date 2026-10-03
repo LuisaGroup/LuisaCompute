@@ -70,4 +70,53 @@ struct IndependentCollectivePlan {
 [[nodiscard]] LUISA_TILE_API IndependentCollectivePlan plan_independent_collective(
     const Function &function, IndependentPartitionRequest request = {}) noexcept;
 
+enum class IndependentCollectiveGeometryKind : uint8_t { ORIGINAL,
+                                                         PARTITIONED };
+
+inline constexpr luisa::string_view kIndependentCollectiveWorkSchema = "partition-work-v1";
+
+// Exact semantic recipe quantities, not physical allocation, transactions or
+// occupancy. Original-geometry facts do not replace original IR SSA liveness.
+// Component byte counts may describe the same/coalesced value and MUST NOT be
+// added or scaled from original analysis to manufacture a candidate peak.
+// No peak field is supplied: candidate liveness is unknown without an actual
+// candidate IR or explicit recipe SSA analysis. Cost facts grant no legality.
+struct IndependentCollectiveWorkFacts {
+    luisa::string error;
+    IndependentCollectiveGeometryKind geometry_kind{IndependentCollectiveGeometryKind::PARTITIONED};
+    CollectiveKind kind{CollectiveKind::SUM};
+    ScalarType input_storage{ScalarType::INVALID};
+    ScalarType output_storage{ScalarType::INVALID};
+    Dim independent_axis;
+    Dim contribution_axis;
+    uint64_t collective_operation_id{0u};
+    CollectiveCandidateGeometry geometry;
+    uint64_t logical_independent_extent{0u};
+    uint64_t logical_contribution_extent{0u};
+    uint64_t tile_contribution_extent{0u};
+    uint64_t padded_independent_elements{0u};
+    uint64_t collective_input_elements_per_program{0u};
+    uint64_t collective_input_elements_total{0u};
+    uint64_t valid_input_elements{0u};
+    uint64_t valid_output_elements{0u};
+    uint64_t valid_input_bytes{0u};
+    uint64_t valid_output_bytes{0u};
+    uint64_t input_snapshot_bytes_per_program{0u};
+    uint64_t fp32_source_bytes_per_program{0u};
+    uint64_t fp32_result_bytes_per_program{0u};
+    uint64_t output_value_bytes_per_program{0u};
+    bool independent_bounds_elidable{false};
+    bool contribution_bounds_elidable{false};
+    bool contribution_identity_mask{false};
+    [[nodiscard]] bool ok() const noexcept { return error.empty() && geometry.programs != 0u; }
+};
+
+// Derive original or candidate geometry from a successful unmodified-function
+// plan. Recheck all arithmetic/geometry and return a diagnostic on overflow.
+// Backends must still validate actual IR and invocation disjointness before
+// selecting a realization; this read-only cost record is not a proof token.
+[[nodiscard]] LUISA_TILE_API IndependentCollectiveWorkFacts analyze_independent_collective_candidate(
+    const IndependentCollectivePlan &plan,
+    IndependentCollectiveGeometryKind geometry = IndependentCollectiveGeometryKind::PARTITIONED) noexcept;
+
 }// namespace luisa::compute::tile

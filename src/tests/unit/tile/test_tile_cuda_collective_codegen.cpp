@@ -3,6 +3,7 @@
 #include "cuda_tile_streaming_scan.h"
 #include "cuda_tile_collective_cost.h"
 #include "cuda_tile_partition_codegen.h"
+#include "cuda_tile_partition_cost.h"
 #include <array>
 #include <cmath>
 #include <bit>
@@ -669,6 +670,160 @@ void test_native_program_partition_fallbacks() {
     expect(!disjoint(4096u, std::numeric_limits<uint64_t>::max() - guard.output_bytes + 1u));
     expect(!streaming_scan_disjoint(guard, span<const uint64_t>{}));
 }
+void test_native_partition_cost_decisions() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::cuda::native_tile;
+    using namespace boost::ut;
+    // Frozen training parity; no heldout data or observed timings.
+    struct PartitionCostParity {
+        int64_t rows, columns, original_rows;
+        tile::ScalarType storage;
+        bool maximum;
+        uint32_t selected_rows;
+        double original_score, rows1_score, rows2_score;
+    };
+    constexpr std::array<PartitionCostParity, 16u> partition_cost_parity{{
+        {1024ll, 512ll, 4ll, tile::ScalarType::FLOAT16, true, 0u, 3.454643538706734, 3.3966491395253198, 3.454643538706734},
+        {128ll, 2048ll, 8ll, tile::ScalarType::BFLOAT16, true, 1u, 2.7587107485297633, 2.2947555550784497, 2.2947555550784497},
+        {17ll, 1024ll, 4ll, tile::ScalarType::FLOAT16, true, 1u, 1.3668451681758222, 1.0188787730873368, 1.1348675714501653},
+        {256ll, 128ll, 8ll, tile::ScalarType::BFLOAT16, true, 1u, 1.1348675714501653, 1.0623745724733975, 1.076873172268751},
+        {37ll, 257ll, 4ll, tile::ScalarType::FLOAT32, true, 1u, 1.1348675714501653, 1.0188787730873368, 1.0188787730873368},
+        {3ll, 8191ll, 4ll, tile::ScalarType::BFLOAT16, true, 1u, 4.614531522335018, 1.8308003616271358, 2.7587107485297633},
+        {65ll, 2048ll, 8ll, tile::ScalarType::FLOAT16, true, 1u, 2.7587107485297633, 1.598822764901479, 1.8308003616271358},
+        {65ll, 512ll, 8ll, tile::ScalarType::FLOAT32, true, 1u, 1.3668451681758222, 1.076873172268751, 1.1348675714501653},
+        {1024ll, 512ll, 4ll, tile::ScalarType::FLOAT16, false, 0u, 3.454643538706734, 3.3966491395253198, 3.454643538706734},
+        {128ll, 2048ll, 8ll, tile::ScalarType::BFLOAT16, false, 1u, 2.7587107485297633, 2.2947555550784497, 2.2947555550784497},
+        {17ll, 1024ll, 4ll, tile::ScalarType::FLOAT16, false, 1u, 1.3668451681758222, 1.0188787730873368, 1.1348675714501653},
+        {256ll, 128ll, 8ll, tile::ScalarType::BFLOAT16, false, 1u, 1.1348675714501653, 1.0623745724733975, 1.076873172268751},
+        {37ll, 257ll, 4ll, tile::ScalarType::FLOAT32, false, 1u, 1.1348675714501653, 1.0188787730873368, 1.0188787730873368},
+        {3ll, 8191ll, 4ll, tile::ScalarType::BFLOAT16, false, 1u, 4.614531522335018, 1.8308003616271358, 2.7587107485297633},
+        {65ll, 2048ll, 8ll, tile::ScalarType::FLOAT16, false, 1u, 2.7587107485297633, 1.598822764901479, 1.8308003616271358},
+        {65ll, 512ll, 8ll, tile::ScalarType::FLOAT32, false, 1u, 1.3668451681758222, 1.076873172268751, 1.1348675714501653},
+    }};
+    auto check_parity = []<typename T>(const PartitionCostParity &row) {
+        auto kernel = capture_partition_source<T>(row.rows, row.columns, row.original_rows, row.maximum, true);
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto one = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 1u});
+        auto two = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 2u});
+        auto choice = choose_program_partition(one, two, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+        expect(choice.has_score);
+        expect(choice.original_rows == row.original_rows && choice.target_rows == row.selected_rows);
+        expect(std::abs(choice.original_score - row.original_score) < 1e-12);
+        auto selected_score = row.selected_rows == 0u ? row.original_score :
+                              row.selected_rows == 1u ? row.rows1_score :
+                                                        row.rows2_score;
+        expect(std::abs(choice.selected_score - selected_score) < 1e-12);
+        double score1{}, score2{};
+        expect(partition_cost_score(tile::analyze_independent_collective_candidate(one), score1));
+        expect(partition_cost_score(tile::analyze_independent_collective_candidate(two), score2));
+        expect(std::abs(score1 - row.rows1_score) < 1e-12);
+        expect(std::abs(score2 - row.rows2_score) < 1e-12);
+    };
+    for (auto &&row : partition_cost_parity) {
+        switch (row.storage) {
+            case tile::ScalarType::FLOAT16: check_parity.template operator()<luisa::half>(row); break;
+            case tile::ScalarType::BFLOAT16: check_parity.template operator()<tile::bfloat16>(row); break;
+            default: check_parity.template operator()<float>(row); break;
+        }
+    }
+    auto check = []<typename T>() {
+        for (auto maximum : {false, true}) {
+            for (auto old_rows : {int64_t{4}, int64_t{8}}) {
+                auto kernel = capture_partition_source<T>(128, 8192, old_rows, maximum, true);
+                expect(kernel.valid());
+                if (!kernel.valid()) { continue; }
+                auto one = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 1u});
+                auto two = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 2u});
+                expect(one.ok()) << one.error;
+                expect(two.ok()) << two.error;
+                auto choice = choose_program_partition(one, two, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+                expect(choice.has_score && choice.target_rows == 1u);
+                expect(choice.original_rows == old_rows);
+                expect(choice.status == "selected" && choice.reason == "predicted-saving");
+                // Both original BR4/8 have demand 8*8192; rows1/2 tie at 6*8192.
+                auto original_score = kPartitionCostConstant + kPartitionCostVolume * (8.0 * 8192.0);
+                auto selected_score = kPartitionCostConstant + kPartitionCostVolume * (6.0 * 8192.0);
+                expect(std::abs(choice.original_score - original_score) < 1e-12);
+                expect(std::abs(choice.selected_score - selected_score) < 1e-12);
+                auto original = generate(kernel.function(), false);
+                expect(original.ok()) << original.error;
+                auto candidate = original;
+                append_program_partition(candidate, kernel.function(), choice.target_rows);
+                expect(candidate.source.starts_with(original.source + '\n'));
+                expect(candidate.partition_rows == 1u && candidate.partition_grid[0u] == 128u);
+                expect(candidate.grid == original.grid && candidate.block == original.block);
+                // If only rows2 is legal, it remains a candidate; the algorithm
+                // never evaluates unmeasured rows4 as an automatic choice.
+                one.error = "test-unavailable";
+                auto only_two = choose_program_partition(one, two, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+                expect(only_two.target_rows == 2u && only_two.selected_score == selected_score);
+            }
+        }
+    };
+    check.template operator()<float>();
+    check.template operator()<luisa::half>();
+    check.template operator()<tile::bfloat16>();
+    for (auto geometry : {std::array<int64_t, 2u>{384, 8192}, std::array<int64_t, 2u>{128, 64}}) {
+        auto kernel = capture_partition_source<float>(geometry[0u], geometry[1u], 4, false);
+        auto one = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 1u});
+        auto two = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 2u});
+        auto choice = choose_program_partition(one, two, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+        expect(choice.has_score && choice.target_rows == 0u && choice.original_rows == 4u);
+        expect(choice.status == "retained" && choice.reason == "predicted-original");
+        expect(choice.selected_score == choice.original_score);
+        auto original = generate(kernel.function());
+        auto retained = original;
+        append_program_partition(retained, kernel.function(), choice.target_rows);
+        expect(retained.source == original.source && retained.grid == original.grid);
+    }
+}
+
+void test_native_partition_cost_gates() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::cuda::native_tile;
+    using namespace boost::ut;
+    auto kernel = capture_partition_source<float>(128, 8192, 4, false);
+    auto one = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 1u});
+    auto two = tile::plan_independent_collective(kernel.function(), {.target_extent_per_program = 2u});
+    for (auto changed = 0u; changed < 7u; changed++) {
+        std::array<uint32_t, 6u> target{89u, 24u, 32u, 1536u, 13040u, 13040u};
+        if (changed < target.size()) { target[changed]++; }
+        auto choice = choose_program_partition(one, two, target[0u], target[1u], target[2u], target[3u], target[4u], target[5u], changed == 6u);
+        expect(!choice.has_score && choice.target_rows == 0u && choice.original_rows == 0u);
+        expect(choice.status == "ineligible");
+        expect(choice.reason == (changed == 6u ? "fast-math" : "target-profile"));
+    }
+    for (auto changed = 0u; changed < 6u; changed++) {
+        auto first = one, second = two;
+        for (auto plan : {&first, &second}) {
+            switch (changed) {
+                case 0u: plan->kind = tile::CollectiveKind::MINIMUM; break;
+                case 1u:
+                    plan->input_independent_axis = 1u;
+                    plan->input_contribution_axis = 0u;
+                    break;
+                case 2u: plan->output_storage = tile::ScalarType::FLOAT16; break;
+                case 3u: plan->original.independent_extent_per_program = 2u; break;
+                case 4u: plan->candidate.programs = uint64_t{1u} << 32u; break;
+                case 5u: plan->logical_contribution_extent = std::numeric_limits<uint64_t>::max(); break;
+            }
+        }
+        auto choice = choose_program_partition(first, second, 89u, 24u, 32u, 1536u, 13040u, 13040u, false);
+        expect(!choice.has_score && choice.target_rows == 0u);
+        expect(choice.reason == "analysis-or-layout");
+    }
+    auto invalid = one;
+    invalid.logical_independent_extent++;
+    auto facts = tile::analyze_independent_collective_candidate(invalid);
+    expect(!facts.ok());
+    double score{};
+    expect(!partition_cost_score(facts, score));
+    tile::IndependentCollectiveWorkFacts overflow;
+    overflow.geometry.programs = std::numeric_limits<uint64_t>::max();
+    overflow.collective_input_elements_per_program = 25u;
+    expect(!partition_cost_score(overflow, score));
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -682,4 +837,6 @@ int main(int argc, char *argv[]) {
     "tile_cuda_collective_schedule_gates"_test = [] { test_native_collective_schedule_gates(); };
     "tile_cuda_program_partition_sources"_test = [] { test_native_program_partition_sources(); };
     "tile_cuda_program_partition_fallbacks"_test = [] { test_native_program_partition_fallbacks(); };
+    "tile_cuda_partition_cost_decisions"_test = [] { test_native_partition_cost_decisions(); };
+    "tile_cuda_partition_cost_gates"_test = [] { test_native_partition_cost_gates(); };
 }

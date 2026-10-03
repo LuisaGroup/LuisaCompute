@@ -270,6 +270,7 @@ int main(int argc, char *argv[]) {
         return 2;
     }
     Environment cost{"LUISA_CUDA_TILE_COLLECTIVE_COST", "0"};
+    Environment partition_cost{"LUISA_CUDA_TILE_PARTITION_COST", "0"};
     Environment worker{"LUISA_CUDA_TILE_WORKER_WARPS", "0"};
     Environment aligned{"LUISA_CUDA_TILE_IR_ALIGNED16", "0"};
     Environment pure{"LUISA_CUDA_TILE_SCAN_CHUNK", "0"};

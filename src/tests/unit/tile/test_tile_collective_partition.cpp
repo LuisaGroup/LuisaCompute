@@ -211,6 +211,60 @@ void overflow_and_projection_rejections() {
     expect(!plan_independent_collective(kernel.function()).ok());
 }
 
+void candidate_work_facts() {
+    auto kernel = capture<half>(CollectiveKind::MAXIMUM, true);
+    auto plan = plan_independent_collective(kernel.function(), {.target_extent_per_program = 2u});
+    expect(plan.ok()) << plan.error;
+    if (!plan.ok()) { return; }
+    auto original = analyze_independent_collective_candidate(plan, IndependentCollectiveGeometryKind::ORIGINAL);
+    auto candidate = analyze_independent_collective_candidate(plan);
+    expect(original.ok()) << original.error;
+    expect(candidate.ok()) << candidate.error;
+    expect(original.geometry.programs == 5u && candidate.geometry.programs == 9u);
+    expect(original.collective_input_elements_per_program == 256u && candidate.collective_input_elements_per_program == 128u);
+    expect(original.collective_input_elements_total == 1280u && candidate.collective_input_elements_total == 1152u);
+    expect(candidate.padded_independent_elements == 18u);
+    expect(candidate.valid_input_elements == 17u * 61u && candidate.valid_output_elements == 17u);
+    expect(candidate.valid_input_bytes == 17u * 61u * 2u && candidate.valid_output_bytes == 34u);
+    expect(candidate.input_snapshot_bytes_per_program == 256u && candidate.fp32_source_bytes_per_program == 512u);
+    expect(candidate.fp32_result_bytes_per_program == 8u && candidate.output_value_bytes_per_program == 4u);
+    expect(!candidate.independent_bounds_elidable && !candidate.contribution_bounds_elidable);
+    expect(candidate.contribution_identity_mask && candidate.kind == CollectiveKind::MAXIMUM);
+    expect(candidate.independent_axis == plan.independent_axis && candidate.contribution_axis == plan.contribution_axis);
+    expect(candidate.collective_operation_id == plan.collective_operation_id);
+    auto one = plan_independent_collective(kernel.function());
+    expect(analyze_independent_collective_candidate(one).independent_bounds_elidable);
+    auto full = capture<float>(CollectiveKind::SUM, false, true, 16, 64, 64, 4);
+    auto full_plan = plan_independent_collective(full.function());
+    auto full_facts = analyze_independent_collective_candidate(full_plan);
+    expect(full_facts.ok()) << full_facts.error;
+    expect(full_facts.independent_bounds_elidable && full_facts.contribution_bounds_elidable);
+    expect(!full_facts.contribution_identity_mask);
+    auto non_power_two = capture<float>(CollectiveKind::SUM, false, false, 17, 5, 7, 6);
+    auto non_power_plan = plan_independent_collective(non_power_two.function(), {.target_extent_per_program = 3u});
+    expect(analyze_independent_collective_candidate(non_power_plan).ok());
+    expect(!analyze_independent_collective_candidate(plan, static_cast<IndependentCollectiveGeometryKind>(255u)).ok());
+    for (auto variant = 0u; variant < 8u; variant++) {
+        auto invalid = plan;
+        switch (variant) {
+            case 0u: invalid.error = "unsupported"; break;
+            case 1u: invalid.candidate.programs++; break;
+            case 2u: invalid.candidate.independent_extent_per_program = 0u; break;
+            case 3u: invalid.logical_contribution_extent = 65u; break;
+            case 4u: invalid.disjoint.output.byte_count++; break;
+            case 5u: invalid.disjoint.input.byte_offset = std::numeric_limits<uint64_t>::max(); break;
+            case 6u: invalid.disjoint.output.argument_index = invalid.disjoint.input.argument_index; break;
+            case 7u: invalid.input_storage = ScalarType::INT32; break;
+        }
+        expect(!analyze_independent_collective_candidate(invalid).ok()) << variant;
+    }
+    auto overflow = plan;
+    overflow.tile_contribution_extent = std::numeric_limits<uint64_t>::max();
+    auto rejected = analyze_independent_collective_candidate(overflow);
+    expect(!rejected.ok());
+    expect(rejected.error.find("arithmetic overflows") != string::npos);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -219,4 +273,5 @@ int main(int argc, char *argv[]) {
     "tile_collective_partition_closure_mask"_test = [] { closure_and_mask_rejections(); };
     "tile_collective_partition_rank_alias"_test = [] { rank_one_and_alias_requirements(); };
     "tile_collective_partition_overflow_projection"_test = [] { overflow_and_projection_rejections(); };
+    "tile_collective_partition_work_facts"_test = [] { candidate_work_facts(); };
 }

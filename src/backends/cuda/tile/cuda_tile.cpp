@@ -22,6 +22,7 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/collective_plan.h>
 #include "cuda_tile_collective_cost.h"
+#include "cuda_tile_partition_cost.h"
 
 #include "cuda_tile.h"
 #include "cuda_tile_codegen.h"
@@ -669,6 +670,19 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                                       independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested || program_rows != 0u)) {
         return fail("CUDA Tile collective cost experiment must be measured separately from explicit schedule hints");
     }
+    auto partition_cost_requested = false;
+    if (auto cost = luisa::get_environment_variable("LUISA_CUDA_TILE_PARTITION_COST")) {
+        auto value = luisa::string_view{*cost};
+        if (value == "1") {
+            partition_cost_requested = true;
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_PARTITION_COST requires 0 or 1");
+        }
+    }
+    if (partition_cost_requested && (collective_cost_requested || worker_warps != 0u || scan_chunk_extent != 0u ||
+                                     independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested || program_rows != 0u)) {
+        return fail("CUDA Tile partition cost experiment must be measured separately from other costs and explicit schedule hints");
+    }
     auto collective_work = tile::analyze_collective_work(kernel);
     native_tile::CollectiveScheduleChoice collective_choice;
     if (collective_cost_requested) {
@@ -682,6 +696,21 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                                                                         static_cast<uint32_t>(resident_threads), _handle.driver_version(), CUDA_VERSION, option.enable_fast_math);
         }
         worker_warps = collective_choice.worker_warps;
+    }
+    native_tile::ProgramPartitionChoice partition_choice;
+    if (partition_cost_requested) {
+        int processors{}, warp_size{}, resident_threads{};
+        if (cuDeviceGetAttribute(&processors, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, _handle.device()) == CUDA_SUCCESS &&
+            cuDeviceGetAttribute(&warp_size, CU_DEVICE_ATTRIBUTE_WARP_SIZE, _handle.device()) == CUDA_SUCCESS &&
+            cuDeviceGetAttribute(&resident_threads, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, _handle.device()) == CUDA_SUCCESS &&
+            processors > 0 && warp_size > 0 && resident_threads > 0) {
+            auto rows1 = tile::plan_independent_collective(kernel, {.target_extent_per_program = 1u});
+            auto rows2 = tile::plan_independent_collective(kernel, {.target_extent_per_program = 2u});
+            partition_choice = native_tile::choose_program_partition(rows1, rows2,
+                                                                     _handle.compute_capability(), static_cast<uint32_t>(processors), static_cast<uint32_t>(warp_size),
+                                                                     static_cast<uint32_t>(resident_threads), _handle.driver_version(), CUDA_VERSION, option.enable_fast_math);
+        }
+        program_rows = partition_choice.target_rows;
     }
     auto artifact = native_tile::generate(kernel, option.enable_fast_math, aligned16_requested, worker_warps,
                                           _handle.compute_capability(), scan_chunk_extent, independent_axis_extent);
@@ -707,7 +736,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     if (streaming_scan_chunk != 0u) {
         metadata.realization += luisa::format("; streaming-scan-chunk={}", streaming_scan_chunk);
     }
-    if (program_rows != 0u) {
+    if (program_rows != 0u && !partition_cost_requested) {
         metadata.realization += luisa::format("; program-partition-rows={}", program_rows);
     }
     if (artifact.scan_chunk_extent != 0u) {
@@ -848,6 +877,30 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         shader = with_handle(load_shader);
     }
     if (shader == nullptr) { return ShaderCreationInfo::make_invalid(); }
+    if (partition_cost_requested) {
+        if (partition_choice.target_rows != 0u && artifact.partition_entry.empty()) {
+            // A useful prediction is insufficient: unavailable variants retain
+            // the original source/function/grid and report the original score.
+            partition_choice.target_rows = 0u;
+            partition_choice.selected_score = partition_choice.original_score;
+            partition_choice.status = "retained";
+            partition_choice.reason = "candidate-unavailable";
+            program_rows = 0u;
+        }
+        auto selected_rows = partition_choice.target_rows == 0u ? partition_choice.original_rows : partition_choice.target_rows;
+        metadata.realization += luisa::format(
+            "; partition-cost-requested=1; partition-cost-profile={}; partition-cost-fit={}; partition-cost-status={}; partition-cost-reason={}"
+            "; partition-cost-original-rows={}; partition-cost-selected-rows={}",
+            native_tile::kPartitionCostProfile, native_tile::kPartitionCostFit, partition_choice.status, partition_choice.reason,
+            partition_choice.original_rows, selected_rows);
+        if (partition_choice.has_score) {
+            metadata.realization += luisa::format("; partition-cost-original-score={:.17g}; partition-cost-selected-score={:.17g}",
+                                                  partition_choice.original_score, partition_choice.selected_score);
+        }
+        if (program_rows != 0u) {
+            metadata.realization += luisa::format("; program-partition-rows={}", program_rows);
+        }
+    }
     if (streaming_scan_chunk != 0u) {
         if (!artifact.streaming_scan_entry.empty()) {
             metadata.realization += "; streaming-scan-available; host-selected-disjoint-static-views-v1";
