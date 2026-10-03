@@ -26,6 +26,7 @@
 
 #include "cuda_tile.h"
 #include "cuda_tile_codegen.h"
+#include "cuda_tile_cub_scan.h"
 #include "cuda_tile_streaming_scan.h"
 #include "cuda_tile_partition_codegen.h"
 #include "cuda_tile_ir.h"
@@ -683,6 +684,26 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                                      independent_axis_extent != 0u || streaming_scan_chunk != 0u || aligned16_requested || program_rows != 0u)) {
         return fail("CUDA Tile partition cost experiment must be measured separately from other costs and explicit schedule hints");
     }
+    auto cub_scan_threads = 0u;
+    if (auto threads = luisa::get_environment_variable("LUISA_CUDA_TILE_CUB_SCAN")) {
+        auto value = luisa::string_view{*threads};
+        if (value == "128") {
+            cub_scan_threads = 128u;
+        } else if (value == "256") {
+            cub_scan_threads = 256u;
+        } else if (value == "512") {
+            cub_scan_threads = 512u;
+        } else if (value == "1024") {
+            cub_scan_threads = 1024u;
+        } else if (value != "0") {
+            return fail("LUISA_CUDA_TILE_CUB_SCAN requires 0, 128, 256, 512 or 1024");
+        }
+    }
+    if (cub_scan_threads != 0u && (partition_cost_requested || collective_cost_requested || worker_warps != 0u ||
+                                   scan_chunk_extent != 0u || independent_axis_extent != 0u || streaming_scan_chunk != 0u ||
+                                   aligned16_requested || program_rows != 0u)) {
+        return fail("CUDA Tile CUB scan must be measured separately from other experimental realizations");
+    }
     auto collective_work = tile::analyze_collective_work(kernel);
     native_tile::CollectiveScheduleChoice collective_choice;
     if (collective_cost_requested) {
@@ -718,6 +739,14 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     native_tile::append_streaming_scan(artifact, kernel, streaming_scan_chunk,
                                        worker_warps, _handle.compute_capability());
     native_tile::append_program_partition(artifact, kernel, program_rows);
+    native_tile::CubScanArtifact cub_scan;
+    if (cub_scan_threads != 0u) {
+        if (option.enable_fast_math) {
+            cub_scan.error = "requires-strict-math";
+        } else {
+            cub_scan = native_tile::generate_cub_scan(kernel, artifact, cub_scan_threads);
+        }
+    }
     auto block = make_uint3(1u, 1u, 1u);
     metadata.dispatch_size = make_uint3(artifact.grid[0u], artifact.grid[1u], artifact.grid[2u]);
     metadata.source = std::move(artifact.source);
@@ -878,6 +907,139 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         shader = with_handle(load_shader);
     }
     if (shader == nullptr) { return ShaderCreationInfo::make_invalid(); }
+    if (cub_scan_threads != 0u) {
+        // The original Tile shader is already compiled and loaded. Failure of
+        // this independent ordinary-CUDA artifact never invalidates it.
+        auto available = false;
+        uint64_t compile_key = 0u;
+        luisa::string cub_source_file;
+        // Driver attributes describe the loaded function, not dynamic traffic
+        // or Tile's physical worker count. These diagnostics never gate use.
+        struct FunctionResources {
+            std::array<int, 4u> values{-1, -1, -1, -1};
+            luisa::string status{"not-queried"};
+        };
+        auto query_resources = [](CUfunction function) noexcept {
+            constexpr std::array attributes{CU_FUNC_ATTRIBUTE_NUM_REGS, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
+                                            CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK};
+            FunctionResources result;
+            result.status = "ok";
+            for (auto i = size_t{0u}; i < attributes.size(); i++) {
+                int value = -1;
+                auto status = cuFuncGetAttribute(&value, attributes[i], function);
+                if (status == CUDA_SUCCESS && value >= 0) {
+                    result.values[i] = value;
+                } else if (result.status == "ok") {
+                    result.status = status == CUDA_SUCCESS ? "invalid-value" : luisa::format("cuda-{}", static_cast<int>(status));
+                }
+            }
+            return result;
+        };
+        auto original_resources = with_handle([&]() noexcept { return query_resources(static_cast<CUfunction>(shader->handle())); });
+        FunctionResources candidate_resources;
+        int resident_capacity = -1;
+        luisa::string capacity_status = "not-queried";
+        if (cub_scan.ok()) {
+            cub_scan.source = luisa::format("// Luisa CUB scan ABI v1; NVRTC {}; SDK {}\n{}",
+                                            _compiler->nvrtc_version(), CUDA_VERSION, cub_scan.source);
+            luisa::vector<luisa::string> storage{
+                "--std=c++20", luisa::format("--gpu-architecture=compute_{}", _handle.compute_capability()),
+                "--ftz=false", "--fmad=false", "--prec-div=true", "--prec-sqrt=true",
+                "--device-as-default-execution-space",
+                "--include-path=" LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR,
+                "--include-path=" LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR "/cccl"};
+            if (option.enable_debug_info) { storage.emplace_back("-lineinfo"); }
+            luisa::vector<const char *> options;
+            options.reserve(storage.size());
+            for (auto &&value : storage) { options.emplace_back(value.c_str()); }
+            compile_key = CUDACompiler::compute_hash(cub_scan.source, options);
+            auto identity = luisa::format("cuda-tile-cub-scan-abi-v1-{:016x}", compile_key);
+            luisa::string filename;
+            if (option.enable_debug_info || luisa::get_environment_variable("LUISA_DUMP_SOURCE").has_value()) {
+                auto name = luisa::format("cuda_tile_cub_scan_{:016x}.cu", compile_key);
+                auto path = _io->write_shader_source(name, {reinterpret_cast<const std::byte *>(cub_scan.source.data()), cub_scan.source.size()});
+                filename = luisa::to_string(path);
+                // Realization is semicolon-delimited. A nonrepresentable dump
+                // path remains local and must not masquerade as a valid receipt.
+                if (filename.find_first_of(";\r\n") == luisa::string::npos) { cub_source_file = filename; }
+            }
+            // The ordinary compiler's process errors retain their existing
+            // fatal contract. An ordinary compile error returns empty PTX.
+            auto ptx = _compiler->compile(cub_scan.source, filename, options);
+            if (ptx.empty()) {
+                cub_scan.error = "nvrtc-compilation-failed";
+            } else {
+                if (ptx.back() != std::byte{0}) { ptx.emplace_back(std::byte{0}); }
+                available = with_handle([&]() noexcept {
+                    CUmodule module{};
+                    auto status = cuModuleLoadData(&module, ptx.data());
+                    if (status != CUDA_SUCCESS) {
+                        cub_scan.error = luisa::format("module-load-failed-{}", static_cast<int>(status));
+                        return false;
+                    }
+                    CUfunction function{};
+                    status = cuModuleGetFunction(&function, module, cub_scan.entry.c_str());
+                    if (status == CUDA_SUCCESS) {
+                        candidate_resources = query_resources(function);
+                        // This is ordinary CUDA with an explicit physical block.
+                        // Do not apply this query to Tile's logical block=(1,1,1).
+                        int capacity = -1;
+                        auto capacity_result = cuOccupancyMaxActiveBlocksPerMultiprocessor(
+                            &capacity, function, static_cast<int>(cub_scan_threads), 0u);
+                        if (capacity_result == CUDA_SUCCESS && capacity >= 0) {
+                            resident_capacity = capacity;
+                            capacity_status = "ok";
+                        } else {
+                            capacity_status = capacity_result == CUDA_SUCCESS ? "invalid-value" : luisa::format("cuda-{}", static_cast<int>(capacity_result));
+                        }
+                    }
+                    int maximum_threads{}, static_shared{}, device_threads{}, device_shared{};
+                    if (status == CUDA_SUCCESS) { status = cuFuncGetAttribute(&maximum_threads, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, function); }
+                    if (status == CUDA_SUCCESS) { status = cuFuncGetAttribute(&static_shared, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, function); }
+                    if (status == CUDA_SUCCESS) { status = cuDeviceGetAttribute(&device_threads, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, _handle.device()); }
+                    if (status == CUDA_SUCCESS) { status = cuDeviceGetAttribute(&device_shared, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, _handle.device()); }
+                    auto resources_ok = status == CUDA_SUCCESS && maximum_threads >= static_cast<int>(cub_scan_threads) &&
+                                        device_threads >= static_cast<int>(cub_scan_threads) && static_shared >= 0 && static_shared <= device_shared;
+                    if (resources_ok && shader->install_cub_scan(module, function, cub_scan.grid,
+                                                                 make_uint3(cub_scan.block[0u], cub_scan.block[1u], cub_scan.block[2u]),
+                                                                 cub_scan.guard, cub_scan.alignment_mask,
+                                                                 std::move(cub_scan.source), std::move(identity))) { return true; }
+                    auto cleanup = cuModuleUnload(module);
+                    cub_scan.error = luisa::format("entry-or-resources-unavailable-{}-cleanup-{}", static_cast<int>(status), static_cast<int>(cleanup));
+                    return false;
+                });
+            }
+        }
+        metadata.realization += luisa::format("; cub-scan-requested; cub-scan-threads={}; cub-scan-chunk={}; cub-scan-{}; cub-scan-compile-key={:016x}",
+                                              cub_scan_threads, cub_scan_threads * 8u, available ? "available" : "unavailable", compile_key);
+        if (!cub_source_file.empty()) { metadata.realization += luisa::format("; cub-scan-source-file={}", cub_source_file); }
+        auto known_value = [](int value) noexcept { return value < 0 ? luisa::string{"unknown"} : luisa::format("{}", value); };
+        auto append_resources = [&](luisa::string_view prefix, const FunctionResources &resources) noexcept {
+            constexpr std::array names{"registers", "static-shared-bytes", "local-bytes", "max-threads"};
+            for (auto i = size_t{0u}; i < names.size(); i++) {
+                metadata.realization += luisa::format("; {}-{}={}", prefix, names[i], known_value(resources.values[i]));
+            }
+            metadata.realization += luisa::format("; {}-resource-status={}", prefix, resources.status);
+        };
+        // source-key is a 64-bit source identity, not a SHA or compiler key.
+        // Candidate resources use the cub-scan-compile-key recorded above.
+        metadata.realization += luisa::format("; cub-original-entry={}; cub-original-source-key={:016x}; cub-scan-resource-entry={}; cub-scan-resource-scope={}",
+                                              shader->entry(), hash_value(metadata.source), cub_scan.entry.empty() ? "unknown" : cub_scan.entry,
+                                              available ? "installed-entry" : candidate_resources.status == "not-queried" ? "not-queried" : "attempted-entry");
+        append_resources("cub-original", original_resources);
+        append_resources("cub-scan", candidate_resources);
+        metadata.realization += luisa::format("; cub-scan-resident-cta-capacity={}; cub-scan-capacity-status={}; cub-scan-capacity-threads={}; cub-scan-capacity-dynamic-shared-bytes=0",
+                                              known_value(resident_capacity), capacity_status, cub_scan_threads);
+        if (available) {
+            metadata.realization += luisa::format(
+                "; cub-scan-input-slot={}; cub-scan-output-slot={}; cub-scan-input-bytes={}; cub-scan-output-bytes={}"
+                "; cub-scan-alignment-mask={}; cub-scan-grid-x={}; cub-scan-block-x={}; host-selected-disjoint-aligned16-cub-scan-v1; cub-scan-nvrtc-lru",
+                cub_scan.guard.input_slot, cub_scan.guard.output_slot, cub_scan.guard.input_bytes, cub_scan.guard.output_bytes,
+                cub_scan.alignment_mask, cub_scan.grid[0u], cub_scan.block[0u]);
+        } else {
+            metadata.realization += luisa::format("; cub-scan-diagnostic={}", cub_scan.error);
+        }
+    }
     if (partition_cost_requested) {
         if (partition_choice.target_rows != 0u && artifact.partition_entry.empty()) {
             // A useful prediction is insufficient: unavailable variants retain

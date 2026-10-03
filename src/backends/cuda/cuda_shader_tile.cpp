@@ -99,7 +99,33 @@ CUDAShaderTile::CUDAShaderTile(CUmodule module, CUfunction function, luisa::stri
 }
 
 CUDAShaderTile::~CUDAShaderTile() noexcept {
+    if (_cub_scan_module != nullptr) { LUISA_CHECK_CUDA(cuModuleUnload(_cub_scan_module)); }
     LUISA_CHECK_CUDA(cuModuleUnload(_module));
+}
+
+bool CUDAShaderTile::install_cub_scan(CUmodule module, CUfunction function,
+                                      std::array<uint32_t, 3u> grid, uint3 block,
+                                      native_tile::StreamingScanGuard guard,
+                                      uint32_t alignment_mask,
+                                      luisa::string source, luisa::string identity) noexcept {
+    if (module == nullptr || function == nullptr || module == _module || _cub_scan_module != nullptr ||
+        _aligned16_function != nullptr || _streaming_scan_function != nullptr || _partition_function != nullptr || _buffer_arguments.size() > 31u ||
+        guard.input_slot >= _buffer_arguments.size() || guard.output_slot >= _buffer_arguments.size() ||
+        guard.input_slot == guard.output_slot || guard.input_bytes == 0u || guard.output_bytes == 0u ||
+        grid[0u] == 0u || grid[1u] != 1u || grid[2u] != 1u || block.y != 1u || block.z != 1u ||
+        (block.x != 128u && block.x != 256u && block.x != 512u && block.x != 1024u) ||
+        source.empty() || identity.empty()) { return false; }
+    auto expected_mask = (uint32_t{1u} << guard.input_slot) | (uint32_t{1u} << guard.output_slot);
+    if (alignment_mask != expected_mask) { return false; }
+    _cub_scan_module = module;
+    _cub_scan_function = function;
+    _cub_scan_grid = grid;
+    _cub_scan_block = block;
+    _cub_scan_guard = guard;
+    _cub_scan_alignment_mask = alignment_mask;
+    _cub_scan_source = std::move(source);
+    _cub_scan_identity = std::move(identity);
+    return true;
 }
 
 bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
@@ -125,6 +151,13 @@ bool CUDAShaderTile::encode_buffer_pointers(luisa::span<const Argument> args,
 CUDAShaderTile::Launch CUDAShaderTile::select_launch(luisa::span<const CUdeviceptr> pointers) const noexcept {
     auto launch = Launch{_function, _grid, _block_size};
     if (pointers.size() != _buffer_arguments.size()) { return launch; }
+    if (_cub_scan_function != nullptr && native_tile::streaming_scan_disjoint(_cub_scan_guard, pointers)) {
+        CUdeviceptr alignment_bits = 0u;
+        for (auto slot = size_t{0u}; slot < pointers.size(); slot++) {
+            if ((_cub_scan_alignment_mask & (uint32_t{1u} << slot)) != 0u) { alignment_bits |= pointers[slot]; }
+        }
+        if ((alignment_bits & 15u) == 0u) { return Launch{_cub_scan_function, _cub_scan_grid, _cub_scan_block}; }
+    }
     if (_partition_function != nullptr && native_tile::streaming_scan_disjoint(_partition_guard, pointers)) {
         return Launch{_partition_function, _partition_grid, _block_size};
     }

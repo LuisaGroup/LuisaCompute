@@ -289,7 +289,10 @@ def alignment_receipts(result, requested):
         selected_streaming = len(streaming) == len(stages) and streaming[index].get("available") and streaming[index].get("static_ranges_disjoint")
         partition = result.get("native_program_partition", [])
         selected_partition = len(partition) == len(stages) and partition[index].get("available") and partition[index].get("static_ranges_disjoint")
-        require(receipt.get("expected_selected_entry") == ("luisa_tile_partition" if selected_partition else "luisa_tile_stream_scan" if selected_streaming else "luisa_tile_aligned16" if aligned else "luisa_tile_main"),
+        cub = result.get("native_cub_scan", [])
+        selected_cub = (len(cub) == len(stages) and cub[index].get("available") and
+                        cub[index].get("static_ranges_disjoint") and cub[index].get("final_pointers_aligned16"))
+        require(receipt.get("expected_selected_entry") == ("luisa_tile_cub_scan" if selected_cub else "luisa_tile_partition" if selected_partition else "luisa_tile_stream_scan" if selected_streaming else "luisa_tile_aligned16" if aligned else "luisa_tile_main"),
                 "alignment selected entry mismatch")
     return receipts
 
@@ -571,9 +574,89 @@ def program_partition_receipts(result, requested=0, cost_decisions=None):
     return receipts
 
 
+def validate_native_cub_scan(threads, *other_experiments):
+    require(type(threads) is int and threads in (0, 128, 256, 512, 1024), "invalid native CUB scan thread count")
+    require(not threads or not any(other_experiments), "native CUB scan is mutually exclusive with other schedule experiments")
+
+
+def cub_scan_receipts(result, requested=0):
+    validate_native_cub_scan(requested)
+    stages = result.get("pipeline_stages", [{"realization": result.get("realization", "")}])
+    require(isinstance(stages, list) and stages, "missing CUB scan stage realizations")
+    records = result.get("native_cub_scan")
+    if records is None and not requested:
+        require(all("cub-scan" not in stage.get("realization", "") for stage in stages), "missing CUB scan receipts")
+        return []
+    require(isinstance(records, list) and len(records) == len(stages), "missing per-stage CUB scan receipts")
+    checked = []
+    for index, (record, stage) in enumerate(zip(records, stages)):
+        text = stage.get("realization", "")
+        require(isinstance(text, str) and record.get("stage") == index and
+                type(record.get("threads_requested")) is int and record["threads_requested"] == requested,
+                "CUB scan request/stage mismatch")
+        def numeric(name, expected):
+            marker = "cub-scan-" + name
+            values = re.findall(r"(?:^|[;\s])" + re.escape(marker) + r"=([0-9]+)(?=$|[;\s])", text)
+            require(values == ([str(expected)] if expected is not None else []) and
+                    text.count(marker) == (expected is not None), "CUB scan metadata mismatch: " + name)
+        numeric("threads", requested if requested else None)
+        numeric("chunk", requested * 8 if requested else None)
+        compile_keys = re.findall(r"(?:^|[;\s])cub-scan-compile-key=([0-9a-f]{16})(?=$|[;\s])", text)
+        require(len(compile_keys) == bool(requested) and text.count("cub-scan-compile-key") == bool(requested),
+                "CUB scan compile-key metadata mismatch")
+        available = record.get("available")
+        disjoint, aligned = record.get("static_ranges_disjoint"), record.get("final_pointers_aligned16")
+        require(all(type(value) is bool for value in (available, disjoint, aligned)), "invalid CUB scan guard booleans")
+        require(text.count("cub-scan-requested") == bool(requested) and
+                text.count("cub-scan-available;") == available and
+                text.count("cub-scan-unavailable;") == (bool(requested) and not available),
+                "CUB scan availability marker mismatch")
+        require(not available or requested != 0, "unrequested CUB scan candidate")
+        require(available or not (disjoint or aligned), "unavailable CUB scan has true runtime guards")
+        fields = ("input_slot", "output_slot", "input_bytes", "output_bytes")
+        if available:
+            require(result.get("operation") == "scan" and result.get("precision") in ("fp16", "bf16") and
+                    result.get("fast_math", False) is False, "CUB scan fixture semantic mismatch")
+            rows, columns = result["dimensions"]
+            require(result["tile"] == [1, columns, 1] and columns % (requested * 8) == 0,
+                    "CUB scan shape/recipe mismatch")
+            expected = dict(input_slot=0, output_slot=3, input_bytes=rows * columns * 2, output_bytes=rows * columns * 2)
+            for name in fields:
+                require(type(record.get(name)) is int and record[name] == expected[name], "CUB scan static range/ABI mismatch")
+                numeric(name.replace("_", "-"), expected[name])
+            numeric("grid-x", rows)
+            numeric("block-x", requested)
+            numeric("alignment-mask", 9)
+            alignment = result.get("native_alignment", [])
+            require(len(alignment) == len(stages), "CUB scan final-pointer evidence is absent")
+            residues = alignment[index].get("final_argument_mod16", [])
+            require(len(residues) == 4 and all(type(value) is int and 0 <= value < 16 for value in residues),
+                    "CUB scan final-pointer residue count mismatch")
+            require(aligned == (residues[0] == residues[3] == 0), "CUB scan final-pointer alignment mismatch")
+        else:
+            require(all(type(record.get(name)) is int and record[name] == 0 for name in fields),
+                    "unavailable CUB scan has static ranges")
+            for name in (*fields, "grid_x", "block_x", "alignment_mask"):
+                numeric(name.replace("_", "-"), None)
+        selected = available and disjoint and aligned
+        if requested:
+            require(record.get("expected_selected_entry") == ("luisa_tile_cub_scan" if selected else "luisa_tile_main"),
+                    "CUB scan selected entry mismatch")
+            require(record.get("expected_selected_block") == [requested if selected else 1, 1, 1],
+                    "CUB scan selected block mismatch")
+        else:
+            require(record.get("expected_selected_entry") != "luisa_tile_cub_scan", "default run selects CUB scan")
+        if available:
+            require(record.get("expected_selected_grid") == [result["dimensions"][0], 1, 1], "CUB scan selected grid mismatch")
+        checked.append(dict(record, selected=selected, compile_key=compile_keys[0] if compile_keys else None,
+                            evidence="predicted shared host selector from final pointers; not a Driver trace"))
+    return checked
+
+
 def route_environment(environment, route, native_aligned16=False, native_worker_warps=0,
                       native_scan_chunk=0, native_independent_axis=0, native_streaming_scan=0,
-                      native_collective_cost=False, native_program_rows=0, native_partition_cost=False):
+                      native_collective_cost=False, native_program_rows=0, native_partition_cost=False,
+                      native_cub_scan_threads=0):
     # Never inherit experimental specialization into a control or another
     # route. Only an explicit native request may set the exact opt-in value.
     result = dict(environment)
@@ -586,6 +669,10 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
     result.pop("LUISA_CUDA_TILE_COLLECTIVE_COST", None)
     result.pop("LUISA_CUDA_TILE_PROGRAM_ROWS", None)
     result.pop("LUISA_CUDA_TILE_PARTITION_COST", None)
+    result.pop("LUISA_CUDA_TILE_CUB_SCAN", None)
+    validate_native_cub_scan(native_cub_scan_threads, native_aligned16, native_worker_warps, native_scan_chunk,
+                             native_independent_axis, native_streaming_scan, native_collective_cost,
+                             native_program_rows, native_partition_cost)
     validate_native_partition_cost(native_partition_cost, native_aligned16, native_worker_warps,
                                    native_scan_chunk, native_independent_axis, native_streaming_scan,
                                    native_collective_cost, native_program_rows)
@@ -613,6 +700,9 @@ def route_environment(environment, route, native_aligned16=False, native_worker_
             result["LUISA_CUDA_TILE_PROGRAM_ROWS"] = str(native_program_rows)
         if native_partition_cost:
             result["LUISA_CUDA_TILE_PARTITION_COST"] = "1"
+        if native_cub_scan_threads:
+            result["LUISA_CUDA_TILE_CUB_SCAN"] = str(native_cub_scan_threads)
+            result["LUISA_DUMP_SOURCE"] = "1"
     return result
 
 
@@ -700,7 +790,15 @@ def native_result(process, path, row, args, route):
     cost_receipts = []
     partition_receipts = []
     partition_cost_records = []
+    cub_receipts = []
     if result["status"] == "passed":
+        cub_requested = getattr(args, "native_cub_scan_threads", 0) if route == "native" else 0
+        validate_native_cub_scan(cub_requested, getattr(args, "native_aligned16", False),
+            getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
+            getattr(args, "native_independent_axis", 0), getattr(args, "native_streaming_scan", 0),
+            getattr(args, "native_collective_cost", False), getattr(args, "native_program_rows", 0),
+            getattr(args, "native_partition_cost", False))
+        cub_receipts = cub_scan_receipts(result, cub_requested)
         partition_cost_requested = getattr(args, "native_partition_cost", False) if route == "native" else False
         validate_native_partition_cost(partition_cost_requested, getattr(args, "native_aligned16", False),
             getattr(args, "native_worker_warps", 0), getattr(args, "native_scan_chunk", 0),
@@ -776,6 +874,13 @@ def native_result(process, path, row, args, route):
         require(math.isclose(sum(stage["compile_ms"] for stage in stages), result.get("compile_ms", -1),
                              rel_tol=1e-12, abs_tol=1e-9), "pipeline compile_ms must include every stage")
     generated_sources = dict(artifacts)
+    cub_sources = {}
+    for record in cub_receipts:
+        if record["available"]:
+            source = path.parent / f"cub-source-stage{record['stage']}.cu"
+            require(source.is_file() and source.resolve().is_relative_to(path.parent.resolve()), "CUB candidate source receipt is absent or escapes its packet")
+            cub_sources[source.name] = dict(sha256=digest(source), bytes=source.stat().st_size,
+                                           compile_key=record["compile_key"], stage=record["stage"])
     if result["status"] == "passed" and route == "native" and not result.get("pipeline"):
         # Historical packets may lack exported source; keep read-only validation
         # compatible. A new measurement below requires this receipt to exist.
@@ -787,7 +892,8 @@ def native_result(process, path, row, args, route):
                 generated_sources=generated_sources,
                 native_worker_warps=worker_receipts, native_structure=structure_receipts, native_streaming=streaming_receipts,
                 native_collective_cost=cost_receipts, native_program_partition=partition_receipts,
-                native_partition_cost=partition_cost_records)
+                native_partition_cost=partition_cost_records, native_cub_scan=cub_receipts,
+                cub_generated_sources=cub_sources)
 
 
 def torch_result(process, path, row, args):
@@ -868,6 +974,8 @@ def main(argv=None):
                         help="independent rows per native reduction program; requires a proved disjoint candidate")
     parser.add_argument("--native-partition-cost", action="store_true",
                         help="frozen experimental independent-program cost model; excludes other schedule experiments")
+    parser.add_argument("--native-cub-scan-threads", type=int, choices=(0, 128, 256, 512, 1024), default=0,
+                        help="explicit guarded CUB scan realization, eight items per physical CUDA thread; 0 preserves default")
     parser.add_argument("--torch-mode", choices=("default", "max-autotune"), default="max-autotune")
     parser.add_argument("--ranking-contract", choices=("standard", "stable"), default="standard")
     parser.add_argument("--eager", action="store_true", help="also retain the explicitly secondary eager Torch measurement")
@@ -882,6 +990,9 @@ def main(argv=None):
     parser.add_argument("--path-prefix", type=Path, action="append", default=[], help="additional CUDA/TVMx DLL directory; repeatable")
     parser.add_argument("--telemetry-ms", type=int, default=1000)
     args = parser.parse_args(argv)
+    validate_native_cub_scan(args.native_cub_scan_threads, args.native_aligned16, args.native_worker_warps,
+                             args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
+                             args.native_collective_cost, args.native_program_rows, args.native_partition_cost)
     validate_native_partition_cost(args.native_partition_cost, args.native_aligned16, args.native_worker_warps,
                                     args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
                                     args.native_collective_cost, args.native_program_rows)
@@ -924,7 +1035,7 @@ def main(argv=None):
     environment = os.environ.copy()
     removed = {}
     for key in list(environment):
-        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN", "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
+        if key.startswith("LUISA_TILE_BENCH_") or key in {"LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS", "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN", "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS", "LUISA_CUDA_TILE_PARTITION_COST", "LUISA_CUDA_TILE_CUB_SCAN", "LUISA_DUMP_SOURCE", "LUISA_DUMP_SPV", "TVM_COMPILE_FORCE_FALLBACK", "LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX", "LUISA_SIMD_ROOT_AXIS_TILES"}:
             removed[key] = environment.pop(key)
     overrides = {"LUISA_SIMD_WORKER_COUNT": str(args.threads), "LUISA_SIMD_WARP_WIDTH": "8", "OPENBLAS_NUM_THREADS": str(args.threads),
                  "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads), "GOTO_NUM_THREADS": str(args.threads),
@@ -939,6 +1050,7 @@ def main(argv=None):
                ROOT / "src/tests/common/tile_selection_test_utils.h", ROOT / "src/tests/common/tile_argmax_test_utils.h", ROOT / "src/tests/common/tile_embedding_test_utils.h", ROOT / "src/tests/common/tile_sort_pipeline_test_utils.h",
                ROOT / "include/luisa/tile/algorithms.h", ROOT / "include/luisa/tile/value.h", ROOT / "include/luisa/tile/dsl.h",
                ROOT / "include/luisa/tile/collective_plan.h", ROOT / "src/tile/collective_plan.cpp",
+               ROOT / "include/luisa/tile/collective_prefix.h", ROOT / "src/tile/collective_prefix.cpp",
                ROOT / "include/luisa/tile/collective_cost.h", ROOT / "src/tile/collective_cost.cpp",
                ROOT / "include/luisa/tile/collective_partition.h", ROOT / "src/tile/collective_partition.cpp",
                ROOT / "src/backends/cuda/tile/cuda_tile_partition_codegen.h",
@@ -950,6 +1062,7 @@ def main(argv=None):
     files += list((ROOT / "src/backends/cuda/tile").glob("cuda_tile*.cpp"))
     files += [ROOT / name for name in ("src/backends/cuda/tile/cuda_tile_codegen.h", "src/backends/cuda/cuda_shader_tile.h",
                                        "src/backends/cuda/tile/cuda_tile_streaming_scan.h", "src/backends/cuda/tile/cuda_tile_streaming_guard.h",
+                                       "src/backends/cuda/tile/cuda_tile_cub_scan.h",
                                        "src/backends/cuda/cuda_shader_tile.cpp", "src/backends/cuda/extensions/cuda_graph_ext.cpp")]
     for path in args.path_prefix:
         files += list(path.resolve().glob("*tvm*.dll"))
@@ -1003,7 +1116,7 @@ def main(argv=None):
                         command += ["--graph-batch", args.graph_batch]
                     child_environment = route_environment(environment, route, args.native_aligned16, args.native_worker_warps,
                                                           args.native_scan_chunk, args.native_independent_axis, args.native_streaming_scan,
-                                                          args.native_collective_cost, args.native_program_rows, args.native_partition_cost)
+                                                          args.native_collective_cost, args.native_program_rows, args.native_partition_cost, args.native_cub_scan_threads)
                     process = child(cpu, command, work, child_environment, args.affinity_mask, args.native_timeout)
                     try:
                         item["runs"][route] = native_result(process, export / "results.json", definition, args, route)
@@ -1019,11 +1132,12 @@ def main(argv=None):
                     item["runs"][route]["native_collective_cost_requested"] = route == "native" and args.native_collective_cost
                     item["runs"][route]["native_program_rows_requested"] = args.native_program_rows if route == "native" else 0
                     item["runs"][route]["native_partition_cost_requested"] = route == "native" and args.native_partition_cost
+                    item["runs"][route]["native_cub_scan_threads_requested"] = args.native_cub_scan_threads if route == "native" else 0
                     item["runs"][route]["environment_overrides"] = {
                         key: child_environment[key] for key in ("LUISA_CUDA_TILE_IR", "LUISA_CUDA_TILE_IR_ALIGNED16", "LUISA_CUDA_TILE_WORKER_WARPS",
                                                                "LUISA_CUDA_TILE_SCAN_CHUNK", "LUISA_CUDA_TILE_INDEPENDENT_AXIS", "LUISA_CUDA_TILE_STREAMING_SCAN",
                                                                "LUISA_CUDA_TILE_COLLECTIVE_COST", "LUISA_CUDA_TILE_PROGRAM_ROWS",
-                                                               "LUISA_CUDA_TILE_PARTITION_COST") if key in child_environment}
+                                                               "LUISA_CUDA_TILE_PARTITION_COST", "LUISA_CUDA_TILE_CUB_SCAN", "LUISA_DUMP_SOURCE") if key in child_environment}
                     manifest = export / "manifest.json"
                     if manifest.is_file():
                         try:
@@ -1043,7 +1157,7 @@ def main(argv=None):
                     item["runs"]["torch"] = dict(status="not_requested", requested=False,
                         reason="--native-only calibration: no Torch child was run", native_worker_warps_requested=0,
                         native_scan_chunk_requested=0, native_independent_axis_requested=0, native_collective_cost_requested=False,
-                        native_partition_cost_requested=False, native_program_rows_requested=0,
+                        native_partition_cost_requested=False, native_program_rows_requested=0, native_cub_scan_threads_requested=0,
                         environment_overrides={})
                     item["comparison_status"] = "absent_native_only_calibration"
                 elif canonical is None:
@@ -1068,6 +1182,7 @@ def main(argv=None):
                     item["runs"]["torch"]["native_worker_warps_requested"] = 0
                     item["runs"]["torch"]["native_collective_cost_requested"] = False
                     item["runs"]["torch"]["native_partition_cost_requested"] = False
+                    item["runs"]["torch"]["native_cub_scan_threads_requested"] = 0
                     item["runs"]["torch"]["native_program_rows_requested"] = 0
                     item["runs"]["torch"]["native_scan_chunk_requested"] = 0
                     item["runs"]["torch"]["native_independent_axis_requested"] = 0

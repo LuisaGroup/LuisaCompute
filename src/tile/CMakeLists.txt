@@ -2,6 +2,7 @@ set(LUISA_COMPUTE_TILE_SOURCES
         collective_cost.cpp
         collective_partition.cpp
         collective_plan.cpp
+        collective_prefix.cpp
         dimension.cpp
         dsl.cpp
         ir.cpp

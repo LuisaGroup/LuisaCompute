@@ -47,6 +47,16 @@ private:
     CUfunction _partition_function{};
     std::array<uint32_t, 3u> _partition_grid{1u, 1u, 1u};
     native_tile::StreamingScanGuard _partition_guard{};
+    // Ordinary CUDA candidate module. Both modules live with this shader;
+    // graph users retain the existing obligation to keep the shader alive.
+    CUmodule _cub_scan_module{};
+    CUfunction _cub_scan_function{};
+    std::array<uint32_t, 3u> _cub_scan_grid{1u, 1u, 1u};
+    uint3 _cub_scan_block{0u, 0u, 0u};
+    native_tile::StreamingScanGuard _cub_scan_guard{};
+    uint32_t _cub_scan_alignment_mask{0u};
+    luisa::string _cub_scan_source;
+    luisa::string _cub_scan_identity;
     luisa::string _entry;
     std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
     uint3 _block_size{0u, 0u, 0u};
@@ -84,6 +94,13 @@ public:
                    std::array<uint32_t, 3u> partition_grid = {1u, 1u, 1u},
                    native_tile::StreamingScanGuard partition_guard = {}) noexcept;
     ~CUDAShaderTile() noexcept override;
+    // Backend-private installation. Takes module ownership only on success;
+    // the caller unloads a rejected candidate. Original source/entry stay intact.
+    [[nodiscard]] bool install_cub_scan(CUmodule module, CUfunction function,
+                                        std::array<uint32_t, 3u> grid, uint3 block,
+                                        native_tile::StreamingScanGuard guard,
+                                        uint32_t alignment_mask,
+                                        luisa::string source, luisa::string identity) noexcept;
     [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
     [[nodiscard]] bool is_tile() const noexcept override { return true; }
     [[nodiscard]] size_t parameter_count() const noexcept { return _buffer_arguments.size(); }

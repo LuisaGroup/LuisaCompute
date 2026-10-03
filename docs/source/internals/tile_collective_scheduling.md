@@ -202,6 +202,45 @@ and default-recheck evidence are retained; no operation-name exclusion masks
 the negative result. This is another reason to model compiled layout costs
 alongside logical work rather than select from vector width alone.
 
+The aligned load proof also admits a zero-padded partial partition when each
+chunk origin is nonnegative, aligned to its Tile extent, and still intersects
+the corresponding logical dimension. Index arithmetic must remain in range.
+Custom fills, entirely out-of-bounds chunks and unproved origins retain the
+ordinary masked load. This extends representation coverage; it is not evidence
+that every newly admitted shape becomes faster.
+
+`analyze_closed_prefix` shares the existing load/cast/prefix/cast/store closure
+proof between CUDA realizers. It records actual dimensions, root ranges and
+logical work, without adding an execution primitive or choosing a thread layout.
+The existing streaming Tile emitter consumes that proof through its original
+CUDA-specific constraints.
+
+For explicit experiments, `LUISA_CUDA_TILE_CUB_SCAN=128|256|512|1024` selects an
+ordinary CUDA/CUB realization with that many physical threads, eight contiguous
+storage elements per thread, and an FP32 carry between chunks. It also requires
+`LUISA_CUDA_TILE_IR=1`. The current subset is one complete row per program,
+FP16/BF16 storage, unordered FP32 inclusive addition, and a logical width divisible
+by `8 * threads`. It is mutually exclusive with other experimental scheduling
+options. The original Tile source and module are retained; this option does not
+enable an automatic cost policy.
+
+The alternate module uses strict FP32 NVRTC options. The shared runtime selector
+checks final buffer pointer alignment and complete input/output byte intervals;
+overlap or failed alignment restores the original function, grid and block.
+Graph construction and typed updates use the same selector. Both modules remain
+owned by the shader, whose lifetime must cover graph use. Ordinary NVRTC compile
+errors and candidate module/entry/resource failures keep the original shader;
+the existing compiler helper's fatal infrastructure errors remain unchanged.
+
+Candidate source is dumped separately when `LUISA_DUMP_SOURCE` is set. Its
+64-bit compile key is not a SHA256 or a complete transitive header identity.
+Optional diagnostics retain actual loaded-function registers, static shared and
+local bytes, with unknown/error status preserved. The ordinary CUDA candidate
+also records the occupancy API's resident CTA capacity for its physical block.
+That capacity is not measured occupancy. The original Tile entry receives only
+static resource queries: its logical block `(1,1,1)` does not reveal physical
+workers and is not used to compute occupancy.
+
 The nine source-review observations above remain fixed to October 2;
 the separate calibration report retains its own October 3 denominators and
 the original Torch process failure followed by an independent retry. Neither

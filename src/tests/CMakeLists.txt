@@ -708,6 +708,8 @@ luisa_compute_add_test(test_tile_collective_plan unit/tile/test_tile_collective_
 target_link_libraries(test_tile_collective_plan PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_collective_partition unit/tile/test_tile_collective_partition.cpp LABELS "unit;unit_tile")
 target_link_libraries(test_tile_collective_partition PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_collective_prefix unit/tile/test_tile_collective_prefix.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_collective_prefix PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_cuda_collective_codegen unit/tile/test_tile_cuda_collective_codegen.cpp LABELS "unit;unit_tile")
 target_sources(test_tile_cuda_collective_codegen PRIVATE
         ../backends/cuda/tile/cuda_tile_codegen.cpp
@@ -716,6 +718,12 @@ target_sources(test_tile_cuda_collective_codegen PRIVATE
         ../backends/cuda/tile/cuda_tile_streaming_scan_codegen.cpp)
 target_include_directories(test_tile_cuda_collective_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
 target_link_libraries(test_tile_cuda_collective_codegen PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_cuda_cub_scan_codegen unit/tile/test_tile_cuda_cub_scan_codegen.cpp LABELS "unit;unit_tile")
+target_sources(test_tile_cuda_cub_scan_codegen PRIVATE
+        ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_cub_scan.cpp)
+target_include_directories(test_tile_cuda_cub_scan_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
+target_link_libraries(test_tile_cuda_cub_scan_codegen PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_memory unit/tile/test_tile_memory.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_migrated unit/tile/test_tile_migrated.cpp LABELS "unit;unit_tile")
@@ -1603,6 +1611,9 @@ endif ()
           luisa_compute_add_test(test_tile_cuda_streaming_scan unit/tile/test_tile_cuda_streaming_scan.cpp)
           target_link_libraries(test_tile_cuda_streaming_scan PRIVATE luisa-compute-tile CUDA::cuda_driver)
           add_dependencies(test_tile_cuda_streaming_scan luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+          luisa_compute_add_test(test_tile_cuda_cub_scan unit/tile/test_tile_cuda_cub_scan.cpp)
+          target_link_libraries(test_tile_cuda_cub_scan PRIVATE luisa-compute-tile CUDA::cuda_driver)
+          add_dependencies(test_tile_cuda_cub_scan luisa-compute-backend-cuda luisa-cuda-tile-compiler)
           luisa_compute_add_test(test_tile_cuda_program_partition unit/tile/test_tile_cuda_program_partition.cpp)
           target_link_libraries(test_tile_cuda_program_partition PRIVATE luisa-compute-tile CUDA::cuda_driver)
           add_dependencies(test_tile_cuda_program_partition luisa-compute-backend-cuda luisa-cuda-tile-compiler)

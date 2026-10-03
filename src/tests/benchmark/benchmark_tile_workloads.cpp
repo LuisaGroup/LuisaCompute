@@ -13,6 +13,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -448,6 +449,20 @@ int run(int argc, char *argv[]) {
         if (!shader.metadata().source.empty() && !write_text(directory / source_name, std::string{shader.metadata().source.data(), shader.metadata().source.size()})) {
             return finish(options, directory, "failed", "stage source export failed", 1, compile_ms);
         }
+        // An ordinary CUDA candidate is a different compilation unit. Preserve
+        // it separately without changing the original Tile source receipt.
+        auto realization = string_view{shader.metadata().realization};
+        constexpr string_view cub_source_marker = "cub-scan-source-file=";
+        if (auto source_position = realization.find(cub_source_marker); source_position != string_view::npos) {
+            auto source_path = realization.substr(source_position + cub_source_marker.size());
+            source_path = source_path.substr(0u, source_path.find(';'));
+            std::ifstream candidate{std::filesystem::path{std::string{source_path}}, std::ios::binary};
+            std::string text{std::istreambuf_iterator<char>{candidate}, std::istreambuf_iterator<char>{}};
+            auto candidate_name = "cub-source-stage" + std::to_string(stage) + ".cu";
+            if (!candidate || text.empty() || !write_text(directory / candidate_name, text)) {
+                return finish(options, directory, "failed", "CUB candidate source export failed", 1, compile_ms);
+            }
+        }
         if (!shader) {
             auto error = string_view{shader.metadata().error};
             auto compiler_failure = error.starts_with("CUDA Tile IR NVRTC failed (") ||
@@ -557,6 +572,7 @@ int run(int argc, char *argv[]) {
     std::string native_alignment_receipts;
     std::string native_streaming_receipts;
     std::string native_partition_receipts;
+    std::string native_cub_receipts;
     if (options.backend == "cuda" && options.lowering == "native") {
         // Inspect the actual command binding order, including BufferView byte
         // offsets. Record only pointer residues, never device addresses. This
@@ -580,9 +596,12 @@ int run(int argc, char *argv[]) {
         std::ostringstream receipt;
         std::ostringstream streaming_receipt;
         std::ostringstream partition_receipt;
+        std::ostringstream cub_receipt;
         receipt << '[';
         streaming_receipt << '[';
         partition_receipt << '[';
+        cub_receipt << '[';
+        auto cub_requested = false;
         for (auto stage = size_t{0u}; stage < shaders.size(); stage++) {
             auto command = static_cast<const ShaderDispatchCommand *>(commands[stage].get());
             auto args = command->arguments();
@@ -665,6 +684,49 @@ int run(int argc, char *argv[]) {
                 selected = "luisa_tile_partition";
                 selected_grid = make_uint3(static_cast<uint32_t>(partition_grid), 1u, 1u);
             }
+            auto cub_threads = fact("cub-scan-threads=");
+            auto cub_available = realization.find("; cub-scan-available;") != string_view::npos;
+            auto cub_input = fact("cub-scan-input-slot="), cub_output = fact("cub-scan-output-slot=");
+            auto cub_input_bytes = fact("cub-scan-input-bytes="), cub_output_bytes = fact("cub-scan-output-bytes=");
+            auto cub_grid = fact("cub-scan-grid-x=");
+            auto cub_aligned = false, cub_disjoint = false;
+            auto selected_block = make_uint3(1u);
+            cub_requested |= cub_threads != 0u;
+            if (cub_available) {
+                LUISA_ASSERT(cub_input < pointers.size() && cub_output < pointers.size() && cub_input != cub_output &&
+                                 cub_input_bytes != 0u && cub_output_bytes != 0u &&
+                                 cub_input_bytes <= args[cub_input].buffer.size && cub_output_bytes <= args[cub_output].buffer.size &&
+                                 cub_grid != 0u && cub_grid <= UINT32_MAX &&
+                                 fact("cub-scan-block-x=") == cub_threads &&
+                                 fact("cub-scan-alignment-mask=") == ((uint64_t{1u} << cub_input) | (uint64_t{1u} << cub_output)) &&
+                                 (cub_threads == 128u || cub_threads == 256u || cub_threads == 512u || cub_threads == 1024u),
+                             "Invalid CUB prefix view/launch metadata.");
+                auto input = pointers[cub_input], output_pointer = pointers[cub_output];
+                cub_aligned = ((input | output_pointer) & 15u) == 0u;
+                cub_disjoint = input != 0u && output_pointer != 0u &&
+                               cub_input_bytes <= std::numeric_limits<uint64_t>::max() - input &&
+                               cub_output_bytes <= std::numeric_limits<uint64_t>::max() - output_pointer &&
+                               (input + cub_input_bytes <= output_pointer || output_pointer + cub_output_bytes <= input);
+            }
+            if (cub_available && cub_aligned && cub_disjoint) {
+                selected = "luisa_tile_cub_scan";
+                selected_grid = make_uint3(static_cast<uint32_t>(cub_grid), 1u, 1u);
+                selected_block = make_uint3(static_cast<uint32_t>(cub_threads), 1u, 1u);
+            }
+            if (stage != 0u) { cub_receipt << ','; }
+            cub_receipt << "{\"stage\":" << stage << ",\"threads_requested\":" << cub_threads
+                        << ",\"available\":" << (cub_available ? "true" : "false")
+                        << ",\"input_slot\":" << cub_input << ",\"output_slot\":" << cub_output
+                        << ",\"input_bytes\":" << cub_input_bytes << ",\"output_bytes\":" << cub_output_bytes
+                        << ",\"static_ranges_disjoint\":" << (cub_disjoint ? "true" : "false")
+                        << ",\"final_pointers_aligned16\":" << (cub_aligned ? "true" : "false")
+                        << ",\"expected_selected_entry\":";
+            quoted(cub_receipt, selected);
+            cub_receipt << ",\"expected_selected_grid\":";
+            array(cub_receipt, std::array{selected_grid.x, selected_grid.y, selected_grid.z});
+            cub_receipt << ",\"expected_selected_block\":";
+            array(cub_receipt, std::array{selected_block.x, selected_block.y, selected_block.z});
+            cub_receipt << '}';
             if (stage != 0u) { partition_receipt << ','; }
             partition_receipt << "{\"stage\":" << stage << ",\"rows_requested\":" << partition_rows
                               << ",\"available\":" << (partition_available ? "true" : "false")
@@ -700,9 +762,11 @@ int run(int argc, char *argv[]) {
         receipt << ']';
         streaming_receipt << ']';
         partition_receipt << ']';
+        cub_receipt << ']';
         native_alignment_receipts = receipt.str();
         native_streaming_receipts = streaming_receipt.str();
         native_partition_receipts = partition_receipt.str();
+        if (cub_requested) { native_cub_receipts = cub_receipt.str(); }
     }
     auto batch = [&](uint64_t repetitions, bool instrumented, double &device_ms) {
         stream.synchronize();
@@ -927,6 +991,10 @@ int run(int argc, char *argv[]) {
     if (!native_partition_receipts.empty()) {
         out << ",\"native_program_partition\":" << native_partition_receipts
             << ",\"native_program_partition_evidence\":\"actual command BufferView pointers and proved static ranges; expected shared host entry/grid selection, not device trace\"";
+    }
+    if (!native_cub_receipts.empty()) {
+        out << ",\"native_cub_scan\":" << native_cub_receipts
+            << ",\"native_cub_scan_evidence\":\"actual command BufferView pointers and proved static ranges; expected host function/grid/block selection, not device trace\"";
     }
     pipeline_metadata(out, fixture);
     if (!fixture.pipeline_widths.empty()) {
