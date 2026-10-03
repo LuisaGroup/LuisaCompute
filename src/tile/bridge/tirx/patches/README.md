@@ -46,6 +46,56 @@ error. The Python tests have been syntax-checked but were not run in that
 environment. The Luisa CUDA host, planner and runtime suites passed with the
 rebuilt compiler; a guarded FP16 output also passed CUDA memory checking.
 
+## CUDA wide scalar broadcasts
+
+`cuda-wide-broadcast-v1.patch` fixes CUDA source generation for the existing
+six- and eight-lane `float32`, `int16`, `uint16`, `int32` and `uint32` vector
+types in Apache TVM `46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. Their CUDA
+representation packs two logical elements into each physical component.
+Previously, `Broadcast` passed six or eight scalar arguments to a constructor
+with only three or four components; a `float32x8` broadcast could therefore
+emit an invalid eight-argument `make_ulonglong4` call.
+
+The fix evaluates the scalar once in its existing statement scope and fills
+every logical lane through the code generator's existing packed-element
+accessor, as wide ramps already do. It adds no arithmetic or numeric
+conversion. The earlier FP16/BF16/FP8/FP4 branches and ordinary small vectors
+remain unchanged. This is a source-generation fix, not an alignment promise
+or an instruction-width or performance guarantee. It does not enable a
+vectorization option or add a Tile primitive.
+
+This patch is independent of `pointer-storage-legalize-v1.patch`; apply either
+or both as required, then rebuild the configured TVM compiler:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/cuda-wide-broadcast-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+The patch adds ten source-only regressions to the existing CUDA codegen test
+file. Each broadcasts a guarded dynamic buffer read, checks that it remains
+a single read inside the guard, and checks complete packed-lane assignments.
+With a matching TVM Python/FFI environment:
+
+```sh
+python -m pytest src/ext/tvm/tests/python/tirx/codegen/test_codegen_cuda.py -k test_cuda_packed_broadcast_source -q
+```
+
+The tests call the source builder directly with
+`TVM_COMPILE_FORCE_FALLBACK=1`, which returns before the CUDA runtime factory,
+and exclude a source-postprocessing callback. They do not run LLVM JIT,
+NVRTC, nvcc or a GPU kernel. The Python tests have been syntax-checked but
+were not run in the local environment. Equivalent MSVC C++ source-only tests
+passed all ten cases; the same executable loaded against the original DLL
+failed all ten source-shape checks. Both runs recorded the loaded DLL paths.
+
+With the rebuilt compiler, Luisa's CUDA host suite passed 989 assertions in
+15 tests and its CUDA Tile runtime suite passed 2,184,696 assertions in 12
+tests. FP16 eight-element integration passed strict/fast math, aligned and
+misaligned views, inactive rows and CUDA memory checking. These integration
+checks are separate from the source-only regressions and establish no
+performance guarantee.
+
 ## Ordered reduction arithmetic
 
 `metal-precise-math-v1.patch` is independent of the MPP extensions below. It

@@ -1,0 +1,86 @@
+--- a/src/backend/cuda/codegen/codegen_cuda.cc
++++ b/src/backend/cuda/codegen/codegen_cuda.cc
+@@ -1894,6 +1894,26 @@
+     }
+   }
+ 
++  if (lanes > 4 && lanes <= 8 && (op_ty.bits() == 16 || op_ty.bits() == 32)) {
++    // Wide 16/32-bit vectors pack two logical lanes in each CUDA component.
++    // Fill logical lanes with the existing accessor instead of passing one
++    // scalar per lane to a constructor with only lanes/2 components.
++    std::string sret = name_supply_->FreshName("_");
++    this->PrintIndent();
++    this->PrintType(op_ty, stream);
++    stream << ' ' << sret << ";\n";
++    int ssa_scope = BeginScope();
++    {
++      std::string v = SSAGetID(PrintExpr(op->value), op->value.ty());
++      for (int i = 0; i < lanes; ++i) {
++        PrintVecElemStore(sret, op_ty, i, v);
++      }
++    }
++    EndScope(ssa_scope);
++    os << sret;
++    return;
++  }
++
+   std::string v = PrintExpr(op->value);
+   PrintVecConstructor(op_ty, os);
+   os << '(';
+--- a/tests/python/tirx/codegen/test_codegen_cuda.py
++++ b/tests/python/tirx/codegen/test_codegen_cuda.py
+@@ -1216,5 +1216,54 @@
+     tvm.testing.run_with_gpu_lock(run_and_check)
+ 
+ 
++@pytest.mark.parametrize(
++    "dtype,pair",
++    [("float32", "float2"), ("int16", "short2"), ("uint16", "ushort2"),
++     ("int32", "int2"), ("uint32", "uint2")],
++)
++@pytest.mark.parametrize("lanes", [6, 8])
++def test_cuda_packed_broadcast_source(monkeypatch, dtype, pair, lanes):
++    # Direct codegen plus the existing source fallback: no LLVM host JIT,
++    # NVRTC, nvcc, CUDA context, or GPU launch is needed.
++    monkeypatch.setenv("TVM_COMPILE_FORCE_FALLBACK", "1")
++    assert tvm.get_global_func("tvm_callback_cuda_postproc", allow_missing=True) is None
++    src = tvm.tirx.decl_buffer((1,), dtype, name="src")
++    dst = tvm.tirx.decl_buffer((lanes,), dtype, name="dst")
++    src_data = tvm.tirx.Var("source_data", tvm.tirx.buffer_data_pointer_type(src))
++    dst_data = tvm.tirx.Var("output_data", tvm.tirx.buffer_data_pointer_type(dst))
++    gate = tvm.tirx.Var("gate", "int32")
++    value = tvm.tirx.Broadcast(tvm.tirx.BufferLoad(src, [0]), lanes)
++    store = tvm.tirx.BufferStore(dst, value, [tvm.tirx.Ramp(0, 1, lanes)])
++    body = tvm.tirx.SeqStmt([
++        tvm.tirx.DeclBuffer(src, data=src_data),
++        tvm.tirx.DeclBuffer(dst, data=dst_data),
++        tvm.tirx.IfThenElse(gate != 0, store),
++    ])
++    target = tvm.target.Target({"kind": "cuda", "arch": "sm_89"})
++    func = tvm.tirx.PrimFunc([src_data, dst_data, gate], body).with_attr("global_symbol", "main")
++    # Accessing the backend registers its normal header generator.
++    assert tvm.backend.cuda.codegen.header_generator is not None
++    source = tvm.get_global_func("target.build.cuda")(
++        tvm.IRModule.from_expr(func), target
++    ).inspect_source()
++    definition = re.search(r'extern "C" __(?:device|global)__ void main\([^;]*?\) \{', source)
++    assert definition is not None
++    source = source[definition.end():]
++    # The load must be single-evaluation and remain after the lazy statement guard.
++    assert source.count("source_data[0]") == 1
++    assert source.index("if (") < source.index("source_data[0]")
++    writes = re.findall(
++        rf"\(\({pair}\*\)\(&\((\w+)\.([xyzw])\)\)\)->([xy]) = (\w+);", source
++    )
++    assert len(writes) == lanes
++    assert len({result for result, _, _, _ in writes}) == 1
++    assert len({value for _, _, _, value in writes}) == 1
++    assert [(component, lane) for _, component, lane, _ in writes] == [
++        ("xyzw"[i // 2], "xy"[i % 2]) for i in range(lanes)
++    ]
++    # No packed constructor may reinterpret numeric float/int arguments as bits.
++    assert not re.search(r"make_(?:u?longlong|u?int)[34]\(", source)
++
++
+ if __name__ == "__main__":
+     tvm.testing.main()
