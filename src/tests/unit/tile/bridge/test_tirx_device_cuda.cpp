@@ -5,6 +5,8 @@
 // "cuda" (CUDA C) and optionally "nvptx" code generators.
 
 #include "ut/ut.hpp"
+#include "../../../../tile/bridge/tirx/execution.h"
+#include <tvm/ffi/extra/structural_equal.h>
 
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/error.h>
@@ -1144,10 +1146,207 @@ void test_cuda_subgroup_packing_proofs() {
     }
 }
 
+// These raw-IR tests exercise the private proof directly, before downstream
+// simplification can hide a rejected producer or change materialization.
+namespace coordinate_tests {
+namespace ir = tvm::tirx;
+namespace proof = luisa::compute::tile::bridge::tirx::detail;
+
+auto i64(int64_t value) { return tvm::IntImm::Int64(value); }
+auto f32(double value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; }
+
+ir::For elements(ir::PrimVar axis, int64_t extent, ir::Stmt body, int64_t rank = 1) {
+    return ir::For{axis, i64(0), i64(extent), ir::ForKind::kSerial, std::move(body), {},
+                   {{proof::independent_elements_annotation, i64(rank)}}};
+}
+
+struct Uses final : ir::StmtExprVisitor {
+    ir::BufferVar buffer;
+    uint32_t allocations{0u}, reads{0u}, writes{0u};
+    tvm::PrimExpr last_value;
+    explicit Uses(ir::BufferVar value) : buffer{std::move(value)} {}
+    void VisitStmt_(const ir::AllocBufferNode *op) final {
+        allocations += op->buffer.same_as(buffer);
+        StmtExprVisitor::VisitStmt_(op);
+    }
+    void VisitExpr_(const ir::BufferLoadNode *op) final {
+        reads += op->buffer.same_as(buffer);
+        StmtExprVisitor::VisitExpr_(op);
+    }
+    void VisitStmt_(const ir::BufferStoreNode *op) final {
+        if (op->buffer.same_as(buffer)) { writes++; last_value = op->value; }
+        StmtExprVisitor::VisitStmt_(op);
+    }
+};
+
+struct Chain {
+    ir::PrimVar p{"program", tvm::PrimType::Int(64)}, a{"iota_axis", tvm::PrimType::Int(64)},
+        b{"mask_axis", tvm::PrimType::Int(64)}, row{"element_row", tvm::PrimType::Int(64)},
+        n{"element_column", tvm::PrimType::Int(64)};
+    ir::BufferVar x{ir::decl_buffer({i64(8)}, tvm::PrimType::Float(32), "input")},
+        y{ir::decl_buffer({i64(3), i64(2), i64(8)}, tvm::PrimType::Float(32), "output")},
+        index{ir::decl_buffer({i64(8)}, tvm::PrimType::Int(64), "coordinate", "local")},
+        mask{ir::decl_buffer({i64(8)}, tvm::PrimType::Bool(), "mask", "local")};
+
+    ir::Stmt producers(tvm::PrimExpr predicate) const {
+        auto iota = elements(a, 8, ir::BufferStore{index, a, {a}});
+        auto compare = elements(b, 8, ir::BufferStore{mask, predicate, {b}});
+        compare.CopyOnWrite()->annotations.Set(proof::materialized_pure_tile_annotation, i64(1));
+        return ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{ir::AllocBuffer{index}, ir::AllocBuffer{mask}, iota, compare});
+    }
+    ir::PrimFunc function(tvm::PrimExpr predicate, tvm::PrimExpr value) const {
+        auto consumer = elements(row, 2, ir::For{n, i64(0), i64(8), ir::ForKind::kSerial,
+            ir::BufferStore{y, value, {p, row, n}}}, 2);
+        auto body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{producers(predicate), consumer});
+        body = ir::For{p, i64(0), i64(3), ir::ForKind::kSerial, body, {}, {{proof::logical_parallel_annotation, i64(1)}}};
+        return ir::PrimFunc{{x, y}, body};
+    }
+};
+
+void fixed_point_and_math() {
+    for (auto mode : {0u, 1u, 2u, 3u}) {
+        Chain c;
+        // Keep this lazy floating-point expression exactly, including operand
+        // order and the potential division. Forwarding is independent of the
+        // later compiler fast-math choice and may not rewrite either arm.
+        auto load = ir::BufferLoad{c.x, {c.n}};
+        auto arithmetic = ir::Div{ir::Add{load, f32(-0.0)}, ir::Mul{load, f32(2.0)}};
+        auto floating_lazy = tvm::if_then_else(load > f32(0.0), arithmetic, f32(-7.0));
+        auto predicate = mode == 3u ? c.p < i64(3) : ir::BufferLoad{c.index, {c.b}} < i64(mode == 0u ? 8 : mode == 1u ? 0 : 7);
+        // The root-dependent mode still reads iota so both definitions have
+        // a real use; the root bound must not become an element-domain fact.
+        if (mode == 3u) { predicate = predicate && (ir::BufferLoad{c.index, {c.b}} < i64(8)); }
+        auto value = tvm::if_then_else(ir::BufferLoad{c.mask, {c.n}}, floating_lazy, f32(19.0));
+        auto function = c.function(predicate, value);
+        auto original = function->body;
+        uint64_t removed = 0u;
+        auto body = proof::forward_coordinate_tiles(function, removed);
+        expect(eq(removed, uint64_t{2u})) << mode;
+        Uses index{c.index}, mask{c.mask}, output{c.y};
+        index(body); mask(body); output(body);
+        expect(eq(index.allocations + index.reads + index.writes, 0u));
+        expect(eq(mask.allocations + mask.reads + mask.writes, 0u));
+        expect(eq(output.writes, 1u));
+        if (mode == 0u) { expect(tvm::ffi::StructuralEqual{}(output.last_value, floating_lazy)); }
+        if (mode == 1u) { expect(tvm::ffi::StructuralEqual{}(output.last_value, f32(19.0))); }
+        if (mode >= 2u) {
+            auto call = output.last_value.as<tvm::CallNode>();
+            expect(call != nullptr);
+            if (call) {
+                expect(call->op.same_as(ir::builtin::if_then_else()));
+                expect(call->args[0].as<tvm::IntImmNode>() == nullptr);
+                expect(tvm::ffi::StructuralEqual{}(call->args[1], floating_lazy));
+                expect(tvm::ffi::StructuralEqual{}(call->args[2], f32(19.0)));
+            }
+        }
+        expect(function->body.same_as(original));
+        auto again = function;
+        again.CopyOnWrite()->body = body;
+        auto unchanged = proof::forward_coordinate_tiles(again, removed);
+        expect(eq(removed, uint64_t{0u}));
+        expect(tvm::ffi::StructuralEqual{}(unchanged, body));
+    }
+    // A singleton axis projects through literal zero; no whole-domain rank
+    // equality or invented axis is needed at its rank-two consumer.
+    auto singleton = ir::decl_buffer({i64(1)}, tvm::PrimType::Int(64), "singleton", "local");
+    auto out = ir::decl_buffer({i64(2), i64(8)}, tvm::PrimType::Int(64), "out");
+    ir::PrimVar a{"a", tvm::PrimType::Int(64)}, r{"r", tvm::PrimType::Int(64)}, n{"n", tvm::PrimType::Int(64)};
+    auto body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{ir::AllocBuffer{singleton},
+        elements(a, 1, ir::BufferStore{singleton, a, {a}}),
+        elements(r, 2, ir::For{n, i64(0), i64(8), ir::ForKind::kSerial,
+            ir::BufferStore{out, ir::BufferLoad{singleton, {i64(0)}}, {r, n}}}, 2)});
+    uint64_t removed = 0u;
+    auto forwarded = proof::forward_coordinate_tiles(ir::PrimFunc{{out}, body}, removed);
+    expect(eq(removed, uint64_t{1u}));
+    Uses output{out}; output(forwarded);
+    expect(tvm::ffi::StructuralEqual{}(output.last_value, i64(0)));
+}
+
+void rejection_boundaries() {
+    enum class Bad { EFFECT, ESCAPE, BEFORE_PRODUCER, NEIGHBOR, MEMORY_VALUE, FLOAT_VALUE, MANUAL, TWO_WRITERS };
+    for (auto mode : {Bad::EFFECT, Bad::ESCAPE, Bad::BEFORE_PRODUCER, Bad::NEIGHBOR,
+                      Bad::MEMORY_VALUE, Bad::FLOAT_VALUE, Bad::MANUAL, Bad::TWO_WRITERS}) {
+        ir::PrimVar a{"a", tvm::PrimType::Int(64)}, n{"n", tvm::PrimType::Int(64)};
+        auto input = ir::decl_buffer({i64(8)}, tvm::PrimType::Int(64), "input");
+        auto floats = ir::decl_buffer({i64(8)}, tvm::PrimType::Float(32), "floats");
+        auto output = ir::decl_buffer({i64(8)}, tvm::PrimType::Int(64), "output");
+        auto local = ir::decl_buffer({i64(8)}, tvm::PrimType::Int(64), "coordinate", "local");
+        tvm::PrimExpr value = a;
+        if (mode == Bad::MEMORY_VALUE) { value = ir::BufferLoad{input, {a}}; }
+        if (mode == Bad::FLOAT_VALUE) { value = ir::Cast{tvm::PrimType::Int(64), ir::Cast{tvm::PrimType::Float(32), a}}; }
+        auto allocation = ir::AllocBuffer{local};
+        if (mode == Bad::MANUAL) { allocation.CopyOnWrite()->annotations.Set(proof::manual_memory_annotation, i64(1)); }
+        auto producer = elements(a, 8, ir::BufferStore{local, value, {a}});
+        tvm::PrimExpr index = mode == Bad::NEIGHBOR ? tvm::floormod(n + i64(1), i64(8)) : n;
+        auto read = ir::BufferLoad{local, {index}};
+        auto consumer = elements(n, 8, ir::BufferStore{output, read, {n}});
+        tvm::ffi::Array<ir::Stmt> parts{allocation};
+        // The exact same read Expr occurs on both sides of the producer.
+        if (mode == Bad::BEFORE_PRODUCER) { parts.push_back(consumer); }
+        parts.push_back(producer);
+        if (mode == Bad::TWO_WRITERS) { parts.push_back(producer); }
+        if (mode == Bad::EFFECT) {
+            parts.push_back(ir::Evaluate{tvm::Call{tvm::PrimType::Int(32), ir::builtin::call_extern(), {ir::StringImm{"unknown_effect"}}}});
+        }
+        if (mode == Bad::ESCAPE) {
+            auto pointer = tvm::Call{local.DataPointerType(), ir::builtin::address_of(), {ir::BufferLoad{local, {i64(0)}}}};
+            parts.push_back(ir::Evaluate{tvm::reinterpret(tvm::Type{tvm::PrimType::UInt(64)}, pointer)});
+        }
+        parts.push_back(consumer);
+        auto function = ir::PrimFunc{{input, floats, output}, ir::SeqStmt::Flatten(parts)};
+        uint64_t removed = 0u;
+        auto body = proof::forward_coordinate_tiles(function, removed);
+        expect(eq(removed, uint64_t{0u})) << static_cast<uint32_t>(mode);
+        expect(tvm::ffi::StructuralEqual{}(body, function->body));
+    }
+}
+
+void snapshot_order() {
+    Chain c;
+    auto snapshot = ir::decl_buffer({i64(8)}, tvm::PrimType::Float(32), "float_snapshot", "local");
+    auto y0 = ir::decl_buffer({i64(8)}, tvm::PrimType::Float(32), "y0");
+    auto y1 = ir::decl_buffer({i64(8)}, tvm::PrimType::Float(32), "y1");
+    ir::PrimVar copy{"copy", tvm::PrimType::Int(64)}, first{"first", tvm::PrimType::Int(64)}, second{"second", tvm::PrimType::Int(64)};
+    auto load = tvm::if_then_else(ir::BufferLoad{c.mask, {copy}}, ir::BufferLoad{c.x, {copy}}, f32(0.0));
+    auto body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{
+        c.producers(ir::BufferLoad{c.index, {c.b}} < i64(8)), ir::AllocBuffer{snapshot},
+        elements(copy, 8, ir::BufferStore{snapshot, load, {copy}}),
+        elements(first, 8, ir::BufferStore{y0, ir::Add{ir::BufferLoad{snapshot, {first}}, f32(1.0)}, {first}}),
+        elements(second, 8, ir::BufferStore{y1, ir::Mul{ir::BufferLoad{snapshot, {second}}, f32(2.0)}, {second}})});
+    auto function = ir::PrimFunc{{c.x, y0, y1}, body};
+    auto readonly = proof::forward_readonly_tile_loads(function, true, true, false, true);
+    auto post = function;
+    post.CopyOnWrite()->body = readonly.body;
+    uint64_t removed = 0u;
+    post.CopyOnWrite()->body = proof::forward_coordinate_tiles(post, removed);
+    expect(eq(removed, uint64_t{2u}));
+    Uses kept{snapshot}, once{c.x}; kept(post->body); once(post->body);
+    expect(eq(kept.allocations, 1u));
+    expect(eq(kept.reads, 2u));
+    expect(eq(kept.writes, 1u));
+    expect(eq(once.reads, 1u));
+    expect(readonly.inputs.empty());
+    // Counter-witness: the former order licenses the existing immutable-view
+    // transform after the mask disappears. It is legal under noalias, but it
+    // changes snapshot choice and is not coordinate-only work removal.
+    auto pre = function;
+    pre.CopyOnWrite()->body = proof::forward_coordinate_tiles(pre, removed);
+    auto replay = proof::forward_readonly_tile_loads(pre, true, true, false, true);
+    Uses gone{snapshot}, twice{c.x}; gone(replay.body); twice(replay.body);
+    expect(eq(gone.allocations + gone.reads + gone.writes, 0u));
+    expect(eq(twice.reads, 2u));
+    expect(eq(replay.inputs.size(), size_t{1u}));
+    expect(function->body.same_as(body));
+}
+}// namespace coordinate_tests
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    "tile_tirx_coordinate_fixed_point_and_math"_test = coordinate_tests::fixed_point_and_math;
+    "tile_tirx_coordinate_rejection_boundaries"_test = coordinate_tests::rejection_boundaries;
+    "tile_tirx_coordinate_snapshot_order"_test = coordinate_tests::snapshot_order;
     "tile_tirx_cuda_elementwise_artifact"_test = test_cuda_elementwise_artifact;
     "tile_tirx_cuda_reduction_artifact"_test = test_cuda_reduction_artifact;
     "tile_tirx_cuda_matmul_artifact"_test = test_cuda_matmul_artifact;

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/tirx/builtin.h>
@@ -148,6 +149,7 @@ private:
     tvm::tirx::BufferVar _buffer;
     Domain _domain;
     tvm::PrimExpr _guard{tvm::IntImm::Bool(true)};
+    bool _coordinate_projection;
 
 protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
@@ -171,6 +173,20 @@ protected:
             valid &= !load->predicate && load->indices.size() == _buffer->shape.size();
             if (valid) {
                 for (auto i = 0u; i < load->indices.size(); i++) {
+                    if (_coordinate_projection) {
+                        auto literal = load->indices[i].as<tvm::IntImmNode>();
+                        auto extent = _buffer->shape[i].as<tvm::IntImmNode>();
+                        auto projected = literal && literal->value == 0 && extent && extent->value == 1;
+                        auto element_domain = false;
+                        for (auto loop : _domain) {
+                            element_domain |= loop->annotations.count(independent_elements_annotation) != 0u;
+                            auto minimum = loop->min.as<tvm::IntImmNode>();
+                            projected |= element_domain && minimum && minimum->value == 0 &&
+                                         load->indices[i].same_as(loop->loop_var) &&
+                                         tvm::ffi::StructuralEqual{}(loop->extent, _buffer->shape[i]);
+                        }
+                        valid &= projected;
+                    }
                     auto lower = load->indices[i] >= 0;
                     auto upper = load->indices[i] < _buffer->shape[i];
                     valid &= (guard_contains(_guard, lower) || prove_in_loop_domain(lower, _domain) ||
@@ -202,7 +218,198 @@ public:
     uint64_t loads{0u};
     bool valid{true};
     luisa::unordered_set<const tvm::tirx::ForNode *> phases;
-    ConsumerBounds(tvm::tirx::BufferVar buffer, Domain domain) : _buffer{std::move(buffer)}, _domain{std::move(domain)} {}
+    ConsumerBounds(tvm::tirx::BufferVar buffer, Domain domain, bool coordinate_projection = false)
+        : _buffer{std::move(buffer)}, _domain{std::move(domain)}, _coordinate_projection{coordinate_projection} {}
+};
+
+// Pure integer coordinates have no snapshot or floating-point evaluation event.
+// Recompute only an audited, closed expression at an exact axis projection.
+[[nodiscard]] bool coordinate_type(const tvm::PrimType &type) {
+    return type.IsScalar() && type.MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt, DLDataTypeCode::kDLBool);
+}
+
+[[nodiscard]] bool coordinate_buffer(const tvm::tirx::BufferVar &buffer) {
+    auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+    if (!coordinate_type(buffer->dtype) || buffer.scope() != "local" || buffer->shape.empty() ||
+        !buffer->strides.empty() || buffer->layout || !buffer->allocated_addr.empty() ||
+        !offset || offset->value != 0) { return false; }
+    auto volume = uint64_t{1u};
+    for (auto &&dimension : buffer->shape) {
+        auto extent = dimension.as<tvm::IntImmNode>();
+        if (!extent || extent->value <= 0 || volume > static_cast<uint64_t>(INT64_MAX) / static_cast<uint64_t>(extent->value)) { return false; }
+        volume *= static_cast<uint64_t>(extent->value);
+    }
+    return true;
+}
+
+[[nodiscard]] bool coordinate_expression(const tvm::PrimExpr &expression, const Domain &domain) {
+    auto valid = true;
+    tvm::tirx::PostOrderVisit(expression, [&](const tvm::ffi::ObjectRef &object) {
+        auto primitive = object.as<tvm::PrimExpr>();
+        if (!primitive || !coordinate_type(primitive.value().ty())) { valid = false; return; }
+        if (auto variable = object.as<tvm::tirx::VarNode>()) {
+            valid &= std::any_of(domain.begin(), domain.end(), [&](auto loop) { return loop->loop_var.get() == variable; });
+        } else if (auto division = object.as<tvm::tirx::FloorDivNode>()) {
+            auto divisor = division->b.as<tvm::IntImmNode>();
+            valid &= divisor && divisor->value > 0;
+        } else if (auto modulo = object.as<tvm::tirx::FloorModNode>()) {
+            auto divisor = modulo->b.as<tvm::IntImmNode>();
+            valid &= divisor && divisor->value > 0;
+        } else {
+            // Casts may only involve the integer/Boolean types checked above.
+            // No memory read, call, Let, reduction or floating-point value.
+            valid &= object.as<tvm::IntImmNode>() || object.as<tvm::tirx::CastNode>() ||
+                     object.as<tvm::tirx::AddNode>() || object.as<tvm::tirx::SubNode>() ||
+                     object.as<tvm::tirx::MulNode>() || object.as<tvm::tirx::MinNode>() ||
+                     object.as<tvm::tirx::MaxNode>() || object.as<tvm::tirx::LTNode>() ||
+                     object.as<tvm::tirx::LENode>() || object.as<tvm::tirx::GTNode>() ||
+                     object.as<tvm::tirx::GENode>() || object.as<tvm::tirx::EQNode>() ||
+                     object.as<tvm::tirx::NENode>() || object.as<tvm::tirx::AndNode>() ||
+                     object.as<tvm::tirx::OrNode>() || object.as<tvm::tirx::NotNode>();
+        }
+    });
+    return valid;
+}
+
+struct ForwardedCoordinate {
+    tvm::PrimExpr value;
+    tvm::ffi::Array<tvm::tirx::PrimVar> axes;
+};
+
+class CoordinateAnalysis final : public tvm::tirx::StmtVisitor {
+private:
+    const InputAccess &_access;
+    Domain _domain;
+
+    [[nodiscard]] luisa::optional<ForwardedCoordinate> _producer(tvm::tirx::Stmt body, const tvm::tirx::BufferVar &buffer) const {
+        auto domain = _domain;
+        tvm::ffi::Array<tvm::tirx::PrimVar> axes;
+        for (auto i = 0u; i < buffer->shape.size(); i++) {
+            auto loop = body.as<tvm::tirx::ForNode>();
+            if (!loop) { return {}; }
+            auto minimum = loop->min.as<tvm::IntImmNode>();
+            auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
+            if (loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || !minimum || minimum->value != 0 ||
+                (loop->step && (!step || step->value != 1)) || !tvm::ffi::StructuralEqual{}(loop->extent, buffer->shape[i])) { return {}; }
+            if (i == 0u) {
+                auto rank = loop->annotations.Get(independent_elements_annotation);
+                auto literal = rank ? rank.value().as<tvm::IntImmNode>() : nullptr;
+                if (!literal || literal->value != static_cast<int64_t>(buffer->shape.size())) { return {}; }
+                for (auto &&[key, value] : loop->annotations) {
+                    if (key == independent_elements_annotation) { continue; }
+                    auto version = value.as<tvm::IntImmNode>();
+                    if (key != materialized_pure_tile_annotation || !version || version->value != 1) { return {}; }
+                }
+            } else if (!loop->annotations.empty()) {
+                return {};
+            }
+            axes.push_back(loop->loop_var);
+            domain.emplace_back(loop);
+            body = loop->body;
+        }
+        auto store = body.as<tvm::tirx::BufferStoreNode>();
+        if (!store || store->predicate || !store->buffer.same_as(buffer) || store->indices.size() != axes.size() ||
+            store->value.ty() != buffer->dtype) { return {}; }
+        for (auto i = 0u; i < axes.size(); i++) {
+            if (!store->indices[i].same_as(axes[i])) { return {}; }
+        }
+        if (!coordinate_expression(store->value, domain)) { return {}; }
+        return ForwardedCoordinate{store->value, std::move(axes)};
+    }
+
+protected:
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        _domain.emplace_back(loop);
+        StmtVisitor::VisitStmt_(loop);
+        _domain.pop_back();
+    }
+    void VisitStmt_(const tvm::tirx::SeqStmtNode *sequence) final {
+        luisa::vector<tvm::tirx::Stmt> parts;
+        sequence_parts(tvm::ffi::GetRef<tvm::tirx::SeqStmt>(sequence), parts);
+        for (auto i = 0u; i < parts.size(); i++) {
+            auto allocation = parts[i].as<tvm::tirx::AllocBufferNode>();
+            if (!allocation || !allocation->annotations.empty() || !coordinate_buffer(allocation->buffer)) { continue; }
+            auto buffer = allocation->buffer;
+            if (coordinates.contains(buffer.get())) { continue; }
+            auto &access = _access.buffers.at(buffer.get());
+            if (access.allocations != 1u || access.stores != 1u || access.loads == 0u || access.escapes) { continue; }
+            for (auto j = i + 1u; j < parts.size(); j++) {
+                auto coordinate = _producer(parts[j], buffer);
+                if (!coordinate) { continue; }
+                ConsumerBounds consumers{buffer, _domain, true};
+                for (auto k = j + 1u; k < parts.size(); k++) { consumers(parts[k]); }
+                if (consumers.valid && consumers.loads == access.loads) {
+                    coordinates.emplace(buffer.get(), std::move(*coordinate));
+                    removed.emplace(allocation);
+                    removed.emplace(parts[j].get());
+                }
+                break;
+            }
+        }
+        StmtVisitor::VisitStmt_(sequence);
+    }
+
+public:
+    luisa::unordered_map<BufferKey, ForwardedCoordinate> coordinates;
+    luisa::unordered_set<const tvm::tirx::StmtNode *> removed;
+    explicit CoordinateAnalysis(const InputAccess &access) : _access{access} {}
+};
+
+class CoordinateRewriter final : public tvm::tirx::StmtExprMutator {
+private:
+    const CoordinateAnalysis &_analysis;
+    Domain _element_domain;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt(const tvm::tirx::Stmt &statement) final {
+        if (_analysis.removed.contains(statement.get())) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        return StmtExprMutator::VisitStmt(statement);
+    }
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto outer = _element_domain;
+        if (loop->annotations.count(logical_parallel_annotation)) {
+            _element_domain.clear();
+        } else {
+            if (loop->annotations.count(independent_elements_annotation)) { _element_domain.clear(); }
+            if (!_element_domain.empty() || loop->annotations.count(independent_elements_annotation)) { _element_domain.emplace_back(loop); }
+        }
+        auto result = StmtExprMutator::VisitStmt_(loop);
+        _element_domain = std::move(outer);
+        return result;
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        auto iter = _analysis.coordinates.find(load->buffer.get());
+        if (iter == _analysis.coordinates.end()) { return StmtExprMutator::VisitExpr_(load); }
+        auto &coordinate = iter->second;
+        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> indices;
+        for (auto i = 0u; i < coordinate.axes.size(); i++) { indices.Set(coordinate.axes[i], VisitPrimExpr(load->indices[i])); }
+        auto value = tvm::tirx::Substitute(coordinate.value, indices);
+        // Never bind root program/parallel ranges for this simplification.
+        // Row/packed-tail predicates therefore cannot disappear by assuming a
+        // logical program that does not exist in the final physical CTA.
+        if (value.ty() == tvm::PrimType::Bool() && !_element_domain.empty() && coordinate_expression(value, _element_domain)) {
+            if (prove_in_loop_domain(value, _element_domain)) { return tvm::IntImm::Bool(true); }
+            if (prove_in_loop_domain(!value, _element_domain)) { return tvm::IntImm::Bool(false); }
+        }
+        return value;
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        if (call->op.same_as(tvm::tirx::builtin::if_then_else()) && call->args.size() == 3u) {
+            auto original = call->args[0].as_or_throw<tvm::PrimExpr>();
+            auto condition = VisitPrimExpr(original);
+            auto literal = condition.as<tvm::IntImmNode>();
+            // The vector audit runs before general simplification. Select an
+            // arm only when this coordinate substitution itself proved the
+            // formerly nonliteral condition constant; retain every other guard.
+            if (!condition.same_as(original) && literal && condition.ty() == tvm::PrimType::Bool()) {
+                return VisitExpr(call->args[literal->value != 0 ? 1u : 2u]);
+            }
+        }
+        return StmtExprMutator::VisitExpr_(call);
+    }
+
+public:
+    explicit CoordinateRewriter(const CoordinateAnalysis &analysis) : _analysis{analysis} {}
 };
 
 class ViewAnalysis final : public tvm::tirx::StmtVisitor {
@@ -348,6 +555,24 @@ public:
 };
 
 }// namespace
+
+tvm::tirx::Stmt forward_coordinate_tiles(const tvm::tirx::PrimFunc &function, uint64_t &forwarded) {
+    auto current = function;
+    forwarded = 0u;
+    for (;;) {
+        InputAccess access;
+        access(current->body);
+        if (access.opaque) { break; }
+        CoordinateAnalysis analysis{access};
+        analysis(current->body);
+        if (analysis.coordinates.empty()) { break; }
+        forwarded += analysis.coordinates.size();
+        current.CopyOnWrite()->body = CoordinateRewriter{analysis}(current->body);
+        // Each round removes at least one unique allocation and full producer.
+        // Re-audit the new tree before admitting dependent Boolean producers.
+    }
+    return current->body;
+}
 
 ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards, bool cache_reused_inputs, bool allow_narrow_storage) {
     ReadonlyViews result{function->body, {}};

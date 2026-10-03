@@ -92,6 +92,10 @@ inline constexpr auto deferred_pipeline_annotation = "luisa.tile.deferred_pipeli
 [[nodiscard]] bool prove_in_loop_domain(
     tvm::PrimExpr predicate, luisa::span<const tvm::tirx::ForNode *const> domain);
 
+// Private prototype: only closed integer/Boolean coordinate materializations.
+// Does not forward a real input snapshot or change floating-point producers.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API tvm::tirx::Stmt forward_coordinate_tiles(const tvm::tirx::PrimFunc &function, uint64_t &forwarded);
+
 struct ReadonlyViews {
     tvm::tirx::Stmt body;
     // Only these explicitly proved, noalias input parameters may supplement
@@ -105,7 +109,7 @@ struct ReadonlyViews {
 // stronger atom contract; otherwise it retains strict snapshot forwarding.
 // Narrow storage is an explicit CUDA-source capability; the default preserves
 // the existing FP32-only forwarding and materialization set.
-[[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false, bool allow_narrow_storage = false);
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false, bool allow_narrow_storage = false);
 
 // Fuse one automatic root and a same-domain, pointwise SSA graph with disjoint
 // output domains into a bijective GPU grid. Compiler Tiles become per-worker scalar

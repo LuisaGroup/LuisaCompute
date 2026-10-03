@@ -18,6 +18,7 @@
 #include <tvm/tirx/transform.h>
 
 #include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -600,6 +601,16 @@ public:
          target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
         return diagnostic.reject("CUDA subgroup reductions require an enabled planner, noalias, and a CUDA-source target with thread_warp_size=32", module);
     }
+    auto coordinate_forward = false;
+    if (target->kind->name == "cuda") {
+        if (auto value = luisa::get_environment_variable("LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES")) {
+            if (*value == "1") { coordinate_forward = true; }
+            else if (*value != "0") { return diagnostic.reject("private coordinate forwarding must be exactly 0 or 1", module); }
+        }
+        if (coordinate_forward && (!cuda_subgroup_reductions || !options.planner.enabled)) {
+            return diagnostic.reject("private coordinate forwarding requires CUDA subgroup reductions", module);
+        }
+    }
     if (options.metal_mpp) {
         if (!cooperative_matrix || !options.planner.enabled) {
             return diagnostic.reject("Metal MPP requires the Metal cooperative matrix capability and an enabled planner", module);
@@ -692,6 +703,14 @@ public:
         auto preserve_view_guards = !options.metal_mpp;
         auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs, cuda_subgroup_reductions) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
+        // Preserve the existing snapshot/view choice before removing pure
+        // coordinate state. Do not re-run readonly forwarding after this pass.
+        if (coordinate_forward) {
+            auto forwarded = uint64_t{0u};
+            mapped.CopyOnWrite()->body = forward_coordinate_tiles(mapped, forwarded);
+            if (forwarded == 0u) { return diagnostic.reject("private coordinate forwarding found no eligible pure coordinate Tile", module); }
+            LUISA_INFO("Private CUDA coordinate forwarding: {} integer/Boolean Tiles removed; machine vectorization unverified.", forwarded);
+        }
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit, diagnostic,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
                                                         target->kind->name == "metal" && cooperative_matrix && options.planner.enabled && options.planner.map_gpu_cooperative_programs);

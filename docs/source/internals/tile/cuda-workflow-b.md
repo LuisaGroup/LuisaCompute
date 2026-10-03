@@ -253,3 +253,27 @@ was released, the independent replay checked the saved snapshot and frozen
 validation helpers without pretending current mutable binaries were still
 the measurement binaries. This local packet is not bundled by this source
 change. The experiment remains opt-in.
+
+## 8. Coordinate rematerialization before CUDA subgroup planning
+
+`LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES=1` removes closed, pure integer
+or Boolean coordinate Tiles after readonly snapshot selection. It substitutes
+their expressions at exact, bounded axis projections and repeats the analysis
+for dependent coordinate producers. It introduces no Tile DSL primitive or
+execution scope. Unset or exact `0` retains the existing pipeline; other values,
+a missing CUDA subgroup capability, or an explicit request with no eligible
+coordinate Tile fail compilation. Other targets ignore this CUDA experiment.
+
+The proof requires one complete producer, one allocation, dominated consumers,
+and no escape. Memory reads, floating values, calls, opaque coordinates,
+partial writes, and arbitrary gathers remain materialized. Input snapshots
+are not revisited after the pass. Constant Boolean selection uses only the
+consumer element domain, so a logical program bound cannot erase a physical
+packed-tail guard. Floating expressions and their lazy branches remain intact.
+
+The existing `test_tirx_device_cuda` host suite covers dependent producers,
+true/false and unresolved guards, floating expression preservation, snapshot
+ordering, and rejected producer/consumer patterns. The CUDA numerical sweeps
+also cover FP16/BF16/FP32 softmax and normalization, odd row counts, and
+independently offset input/output pointers. This pass only removes coordinate
+state; actual vector loads and performance require separate backend evidence.
