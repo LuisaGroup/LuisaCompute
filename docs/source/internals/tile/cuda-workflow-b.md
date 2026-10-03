@@ -394,3 +394,59 @@ The local independent audit is
 That full packet is not bundled with the source. Historical execution
 receipts bind the saved source, helper closure and before/after snapshots;
 current mutable source or DLL files are not substituted for that evidence.
+
+## 11. Normalization geometry and storage comparison
+
+A separate cohort retained the original fast-math LayerNorm and RMSNorm
+fixtures, including random inputs, FP64 references and per-element bounds.
+It compared 19 candidates with each fixture's strong L1 control before and
+after the candidate sweep, plus fresh Torch from the first control's exact
+manifest. The protocol remained seven 100 ms samples, 500 ms warmup and
+100-node graphs with four-core CPU affinity. U64, BR1 capture, pad64 and the
+private-storage budget were unchanged; no model was fitted.
+
+All 19 candidates were slower than the final L1 control and fresh Torch by
+median. The lowest observed candidates below are post-hoc minima, not
+promoted schedules. Times are microseconds; ratios below one are faster.
+
+| Fixture | Original T/P | L1 initial | Lowest candidate T/P/L | Candidate | L1 recheck | Fresh Torch | Candidate / recheck | Candidate / Torch | Control drift |
+|---|---|---:|---|---:|---:|---:|---:|---:|---:|
+| LayerNorm BF16 128 x 1024 | 128/2 | 1.863783 | 32/1/1 scalar | 1.848727 | 1.843398 | 1.822875 | 1.002891 | 1.014182 | -1.09% |
+| RMSNorm FP16 32 x 4096 | 256/1 | 1.599550 | 256/1/4 vector | 1.602061 | 1.594396 | 1.498414 | 1.004807 | 1.069171 | -0.32% |
+
+L1 used coordinate forwarding disabled, while both L4 modes enabled it.
+Therefore L1/L4 comparisons change coordinate handling as well as ownership;
+they do not isolate lane width. Within each fixed geometry, L4 scalar versus
+L4 vector changes only the vector flag. This narrower comparison improved
+RMSNorm T256/P1 from 2.389308 to 1.602061 us (32.95%), but still failed to
+beat the stronger L1 control. LayerNorm vectorization was mixed: it made
+T128/P2 L4 2.92% slower, while improving T64/P2 L4 by 18.57%; the latter
+remained 42.12% slower than the original final control. The complete negative
+results remain available rather than selecting only favorable comparisons.
+
+The lowest LayerNorm candidate's seven samples ranged from
+1.846304--1.970869 us, versus 1.841140--1.845636 us for its final control.
+The lowest RMSNorm candidate ranged from 1.600713--1.602464 us, versus
+1.590244--1.598619 us. These are observed ranges, not confidence intervals
+or evidence of cross-session stability. The fresh Torch denominators belong
+only to this cohort; no earlier Torch timing is reused.
+
+All 25 processes passed: 23 native and two Torch, with 175 primary samples,
+2300 actual native graph nodes and 27 complete saved outputs. Independent
+CPU replay checked all 3,538,944 output elements against the original FP64
+bounds, all fixture/source identities, graph bindings and resources, and
+byte-identical initial/recheck L1 source. The saved snapshot and executed
+helper closure also matched before and after replay. Runtime physical guard
+and read-only reports are retained separately; logical output replay does
+not reconstruct those allocations or prove an internal vector branch.
+All native resource records reported zero local bytes. Whole-stage telemetry
+does not identify the cause of a particular timing sample or schedule loss.
+
+The [175 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-norm-geometry/samples.csv)
+include all candidates, controls, fresh Torch, coordinate/vector flags and
+resource observations. They support recomputing medians and ratios, not
+rerunning GPU validation. The local full audit is
+`.deps/oct04-tirx-norm-geometry-pairs-summary-v1/checkpoint.json`, SHA256
+`32740135f857fc9245d2bdfb6c82a7c67da3710a4419265996d46e82fa2833eb`;
+that packet is not bundled with the source. No current mutable source or
+DLL receipt replaces the saved execution-time evidence.
