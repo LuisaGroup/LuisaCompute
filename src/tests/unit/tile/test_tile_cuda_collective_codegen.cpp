@@ -964,6 +964,140 @@ void test_native_aligned_view_unknown_overflow() {
 }
 }// namespace
 
+namespace {
+template<typename T>
+void check_native_masked_partition_sources() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    using namespace boost::ut;
+    constexpr std::array shapes{std::array<int64_t, 2u>{257, 128},
+                                std::array<int64_t, 2u>{9, 136},
+                                std::array<int64_t, 2u>{7, 128}};
+    for (auto extents : shapes) {
+        auto rows = extents[0], columns = extents[1];
+        auto row_chunks = (rows + 7) / 8, column_chunks = (columns + 127) / 128;
+        auto kernel = tile_kernel("partial_partition_representation", [=](TensorView<const T, 2> input,
+                                                                           TensorView<T, 2> output) {
+            auto pr = axis("program_row", row_chunks), pc = axis("program_column", column_chunks);
+            auto r = axis("row", 8), c = axis("column", 128);
+            for (auto &program : parallel(shape(pr, pc))) {
+                auto origin = coord(program.index(pr) * int64_t{8}, program.index(pc) * int64_t{128});
+                output.tile(origin, shape(r, c)).store(input.tile(origin, shape(r, c)).load());
+            }
+        }).capture(tensor_shape(rows, columns), tensor_shape(row_chunks * 8, column_chunks * 128));
+        expect(kernel.valid());
+        if (!kernel.valid()) { continue; }
+        for (auto fast : {false, true}) {
+            auto original = cuda::native_tile::generate(kernel.function(), fast, false);
+            auto candidate = cuda::native_tile::generate(kernel.function(), fast, true);
+            expect(original.ok()) << original.error;
+            expect(candidate.ok()) << candidate.error;
+            if (!original.ok() || !candidate.ok()) { continue; }
+            expect(candidate.source.starts_with(original.source + '\n'));
+            expect(candidate.grid == original.grid && candidate.block == original.block);
+            expect(candidate.aligned16_buffer_mask == 3u);
+            expect(candidate.aligned16_partition_loads == 1u);
+            auto alternate = candidate.source.substr(original.source.size());
+            expect(chunk_scan_occurrences(alternate, "_partition.load_masked(ct::view_padding_zero_t{}, ") == 1u);
+            expect(chunk_scan_occurrences(original.source, "ct::load_masked(") == 1u);
+            expect(chunk_scan_occurrences(alternate, "ct::store(") == chunk_scan_occurrences(original.source, "ct::store("));
+        }
+    }
+    // A frontend MAX identity is its own explicit operation. Both the variant
+    // with this select and the one whose zero tail participates are preserved.
+    for (auto neutral_select : {false, true}) {
+        auto kernel = capture_partition_source<T>(9, 136, 8, true, neutral_select);
+        expect(kernel.valid());
+        if (!kernel.valid()) { continue; }
+        auto original = cuda::native_tile::generate(kernel.function(), false, false);
+        auto candidate = cuda::native_tile::generate(kernel.function(), false, true);
+        expect(original.ok()) << original.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!original.ok() || !candidate.ok()) { continue; }
+        expect(candidate.source.starts_with(original.source + '\n'));
+        expect(candidate.aligned16_buffer_mask == 1u);
+        expect(candidate.aligned16_partition_loads == 1u);
+        auto alternate = candidate.source.substr(original.source.size());
+        expect(chunk_scan_occurrences(alternate, "ct::select(") == chunk_scan_occurrences(original.source, "ct::select("));
+        expect(chunk_scan_occurrences(alternate, "ct::max(") == chunk_scan_occurrences(original.source, "ct::max("));
+        expect(chunk_scan_occurrences(alternate, "ct::store_masked(") == chunk_scan_occurrences(original.source, "ct::store_masked("));
+    }
+}
+
+void test_native_masked_partition_sources() {
+    check_native_masked_partition_sources<luisa::half>();
+    check_native_masked_partition_sources<luisa::compute::tile::bfloat16>();
+}
+
+template<typename T>
+void check_native_masked_partition_fallbacks() {
+    using namespace luisa::compute;
+    using namespace luisa::compute::tile;
+    using namespace boost::ut;
+    auto check = [](const tile::Kernel &kernel, uint32_t mask) {
+        expect(kernel.valid());
+        if (!kernel.valid()) { return; }
+        auto original = cuda::native_tile::generate(kernel.function(), false, false);
+        auto candidate = cuda::native_tile::generate(kernel.function(), false, true);
+        expect(original.ok()) << original.error;
+        expect(candidate.ok()) << candidate.error;
+        if (!original.ok() || !candidate.ok()) { return; }
+        expect(candidate.source.starts_with(original.source + '\n'));
+        expect(candidate.aligned16_buffer_mask == mask);
+        expect(candidate.aligned16_partition_loads == 0u);
+        expect(candidate.grid == original.grid && candidate.block == original.block);
+    };
+    // Negative / fully out-of-range / nonchunk origins remain legal ordinary
+    // masked loads. The first eligible partial load must not leak a root proof.
+    for (auto bad_row : {int64_t{-8}, int64_t{16}, int64_t{4}}) {
+        auto kernel = tile_kernel("mixed_partial_partition_rejection", [=](TensorView<const T, 2> input,
+                                                                            TensorView<T, 2> output) {
+            for (auto &program : parallel(shape(1))) {
+                static_cast<void>(program);
+                auto domain = shape(axis("row", 8), axis("column", 128));
+                auto first = input.tile(coord(8, 128), domain).load();
+                auto second = input.tile(coord(bad_row, 128), domain).load();
+                output.tile(coord(0, 0), domain).store(first);
+                output.tile(coord(8, 0), domain).store(second);
+            }
+        }).capture(tensor_shape(9, 136), tensor_shape(16, 128));
+        check(kernel, 2u);
+    }
+    for (auto fill : {0.0f, -0.0f, 1.0f, -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+        auto kernel = tile_kernel("explicit_partial_fill", [=](TensorView<const T, 2> input, TensorView<T, 2> output) {
+            for (auto &program : parallel(shape(1))) {
+                static_cast<void>(program);
+                auto domain = shape(axis("row", 8), axis("column", 128));
+                output.tile(coord(0, 0), domain).store(input.tile(coord(8, 128), domain).load(T{fill}));
+            }
+        }).capture(tensor_shape(9, 136), tensor_shape(8, 128));
+        check(kernel, 2u);
+    }
+    // Same-root partial stores still cancel its earlier eligible partial read.
+    auto tail_store = tile_kernel("partial_store_keeps_conservative_gate", [](TensorView<T, 2> inout,
+                                                                               TensorView<T, 2> output) {
+        for (auto &program : parallel(shape(1))) {
+            static_cast<void>(program);
+            auto domain = shape(axis("row", 8), axis("column", 128));
+            auto before = inout.tile(coord(8, 128), domain).load();
+            inout.tile(coord(8, 128), domain).store(before);
+            auto after = inout.tile(coord(8, 128), domain).load();
+            output.tile(coord(0, 0), domain).store(before);
+            output.tile(coord(8, 0), domain).store(after);
+        }
+    }).capture(tensor_shape(9, 136), tensor_shape(16, 128));
+    check(tail_store, 2u);
+    // Existing unknown-origin and interval-overflow source tests remain intact.
+    // Tile-valued fill is not tested here: the public verifier already rejects
+    // it, so it would not test this backend proof boundary.
+}
+
+void test_native_masked_partition_fallbacks() {
+    check_native_masked_partition_fallbacks<luisa::half>();
+    check_native_masked_partition_fallbacks<luisa::compute::tile::bfloat16>();
+}
+}// namespace
+
 int main(int argc, char *argv[]) {
     using namespace boost::ut;
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
@@ -977,6 +1111,6 @@ int main(int argc, char *argv[]) {
     "tile_cuda_program_partition_fallbacks"_test = [] { test_native_program_partition_fallbacks(); };
     "tile_cuda_partition_cost_decisions"_test = [] { test_native_partition_cost_decisions(); };
     "tile_cuda_partition_cost_gates"_test = [] { test_native_partition_cost_gates(); };
-    "tile_cuda_aligned_view_sources"_test = [] { test_native_aligned_view_sources(); };
-    "tile_cuda_aligned_view_fallbacks"_test = [] { test_native_aligned_view_fallbacks(); test_native_aligned_view_unknown_overflow(); };
+    "tile_cuda_aligned_view_sources"_test = [] { test_native_aligned_view_sources(); test_native_masked_partition_sources(); };
+    "tile_cuda_aligned_view_fallbacks"_test = [] { test_native_aligned_view_fallbacks(); test_native_aligned_view_unknown_overflow(); test_native_masked_partition_fallbacks(); };
 }

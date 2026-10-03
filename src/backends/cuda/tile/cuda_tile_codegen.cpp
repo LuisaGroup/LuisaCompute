@@ -443,9 +443,34 @@ private:
         }
         return false;
     }
+    [[nodiscard]] bool _view_partial_partition_zero(const Operation &op, const IndexSpace &space,
+                                                     const IndexSpace &view_space) const noexcept {
+        // A masked partition may have invalid lanes, but its chunk itself must
+        // intersect every logical dimension. This proves representation only;
+        // the host guard separately proves the final scalar root alignment.
+        if (op.kind() != OperationKind::VIEW_LOAD || op.bounds_mode() != BoundsMode::ZERO ||
+            op.operand_count() != space.rank() + 1u || _map_space != nullptr ||
+            space.rank() == 0u || space.rank() != view_space.rank()) { return false; }
+        constexpr auto kMax = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+        for (auto i = 0u; i < space.rank(); i++) {
+            auto origin = op.operand(1u + i);
+            if (_mapped_values.contains(origin)) { return false; }
+            auto fact = _index_facts.find(origin);
+            if (fact == _index_facts.end()) { return false; }
+            auto extent = view_space.axis(i).extent.constant_value();
+            auto tile = space.axis(i).extent.constant_value();
+            if (tile == 0u || tile > kMax || fact->second.maximum >= extent ||
+                fact->second.maximum > kMax - (tile - 1u) ||
+                !_origin_multiple_of(origin, tile)) { return false; }
+        }
+        return true;
+    }
+
     [[nodiscard]] luisa::string _aligned_partition_load(const Operation &op, const IndexSpace &space,
                                                         const IndexSpace &view_space, luisa::string_view prefix) noexcept {
-        if (!_enable_aligned16 || !_view_fully_in_bounds(op, space, view_space)) { return {}; }
+        if (!_enable_aligned16) { return {}; }
+        auto full = _view_fully_in_bounds(op, space, view_space);
+        if (!full && !_view_partial_partition_zero(op, space, view_space)) { return {}; }
         luisa::string extents{"ct::extents<long long"}, chunks;
         for (auto i = 0u; i < space.rank(); i++) {
             auto extent = space.axis(i).extent.constant_value();
@@ -458,10 +483,12 @@ private:
         auto indent = luisa::string(_indent * 4u, ' ');
         return luisa::format("{}auto {}_span = ct::tensor_span{{{}, {}}};\n"
                              "{}auto {}_partition = ct::partition_view{{{}_span, {}{{}}}};\n"
-                             "{}auto {} = {}_partition.load({});\n",
+                             "{}auto {} = {}_partition.{}({});\n",
                              indent, prefix, _value(op.operand(0u)), extents,
                              indent, prefix, prefix, _shape(space),
-                             indent, _name(op.result(0u)), prefix, chunks);
+                             indent, _name(op.result(0u)), prefix,
+                             full ? "load" : "load_masked",
+                             full ? chunks : luisa::format("ct::view_padding_zero_t{{}}, {}", chunks));
     }
     void _record_aligned16_view(const Operation &op, size_t argument_index,
                                 const IndexSpace &space, const IndexSpace &view_space) noexcept {
@@ -469,13 +496,15 @@ private:
         auto bit = uint32_t{1u} << argument_index;
         _aligned16_seen |= bit;
         auto element = _artifact.arguments[argument_index].element;
-        // This initial specialization is deliberately limited to narrow,
-        // row-major accesses with complete static bounds. A row's
+        // This conservative coverage policy is stricter than the scalar
+        // root alignment fact: partial reads need an exact partition proof;
+        // stores and all other accesses still need complete bounds. A row's
         // stride and every contiguous eight-element group start are 16-byte
         // multiples relative to the root. A single unproved access excludes
         // that root, while other independently proved roots remain eligible.
         auto eligible = (element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16) &&
-                        _view_fully_in_bounds(op, space, view_space);
+                        (_view_fully_in_bounds(op, space, view_space) ||
+                         _view_partial_partition_zero(op, space, view_space));
         if (eligible) {
             auto last = space.rank() - 1u;
             eligible = space.axis(last).extent.constant_value() % 8u == 0u &&

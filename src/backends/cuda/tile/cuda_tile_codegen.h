@@ -25,7 +25,7 @@ struct Artifact {
     // select this specialization. Bits index the direct device buffer ABI.
     luisa::string aligned16_entry;
     uint32_t aligned16_buffer_mask{0u};
-    // Full, chunk-aligned loads represented as partition_view only in the
+    // Proved chunk-aligned loads represented as partition_view only in the
     // independently selected aligned16 entry. The original source is intact.
     uint32_t aligned16_partition_loads{0u};
     // Diagnostic opt-ins: immutable-value realizations, never grid changes.
