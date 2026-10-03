@@ -1,9 +1,55 @@
-# Optional TVMx Metal extensions
+# Optional TVM fixes and extensions
+
+## Pointer values during storage legalization
+
+`pointer-storage-legalize-v1.patch` fixes a shared FP8/BF16 storage legalization
+bug in Apache TVM `46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. TIRx permits
+reinterpreting a typed pointer as a signed or unsigned 64-bit integer, but the
+storage pass previously required every primitive-result reinterpret operand
+to be a `PrimExpr`. A legal pointer `Var` or `address_of` call consequently
+failed with `Cannot treat type ... as type ir.Expr`. CUDA device compilation
+runs these storage passes even for an FP16 kernel, so this also prevented
+runtime address-alignment guards from compiling.
+
+The fix visits pointer operands through the existing general expression
+mutator. It preserves the integer result and recursively remaps the pointer,
+buffer and storage element type. Primitive bit reinterpretation and numeric
+conversion keep their existing behavior. It does not add a Tile operation,
+promise buffer alignment, or enable vectorization by itself.
+
+Apply to the pinned TVM checkout and rebuild the configured TVM compiler:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/pointer-storage-legalize-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+Pass an absolute patch path if applying from a different working directory.
+Select the rebuilt compiler and its matching runtime when building/running
+Luisa. CMake does not patch the dependency automatically. This patch is
+independent of the Metal extensions below and is unnecessary for kernels
+without pointer-to-integer reinterpretation.
+
+The patch adds 12 parameterized regressions to the existing BF16 test file.
+They cover both storage passes, signed/unsigned integer results, unchanged
+FP16 pointers, BF16/FP8 storage remapping, direct pointers and `address_of`
+children, shared scope and idempotence. With the matching TVM Python/FFI
+environment, run:
+
+```sh
+python -m pytest src/ext/tvm/tests/python/tirx-transform/test_tir_transform_bf16_legalize.py -k test_storage_legalize_pointer_to_integer_reinterpret -q
+```
+
+Local MSVC validation used equivalent C++ pass-only cases: all 12 passed
+(36 structural checks), while the original compiler reproduced the type
+error. The Python tests have been syntax-checked but were not run in that
+environment. The Luisa CUDA host, planner and runtime suites passed with the
+rebuilt compiler; a guarded FP16 output also passed CUDA memory checking.
 
 ## Ordered reduction arithmetic
 
 `metal-precise-math-v1.patch` is independent of the MPP extensions below. It
-supports the same pinned TVM commit and preserves a typed IRModule attribute,
+supports the same pinned TVM commit as the MPP memory extension and preserves a typed IRModule attribute,
 `tirx.metal.precise_math`, through native code generation, module serialization
 and final `MTLCompileOptions`. The stock TVM Metal runtime unconditionally sets
 `fastMathEnabled = YES`, which can reassociate even a serial FP32 fold.

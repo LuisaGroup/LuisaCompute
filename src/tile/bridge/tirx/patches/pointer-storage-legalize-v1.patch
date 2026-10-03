@@ -1,0 +1,64 @@
+diff --git a/src/tirx/transform/unsupported_dtype_legalize.cc b/src/tirx/transform/unsupported_dtype_legalize.cc
+index c9ba1736b0..f1f08eefed 100644
+--- a/src/tirx/transform/unsupported_dtype_legalize.cc
++++ b/src/tirx/transform/unsupported_dtype_legalize.cc
+@@ -709,6 +709,11 @@ class StorageLegalizer : public StmtExprMutator {
+     }
+     // remap re-interpret so un-necessary reinterpret can be skipped.
+     if (op->op.same_as(builtin::reinterpret())) {
++      // Pointer-to-integer reinterpret has a primitive result, but its operand
++      // is not a PrimExpr.  Still visit it to remap any typed pointer storage.
++      if (op->args[0]->ty.as<PointerTypeNode>()) {
++        return StmtExprMutator::VisitExpr_(op);
++      }
+       PrimExpr value = VisitPrimExpr(op->args[0].as_or_throw<PrimExpr>());
+       // sometimes the input dtype can change and we can skip.
+       PrimType op_dtype = op->ty.as_or_throw<PrimType>();
+--- a/tests/python/tirx-transform/test_tir_transform_bf16_legalize.py
++++ b/tests/python/tirx-transform/test_tir_transform_bf16_legalize.py
+@@ -14,6 +14,7 @@
+ # KIND, either express or implied.  See the License for the
+ # specific language governing permissions and limitations
+ # under the License.
++import pytest
+ import tvm
+ import tvm.script
+ from tvm.script import tirx as T
+@@ -448,6 +449,37 @@
+     tvm.ir.assert_structural_equal(after_storage, BindTarget(target)(after_storage_legalize()))
+ 
+ 
++@pytest.mark.parametrize("integer_dtype", ["int64", "uint64"])
++@pytest.mark.parametrize(
++    "pass_name,dtype,storage_dtype",
++    [
++        ("BF16StorageLegalize", "float16", "float16"),
++        ("FP8StorageLegalize", "float16", "float16"),
++        ("BF16StorageLegalize", "bfloat16", "uint16"),
++        ("FP8StorageLegalize", "bfloat16", "bfloat16"),
++        ("FP8StorageLegalize", "float8_e4m3fn", "uint8"),
++        ("FP8StorageLegalize", "float8_e5m2", "uint8"),
++    ],
++)
++def test_storage_legalize_pointer_to_integer_reinterpret(pass_name, dtype, storage_dtype, integer_dtype):
++    def make_module(element_dtype):
++        @T.prim_func(s_tir=True)
++        def main(Aptr: T.handle(element_dtype, storage_scope="shared")):
++            A = T.decl_buffer((16,), element_dtype, data=Aptr, scope="shared")
++            T.evaluate(T.reinterpret(integer_dtype, Aptr))
++            T.evaluate(T.reinterpret(integer_dtype, T.address_of(A[3])))
++
++        return tvm.IRModule.from_expr(main)
++
++    before = make_module(dtype)
++    expected = make_module(storage_dtype)
++    transform = getattr(tvm.tirx.transform, pass_name)()
++    after = transform(before)
++    tvm.ir.assert_structural_equal(after, expected)
++    # Repeated legalization must preserve both the address and its integer type.
++    tvm.ir.assert_structural_equal(transform(after), expected)
++
++
+ if __name__ == "__main__":
+     test_bf16_storage_compute_scope_will_legalize()
+     test_bf16_storage_compute_scope_wont_legalize()
