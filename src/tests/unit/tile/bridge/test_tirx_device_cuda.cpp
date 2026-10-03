@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <string_view>
 #include <cstdlib>
+#include <cstdio>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -893,6 +894,206 @@ void test_cuda_subgroup_integer_extrema() {
 }
 
 
+void test_prepared_reduction_candidate() {
+    constexpr auto flag = "LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS";
+    auto set = [](const char *key, const char *value) noexcept {
+#ifdef _WIN32
+        return SetEnvironmentVariableA(key, value) != 0 || (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+        return value ? setenv(key, value, 1) == 0 : unsetenv(key) == 0;
+#endif
+    };
+    struct Restore {
+        decltype(set) setter;
+        luisa::optional<luisa::string> prior;
+        ~Restore() noexcept { LUISA_ASSERT(setter("LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS", prior ? prior->c_str() : nullptr)); }
+    } restore{set, luisa::get_environment_variable(flag)};
+    class Observe final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable std::array<std::array<double, 11u>, 32u> calls{};
+        mutable size_t count{0u};
+        ReductionCost reduction_cost(const ReductionCandidate &c, const ExecutionCostModel &m) const noexcept override {
+            auto cost = AnalyticExecutionCostPolicy::reduction_cost(c, m);
+            LUISA_ASSERT(count < calls.size());
+            calls[count++] = {static_cast<double>(c.threads), static_cast<double>(c.subgroups_per_program),
+                              static_cast<double>(c.programs_per_group), static_cast<double>(c.striped_scalars_per_worker),
+                              c.scalar_rounds, c.scalar_elements, c.lane_utilization, static_cast<double>(c.payload_accesses_known),
+                              cost.program_score, cost.concurrent_waves, cost.kernel_score};
+            // Retain a middle candidate even after later candidates are prepared.
+            cost.program_score = c.subgroups_per_program == 2u ? 0.0 : 1.0 + cost.program_score;
+            cost.kernel_score = cost.program_score * cost.concurrent_waves;
+            return cost;
+        }
+    } policy;
+    auto definition = tile_kernel("prepared_candidate_probe", [](TensorView<const float, 2> input, TensorView<float, 1> output) {
+        auto one = axis("one", 1), column = axis("column", 512);
+        for (auto &nest : parallel(shape(3))) {
+            // Squeeze the singleton row through the existing reshape algorithm:
+            // the contribution then indexes the input with literal row offset 0.
+            auto x = reshape(input.tile(coord(nest.index(), 0), shape(one, column)).load(), shape(column));
+            output(coord(nest.index()), shape(one)).store(reduce(x, column, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 512), tensor_shape(3));
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    for (auto metal : {false, true}) {
+        if (metal && !tvm::ffi::Function::GetGlobal("target.build.metal")) {
+            LUISA_INFO("PreparedCandidate Metal source coverage unavailable: target.build.metal is absent.");
+            continue;
+        }
+        auto options = cuda_subgroup_options();
+        options.target = metal ? R"({"kind":"metal","thread_warp_size":32,"max_num_threads":128,"max_shared_memory_per_block":32768})" :
+                                 R"({"kind":"cuda","thread_warp_size":32,"max_num_threads":128,"max_shared_memory_per_block":32768})";
+        options.planner.cuda_subgroup_reductions = !metal;
+        options.planner.metal_subgroup_reductions = metal;
+        options.planner.reduction_programs_per_group = 1u;
+        options.planner.reduction_lane_elements = 4u;
+        options.planner.reduction_unroll_factor = 16u;
+        options.planner.cache_reduction_inputs = false;
+        options.planner.cost_policy = &policy;
+        std::array<std::array<double, 11u>, 32u> original_calls{};
+        for (auto vector : {false, true}) {
+            if (metal && vector) { continue; }
+            expect(set(flag, vector ? "1" : "0"));
+            options.planner.threads_per_group = 0u;
+            policy.count = 0u;
+            policy.calls = {};
+            auto automatic = compile_device(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(automatic)) << automatic.error;
+            if (!automatic) { continue; }
+            expect(policy.count == 4u);
+            for (auto i = 0u; i < policy.count; i++) {
+                expect(policy.calls[i][1u] == static_cast<double>(i + 1u));
+                LUISA_INFO("PreparedCandidate callback metal={} vector={} index={} T={} S={} P={} Q={} rounds={} elements={} utilization={} known={} program={} waves={} kernel={}",
+                           metal, vector, i, policy.calls[i][0], policy.calls[i][1], policy.calls[i][2], policy.calls[i][3],
+                           policy.calls[i][4], policy.calls[i][5], policy.calls[i][6], policy.calls[i][7],
+                           policy.calls[i][8], policy.calls[i][9], policy.calls[i][10]);
+            }
+            if (vector) { expect(static_cast<bool>(policy.calls == original_calls)); }
+            else { original_calls = policy.calls; }
+            expect(automatic.plans.size() == 1u);
+            if (automatic.plans.size() != 1u) { continue; }
+            auto &plan = automatic.plans.front();
+            expect(plan.threads == 64u && plan.reduction_subgroups_per_program == 2u);
+            expect(plan.striped_storage_scalars_per_worker == (vector ? 4u : 0u));
+            if (vector) { expect(!plan.reduction_payload_accesses_known); }
+            expect((automatic.artifact.source.find("contribution_pack") != luisa::string::npos) == vector);
+            // Exact same winner must emit the retained body, ABI and resources.
+            options.planner.threads_per_group = 64u;
+            policy.count = 0u;
+            auto exact = compile_device(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(exact)) << exact.error;
+            expect(policy.count == 1u);
+            if (exact) {
+                expect(exact.artifact.source == automatic.artifact.source);
+                expect(exact.artifact.entry == automatic.artifact.entry && exact.artifact.grid == automatic.artifact.grid &&
+                       exact.artifact.block == automatic.artifact.block && exact.artifact.buffer_arguments == automatic.artifact.buffer_arguments);
+            }
+            // Raw sections permit the same host binary's old/new-DLL logs to be compared bytewise.
+            std::printf("PREPARED_SOURCE_BEGIN metal=%d vector=%d\n%s\nPREPARED_SOURCE_END\n", metal, vector, automatic.artifact.source.c_str());
+        }
+        if (!metal) {
+            expect(set(flag, "1"));
+            options.planner.threads_per_group = 0u;
+            options.planner.max_reduction_striped_scalars_per_worker = 3u;
+            policy.count = 0u;
+            auto rejected = compile_device(native.value, kernel.function().name(), options);
+            expect(!static_cast<bool>(rejected));
+            expect(policy.count == 4u);// No eligible phase must not silently pick a runner-up.
+            expect(rejected.error.find("no eligible independent") != luisa::string::npos) << rejected.error;
+            expect(rejected.artifact.source.empty());
+        }
+    }
+    // Exact S1 geometry, real pointer branches, and a residual scalar chunk.
+    // These are source-artifact checks; runtime misalignment/tail oracles remain
+    // the existing CUDA tests and retained standalone correctness receipts.
+    expect(set(flag, "1"));
+    for (auto mode = 0u; mode != 3u; mode++) {
+        auto rows = mode == 1u ? 1 : 3;
+        auto columns = mode == 0u ? 512 : 513;
+        for (auto packed : {1u, 2u, 4u}) {
+            if (mode != 0u && packed != 2u) { continue; }
+            for (auto squeeze : {false, true}) {
+                if (mode == 2u && squeeze) { continue; }
+                auto definition = tile_kernel("prepared_vector_bounds", [=](TensorView<const float, 2> input, TensorView<float, 1> output) {
+                    auto one = axis("one", 1), column = axis("column", columns);
+                    for (auto &nest : parallel(shape(rows))) {
+                        auto x = input.tile(coord(nest.index(), 0), shape(one, column)).load();
+                        if (squeeze) {
+                            output(coord(nest.index()), shape(one)).store(reduce(reshape(x, shape(column)), column, add));
+                        } else {
+                            output(coord(nest.index()), shape(one)).store(reduce(x, column, add));
+                        }
+                    }
+                });
+                auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows));
+                auto lowered = lower(kernel.function());
+                expect(lowered.ok()) << lowered.error;
+                if (!lowered) { continue; }
+                auto options = cuda_subgroup_options();
+                options.planner.threads_per_group = 32u * packed;
+                options.planner.reduction_programs_per_group = packed;
+                options.planner.reduction_lane_elements = 4u;
+                options.planner.reduction_unroll_factor = 16u;
+                options.planner.cache_reduction_inputs = false;
+                auto result = compile_device(lowered.value, kernel.function().name(), options);
+                if (mode == 2u) {
+                    // Across three odd-pitch rows, a root-only aligned branch
+                    // cannot prove every row's four-element pack origin.
+                    expect(!static_cast<bool>(result));
+                    expect(result.error.find("no eligible independent") != luisa::string::npos) << result.error;
+                    expect(result.artifact.source.empty());
+                    continue;
+                }
+                expect(static_cast<bool>(result)) << "P=" << packed << " N=" << columns << " squeeze=" << squeeze << " " << result.error;
+                if (!result) { continue; }
+                expect(result.plans.size() == 1u);
+                if (result.plans.size() != 1u) { continue; }
+                auto &plan = result.plans.front();
+                expect(plan.reduction_subgroups_per_program == 1u && plan.reduction_programs_per_group == packed);
+                expect(plan.striped_storage_scalars_per_worker == 4u && !plan.reduction_payload_accesses_known);
+                expect(result.artifact.block[0u] == 32u * packed && result.artifact.grid[0u] == (rows + packed - 1u) / packed);
+                expect(result.artifact.buffer_arguments.size() == 2u);
+                auto global_loads = [](const tvm::tirx::Stmt &body, int lanes) {
+                    auto count = 0u;
+                    tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
+                        if (auto load = node.as<tvm::tirx::BufferLoadNode>(); load &&
+                            (load->buffer.scope() == "global" || load->buffer.scope().empty()) &&
+                            tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load).ty().lanes() == lanes) { count++; }
+                    });
+                    return count;
+                };
+                auto aligned_branches = 0u;
+                tvm::tirx::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+                    auto branch = node.as<tvm::tirx::IfThenElseNode>();
+                    if (!branch) { return; }
+                    auto pointer = false, mask15 = false;
+                    tvm::tirx::PostOrderVisit(branch->condition, [&](const tvm::ffi::ObjectRef &part) {
+                        if (auto call = part.as<tvm::CallNode>()) {
+                            pointer |= call->op.same_as(tvm::tirx::builtin::reinterpret());
+                            if (call->op.same_as(tvm::tirx::builtin::bitwise_and()) && call->args.size() == 2u) {
+                                auto mask = call->args[1u].as<tvm::IntImmNode>();
+                                mask15 |= mask && mask->value == 15;
+                            }
+                        }
+                    });
+                    if (!pointer || !mask15) { return; }
+                    aligned_branches++;
+                    expect(branch->else_case.has_value());
+                    expect(global_loads(branch->then_case, 4) != 0u);
+                    if (branch->else_case) { expect(global_loads(branch->else_case.value(), 1) != 0u); }
+                    if (mode == 1u) { expect(global_loads(branch->then_case, 1) != 0u); }
+                });
+                expect(aligned_branches == 1u);
+            }
+        }
+    }
+
+}
+
+
 void test_cuda_subgroup_target_contract() {
     auto kernel = cuda_subgroup_sum_kernel();
     expect(kernel.valid());
@@ -1357,6 +1558,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_cuda_fail_closed_options"_test = test_cuda_fail_closed_options;
     "tile_tirx_cuda_subgroup_target_contract"_test = test_cuda_subgroup_target_contract;
     "tile_tirx_cuda_subgroup_integer_extrema"_test = test_cuda_subgroup_integer_extrema;
+    "tile_tirx_prepared_reduction_candidate"_test = test_prepared_reduction_candidate;
     "tile_tirx_cuda_subgroup_fused_artifacts"_test = test_cuda_subgroup_fused_artifacts;
     "tile_tirx_cuda_subgroup_resource_rejections"_test = test_cuda_subgroup_resource_rejections;
     "tile_tirx_cuda_subgroup_packing_proofs"_test = test_cuda_subgroup_packing_proofs;

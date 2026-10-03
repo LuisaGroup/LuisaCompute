@@ -277,3 +277,62 @@ ordering, and rejected producer/consumer patterns. The CUDA numerical sweeps
 also cover FP16/BF16/FP32 softmax and normalization, odd row counts, and
 independently offset input/output pointers. This pass only removes coordinate
 state; actual vector loads and performance require separate backend evidence.
+
+## 9. Guarded storage packs and reduction contributions
+
+`LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS=1` is a private CUDA subgroup experiment
+for lane widths 2, 4 or 8. It admits compact FP16/BF16/FP32 accesses with at
+most 16 global bytes per lane, after proving stride, bounds and the alignment
+of owned local storage. Caller pointers receive runtime alignment guards;
+misaligned inputs retain the original scalar path. Thus FP32 width 8 is not
+an eligible global pack. Default compilation and the original cost policy
+remain unchanged.
+
+Pure reduction contributions can be loaded into an owned FP32 pack before
+the original ordered carry updates. Only complete worker chunks use this
+form; the entire residual chunk and the scalar fallback retain their guards
+and arithmetic order. Coordinate conditions are folded only when proved
+under the same domain used for access admission and emission. Data-dependent
+or floating conditions are not assumed, and BF16 rounding/NaN handling stays
+intact. Each reduction's scratch allocation counts against its candidate's
+remaining private-storage budget.
+
+Proofs include retained enclosing loop bounds and use the actual worker
+coordinate before mapping, including one-warp programs. This admits singleton
+row Tiles and S1 programs packed 1, 2 or 4 per group without assuming inactive
+programs are valid. After these fixes, the full MSVC build, 1196 host assertions
+and 68 CUDA numerical cases passed. The CUDA cases cover all three storage
+types, SUM/MAX, inactive packed rows, misaligned inputs and 32 admitted SUM
+geometry/storage configurations. The host checks also retain a true scalar
+residual chunk and reject unproved odd-pitch packing. These correctness runs
+are not performance measurements.
+
+The experimental planner prepares each candidate's actual body before
+scoring and retains the winner without remapping it. The associated memory
+facts describe per-instruction 32-byte sector requests for a full active
+warp in an admitted phase. They are not DRAM traffic, ISA counts or a complete
+kernel cost: scalar tails, predicates, scratch traffic and launch participation
+can remain unknown. Unknown costs are never replaced with zero. These partial
+facts do not yet choose a new policy; the existing callbacks and tie order are
+preserved. Staged plans mark the old payload accounting incomplete.
+
+The first closed SUM cohort used original fixtures, seven graph-event samples
+per stage, batches of 100, and fresh per-case Torch caches. All 15 processes,
+1200 actual native graph nodes and 18 saved logical outputs passed validation.
+Times below are medians in microseconds; lower is better.
+
+| SUM fixture | T/P/U | L1 initial | L4 scalar | L4 vector | Fresh Torch | L1 recheck |
+|---|---|---:|---:|---:|---:|---:|
+| FP16 129 x 2048, fast | 128/1/64 | 1.351240 | 1.393228 | 1.352020 | 1.296327 | 1.340821 |
+| BF16 128 x 8192, strict | 128/2/64 | 2.718521 | 2.731349 | 2.450855 | 2.655414 | 2.588385 |
+| FP32 3 x 8192, strict | 256/1/64 | 1.326218 | 1.367922 | 1.351403 | 1.353750 | 1.319911 |
+
+Vector packs do not beat L1 uniformly. BF16 improved in this cohort, but its
+control drift was -4.79%; FP16 and FP32 retain L1 as the stronger native
+configuration. Whole-stage telemetry included power and thermal event flags,
+without assigning a cause to individual samples. No automatic promotion or
+cross-session stability is claimed. The [105 retained samples](../../../../scripts/benchmark/tile_torch/results/2026-10-04-cuda-sum-contribution-packs/samples.csv)
+include both controls and the negative results. The local independent audit
+is `.deps/oct04-tirx-sum-contribution-pairs-summary-v1/checkpoint.json`, SHA256
+`d15128c8eb4fb35fb5cf17944013e28a2884d466948f69408999b61778399d6f`;
+that full local packet is not bundled with the source.
