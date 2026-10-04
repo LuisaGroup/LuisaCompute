@@ -1266,6 +1266,142 @@ void report_prepared_memory(luisa::span<const VectorPackPhaseMemoryFacts> phases
 }
 
 
+// This is deliberately a vector-copy transformation, after the original
+// program/effect and ownership audits. It does not change scalar lowering.
+class VectorIntegerEagerValues final : public tvm::tirx::StmtExprMutator {
+private:
+    const tvm::tirx::PrimVar &_element;
+    uint32_t _width;
+
+    [[nodiscard]] static bool _word(const tvm::PrimExpr &value) {
+        return value.ty().IsScalar() && value.ty().MatchesCode(DLDataTypeCode::kDLUInt) &&
+               (value.ty().bits() == 16 || value.ty().bits() == 32);
+    }
+
+    [[nodiscard]] static bool _pure_seed(const tvm::PrimExpr &value) {
+        auto valid = true;
+        static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+        tvm::tirx::PostOrderVisit(value, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto call = node.as<tvm::CallNode>()) {
+                auto op = call->op.as<tvm::Op>();
+                valid &= op && effects.count(op.value()) != 0u &&
+                         effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure);
+            }
+        });
+        return valid;
+    }
+
+    // Condition grammar has no short circuit or lazy child. One opaque word
+    // is already necessarily evaluated there. Every reuse must have identical
+    // object identity, not merely identical printed text or structural shape.
+    [[nodiscard]] static bool _total(const tvm::PrimExpr &value,
+                                     tvm::PrimExpr &seed, bool discover) {
+        if (!_word(value)) { return false; }
+        if (seed.defined() && value.same_as(seed)) { return true; }
+        if (auto literal = value.as<tvm::IntImmNode>()) {
+            return literal->value >= 0 &&
+                   static_cast<uint64_t>(literal->value) <= ((uint64_t{1u} << value.ty().bits()) - 1u);
+        }
+        if (auto add = value.as<tvm::tirx::AddNode>()) {
+            return add->a.ty() == value.ty() && add->b.ty() == value.ty() &&
+                   _total(add->a, seed, discover) && _total(add->b, seed, discover);
+        }
+        if (auto cast = value.as<tvm::tirx::CastNode>()) {
+            return _total(cast->value, seed, discover);
+        }
+        if (auto call = value.as<tvm::CallNode>()) {
+            if (call->args.size() == 2u &&
+                (call->op.same_as(tvm::tirx::builtin::bitwise_and()) ||
+                 call->op.same_as(tvm::tirx::builtin::bitwise_or()) ||
+                 call->op.same_as(tvm::tirx::builtin::bitwise_xor()) ||
+                 call->op.same_as(tvm::tirx::builtin::shift_left()) ||
+                 call->op.same_as(tvm::tirx::builtin::shift_right()))) {
+                auto a = call->args[0u].as<tvm::PrimExpr>();
+                auto b = call->args[1u].as<tvm::PrimExpr>();
+                if (!a || !b || a.value().ty() != value.ty() || b.value().ty() != value.ty()) { return false; }
+                if (call->op.same_as(tvm::tirx::builtin::shift_left()) ||
+                    call->op.same_as(tvm::tirx::builtin::shift_right())) {
+                    auto shift = b.value().as<tvm::IntImmNode>();
+                    if (!shift || shift->value < 0 || shift->value >= value.ty().bits()) { return false; }
+                }
+                return _total(a.value(), seed, discover) && _total(b.value(), seed, discover);
+            }
+            if (discover && !seed.defined() && call->op.same_as(tvm::tirx::builtin::reinterpret()) &&
+                call->args.size() == 1u) {
+                auto input = call->args[0u].as<tvm::PrimExpr>();
+                if (input && input.value().ty().IsScalar() &&
+                    input.value().ty().bits() == value.ty().bits() &&
+                    (input.value().ty().MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt, DLDataTypeCode::kDLFloat) ||
+                     input.value().ty() == tvm::PrimType::BFloat(16)) && _pure_seed(value)) {
+                    seed = value;
+                    return true;
+                }
+            }
+        }
+        if (discover && !seed.defined() && value.as<tvm::tirx::VarNode>()) {
+            seed = value;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool _condition(const tvm::PrimExpr &value, tvm::PrimExpr &seed) {
+        if (value.ty() != tvm::PrimType::Bool()) { return false; }
+        auto compare = [&](const auto *node) {
+            return node && node->a.ty() == node->b.ty() &&
+                   _total(node->a, seed, true) && _total(node->b, seed, true);
+        };
+        return compare(value.as<tvm::tirx::GTNode>()) || compare(value.as<tvm::tirx::GENode>()) ||
+               compare(value.as<tvm::tirx::LTNode>()) || compare(value.as<tvm::tirx::LENode>()) ||
+               compare(value.as<tvm::tirx::EQNode>()) || compare(value.as<tvm::tirx::NENode>());
+    }
+
+protected:
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        // Inspect before recursively rebuilding: original shared-node identity
+        // is the evidence. Unknown lazy forms stay lazy, including root bounds.
+        if (call->op.same_as(tvm::tirx::builtin::if_then_else()) && call->args.size() == 3u) {
+            auto condition = call->args[0u].as<tvm::PrimExpr>();
+            auto yes = call->args[1u].as<tvm::PrimExpr>();
+            auto no = call->args[2u].as<tvm::PrimExpr>();
+            tvm::PrimExpr seed;
+            if (condition && yes && no && yes.value().ty() == no.value().ty() &&
+                _condition(condition.value(), seed) && seed.defined() &&
+                _total(yes.value(), seed, false) && _total(no.value(), seed, false)) {
+                // The target has no Bool8. Test the original expression before
+                // binding can hide a varying word behind a fresh variable.
+                auto varying = false;
+                tvm::tirx::PostOrderVisit(tvm::ffi::GetRef<tvm::Call>(call), [&](const tvm::ffi::ObjectRef &node) {
+                    varying |= node.get() == _element.get();
+                });
+                if (_width > 4u && varying) { return tvm::ffi::GetRef<tvm::Call>(call); }
+                auto word = tvm::tirx::PrimVar{"vector_integer_word", seed.ty()};
+                class Replace final : public tvm::tirx::ExprMutator {
+                private:
+                    tvm::PrimExpr _seed, _word;
+                public:
+                    using ExprMutator::VisitPrimExpr;
+                    Replace(tvm::PrimExpr seed, tvm::PrimExpr word) : _seed{std::move(seed)}, _word{std::move(word)} {}
+                    tvm::Expr VisitExpr(const tvm::Expr &expr) final {
+                        return expr.same_as(_seed) ? _word : ExprMutator::VisitExpr(expr);
+                    }
+                } replace{seed, word};
+                auto select = tvm::tirx::Select{replace.VisitPrimExpr(condition.value()),
+                    replace.VisitPrimExpr(yes.value()), replace.VisitPrimExpr(no.value())};
+                // Let stays at the original expression's lazy scope; neither
+                // memory access nor FP producer is moved outside its guard.
+                return tvm::tirx::Let{word, seed, std::move(select)};
+            }
+        }
+        return StmtExprMutator::VisitExpr_(call);
+    }
+
+public:
+    VectorIntegerEagerValues(const tvm::tirx::PrimVar &element, uint32_t width) noexcept
+        : _element{element}, _width{width} {}
+};
+
+
 class VectorPackPhaseAudit final : public tvm::tirx::StmtExprVisitor {
 private:
     const tvm::tirx::PrimVar &_element;
@@ -1275,6 +1411,7 @@ private:
     tvm::ffi::Array<tvm::tirx::BufferVar> _roots;
     luisa::vector<VectorPackMemoryAccess> _memory_accesses;
     bool _memory_unconditional{true};
+    luisa::unordered_set<const tvm::tirx::VarNode *> _varying_values;
 
     void _record_memory(const tvm::tirx::BufferVar &buffer,
                         const tvm::PrimExpr &first, bool store, bool varying) {
@@ -1292,6 +1429,9 @@ private:
         auto result = false;
         tvm::tirx::PostOrderVisit(expression, [&](const tvm::ffi::ObjectRef &node) {
             result |= node.get() == _element.get();
+            if (auto variable = node.as<tvm::tirx::VarNode>()) {
+                result |= _varying_values.contains(variable);
+            }
         });
         return result;
     }
@@ -1398,6 +1538,33 @@ protected:
         StmtExprVisitor::VisitExpr_(load);
     }
 
+    void VisitExpr_(const tvm::tirx::LetNode *let) final {
+        // A fresh word binding must not hide per-element dependence from the
+        // Bool8 or call gates. Audit its producer normally, then its body under
+        // the lexical dependency; no scalar assumption leaks beyond this Let.
+        VisitExpr(let->value);
+        auto variable = let->var.get();
+        auto previous = _varying_values.contains(variable);
+        if (_depends(let->value)) { _varying_values.emplace(variable); }
+        else { _varying_values.erase(variable); }
+        VisitExpr(let->body);
+        if (previous) { _varying_values.emplace(variable); }
+        else { _varying_values.erase(variable); }
+    }
+
+    void VisitExpr_(const tvm::tirx::SelectNode *select) final {
+        // The pinned VectorizeLoop broadcasts a Select condition to the widest
+        // of all three operands. Even a uniform condition with a varying arm
+        // would therefore require Bool8, which CUDA codegen cannot represent.
+        // A wholly uniform scalar Select remains admissible; other independent
+        // phases and the unchanged scalar alternative keep their old behavior.
+        if (_width > 4u && _depends(tvm::ffi::GetRef<tvm::tirx::Select>(select))) {
+            valid = false;
+            return;
+        }
+        StmtExprVisitor::VisitExpr_(select);
+    }
+
     void VisitExpr_(const tvm::CallNode *call) final {
         static auto vectorizable = tvm::Op::GetAttrMap<tvm::tirx::TVectorizable>("TVectorizable");
         if (call->op.same_as(tvm::tirx::builtin::if_then_else())) {
@@ -1407,7 +1574,27 @@ protected:
         }
         auto op = call->op.as<tvm::Op>();
         if (_depends(tvm::ffi::GetRef<tvm::Call>(call))) {
-            valid &= op && vectorizable.count(op.value()) != 0u && vectorizable[op.value()];
+            // VectorizeLoop handles reinterpret separately from TVectorizable.
+            // Admit only lane-preserving numeric bitcasts: no pointers, Bool,
+            // FP8/FP4, pre-vectorized values or changes in element bit width.
+            // The BF16 result is storage-legalized to UInt16 later; its explicit
+            // rounding Select and every memory/guard child are still audited.
+            auto scalar_numeric = [](const tvm::PrimType &type) {
+                return type.IsScalar() &&
+                       ((type.MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt,
+                                          DLDataTypeCode::kDLFloat) &&
+                         (type.bits() == 16 || type.bits() == 32)) ||
+                        type == tvm::PrimType::BFloat(16));
+            };
+            auto bitcast = false;
+            if (call->op.same_as(tvm::tirx::builtin::reinterpret()) && call->args.size() == 1u) {
+                auto result = call->ty.as<tvm::PrimType>();
+                auto value = call->args[0u].as<tvm::PrimExpr>();
+                bitcast = result && value && scalar_numeric(result.value()) &&
+                          scalar_numeric(value.value().ty()) &&
+                          result.value().bits() == value.value().ty().bits();
+            }
+            valid &= bitcast || (op && vectorizable.count(op.value()) != 0u && vectorizable[op.value()]);
             if (call->op.same_as(tvm::tirx::builtin::if_then_else())) {
                 valid &= !_depends(call->args[0u]) ||
                          prove_in_loop_domain(call->args[0u].as_or_throw<tvm::PrimExpr>(), _domain);
@@ -1654,6 +1841,15 @@ private:
                 if (!known) { valid = false; return; }
                 ExprVisitor::VisitExpr_(call);
             }
+            void VisitExpr_(const tvm::tirx::SelectNode *select) final {
+                // This is an existing eager scalar value, not a control-flow
+                // predicate. Visit all three operands under the same owned-cell,
+                // dominance, purity and occurrence-counting proof; never use a
+                // Select to admit tainted addresses or metadata coordinates.
+                if (_coordinate || select->condition.ty() != tvm::PrimType::Bool() ||
+                    select->true_value.ty() != select->false_value.ty()) { valid = false; return; }
+                ExprVisitor::VisitExpr_(select);
+            }
             void VisitExpr_(const tvm::tirx::ProducerLoadNode *) final { valid = false; }
         public:
             bool valid{true};
@@ -1674,7 +1870,7 @@ private:
                     expr.as<tvm::tirx::LTNode>() || expr.as<tvm::tirx::LENode>() || expr.as<tvm::tirx::GTNode>() ||
                     expr.as<tvm::tirx::GENode>() || expr.as<tvm::tirx::EQNode>() || expr.as<tvm::tirx::NENode>() ||
                     expr.as<tvm::tirx::AndNode>() || expr.as<tvm::tirx::OrNode>() || expr.as<tvm::tirx::NotNode>() ||
-                    expr.as<tvm::CallNode>();
+                    expr.as<tvm::CallNode>() || (!_coordinate && expr.as<tvm::tirx::SelectNode>());
                 if (!ordinary) { valid = false; return; }
                 ExprVisitor::VisitExpr(expr);
             }
@@ -1841,6 +2037,7 @@ private:
     uint32_t _unroll_factor;
     uint32_t _lane_elements;
     bool _vector_packs;
+    bool _vector_eager_storage_safe{true};
     const tvm::tirx::ForNode *_program_domain;
     const tvm::tirx::ForNode *_thread_domain;
     // Only loops retained by this mapper belong here. Distributed/reduction
@@ -1923,7 +2120,8 @@ private:
 
     [[nodiscard]] tvm::tirx::Stmt _distributed_loop(
         const tvm::tirx::PrimVar &chunk, const tvm::tirx::PrimVar &element,
-        uint64_t elements, tvm::tirx::Stmt body, bool vector_full_packs = false) const {
+        uint64_t elements, tvm::tirx::Stmt body, bool vector_full_packs = false,
+        tvm::ffi::Optional<tvm::tirx::Stmt> scalar_partial = {}) const {
         auto stride = _workers * _lane_elements;
         auto complete_chunks = elements / stride;
         tvm::ffi::Array<tvm::tirx::Stmt> statements;
@@ -1946,7 +2144,7 @@ private:
             }
             if (partial_elements != 0u) {
                 tail.push_back(tvm::tirx::IfThenElse{
-                    tvm::equal(_worker, boundary), _element_pack(element, std::move(body), partial_elements)});
+                    tvm::equal(_worker, boundary), _element_pack(element, scalar_partial ? scalar_partial.value() : std::move(body), partial_elements)});
             }
             statements.push_back(tvm::tirx::Substitute(tvm::tirx::SeqStmt::Flatten(std::move(tail)),
                                                        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{chunk, tvm::IntImm::Int64(static_cast<int64_t>(complete_chunks))}}));
@@ -2124,6 +2322,11 @@ private:
         _striped_slot = chunk * width + element;
         _lane_depth++;
         auto body = VisitStmt(domain.body);
+        tvm::tirx::Stmt vector_body = body;
+        if (_vector_packs && _vector_eager_storage_safe) {
+            auto eager = VectorIntegerEagerValues{element, _lane_elements}(domain.body);
+            if (!eager.same_as(domain.body)) { vector_body = VisitStmt(eager); }
+        }
         _lane_depth--;
         _striped_slot = std::move(previous_slot);
         if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
@@ -2146,7 +2349,9 @@ private:
             }
             coordinates.Set(axis->loop_var, axis->min + coordinate);
         }
+        auto same_body = vector_body.same_as(body);
         body = tvm::tirx::Substitute(std::move(body), coordinates);
+        vector_body = same_body ? body : tvm::tirx::Substitute(std::move(vector_body), coordinates);
         if (_vector_packs && domain.count >= _lane_elements) {
             // These loops are proof inputs only. The original bounds/lazy guards
             // are retained in both emitted branches; common simplification may
@@ -2160,7 +2365,7 @@ private:
                 tvm::tirx::ForKind::kSerial, tvm::tirx::Evaluate{zero}};
             auto proof_domain = _phase_proof_domain(chunk_domain.get(), element_domain.get());
             VectorPackPhaseAudit audit{element, _lane_elements, _vector_allocated, proof_domain};
-            audit(body);
+            audit(vector_body);
             if (auto guard = audit.guard()) {
                 // Retain facts from precisely the proof/guard that emits this
                 // body's branches. The record owns its expression references.
@@ -2170,7 +2375,7 @@ private:
                         _thread_domain, chunk, _lane, guard.value()));
                 }
                 auto scalar = _distributed_loop(chunk, element, domain.count, body);
-                auto vector = _distributed_loop(chunk, element, domain.count, std::move(body), true);
+                auto vector = _distributed_loop(chunk, element, domain.count, std::move(vector_body), true, body);
                 _vector_phases++;
                 return tvm::tirx::IfThenElse{guard.value(), std::move(vector), std::move(scalar)};
             }
@@ -2299,7 +2504,18 @@ public:
           _vector_packs{vector_packs}, _program_domain{program_domain}, _thread_domain{thread_domain},
           _memory_facts{memory_facts},
           _contribution_storage_budget{contribution_storage_budget},
-          _target{target}, _analysis{analysis}, _partials{partials}, _striped_buffers{striped_buffers} {}
+          _target{target}, _analysis{analysis}, _partials{partials}, _striped_buffers{striped_buffers} {
+        if (_vector_packs) {
+            // Nonvolatile BufferLoad is read-only within the original pure
+            // expression. Do not consolidate a volatile read or opaque region.
+            tvm::tirx::PostOrderVisit(tvm::ffi::GetRef<tvm::tirx::For>(_program_domain), [&](const tvm::ffi::ObjectRef &node) {
+                if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
+                    _vector_eager_storage_safe &= !allocation->annotations.count(tvm::tirx::attr::kVolatile);
+                }
+                _vector_eager_storage_safe &= !node.as<tvm::tirx::AttrStmtNode>();
+            });
+        }
+    }
 
     [[nodiscard]] const tvm::tirx::BufferStoreNode *second_collective() const noexcept { return _second_collective; }
     [[nodiscard]] uint64_t contribution_storage_scalars() const noexcept { return _contribution_storage_scalars; }
@@ -2335,6 +2551,12 @@ struct ReductionTileMatch {
 }
 
 }// namespace
+
+// Internal test-linkage hook; intentionally absent from public headers/API.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API tvm::tirx::Stmt canonicalize_vector_integer_values_for_test(
+    tvm::tirx::Stmt body, const tvm::tirx::PrimVar &element, uint32_t width) {
+    return VectorIntegerEagerValues{element, width}(std::move(body));
+}
 
 luisa::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop) {
     auto match = match_reduction_tile(loop);

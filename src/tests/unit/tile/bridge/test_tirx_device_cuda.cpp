@@ -12,6 +12,9 @@
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/error.h>
 #include <tvm/ffi/function.h>
+#include <tvm/ffi/extra/module.h>
+#include <tvm/ir/module.h>
+#include <tvm/target/target.h>
 #include <tvm/ffi/string.h>
 #include <tvm/tirx/builtin.h>
 #include <tvm/tirx/op.h>
@@ -1094,6 +1097,80 @@ void test_prepared_reduction_candidate() {
         }
     }
 
+    // A second independent global-read phase remains vectorizable when only
+    // the Select epilogue needs scalar fallback. This raw full-row fixture uses
+    // the same owned stripe/reduction mapper, without lazy bounds that could
+    // hide the CUDA Bool8 capability boundary behind a different rejection.
+    {
+        namespace ir = tvm::tirx;
+        auto i64 = [](int64_t x) { return tvm::IntImm::Int64(x); };
+        auto f32 = [](double x) { return tvm::FloatImm{tvm::PrimType::Float(32), x}; };
+        for (auto mode : {0u, 1u, 2u}) {
+            for (auto lanes : {4u, 8u}) {
+                auto input = ir::decl_buffer({i64(3), i64(512)}, tvm::PrimType::Float(16), "input");
+                auto output = ir::decl_buffer({i64(3), i64(512)}, tvm::PrimType::Float(16), "output");
+                auto values = ir::decl_buffer({i64(512)}, tvm::PrimType::Float(32), "values", "local");
+                auto carry = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
+                auto next = ir::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "next", "local");
+                ir::PrimVar p{"program", tvm::PrimType::Int(64)}, e{"element", tvm::PrimType::Int(64)},
+                    k{"reduction", tvm::PrimType::Int(64)};
+                auto independent = [&](ir::Stmt body) {
+                    return ir::For{e, i64(0), i64(512), ir::ForKind::kSerial, std::move(body), {},
+                        {{"luisa.tile.independent_elements", i64(1)}}};
+                };
+                tvm::PrimExpr x = ir::BufferLoad{values, {e}}, total = ir::BufferLoad{carry, {i64(0)}};
+                tvm::PrimExpr value = mode == 0u ? tvm::PrimExpr{ir::Select{x > f32(0.0), x + total, x - total}} :
+                                      mode == 1u ? tvm::PrimExpr{ir::Select{total > f32(0.0), x + total, x - total}} :
+                                                   x + ir::Select{total > f32(0.0), total, -total};
+                auto reduction_loop = ir::For{k, i64(0), i64(512), ir::ForKind::kSerial,
+                    ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{ir::AllocBuffer{next},
+                        ir::BufferStore{next, total + ir::BufferLoad{values, {k}}, {i64(0)}},
+                        ir::BufferStore{carry, ir::BufferLoad{next, {i64(0)}}, {i64(0)}}}), {},
+                    {{"luisa.tile.contract.reduction", i64(1)},
+                     {"luisa.tile.reduction_policy", i64(static_cast<int64_t>(reduction::unordered_tree))}}};
+                auto input_phase = independent(ir::BufferStore{values, ir::Cast{tvm::PrimType::Float(32),
+                    ir::BufferLoad{input, {p, e}}}, {e}});
+                input_phase.CopyOnWrite()->annotations.Set("luisa.tile.contract.materialized_pure_tile", i64(1));
+                auto body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{
+                    ir::AllocBuffer{values}, input_phase,
+                    // Match the real lowering's adjacent carry allocation,
+                    // identity initializer and reduction loop contract.
+                    ir::AllocBuffer{carry}, ir::BufferStore{carry, f32(0.0), {i64(0)}}, reduction_loop,
+                    independent(ir::BufferStore{output, ir::Cast{tvm::PrimType::Float(16), value}, {p, e}})});
+                auto function = ir::PrimFunc{{input, output}, ir::For{p, i64(0), i64(3), ir::ForKind::kSerial,
+                    std::move(body), {}, {{"luisa.tile.logical_parallel", i64(1)}}}};
+                auto options = cuda_subgroup_options();
+                options.planner.threads_per_group = 128u;
+                options.planner.reduction_programs_per_group = 2u;
+                options.planner.reduction_lane_elements = lanes;
+                options.planner.reduction_unroll_factor = 16u;
+                options.planner.cache_reduction_inputs = false;
+                expect(set(flag, "1"));
+                auto result = compile_device(function, "select_vector_capability", options);
+                expect(static_cast<bool>(result)) << "mode=" << mode << " L=" << lanes << " " << result.error;
+                if (!result) { continue; }
+                expect(result.plans.size() == 1u);
+                if (result.plans.size() == 1u) { expect(result.plans.front().striped_storage_scalars_per_worker == 8u); }
+                auto wide_reads = 0u, wide_stores = 0u, scalar_stores = 0u;
+                ir::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto load = node.as<ir::BufferLoadNode>(); load && load->buffer.scope() == "global") {
+                        wide_reads += tvm::ffi::GetRef<ir::BufferLoad>(load).ty().lanes() == static_cast<int>(lanes);
+                    }
+                    if (auto store = node.as<ir::BufferStoreNode>(); store && store->buffer.scope() == "global") {
+                        wide_stores += store->value.ty().lanes() == static_cast<int>(lanes);
+                        scalar_stores += store->value.ty().IsScalar();
+                    }
+                    if (auto select = node.as<ir::SelectNode>()) { expect(select->condition.ty().lanes() <= 4); }
+                });
+                expect(wide_reads != 0u);// The unrelated input phase is retained.
+                expect((wide_stores != 0u) == (lanes == 4u || mode == 2u));
+                expect(scalar_stores != 0u);// Original scalar branch or phase remains.
+                expect(!result.artifact.source.empty());
+                expect(result.artifact.block[0] == 128u && result.artifact.grid[0] == 2u);
+            }
+        }
+    }
+
 }
 
 
@@ -1305,7 +1382,9 @@ void test_cuda_subgroup_terminal_row_suffix() {
         Case{1, 0, 2, 1, false}, Case{1, 2, 2, 2, false}, Case{1, 3, 2, 2, false}, Case{1, 4, 2, 2, false},
         Case{1, 5, 2, 2, false}, Case{1, 6, 2, 2, false}, Case{1, 7, 2, 2, false},
         Case{1, 8, 2, 2, false}, Case{1, 9, 2, 2, false}, Case{1, 10, 2, 2, false}, Case{1, 11, 2, 2, false},
-        Case{1, 12, 2, 2, true}, Case{1, 13, 2, 2, false}};
+        Case{1, 12, 2, 2, true}, Case{1, 13, 2, 2, false},
+        Case{1, 14, 2, 2, true}, Case{1, 15, 2, 2, false}, Case{1, 16, 2, 2, false},
+        Case{1, 17, 2, 2, false}, Case{1, 18, 2, 2, false}};
     for (auto c : cases) {
         auto input = ir::decl_buffer({i64(3), i64(65)}, tvm::PrimType::Float(32), "input");
         auto narrow_type = c.mode >= 12 ? tvm::PrimType::BFloat(16) : tvm::PrimType::Float(16);
@@ -1344,7 +1423,7 @@ void test_cuda_subgroup_terminal_row_suffix() {
         ir::Stmt copy_store = ir::BufferStore{copy, value, {i64(0)}};
         // Deliberately non-dominating definition: this is a proof counterexample,
         // never a numerical fixture. Later unconditional reads must not license it.
-        if (c.mode == 8) { copy_store = ir::IfThenElse{p < i64(1), std::move(copy_store)}; }
+        if (c.mode == 8 || c.mode == 18) { copy_store = ir::IfThenElse{p < i64(1), std::move(copy_store)}; }
         statements.push_back(std::move(copy_store));
         if (c.mode == 2) {
             statements.push_back(elements(ir::BufferStore{output, ir::Cast{tvm::PrimType::Float(16), ir::BufferLoad{copy, {i64(0)}}}, {p * i64(4) + e}}, 4));
@@ -1364,12 +1443,23 @@ void test_cuda_subgroup_terminal_row_suffix() {
                 auto rounded = (bits + word(0x7fffu) + odd) >> word(16u);
                 auto nan = tvm::greater(tvm::bitwise_and(bits, word(0x7fffffffu)), word(0x7f800000u));
                 auto quiet = tvm::bitwise_or(high, word(0x40u));
-                auto storage = tvm::cast(tvm::PrimType::UInt(16), tvm::if_then_else(nan, quiet, rounded));
+                // Keep the original lazy mode12 witness. Mode14 uses the
+                // proposed total UInt32 Select encoding. Both arms and the
+                // dynamic NaN predicate still depend only on the owned cell.
+                // Modes15..18 must not expand shift, memory, coordinate or
+                // conditional-definition admission through a Select node.
+                tvm::PrimExpr alternative = rounded;
+                if (c.mode == 15) { alternative = bits >> tvm::bitwise_and(bits, word(31u)); }
+                if (c.mode == 16) { alternative = tvm::reinterpret(u32, ir::BufferLoad{input, {p, i64(0)}}); }
+                tvm::PrimExpr encoded = c.mode >= 14 ? tvm::PrimExpr{ir::Select{nan, quiet, alternative}} :
+                                                     tvm::if_then_else(nan, quiet, rounded);
+                auto storage = tvm::cast(tvm::PrimType::UInt(16), encoded);
                 rounded_value = tvm::reinterpret(tvm::PrimType::BFloat(16), storage);
             }
             statements.push_back(elements(ir::BufferStore{narrow, rounded_value, {e}}));
             tvm::PrimExpr destination = p + e;
             if (c.mode == 6) { destination = p * i64(2) + tvm::if_then_else(left > f32(0.0), i64(0), i64(1)); }
+            if (c.mode == 17) { destination = p * i64(2) + ir::Select{left > f32(0.0), i64(0), i64(1)}; }
             ir::Stmt output_store = ir::BufferStore{output, ir::BufferLoad{narrow, {e}}, {destination}};
             if (c.mode == 5) { output_store = ir::IfThenElse{left > f32(0.0), std::move(output_store)}; }
             statements.push_back(elements(std::move(output_store)));
@@ -2086,6 +2176,309 @@ void run() {
 }
 }// namespace fast_div_sqrt_tests
 
+namespace bfloat_select_tests {
+namespace ir = tvm::tirx;
+
+// Evaluate only the integer expression extracted from actual Tile lowering.
+// A local FP32 snapshot read supplies its raw bits; never perform FP arithmetic
+// on NaNs or duplicate the candidate's rounding formula in this evaluator.
+class EvaluateRounding final {
+private:
+    tvm::PrimExpr _snapshot;
+    uint32_t _bits;
+public:
+    EvaluateRounding(tvm::PrimExpr snapshot, uint32_t bits)
+        : _snapshot{std::move(snapshot)}, _bits{bits} {}
+    luisa::optional<uint32_t> operator()(const tvm::PrimExpr &expr) const {
+        if (auto literal = expr.as<tvm::IntImmNode>()) {
+            return static_cast<uint32_t>(literal->value);
+        }
+        if (auto call = expr.as<tvm::CallNode>()) {
+            if (call->op.same_as(ir::builtin::reinterpret()) && call->args.size() == 1u &&
+                expr.ty() == tvm::PrimType::UInt(32) &&
+                tvm::ffi::StructuralEqual{}(call->args[0], _snapshot)) { return _bits; }
+            if (call->args.size() != 2u) { return {}; }
+            auto left_expr = call->args[0].as<tvm::PrimExpr>();
+            auto right_expr = call->args[1].as<tvm::PrimExpr>();
+            if (!left_expr || !right_expr) { return {}; }
+            auto left = operator()(left_expr.value()), right = operator()(right_expr.value());
+            if (!left || !right) { return {}; }
+            if (call->op.same_as(ir::builtin::bitwise_and())) { return *left & *right; }
+            if (call->op.same_as(ir::builtin::bitwise_or())) { return *left | *right; }
+            if (call->op.same_as(ir::builtin::shift_right()) && *right < 32u) { return *left >> *right; }
+            return {};
+        }
+        if (auto add = expr.as<ir::AddNode>()) {
+            auto a = operator()(add->a), b = operator()(add->b);
+            if (a && b) { return static_cast<uint32_t>(*a + *b); }
+        }
+        if (auto greater = expr.as<ir::GTNode>()) {
+            auto a = operator()(greater->a), b = operator()(greater->b);
+            if (a && b) { return uint32_t{*a > *b}; }
+        }
+        if (auto select = expr.as<ir::SelectNode>()) {
+            auto condition = operator()(select->condition);
+            if (condition) { return operator()(*condition ? select->true_value : select->false_value); }
+        }
+        return {};
+    }
+};
+
+void lower_and_bits() {
+    // The tile extends beyond the root. Eager integer Select must coexist with
+    // the original lazy, zero-filled load snapshot, not replace its predicate.
+    auto definition = tile_kernel("bfloat_rounding_select", [](TensorView<const float, 1> input,
+                                                               TensorView<bfloat16, 1> output) {
+        auto axis0 = axis("element", 7);
+        auto value = input.tile(coord(0), shape(axis0)).load();
+        output(coord(0), shape(axis0)).store(cast<bfloat16>(value));
+    });
+    auto kernel = definition.capture(tensor_shape(5), tensor_shape(5));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    auto lowered = lower(kernel.function());
+    expect(lowered.ok()) << lowered.error;
+    if (!lowered) { return; }
+    tvm::PrimExpr rounding, snapshot;
+    size_t integer_selects = 0u, guarded_root_loads = 0u;
+    ir::PostOrderVisit(lowered.value->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto select = node.as<ir::SelectNode>(); select &&
+            select->ty.as<tvm::PrimType>() && select->ty.as<tvm::PrimType>().value() == tvm::PrimType::UInt(32)) {
+            integer_selects++;
+            rounding = tvm::ffi::GetRef<ir::Select>(select);
+        }
+        if (auto call = node.as<tvm::CallNode>(); call && call->op.same_as(ir::builtin::if_then_else())) {
+            bool global_load = false;
+            ir::PostOrderVisit(tvm::ffi::GetRef<tvm::Call>(call), [&](const tvm::ffi::ObjectRef &child) {
+                if (auto load = child.as<ir::BufferLoadNode>()) { global_load |= load->buffer.scope() == "global"; }
+            });
+            guarded_root_loads += global_load;
+        }
+    });
+    expect(integer_selects == 1u && guarded_root_loads > 0u);
+    if (!rounding.defined()) { return; }
+    ir::PostOrderVisit(rounding, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto call = node.as<tvm::CallNode>(); call && call->op.same_as(ir::builtin::reinterpret()) &&
+            call->ty.as<tvm::PrimType>() && call->ty.as<tvm::PrimType>().value() == tvm::PrimType::UInt(32) && call->args.size() == 1u) {
+            auto load = call->args[0].as<ir::BufferLoadNode>();
+            expect(load && load->buffer.scope() == "local" && load->buffer->dtype == tvm::PrimType::Float(32));
+            auto value = call->args[0].as<tvm::PrimExpr>();
+            if (value) {
+                if (snapshot.defined()) { expect(tvm::ffi::StructuralEqual{}(snapshot, value.value())); }
+                else { snapshot = value.value(); }
+            }
+        }
+    });
+    expect(snapshot.defined());
+    if (!snapshot.defined()) { return; }
+    constexpr std::array<uint32_t, 26u> patterns{
+        0x00000000u, 0x80000000u, 0x00000001u, 0x80000001u,
+        0x00007fffu, 0x00008000u, 0x00008001u, 0x00018000u,
+        0x007fffffu, 0x00800000u, 0x3f800000u, 0x3f807fffu,
+        0x3f808000u, 0x3f808001u, 0x3f818000u, 0xbf808000u,
+        0xbf818000u, 0x7f7fffffu, 0xff7fffffu, 0x7f800000u,
+        0xff800000u, 0x7f800001u, 0x7fc00000u, 0x7fffffffu,
+        0xff800001u, 0xffffffffu};
+    for (auto bits : patterns) {
+        // Independent remainder/tie oracle, rather than candidate bias-add.
+        auto high = bits >> 16u, remainder = bits & 0xffffu;
+        auto nan = (bits & 0x7f800000u) == 0x7f800000u && (bits & 0x007fffffu) != 0u;
+        auto expected = nan ? high | 0x40u : high + uint32_t{remainder > 0x8000u || (remainder == 0x8000u && (high & 1u))};
+        auto actual = EvaluateRounding{snapshot, bits}(rounding);
+        expect(actual.has_value());
+        if (actual) { expect(static_cast<uint16_t>(*actual) == static_cast<uint16_t>(expected)); }
+    }
+}
+
+void vector_bitcast() {
+    // Exercise the actual Tile BF16 lowering, including both F32 -> UInt32
+    // and UInt16 -> BF16 reinterpret calls around its integer rounding Select.
+    // This is a source/typed-artifact test, not a device numerical oracle.
+    auto set = [](const char *name, const char *value) noexcept {
+#ifdef _WIN32
+        return SetEnvironmentVariableA(name, value) != 0 ||
+               (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+        return value ? setenv(name, value, 1) == 0 : unsetenv(name) == 0;
+#endif
+    };
+    constexpr auto vector_flag = "LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS";
+    constexpr auto coordinate_flag = "LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES";
+    struct Restore {
+        decltype(set) setter;
+        luisa::optional<luisa::string> vector, coordinate;
+        ~Restore() noexcept {
+            LUISA_ASSERT(setter("LUISA_DIAGNOSTIC_TIRX_VECTOR_PACKS", vector ? vector->c_str() : nullptr));
+            LUISA_ASSERT(setter("LUISA_DIAGNOSTIC_TIRX_FORWARD_COORDINATES", coordinate ? coordinate->c_str() : nullptr));
+        }
+    } restore{set, luisa::get_environment_variable(vector_flag), luisa::get_environment_variable(coordinate_flag)};
+    auto definition = tile_kernel("bfloat_vector_bitcast", [](TensorView<const bfloat16, 2> input,
+                                                              TensorView<const bfloat16, 1> gamma,
+                                                              TensorView<const bfloat16, 1> beta,
+                                                              TensorView<bfloat16, 2> output) {
+        auto one = axis("one", 1), feature = axis("feature", 512);
+        for (auto &nest : parallel(shape(3))) {
+            auto origin = coord(nest.index(), 0);
+            auto x = cast<float>(input.tile(origin, shape(one, feature)).load());
+            auto mean = reduce(x, feature, add) / 512.0f;
+            auto centered = x - mean;
+            auto variance = reduce(centered * centered, feature, add) / 512.0f;
+            auto g = cast<float>(gamma.tile(coord(0), shape(feature)).load());
+            auto b = cast<float>(beta.tile(coord(0), shape(feature)).load());
+            output(origin, shape(one, feature)).store(cast<bfloat16>(centered / sqrt(variance + 1e-5f) * g + b));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 512), tensor_shape(512), tensor_shape(512), tensor_shape(3, 512));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    auto lowered = lower(kernel.function());
+    expect(lowered.ok()) << lowered.error;
+    if (!lowered) { return; }
+    auto original_body = lowered.value->body;
+    auto float_bits = 0u, bfloat_bits = 0u, rounding_selects = 0u;
+    ir::PostOrderVisit(original_body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto call = node.as<tvm::CallNode>(); call && call->op.same_as(ir::builtin::reinterpret()) && call->args.size() == 1u) {
+            auto result = call->ty.as<tvm::PrimType>();
+            auto operand = call->args[0u].as<tvm::PrimExpr>();
+            if (result && operand) {
+                float_bits += result.value() == tvm::PrimType::UInt(32) && operand.value().ty() == tvm::PrimType::Float(32);
+                bfloat_bits += result.value() == tvm::PrimType::BFloat(16) && operand.value().ty() == tvm::PrimType::UInt(16);
+            }
+        }
+        if (auto select = node.as<ir::SelectNode>()) {
+            rounding_selects += tvm::ffi::GetRef<ir::Select>(select).ty() == tvm::PrimType::UInt(32);
+        }
+    });
+    expect(float_bits != 0u && bfloat_bits != 0u && rounding_selects != 0u);
+    // Direct tile views have no separate coordinate Tile to forward.
+    expect(set(coordinate_flag, "0"));
+    for (auto lanes : {2u, 4u, 8u}) {
+        auto options = cuda_subgroup_options();
+        options.planner.threads_per_group = 128u;
+        options.planner.reduction_programs_per_group = 2u;
+        options.planner.reduction_lane_elements = lanes;
+        options.planner.reduction_unroll_factor = 16u;
+        options.planner.cache_reduction_inputs = false;
+        expect(set(vector_flag, "0"));
+        auto scalar = compile_device(lowered.value, kernel.function().name(), options);
+        expect(static_cast<bool>(scalar)) << scalar.error;
+        expect(set(vector_flag, "1"));
+        auto vector = compile_device(lowered.value, kernel.function().name(), options);
+        expect(static_cast<bool>(vector)) << "L=" << lanes << " " << vector.error;
+        if (!scalar || !vector) { continue; }
+        expect(vector.artifact.block[0] == 128u && vector.artifact.grid[0] == 2u);
+        expect(vector.artifact.entry == scalar.artifact.entry && vector.artifact.grid == scalar.artifact.grid &&
+               vector.artifact.block == scalar.artifact.block && vector.artifact.buffer_arguments == scalar.artifact.buffer_arguments);
+        expect(vector.plans.size() == 1u);
+        if (vector.plans.size() == 1u) { expect(vector.plans.front().reduction_operations == 2u); }
+        auto wide_reads = 0u, wide_stores = 0u, scalar_stores = 0u, guarded_outputs = 0u;
+        auto count_stores = [](const ir::Stmt &body, int width) {
+            auto count = 0u;
+            ir::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto store = node.as<ir::BufferStoreNode>(); store &&
+                    (store->buffer.scope() == "global" || store->buffer.scope().empty())) {
+                    count += store->value.ty().lanes() == width;
+                }
+            });
+            return count;
+        };
+        ir::PostOrderVisit(vector.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto load = node.as<ir::BufferLoadNode>(); load &&
+                (load->buffer.scope() == "global" || load->buffer.scope().empty())) {
+                wide_reads += tvm::ffi::GetRef<ir::BufferLoad>(load).ty().lanes() == static_cast<int>(lanes);
+            }
+            if (auto store = node.as<ir::BufferStoreNode>(); store &&
+                (store->buffer.scope() == "global" || store->buffer.scope().empty())) {
+                wide_stores += store->value.ty().lanes() == static_cast<int>(lanes);
+                scalar_stores += store->value.ty().IsScalar();
+            }
+            if (auto select = node.as<ir::SelectNode>()) { expect(select->condition.ty().lanes() <= 4); }
+            if (auto branch = node.as<ir::IfThenElseNode>(); branch && branch->else_case &&
+                count_stores(branch->then_case, static_cast<int>(lanes)) != 0u) {
+                auto pointer = false, correct_mask = false;
+                ir::PostOrderVisit(branch->condition, [&](const tvm::ffi::ObjectRef &part) {
+                    if (auto call = part.as<tvm::CallNode>()) {
+                        pointer |= call->op.same_as(ir::builtin::reinterpret());
+                        if (call->op.same_as(ir::builtin::bitwise_and()) && call->args.size() == 2u) {
+                            auto mask = call->args[1u].as<tvm::IntImmNode>();
+                            correct_mask |= mask && mask->value == static_cast<int64_t>(2u * lanes - 1u);
+                        }
+                    }
+                });
+                if (pointer && correct_mask) {
+                    guarded_outputs++;
+                    expect(count_stores(branch->else_case.value(), 1) != 0u);
+                }
+            }
+        });
+        expect(wide_reads != 0u);// The actual BF16 input phase stays vectorized at L8.
+        expect((wide_stores != 0u) == (lanes <= 4u));
+        expect((guarded_outputs != 0u) == (lanes <= 4u));
+        expect(scalar_stores != 0u);// Real pointer-misalignment path or L8 scalar phase.
+        expect(count_stores(scalar.artifact.function->body, static_cast<int>(lanes)) == 0u);
+        expect(!vector.artifact.source.empty());
+        expect(lowered.value->body.same_as(original_body));
+    }
+}
+
+
+void condition_ssa_type() {
+    // Direct source-only TVM codegen keeps a non-identifier bool Broadcast.
+    // A comparison that already produced an SSA name would hide this bug.
+    auto old = luisa::get_environment_variable("TVM_COMPILE_FORCE_FALLBACK");
+    auto set = [](const char *value) noexcept {
+#ifdef _WIN32
+        return SetEnvironmentVariableA("TVM_COMPILE_FORCE_FALLBACK", value) != 0 ||
+               (value == nullptr && GetLastError() == ERROR_ENVVAR_NOT_FOUND);
+#else
+        return value ? setenv("TVM_COMPILE_FORCE_FALLBACK", value, 1) == 0 : unsetenv("TVM_COMPILE_FORCE_FALLBACK") == 0;
+#endif
+    };
+    struct Restore { decltype(set) setter; luisa::optional<luisa::string> value;
+        ~Restore() noexcept { LUISA_ASSERT(setter(value ? value->c_str() : nullptr)); }
+    } restore{set, old};
+    expect(set("1"));
+    auto builder = tvm::ffi::Function::GetGlobal("target.build.cuda");
+    auto make_module = tvm::ffi::Function::GetGlobal("ir.IRModule");
+    expect(builder.has_value() && make_module.has_value());
+    if (!builder || !make_module) { return; }
+    tvm::Target target{tvm::ffi::String{R"({"kind":"cuda","arch":"sm_80"})"}};
+    for (auto lanes : {2, 4}) {
+        auto n = tvm::IntImm::Int32(lanes);
+        auto output = ir::decl_buffer({tvm::IntImm::Int32(1)}, tvm::PrimType::UInt(32, lanes), "output");
+        ir::Var data{"output_data", output.DataPointerType()};
+        ir::PrimVar condition{"condition", tvm::PrimType::Bool()};
+        ir::PrimVar yes{"yes", tvm::PrimType::UInt(32)}, no{"no", tvm::PrimType::UInt(32)};
+        auto value = ir::Select{ir::Broadcast{condition, n}, ir::Broadcast{yes, n}, ir::Broadcast{no, n}};
+        auto body = ir::SeqStmt::Flatten(tvm::ffi::Array<ir::Stmt>{
+            ir::DeclBuffer{output, data}, ir::BufferStore{output, value, {tvm::IntImm::Int32(0)}}});
+        auto function = tvm::WithAttr(ir::PrimFunc{{condition, yes, no, data}, body}, tvm::attr::kGlobalSymbol, tvm::ffi::String{"select_condition"});
+        tvm::ffi::Map<tvm::GlobalVar, tvm::BaseFunc> functions;
+        functions.Set(tvm::GlobalVar{"select_condition"}, function);
+        // Use the same exported registry constructor as the bridge rather
+        // than depending on a prebuilt package's C++ constructor visibility.
+        auto module = make_module->CallExpected<tvm::IRModule>(functions, tvm::DictAttrs{},
+            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Array<tvm::GlobalInfo>>{});
+        expect(module.is_ok());
+        if (!module.is_ok()) { continue; }
+        auto compiled = builder->CallExpected<tvm::ffi::Module>(module.value(), target);
+        expect(compiled.is_ok());
+        if (!compiled.is_ok()) { continue; }
+        auto source = compiled.value()->InspectSource("cuda");
+        std::string text{source.data(), source.size()};
+        auto marker = std::string{" = make_ushort"} + std::to_string(lanes) + "(";
+        auto at = text.find(marker);
+        expect(at != std::string::npos);
+        if (at == std::string::npos) { continue; }
+        auto begin = text.rfind('\n', at);
+        begin = begin == std::string::npos ? 0u : begin + 1u;
+        auto declaration = text.substr(begin, at - begin);
+        expect(declaration.find(std::string{"ushort"} + std::to_string(lanes) + " ") != std::string::npos);
+        expect(declaration.find(std::string{"uint"} + std::to_string(lanes) + " ") == std::string::npos);
+    }
+}
+}// namespace bfloat_select_tests
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -2094,6 +2487,9 @@ int main(int argc, char *argv[]) {
     "tile_tirx_coordinate_rejection_boundaries"_test = coordinate_tests::rejection_boundaries;
     "tile_tirx_coordinate_snapshot_order"_test = coordinate_tests::snapshot_order;
     "tile_tirx_cuda_fast_div_sqrt"_test = fast_div_sqrt_tests::run;
+    "tile_tirx_bfloat_rounding_select"_test = bfloat_select_tests::lower_and_bits;
+    "tile_tirx_bfloat_vector_bitcast"_test = bfloat_select_tests::vector_bitcast;
+    "tile_tirx_cuda_select_condition_type"_test = bfloat_select_tests::condition_ssa_type;
     "tile_tirx_cuda_elementwise_artifact"_test = test_cuda_elementwise_artifact;
     "tile_tirx_cuda_reduction_artifact"_test = test_cuda_reduction_artifact;
     "tile_tirx_cuda_matmul_artifact"_test = test_cuda_matmul_artifact;
