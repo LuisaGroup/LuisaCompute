@@ -188,8 +188,9 @@ if lc_tvm_enabled and os.exists(path.join(lc_tvm_root, "CMakeLists.txt")) then
               path.join(lc_tvm_root, "src/script/printer/config.cc"),
               path.join(lc_tvm_root, "src/script/printer/script_printer.cc"),
               path.join(lc_tvm_root, "src/script/printer/doc.cc"),
-              path.join(lc_tvm_root, "src/script/printer/doc_printer/**.cc"),
-              path.join(lc_tvm_root, "src/script/printer/ir_docsifier.cc"),
+              path.join(lc_tvm_root, "src/script/printer/doc_translator.cc"),
+              path.join(lc_tvm_root, "src/script/printer/printer.cc"),
+              path.join(lc_tvm_root, "src/script/printer/doc_printer.cc"),
               path.join(lc_tvm_root, "src/script/printer/ir/**.cc"),
               -- relax
               path.join(lc_tvm_root, "src/relax/ir/**.cc"),
