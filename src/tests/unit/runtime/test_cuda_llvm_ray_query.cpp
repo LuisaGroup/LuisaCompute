@@ -874,9 +874,9 @@ struct Options {
     luisa::vector<float4> host_distances(distances.size());
     stream << scene.build()
            << shader(scene, hits, captures, distances).dispatch(ray_count)
-           << hits.copy_to(host_hits.data())
-           << captures.copy_to(host_captures.data())
-           << distances.copy_to(host_distances.data()) << synchronize();
+           << hits.copy_to(luisa::span{host_hits})
+           << captures.copy_to(luisa::span{host_captures})
+           << distances.copy_to(luisa::span{host_distances}) << synchronize();
     auto correct = true;
     for (auto lane = 0u; lane < ray_count; lane++) {
         auto accept_mask = lane & 3u;
@@ -1035,9 +1035,9 @@ struct Options {
         scene.emplace_back(mesh, make_float4x4(1.0f), 0xffu, (opaque_mask & 2u) != 0u);
         stream << scene.build()
                << shader(scene, opaque_mask, hits, captures, distances).dispatch(ray_count)
-               << hits.copy_to(host_hits.data())
-               << captures.copy_to(host_captures.data())
-               << distances.copy_to(host_distances.data())
+               << hits.copy_to(luisa::span{host_hits})
+               << captures.copy_to(luisa::span{host_captures})
+               << distances.copy_to(luisa::span{host_distances})
                << synchronize();
         auto correct = true;
         for (auto lane = 0u; lane < ray_count; lane++) {

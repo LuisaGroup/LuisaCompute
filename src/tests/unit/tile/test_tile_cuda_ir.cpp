@@ -2095,9 +2095,9 @@ void packed_fp32_sort(Device &device) {
             }
         }
         output.poison(); std::fill(indices.begin(), indices.end(), index_guard);
-        stream << input.buffer.copy_from(input.host.data()) << output.buffer.copy_from(output.host.data()) << gpu_indices.copy_from(indices.data())
+        stream << input.buffer.copy_from(luisa::span{input.host}) << output.buffer.copy_from(luisa::span{output.host}) << gpu_indices.copy_from(luisa::span{indices})
                << shader(input.view(), output.view(), gpu_indices.view(kPad, count)).dispatch()
-               << input.buffer.copy_to(input.host.data()) << output.buffer.copy_to(output.host.data()) << gpu_indices.copy_to(indices.data()) << synchronize();
+               << input.buffer.copy_to(luisa::span{input.host}) << output.buffer.copy_to(luisa::span{output.host}) << gpu_indices.copy_to(luisa::span{indices}) << synchronize();
         check_readonly(input, original); input.check_guards(); output.check_guards();
         for (auto i = 0u; i < count; i++) {
             expect(bits(output[i]) == expected_bits[i]) << "packed value=" << i;

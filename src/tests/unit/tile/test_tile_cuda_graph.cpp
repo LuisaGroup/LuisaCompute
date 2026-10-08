@@ -67,8 +67,8 @@ int main(int argc, char *argv[]) {
     auto unused = device.create_buffer<float>(count);
     vector<float> input(total, sentinel), blank(total, sentinel), actual(total), middle_actual(total);
     for (auto i = size_t{0u}; i < count; i++) { input[pad + i] = static_cast<float>(i) * .25f; }
-    stream << source.copy_from(input.data()) << middle.copy_from(blank.data())
-           << output.copy_from(blank.data()) << synchronize();
+    stream << source.copy_from(luisa::span{input}) << middle.copy_from(luisa::span{blank})
+           << output.copy_from(luisa::span{blank}) << synchronize();
 
     auto commands = [&](size_t offset) {
         auto list = CommandList::create();
@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
     "direct_buffer_tile_graph_replay"_test = [&] {
         for (auto repeat = 0u; repeat < 4u; repeat++) {
             extension->launch(exec.handle().handle, stream.handle());
-            stream << output.copy_to(actual.data()) << middle.copy_to(middle_actual.data()) << synchronize();
+            stream << output.copy_to(luisa::span{actual}) << middle.copy_to(luisa::span{middle_actual}) << synchronize();
             check(actual, 2.0f, pad);
             check(middle_actual, 3.0f, pad);
         }
@@ -99,17 +99,17 @@ int main(int argc, char *argv[]) {
         auto updated = extension->update(exec.handle().handle, commands(2u * pad));
         expect(updated);
         if (!updated) { return; }
-        stream << output.copy_from(blank.data()) << middle.copy_from(blank.data()) << synchronize();
+        stream << output.copy_from(luisa::span{blank}) << middle.copy_from(luisa::span{blank}) << synchronize();
         extension->launch(exec.handle().handle, stream.handle());
-        stream << output.copy_to(actual.data()) << middle.copy_to(middle_actual.data()) << synchronize();
+        stream << output.copy_to(luisa::span{actual}) << middle.copy_to(luisa::span{middle_actual}) << synchronize();
         check(actual, 2.0f, 2u * pad);
         check(middle_actual, 3.0f, 2u * pad);
         expect(!extension->update_kernel_node(exec.handle().handle, 1u, make_uint3(3u, 1u, 1u), {}));
         // Updating one executable must not mutate the other executable's
         // pointer list or the graph template.
-        stream << output.copy_from(blank.data()) << middle.copy_from(blank.data()) << synchronize();
+        stream << output.copy_from(luisa::span{blank}) << middle.copy_from(luisa::span{blank}) << synchronize();
         extension->launch(second.handle().handle, stream.handle());
-        stream << output.copy_to(actual.data()) << middle.copy_to(middle_actual.data()) << synchronize();
+        stream << output.copy_to(luisa::span{actual}) << middle.copy_to(luisa::span{middle_actual}) << synchronize();
         check(actual, 2.0f, pad);
         check(middle_actual, 3.0f, pad);
     };
@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
         auto rejected = extension->create_graph(std::move(list.commit()).command_list());
         expect(rejected.handle().handle == CudaGraphExt::invalid_handle);
     };
-    stream << source.copy_to(actual.data()) << synchronize();
+    stream << source.copy_to(luisa::span{actual}) << synchronize();
     expect(std::equal(actual.begin(), actual.end(), input.begin())) << "read-only source changed";
     return 0;
 }

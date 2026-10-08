@@ -135,9 +135,9 @@ void ranking(const Route &route, int64_t width, int64_t count, bool descending, 
     auto y = route.device->create_buffer<float>(actual.size());
     auto ix = route.device->create_buffer<int64_t>(indices.size());
     auto stream = route.device->create_stream(StreamTag::COMPUTE);
-    stream << x.copy_from(input.data()) << y.copy_from(actual.data()) << ix.copy_from(indices.data())
+    stream << x.copy_from(luisa::span{input}) << y.copy_from(luisa::span{actual}) << ix.copy_from(luisa::span{indices})
            << shader(x.view(kPad, input_size), y.view(kPad, output_size), ix.view(kPad, output_size)).dispatch()
-           << x.copy_to(input.data()) << y.copy_to(actual.data()) << ix.copy_to(indices.data()) << synchronize();
+           << x.copy_to(luisa::span{input}) << y.copy_to(luisa::span{actual}) << ix.copy_to(luisa::span{indices}) << synchronize();
     for (auto i = size_t{0}; i < input.size(); i++) { expect(bits(input[i]) == bits(original[i])) << "readonly index=" << i; }
     for (auto i = size_t{0}; i < output_size; i++) {
         expect(bits(actual[kPad + i]) == bits(expected[i])) << "rank value N=" << width << " K=" << count << " offset=" << i;
@@ -215,9 +215,9 @@ void scan(const Route &route, int64_t width, bool interior, tile::ReductionPolic
     auto x = route.device->create_buffer<float>(input.size());
     auto y = route.device->create_buffer<float>(actual.size());
     auto stream = route.device->create_stream(StreamTag::COMPUTE);
-    stream << x.copy_from(input.data()) << y.copy_from(actual.data())
+    stream << x.copy_from(luisa::span{input}) << y.copy_from(luisa::span{actual})
            << shader(x.view(kPad, size), y.view(kPad, size)).dispatch()
-           << x.copy_to(input.data()) << y.copy_to(actual.data()) << synchronize();
+           << x.copy_to(luisa::span{input}) << y.copy_to(luisa::span{actual}) << synchronize();
     for (auto i = size_t{0}; i < input.size(); i++) { expect(bits(input[i]) == bits(original[i])); }
     for (auto i = size_t{0}; i < size; i++) {
         expect(std::isfinite(actual[kPad + i]));
@@ -270,9 +270,9 @@ void bitcast_storage(const Route &route) {
         auto shader = tile::compile(*route.device, kernel, route.options, {.enable_fast_math = fast});
         if (!check_shader(shader, route, false)) { return; }
         std::fill(x.begin(), x.end(), 0x7139a25du); std::fill(y.begin(), y.end(), kFloatGuard);
-        stream << ga.copy_from(a.data()) << gb.copy_from(b.data()) << gx.copy_from(x.data()) << gy.copy_from(y.data())
+        stream << ga.copy_from(luisa::span{a}) << gb.copy_from(luisa::span{b}) << gx.copy_from(luisa::span{x}) << gy.copy_from(luisa::span{y})
                << shader(ga.view(kPad, count), gb.view(kPad, count), gx.view(kPad, count), gy.view(kPad, count)).dispatch()
-               << ga.copy_to(a.data()) << gb.copy_to(b.data()) << gx.copy_to(x.data()) << gy.copy_to(y.data()) << synchronize();
+               << ga.copy_to(luisa::span{a}) << gb.copy_to(luisa::span{b}) << gx.copy_to(luisa::span{x}) << gy.copy_to(luisa::span{y}) << synchronize();
         for (auto i = size_t{0}; i < a.size(); i++) {
             expect(a[i] == original_a[i]); expect(bits(b[i]) == bits(original_b[i]));
             auto in_bounds = i >= kPad && i < kPad + count;

@@ -640,7 +640,7 @@ void run_luisa(const char *program, const char *output_path, luisa::string_view 
     stream << c.copy_to(luisa::span{output}) << synchronize();
     if (paired) {
         luisa::vector<float> derivative(output.size());
-        stream << d->copy_to(derivative.data()) << synchronize();
+        stream << d->copy_to(luisa::span{derivative}) << synchronize();
         output.insert(output.end(), derivative.begin(), derivative.end());
     }
     auto download_ms = milliseconds(start);

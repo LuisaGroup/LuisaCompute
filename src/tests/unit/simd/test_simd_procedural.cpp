@@ -343,8 +343,8 @@ void test_long_candidate_chain(
            << procedural.build()
            << accel.build()
            << shader(accel, result, distance).dispatch(1u)
-           << result.copy_to(&host_result)
-           << distance.copy_to(&host_distance)
+           << result.copy_to(luisa::span{&host_result, 1u})
+           << distance.copy_to(luisa::span{&host_distance, 1u})
            << synchronize();
     expect(static_cast<bool>(
         all(host_result ==
@@ -409,7 +409,7 @@ void test_procedural_summary_refresh(
                      luisa::string_view label) {
         stream << accel.build()
                << shader(accel, result).dispatch(1u)
-               << result.copy_to(&host_result)
+               << result.copy_to(luisa::span{&host_result, 1u})
                << synchronize();
         expect(static_cast<bool>(
             all(host_result == make_uint4(
@@ -593,8 +593,8 @@ void test_mixed_surface_and_motion(
                   primitive_motion_accel, instance_motion_accel,
                   motion_summary, motion_detail)
                   .dispatch(5u)
-           << mixed_result.copy_to(&host_mixed)
-           << mixed_distance.copy_to(&host_mixed_distance)
+           << mixed_result.copy_to(luisa::span{&host_mixed, 1u})
+           << mixed_distance.copy_to(luisa::span{&host_mixed_distance, 1u})
            << motion_summary.copy_to(luisa::span{host_motion_summary})
            << motion_detail.copy_to(luisa::span{host_motion_detail})
            << synchronize();
