@@ -19,6 +19,7 @@
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
+namespace xir_lower_detail {
 
 namespace x = compute::xir;
 using XType = compute::Type;
@@ -1948,6 +1949,7 @@ public:
     }
 };
 
+}  // namespace xir_lower_detail
 }// namespace
 
 ResourceAnalysis analyze_resources(const Function &function, const LowerOptions &options) noexcept {
@@ -1955,7 +1957,7 @@ ResourceAnalysis analyze_resources(const Function &function, const LowerOptions 
 }
 
 NativeFunction lower(const Function &function, const LowerOptions &options) noexcept {
-    return Lowerer{function, options}.run();
+    return xir_lower_detail::Lowerer{function, options}.run();
 }
 
 }// namespace luisa::compute::tile::bridge::xir

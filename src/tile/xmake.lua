@@ -17,13 +17,17 @@ add_headerfiles("../../include/luisa/tile/**.h", "../../include/luisa/tile.h")
 -- which case the bundled apache/tvm submodule (src/ext/tvm) is built from
 -- source by src/ext/xmake.lua and linked directly.
 add_files("*.cpp", "bridge/xir/**.cpp")
--- The TIRx bridge translation units define same-named anonymous-namespace
--- helpers (e.g. ElementDomain) that collide when merged by the unity build,
--- so they are always compiled as standalone units. The files are only added
--- when the bridge is enabled: remove_files with a glob does not match inside
--- on_load, so an else-branch removal cannot exclude them.
+-- The TIRx bridge translation units used to define same-named anonymous-namespace
+-- helpers (e.g. ElementDomain, static_extent) that collided when the unity build
+-- merged them, so they had to be compiled as standalone units.  Every file-local
+-- helper of the bridge now lives in a file-unique `<file>_detail` namespace (see
+-- scripts/unity_isolate_locals.py), which scripts/check_unity_build_conflicts.py
+-- verifies, so the bridge participates in the unity build like the rest of the
+-- target.  The files are only added when the bridge is enabled: remove_files with
+-- a glob does not match inside on_load, so an else-branch removal cannot exclude
+-- them.
 if has_config("lc_tile_tirx_bridge") then
-    add_files("bridge/tirx/**.cpp", {unity_ignored = true})
+    add_files("bridge/tirx/**.cpp")
 end
 add_defines("LUISA_TILE_XIR_BRIDGE_EXPORT_DLL")
 

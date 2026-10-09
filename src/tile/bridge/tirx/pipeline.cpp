@@ -397,6 +397,7 @@ using Coordinates = tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>;
     return valid && reads != 0u;
 }
 
+namespace tirx_pipeline_detail {
 void flatten_sequence(const tvm::tirx::Stmt &statement, Statements &statements) {
     if (auto sequence = statement.as<tvm::tirx::SeqStmtNode>()) {
         for (auto &&child : sequence->seq) { flatten_sequence(child, statements); }
@@ -405,6 +406,7 @@ void flatten_sequence(const tvm::tirx::Stmt &statement, Statements &statements) 
     }
 }
 
+}  // namespace tirx_pipeline_detail
 [[nodiscard]] bool empty_statement(const tvm::tirx::Stmt &statement) {
     auto evaluate = statement.as<tvm::tirx::EvaluateNode>();
     auto constant = evaluate == nullptr ? nullptr : evaluate->value.as<tvm::IntImmNode>();
@@ -541,7 +543,7 @@ tvm::tirx::Stmt try_prefetch_matrix_pipeline(const tvm::tirx::For &loop, const t
     if (budget == 0u || loop->loop_var.ty() != tvm::PrimType::Int(64) || minimum == nullptr || minimum->value < 0 || extent == nullptr || extent->value <= 1 ||
         minimum->value > std::numeric_limits<int64_t>::max() - extent->value) { return {}; }
     Statements statements;
-    flatten_sequence(loop->body, statements);
+    tirx_pipeline_detail::flatten_sequence(loop->body, statements);
     BufferMap shared;
     Statements allocations;
     WorkerCopyCollector collector{shared, loop->loop_var, budget};

@@ -29,6 +29,7 @@ namespace luisa::compute::tile::bridge::tirx {
 namespace detail {
 
 namespace {
+namespace tirx_lower_detail {
 
 struct WholeGemmContract {
     uint64_t m;
@@ -352,6 +353,7 @@ struct WholeGemmContract {
     return WholeGemmContract{*m, *n, *k};
 }
 
+}  // namespace tirx_lower_detail
 }// namespace
 
 class FunctionLowerer final {
@@ -1125,7 +1127,7 @@ private:
                 loop.value().CopyOnWrite()->annotations.Set(
                     reduction_policy_annotation,
                     tvm::IntImm::Int32(static_cast<int32_t>(operation.reduction_policy())));
-                if (auto contract = match_reduction_contract(operation)) {
+                if (auto contract = tirx_lower_detail::match_reduction_contract(operation)) {
                     loop.value().CopyOnWrite()->annotations.Set(
                         reduction_contract_annotation, tvm::IntImm::Int32(*contract));
                 }
@@ -1401,7 +1403,7 @@ public:
             return result;
         }
         result.value = tvm::tirx::PrimFunc{std::move(parameters), std::move(body)};
-        if (auto contract = match_whole_gemm(_function)) {
+        if (auto contract = tirx_lower_detail::match_whole_gemm(_function)) {
             result.value = tvm::WithAttr(std::move(result.value), whole_gemm_contract_annotation, int64_t{1});
             result.value = tvm::WithAttr(std::move(result.value), whole_gemm_m_annotation, static_cast<int64_t>(contract->m));
             result.value = tvm::WithAttr(std::move(result.value), whole_gemm_n_annotation, static_cast<int64_t>(contract->n));

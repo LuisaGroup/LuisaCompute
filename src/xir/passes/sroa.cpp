@@ -16,6 +16,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+namespace clone_metadata_sroa_detail {
 static void clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target,
                            bool clone_name = true) noexcept {
@@ -28,6 +29,7 @@ static void clone_metadata(const MetadataListMixin &source,
     }
 }
 
+}  // namespace clone_metadata_sroa_detail
 // Decompose only one level: struct→members, array→elements.
 // Does NOT recurse into nested aggregate members.
 static void collect_elem_types(const Type *type, luisa::vector<const Type *> &elems,
@@ -146,7 +148,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
         // Every replacement alloca represents a disjoint component of the
         // original storage. Clone all storage metadata, including semantic
         // spill metadata, but derive a unique name for each component.
-        clone_metadata(*alloca, *sa, false);
+        clone_metadata_sroa_detail::clone_metadata(*alloca, *sa, false);
         if (original_name.has_value()) {
             sa->set_name(luisa::format("{}_{}", original_name.value(), element_allocas.size()));
         }
@@ -182,7 +184,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 remaining_indices.push_back(gep->index_uses()[i]->value());
             }
             auto new_gep = builder.gep(gep->type(), target_alloca, remaining_indices);
-            clone_metadata(*gep, *new_gep);
+            clone_metadata_sroa_detail::clone_metadata(*gep, *new_gep);
             replacement_map[gep] = new_gep;
         } else {
             // A one-index GEP becomes the replacement alloca itself. There is
@@ -213,7 +215,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 elem_values.push_back(builder.load(sa->type(), sa));
             }
             auto replacement = builder.call(type, ArithmeticOp::AGGREGATE, elem_values);
-            clone_metadata(*load, *replacement);
+            clone_metadata_sroa_detail::clone_metadata(*load, *replacement);
             load->replace_all_uses_with(replacement);
             load->remove_self();
         } else if (user->isa<StoreInst>()) {
@@ -225,7 +227,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
                 auto idx_const = alloca->parent_module()->create_constant(Type::of<uint32_t>(), &idx_val);
                 auto extract = builder.call(elem_types[i], ArithmeticOp::EXTRACT, {val, idx_const});
                 auto *replacement_store = builder.store(element_allocas[i], extract);
-                clone_metadata(*store, *replacement_store);
+                clone_metadata_sroa_detail::clone_metadata(*store, *replacement_store);
             }
             store->remove_self();
         }

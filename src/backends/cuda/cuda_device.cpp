@@ -46,6 +46,7 @@
 
 namespace luisa::compute::cuda {
 namespace {
+namespace cuda_device_detail {
 [[nodiscard]] bool _xir_pass_enabled(const char *name, bool default_value) noexcept {
     if (auto env = getenv(name)) { return luisa::string_view{env} == "1"; }
     return default_value;
@@ -53,6 +54,7 @@ namespace {
 // LLVM consumes plain CFG and PHIs directly after shared ray-query lowering.
 const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG", true);
 const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN", false);
+}  // namespace cuda_device_detail
 }// namespace
 }// namespace luisa::compute::cuda
 
@@ -62,12 +64,14 @@ const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMI
 #include "llvm_codegen/cuda_codegen_llvm_device_bitcode.h"
 namespace luisa::compute::cuda {
 namespace {
+namespace cuda_device_detail_4 {
 const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
     if (auto env = getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN")) {
         return luisa::string_view{env} == "1";
     }
     return false;
 }();
+}  // namespace cuda_device_detail_4
 }
 }// namespace luisa::compute::cuda
 #endif
@@ -75,6 +79,7 @@ const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
 namespace luisa::compute::cuda {
 
 namespace {
+namespace cuda_device_detail {
 
 const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
@@ -266,6 +271,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     return xir_module;
 }
 
+}  // namespace cuda_device_detail
 }
 
 }// namespace luisa::compute::cuda
@@ -313,6 +319,10 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
 #ifndef NDEBUG
 #define LUISA_CUDA_DUMP_SOURCE 1
 #else
+// Deliberately not moved into a file-local `cuda_device_detail` namespace like
+// its neighbours: in debug builds the same spelling is a macro (see above), so a
+// qualified `cuda_device_detail::LUISA_CUDA_DUMP_SOURCE` would expand to the
+// macro inside the qualified name.
 static const bool LUISA_CUDA_DUMP_SOURCE = [] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
@@ -321,6 +331,7 @@ static const bool LUISA_CUDA_DUMP_SOURCE = [] {
 }();
 #endif
 
+namespace cuda_device_detail_5 {
 static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = [] {
     // read env LUISA_OPTIX_VALIDATION
     auto env = std::getenv("LUISA_OPTIX_VALIDATION");
@@ -328,17 +339,21 @@ static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = [] {
     return luisa::string_view{env} == "1";
 }();
 
+}  // namespace cuda_device_detail_5
 namespace luisa::compute::cuda {
 
 // Experimental serializer: opt in separately from LLVM code generation.
+namespace cuda_device_detail_3 {
 static const bool cuda_llvm_optix_ir_requested = [] {
     auto value = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
     return value != nullptr && luisa::string_view{value} == "1";
 }();
 
+}  // namespace cuda_device_detail_3
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
 // Revision 21 shares equivalent zero-capture hardware ray-query callbacks.
+namespace cuda_device_detail_2 {
 static constexpr uint64_t cuda_llvm_cache_revision = 21u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
@@ -368,12 +383,14 @@ static constexpr uint64_t cuda_llvm_cache_revision = 21u;
         option.enable_debug_info,
         std::clamp(option.max_registers, 0u, 255u),
         luisa::hash_value(option.name),
-        LUISA_XIR_NORMALIZE_CFG,
-        LUISA_XIR_ELIMINATE_EARLY_RETURN,
+        cuda_device_detail::LUISA_XIR_NORMALIZE_CFG,
+        cuda_device_detail::LUISA_XIR_ELIMINATE_EARLY_RETURN,
         texture_storage_hash});
 }
+}  // namespace cuda_device_detail_2
 #endif
 
+namespace cuda_device_detail_2 {
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
     switch (format) {
         case PixelFormat::R8SInt: return CU_AD_FORMAT_SIGNED_INT8;
@@ -419,6 +436,7 @@ static constexpr uint64_t cuda_llvm_cache_revision = 21u;
                               luisa::to_underlying(format));
 }
 
+}  // namespace cuda_device_detail_2
 CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
                        const BinaryIO *io, bool use_lmdb,
                        luisa::unique_ptr<DeviceConfigExt> device_config_ext,
@@ -639,7 +657,7 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
                                                 bool allow_raster_target) noexcept {
     LUISA_ASSERT(external_native_handle == nullptr, "Not implemented.");
     auto p = with_handle([=] {
-        auto array_format = cuda_array_format(format);
+        auto array_format = cuda_device_detail_2::cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);
         CUDA_ARRAY3D_DESCRIPTOR array_desc{};
         array_desc.Width = width;
@@ -1019,7 +1037,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     bool uses_cuda_printf = false;
     auto code_format = CUDAShaderMetadata::CodeFormat::PTX;
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
-    if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN || kernel.requires_autodiff()) {
+    if (cuda_device_detail_4::LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN || kernel.requires_autodiff()) {
         // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. It neither
         // emits CUDA source nor adds the legacy LCPrintBuffer argument.
         uses_cuda_printf = true;
@@ -1031,7 +1049,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         if (!option.native_include.empty()) {
             LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation does not support native_include CUDA source.");
         }
-        if (cuda_llvm_optix_ir_requested && kernel.requires_raytracing()) {
+        if (cuda_device_detail_3::cuda_llvm_optix_ir_requested && kernel.requires_raytracing()) {
 #if defined(LUISA_COMPUTE_ENABLE_CUDA_OPTIX_IR)
             code_format = CUDAShaderMetadata::CodeFormat::OPTIX_IR;
 #else
@@ -1039,7 +1057,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
         }
         generate_ptx = [this, &kernel, &option, code_format](CUDAShaderMetadata &generated_metadata) {
-            auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
+            auto xir_module = cuda_device_detail::luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             CUDACodegenLLVMConfig config{
                 .source_file = option.name,
                 .bindings = kernel.bound_arguments(),
@@ -1182,7 +1200,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto src_hash = [&] {
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
         if (generate_ptx) {
-            auto hash = cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
+            auto hash = cuda_device_detail_2::cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
             // OptiX IR revision 10 preserves LLVM 23 attributes/vector splats
             // and carries fast-math FTZ in the container compilation options.
             return code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
@@ -1653,7 +1671,7 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     if (_optix_context == nullptr) [[unlikely]] {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
-        if (LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
+        if (::cuda_device_detail_5::LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
             LUISA_WARNING("OptiX validation is enabled. This may cause significant performance degradation.");
             // Disable due to too much overhead
             optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;

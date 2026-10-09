@@ -427,12 +427,15 @@ namespace {
     return extent && minimum && extent->value > 0 && minimum->value <= INT64_MAX - extent->value;
 }
 
+namespace tirx_execution_detail {
 struct ElementDomain {
     luisa::vector<const tvm::tirx::ForNode *> axes;
     tvm::tirx::Stmt point;
     uint64_t volume{1u};
 };
 
+}  // namespace tirx_execution_detail
+namespace tirx_execution_detail {
 [[nodiscard]] luisa::optional<ElementDomain> element_domain(tvm::tirx::Stmt body, bool producer) {
     auto outer = body.as<tvm::tirx::ForNode>();
     if (!outer || outer->annotations.size() != (producer ? 2u : 1u)) { return {}; }
@@ -458,6 +461,7 @@ struct ElementDomain {
     return result;
 }
 
+}  // namespace tirx_execution_detail
 // Only sequence grouping and empty export placeholders are transparent. A
 // pipeline, branch, nested execution domain, or resource marker is a boundary.
 void element_sequence(const tvm::tirx::Stmt &body, luisa::vector<tvm::tirx::Stmt> &parts) {
@@ -526,7 +530,7 @@ public:
 };
 
 struct ElementProgram {
-    ElementDomain domain;
+    tirx_execution_detail::ElementDomain domain;
     uint32_t scalar_temporaries{0u};
 };
 
@@ -539,7 +543,7 @@ struct ElementProgram {
     luisa::vector<tvm::tirx::Stmt> parts;
     element_sequence(root->body, parts);
     if (parts.empty()) { return {}; }
-    auto consumer = element_domain(parts.back(), false);
+    auto consumer = tirx_execution_detail::element_domain(parts.back(), false);
     if (!consumer) { return {}; }
     luisa::vector<const tvm::tirx::ForNode *> domain{root};
     domain.insert(domain.end(), consumer->axes.begin(), consumer->axes.end());
@@ -561,7 +565,7 @@ struct ElementProgram {
         }
         auto outer = parts[i].as<tvm::tirx::ForNode>();
         auto materialized = outer && outer->annotations.count(materialized_pure_tile_annotation);
-        auto producer = element_domain(parts[i], materialized);
+        auto producer = tirx_execution_detail::element_domain(parts[i], materialized);
         if (!producer || producer->axes.size() != consumer->axes.size()) { return {}; }
         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
         for (auto j = 0u; j < producer->axes.size(); j++) {

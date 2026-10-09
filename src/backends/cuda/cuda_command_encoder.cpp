@@ -119,6 +119,7 @@ namespace detail {
 /// (defaults to the tightly packed footprint).  `array_offset` addresses a
 /// sub-region of the destination array (texels), so sub-region direct-storage
 /// reads work like they do on DX and VK.
+namespace cuda_command_encoder_detail {
 static void memcpy_buffer_to_texture(CUdeviceptr buffer, size_t buffer_offset, size_t buffer_total_size,
                                      CUarray array, PixelStorage array_storage, uint3 array_size,
                                      CUstream stream, size_t source_pitch = 0u,
@@ -155,13 +156,14 @@ static void memcpy_buffer_to_texture(CUdeviceptr buffer, size_t buffer_offset, s
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
 }
 
+}  // namespace cuda_command_encoder_detail
 }// namespace detail
 
 void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDATexture *>(command->texture());
     auto array = mipmap_array->level(command->level());
     auto buffer = reinterpret_cast<const CUDABuffer *>(command->buffer());
-    detail::memcpy_buffer_to_texture(
+    detail::cuda_command_encoder_detail::memcpy_buffer_to_texture(
         buffer->device_address(), command->buffer_offset(), buffer->size_bytes(),
         array, command->storage(), command->size(), _stream->handle());
 }
@@ -361,6 +363,7 @@ using DSBufferRequest = DStorageReadCommand::BufferRequest;
 using DSTextureRequest = DStorageReadCommand::TextureRequest;
 using DSMemoryRequest = DStorageReadCommand::MemoryRequest;
 
+namespace cuda_command_encoder_detail {
 static void dstorage_copy(const void *input_host_ptr,
                           CUdeviceptr input_device_ptr,
                           size_t input_size,
@@ -403,7 +406,7 @@ static void dstorage_copy(const void *input_host_ptr,
         auto src_pitch = (padded_pitch == tight_row || input_size >= padded_size)
                              ? padded_pitch
                              : tight_row;
-        detail::memcpy_buffer_to_texture(
+        detail::cuda_command_encoder_detail::memcpy_buffer_to_texture(
             input_device_ptr, 0u, input_size,
             array, storage, size, stream,
             src_pitch, input_size, offset);
@@ -425,8 +428,10 @@ static void dstorage_copy(const void *input_host_ptr,
     }
 }
 
+}  // namespace cuda_command_encoder_detail
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
 
+namespace cuda_command_encoder_detail {
 static void dstorage_decompress(DStorageCompression algorithm,
                                 CUdeviceptr input_device_ptr, size_t input_size,
                                 DStorageReadCommand::Request output_request,
@@ -473,7 +478,7 @@ static void dstorage_decompress(DStorageCompression algorithm,
         auto temp_buffer = static_cast<CUdeviceptr>(0ull);
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, stream));
         decompress_to_buffer(input_device_ptr, input_size, temp_buffer, temp_buffer_size);
-        detail::memcpy_buffer_to_texture(
+        detail::cuda_command_encoder_detail::memcpy_buffer_to_texture(
             temp_buffer, 0u, temp_buffer_size,
             array, storage, size, stream,
             0u, 0u, offset);
@@ -491,6 +496,7 @@ static void dstorage_decompress(DStorageCompression algorithm,
     }
 }
 
+}  // namespace cuda_command_encoder_detail
 #endif
 
 }// namespace detail
@@ -534,13 +540,13 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
     // copy or decompress
     switch (auto compression = command->compression()) {
         case DStorageCompression::None:
-            detail::dstorage_copy(
+            detail::cuda_command_encoder_detail::dstorage_copy(
                 host_ptr, device_ptr, size,
                 command->request(), _stream->handle());
             break;
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
         default:
-            detail::dstorage_decompress(
+            detail::cuda_command_encoder_detail::dstorage_decompress(
                 compression, device_ptr, size,
                 command->request(), *this);
             break;

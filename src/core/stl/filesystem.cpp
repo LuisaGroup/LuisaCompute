@@ -25,6 +25,7 @@ namespace luisa {
 // One WideCharToMultiByte pass. Returns an empty string when the conversion
 // fails (only possible in strict mode); a genuinely empty input is handled by
 // the caller so an empty result here always means "failed".
+namespace filesystem_detail {
 static luisa::string kfs_convert(const wchar_t *data, int len, UINT code_page,
                                  DWORD flags) {
     const int needed = ::WideCharToMultiByte(code_page, flags, data, len,
@@ -39,6 +40,7 @@ static luisa::string kfs_convert(const wchar_t *data, int len, UINT code_page,
     }
     return out;
 }
+}  // namespace filesystem_detail
 #endif
 LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
 #if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
@@ -64,7 +66,7 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
     const int len = static_cast<int>(wide.size());
     // 1. Strict CP_ACP: byte-identical to what path.string<char>() produces
     // for every representable path (the common case).
-    luisa::string out = kfs_convert(wide.data(), len, CP_ACP, WC_ERR_INVALID_CHARS);
+    luisa::string out = filesystem_detail::kfs_convert(wide.data(), len, CP_ACP, WC_ERR_INVALID_CHARS);
     if (!out.empty()) {
         return out;
     }
@@ -72,7 +74,7 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
     // replacement char, mirroring how the rest of Windows resolves such
     // names. The result may not re-resolve to the same file; callers that
     // re-open the path (grep, glob, read) already handle a failed open.
-    out = kfs_convert(wide.data(), len, CP_ACP, 0);
+    out = filesystem_detail::kfs_convert(wide.data(), len, CP_ACP, 0);
     if (!out.empty()) {
         return out;
     }
@@ -92,7 +94,7 @@ LUISA_CORE_API luisa::string to_string(const luisa::filesystem::path &path) {
             cleaned[i] = L'?';
         }
     }
-    out = kfs_convert(cleaned.data(), len, CP_UTF8, WC_ERR_INVALID_CHARS);
+    out = filesystem_detail::kfs_convert(cleaned.data(), len, CP_UTF8, WC_ERR_INVALID_CHARS);
     if (!out.empty()) {
         return out;
     }

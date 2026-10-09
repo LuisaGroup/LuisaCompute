@@ -18,6 +18,7 @@
 
 namespace luisa::compute::cuda {
 
+namespace cuda_dstorage_detail {
 [[nodiscard]] static bool check_cuda_property_supported(CUdevice device, CUdevice_attribute prop) noexcept {
     auto good = 0;
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&good, prop, device));
@@ -34,9 +35,10 @@ namespace luisa::compute::cuda {
     return flags;
 }
 
+}  // namespace cuda_dstorage_detail
 CUDAPinnedMemory::CUDAPinnedMemory(CUdevice device, void *p, size_t size) noexcept
     : _host_pointer{p}, _device_address{}, _size_bytes{size} {
-    if (auto ret = cuMemHostRegister(p, size, cuda_host_mem_register_flags(device));
+    if (auto ret = cuMemHostRegister(p, size, cuda_dstorage_detail::cuda_host_mem_register_flags(device));
         ret != CUDA_SUCCESS) {
         const char *error_string = nullptr;
         cuGetErrorString(ret, &error_string);
@@ -116,7 +118,7 @@ CUDAMappedFile::CUDAMappedFile(CUdevice device, luisa::string_view path) noexcep
     _mapped_pointer = mapped_address;
     _size_bytes = file_stat.st_size;
 #endif
-    if (auto ret = cuMemHostRegister(_mapped_pointer, _size_bytes, cuda_host_mem_register_flags(device));
+    if (auto ret = cuMemHostRegister(_mapped_pointer, _size_bytes, cuda_dstorage_detail::cuda_host_mem_register_flags(device));
         ret != CUDA_SUCCESS) {
         const char *error_string = nullptr;
         cuGetErrorString(ret, &error_string);
@@ -154,6 +156,7 @@ CUDAMappedFile::~CUDAMappedFile() noexcept {
 namespace detail {
 
 #ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+namespace cuda_dstorage_detail_2 {
 static void cuda_compress_cpu(nvcomp::PimplManager &manager,
                               const std::byte *data, size_t size,
                               DStorageCompressionQuality quality,
@@ -177,6 +180,7 @@ static void cuda_compress_cpu(nvcomp::PimplManager &manager,
     auto compressed_size = manager.get_compressed_output_size(reinterpret_cast<uint8_t *>(result.data()));
     result.resize(compressed_size);
 }
+}  // namespace cuda_dstorage_detail_2
 #endif
 
 }// namespace detail
@@ -202,7 +206,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
                 auto algo = quality == DStorageCompressionQuality::Best ? 1 : 0;
                 nvcomp::GdeflateManager manager{nvcompGdeflateCompressionMaxAllowedChunkSize,
                                                 nvcompBatchedGdeflateOpts_t{algo}};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);
@@ -213,7 +217,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
             _device->with_handle([&] {
                 nvcomp::CascadedManager manager{nvcompCascadedCompressionMaxAllowedChunkSize,
                                                 nvcompBatchedCascadedDefaultOpts};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);
@@ -224,7 +228,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
             _device->with_handle([&] {
                 nvcomp::LZ4Manager manager{nvcompLZ4CompressionMaxAllowedChunkSize,
                                            nvcompBatchedLZ4DefaultOpts};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);
@@ -235,7 +239,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
             _device->with_handle([&] {
                 nvcomp::SnappyManager manager{nvcompSnappyCompressionMaxAllowedChunkSize,
                                               nvcompBatchedSnappyDefaultOpts};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);
@@ -246,7 +250,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
             _device->with_handle([&] {
                 nvcomp::BitcompManager manager{nvcompBitcompCompressionMaxAllowedChunkSize,
                                                nvcompBatchedBitcompDefaultOpts};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);
@@ -257,7 +261,7 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
             _device->with_handle([&] {
                 nvcomp::ANSManager manager{nvcompANSCompressionMaxAllowedChunkSize,
                                            nvcompBatchedANSDefaultOpts};
-                detail::cuda_compress_cpu(
+                detail::cuda_dstorage_detail_2::cuda_compress_cpu(
                     manager,
                     static_cast<const std::byte *>(data),
                     size_bytes, quality, result);

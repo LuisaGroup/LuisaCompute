@@ -45,6 +45,7 @@
 namespace luisa::compute::cuda {
 
 namespace {
+namespace cuda_tile_detail {
 
 // The ABI marker participates in cache identity. Bump it whenever the
 // generated-kernel or launch ABI changes so stale PTX files are never reused.
@@ -252,6 +253,7 @@ struct CubScanCompilation {
     }
 };
 
+}  // namespace cuda_tile_detail
 }// namespace
 
 ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
@@ -468,12 +470,12 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             luisa::hash_value(artifact.grid[0]),
             luisa::hash_value(artifact.grid[1]),
             luisa::hash_value(artifact.grid[2]),
-            luisa::hash_value(luisa::string_view{cuda_tile_direct_buffer_abi}),
+            luisa::hash_value(luisa::string_view{cuda_tile_detail::cuda_tile_direct_buffer_abi}),
         });
         auto name = use_user_path ?
                         option.name :
                         luisa::format("kernel_{:016x}.tile.ptx", checksum);
-        if (!end_with_ptx(name)) { name.append(".ptx"); }
+        if (!cuda_tile_detail::end_with_ptx(name)) { name.append(".ptx"); }
 
         CUDAShaderMetadata shader_metadata{};
         shader_metadata.checksum = checksum;
@@ -502,7 +504,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         // compile in this process never re-runs the standalone compiler.
         luisa::vector<std::byte> ptx;
         if (option.enable_cache || use_user_path) {
-            ptx = read_tile_shader_ptx(
+            ptx = cuda_tile_detail::read_tile_shader_ptx(
                 _io, name, shader_metadata,
                 use_user_path, option.enable_cache);
         }
@@ -517,7 +519,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             ptx.assign(first, first + metadata.source.size());
             ptx.push_back(std::byte{0});// cuModuleLoadData expects NUL-terminated PTX
             if (option.enable_cache || use_user_path) {
-                write_tile_shader_ptx(
+                cuda_tile_detail::write_tile_shader_ptx(
                     _io, name, shader_metadata, ptx,
                     use_user_path, option.enable_cache);
             }
@@ -581,7 +583,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         if (ptx.empty() && can_compile_cuda_source) {
             ptx = compile_with_arch(_handle.compute_capability());
             if (!ptx.empty() && (option.enable_cache || use_user_path)) {
-                write_tile_shader_ptx(
+                cuda_tile_detail::write_tile_shader_ptx(
                     _io, name, shader_metadata, ptx,
                     use_user_path, option.enable_cache);
             }
@@ -602,29 +604,29 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         luisa::string load_failure;
         auto shader = with_handle([&]() noexcept -> CUDAShader * {
             CUresult load_error = CUDA_SUCCESS;
-            auto load_result = TileLoadResult::OK;
-            if (force_first_tile_probe_unsupported()) {
+            auto load_result = cuda_tile_detail::TileLoadResult::OK;
+            if (cuda_tile_detail::force_first_tile_probe_unsupported()) {
                 load_error = CUDA_ERROR_UNSUPPORTED_PTX_VERSION;
-                load_result = TileLoadResult::UNSUPPORTED_PTX_VERSION;
+                load_result = cuda_tile_detail::TileLoadResult::UNSUPPORTED_PTX_VERSION;
             } else {
-                load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+                load_result = cuda_tile_detail::probe_tile_ptx(artifact.entry, ptx, &load_error);
             }
-            if (load_result == TileLoadResult::UNSUPPORTED_PTX_VERSION) {
+            if (load_result == cuda_tile_detail::TileLoadResult::UNSUPPORTED_PTX_VERSION) {
                 auto pre_patch = ptx;
                 CUDAShader::_patch_ptx_version(ptx);
-                load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+                load_result = cuda_tile_detail::probe_tile_ptx(artifact.entry, ptx, &load_error);
                 // Persist the successfully patched bytes (PTX and sidecar) back
                 // to the same cache/user path used above, but only when the
                 // patch actually changed the image. Without this a cold process
                 // keeps loading the stale version and re-patches every launch.
-                if (load_result == TileLoadResult::OK && ptx != pre_patch &&
+                if (load_result == cuda_tile_detail::TileLoadResult::OK && ptx != pre_patch &&
                     (option.enable_cache || use_user_path)) {
-                    write_tile_shader_ptx(
+                    cuda_tile_detail::write_tile_shader_ptx(
                         _io, name, shader_metadata, ptx,
                         use_user_path, option.enable_cache);
                 }
             }
-            if (load_result != TileLoadResult::OK && can_compile_cuda_source &&
+            if (load_result != cuda_tile_detail::TileLoadResult::OK && can_compile_cuda_source &&
                 _handle.compute_capability() != 60u) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Failed to load CUDA Tile PTX at the device compute capability; "
@@ -634,18 +636,18 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                     load_failure = "CUDA Tile NVRTC fallback compilation returned no PTX";
                     return nullptr;
                 }
-                load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
-                if (load_result == TileLoadResult::UNSUPPORTED_PTX_VERSION) {
+                load_result = cuda_tile_detail::probe_tile_ptx(artifact.entry, ptx, &load_error);
+                if (load_result == cuda_tile_detail::TileLoadResult::UNSUPPORTED_PTX_VERSION) {
                     CUDAShader::_patch_ptx_version(ptx);
-                    load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+                    load_result = cuda_tile_detail::probe_tile_ptx(artifact.entry, ptx, &load_error);
                 }
-                if (load_result == TileLoadResult::OK && (option.enable_cache || use_user_path)) {
-                    write_tile_shader_ptx(
+                if (load_result == cuda_tile_detail::TileLoadResult::OK && (option.enable_cache || use_user_path)) {
+                    cuda_tile_detail::write_tile_shader_ptx(
                         _io, name, shader_metadata, ptx,
                         use_user_path, option.enable_cache);
                 }
             }
-            if (load_result != TileLoadResult::OK) {
+            if (load_result != cuda_tile_detail::TileLoadResult::OK) {
                 const char *error_name = nullptr;
                 const char *error_string = nullptr;
                 cuGetErrorName(load_error, &error_name);
@@ -914,10 +916,10 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     tile::ClosedPrefixAnalysis scan_cost_proof;
     uint64_t scan_cost_bytes{};
     double scan_cost_prepare_ms = 0.0;
-    luisa::unique_ptr<std::array<CubScanCompilation, 4u>> scan_candidates;
+    luisa::unique_ptr<std::array<cuda_tile_detail::CubScanCompilation, 4u>> scan_candidates;
     if (cub_scan_cost_requested) {
         Clock prepare_clock;
-        scan_candidates = luisa::make_unique<std::array<CubScanCompilation, 4u>>();
+        scan_candidates = luisa::make_unique<std::array<cuda_tile_detail::CubScanCompilation, 4u>>();
         scan_cost_device.compute_capability = _handle.compute_capability();
         scan_cost_device.driver_api_version = _handle.driver_version();
         scan_cost_device.toolkit_version = CUDA_VERSION;
@@ -1126,14 +1128,14 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         Clock candidate_setup_clock;
         // The original is now successfully compiled and loaded. No candidate
         // failure can replace its source/module or invalidate alias fallback.
-        CubFunctionResources original_resources;
+        cuda_tile_detail::CubFunctionResources original_resources;
         if (cub_scan_threads != 0u || scan_cost_choice.has_score) {
             original_resources = with_handle([&]() noexcept {
-                return query_cub_function_resources(static_cast<CUfunction>(shader->handle()));
+                return cuda_tile_detail::query_cub_function_resources(static_cast<CUfunction>(shader->handle()));
             });
         }
         auto known_value = [](int value) noexcept { return value < 0 ? luisa::string{"unknown"} : luisa::format("{}", value); };
-        auto append_resources = [&](luisa::string_view prefix, const CubFunctionResources &resources) noexcept {
+        auto append_resources = [&](luisa::string_view prefix, const cuda_tile_detail::CubFunctionResources &resources) noexcept {
             constexpr std::array names{"registers", "static-shared-bytes", "local-bytes", "max-threads"};
             for (auto i = size_t{0u}; i < names.size(); i++) {
                 metadata.realization += luisa::format("; {}-{}={}", prefix, names[i], known_value(resources.values[i]));
@@ -1145,7 +1147,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             for (auto &c : result) { if (c == ';' || c == '\r' || c == '\n') { c = ' '; } }
             return result;
         };
-        auto compile_candidate = [&](CubScanCompilation &candidate) noexcept {
+        auto compile_candidate = [&](cuda_tile_detail::CubScanCompilation &candidate) noexcept {
             candidate.device = this;
             auto &cub = candidate.artifact;
             if (!cub.ok()) { candidate.disposition = "ineligible"; return; }
@@ -1196,7 +1198,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 candidate.entry_status = status == CUDA_SUCCESS ? "ok" : luisa::format("cuda-{}", static_cast<int>(status));
                 if (status == CUDA_SUCCESS) {
                     candidate.queried_live_entry = true;
-                    candidate.resources = query_cub_function_resources(candidate.function);
+                    candidate.resources = cuda_tile_detail::query_cub_function_resources(candidate.function);
                     int capacity = -1;
                     auto capacity_result = cuOccupancyMaxActiveBlocksPerMultiprocessor(
                         &capacity, candidate.function, static_cast<int>(candidate.threads), 0u);
@@ -1220,7 +1222,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 if (!candidate.launch_valid) { cub.error = luisa::format("entry-or-resources-unavailable-{}", static_cast<int>(status)); }
             });
         };
-        auto install_candidate = [&](CubScanCompilation &candidate) noexcept {
+        auto install_candidate = [&](cuda_tile_detail::CubScanCompilation &candidate) noexcept {
             if (!candidate.launch_valid || candidate.module == nullptr || candidate.function == nullptr) { return false; }
             auto &cub = candidate.artifact;
             auto installed = with_handle([&]() noexcept {
@@ -1235,7 +1237,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         // These legacy markers describe only the one fixed recipe, or an
         // actually installed search winner. All search attempts use a distinct
         // namespace below, including retained-original cost decisions.
-        auto append_final_candidate = [&](const CubScanCompilation &candidate) noexcept {
+        auto append_final_candidate = [&](const cuda_tile_detail::CubScanCompilation &candidate) noexcept {
             auto &cub = candidate.artifact;
             metadata.realization += luisa::format("; cub-scan-requested; cub-scan-threads={}; cub-scan-chunk={}; cub-scan-{}; cub-scan-compile-key={:016x}",
                                                   candidate.threads, candidate.threads * 8u, candidate.installed ? "available" : "unavailable", candidate.compile_key);
@@ -1258,7 +1260,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
             }
         };
         if (cub_scan_threads != 0u) {
-            CubScanCompilation candidate;
+            cuda_tile_detail::CubScanCompilation candidate;
             candidate.threads = cub_scan_threads;
             candidate.artifact = std::move(cub_scan);
             compile_candidate(candidate);
@@ -1274,7 +1276,7 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         } else {
             uint32_t search_count = 0u;
             uint32_t compiler_call_count = 0u;
-            CubScanCompilation *best = nullptr;
+            cuda_tile_detail::CubScanCompilation *best = nullptr;
             auto best_score = scan_cost_choice.original_score;
             auto cleanup_failed = false;
             if (scan_cost_choice.has_score) {

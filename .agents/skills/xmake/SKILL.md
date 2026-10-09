@@ -55,6 +55,7 @@ Every option is declared as `option("lc_*")` in root `xmake.lua` — including t
 | `lc_enable_dsl`, `lc_enable_gui`, `lc_enable_imgui`, `lc_enable_osl`, `lc_enable_py`, `lc_enable_tests` | true | module switches; `lc_enable_clangcxx` defaults to false |
 | `lc_enable_simd` | true | `avx`+`avx2` (x64) / `neon` vectorexts applied by `lc_basic_settings` |
 | `lc_enable_unity_build`, `lc_enable_pch` | true | compile-speed rules (`c/c++.unity_build`, `lc_set_pcxxheader`) |
+| `lc_check_unity_build` | false | adds the phony target `lc-check-unity-build` as a dependency of `lc-core`, so every build runs `scripts/check_unity_build_conflicts.py` and fails when two files of one unity batch declare the same file-local symbol |
 | `lc_enable_mimalloc` | true | switches bundled EASTL (and SPIRV-Tools) onto the mimalloc override (`src/ext/xmake.lua`) |
 | `lc_enable_custom_malloc` | false | custom allocator instead of the system allocator |
 | `lc_external_marl` | false | external marl instead of the bundled `src/ext/marl` |
@@ -149,6 +150,7 @@ xmake f --policies=build.sanitizer.address,build.sanitizer.undefined -c -y
 - `lc_dx_backend` is silently disabled on non-Windows platforms
 - `lc_metal_backend` is silently disabled on non-macOS platforms
 - `lc_cuda_backend` is silently disabled outside Windows/Linux
+- Unity (jumbo) build collision (`redefinition of ...`, `use of undeclared identifier`, ambiguous name): xmake merges `batch_size` translation units of a target (see `_config_project{batch_size = ...}`) into one, so file-local helpers of two files in the same batch share a scope. `python scripts/check_unity_build_conflicts.py` (or `xmake build lc-check-unity-build`, always with `--lc_check_unity_build=true`) lists them; fix by moving each file's helpers into a file-unique `namespace <file>_detail` with `scripts/unity_isolate_locals.py`.
 - PCH (precompiled header) error like `has been modified since the precompiled header` / `redefinition of ...` means the target's PCH is stale — use `xmake build -r <target>` to force a clean rebuild of that target. PCH is emitted by `lc_set_pcxxheader()` (root `xmake.lua`), which applies it only while `lc_enable_pch` is on.
 - `lc_vk_backend_use_xir_spirv` and `lc_vk_backend_use_ast_llvm_spirv` are mutually exclusive: enabling both raises at configure time (root `xmake.lua`). `lc_vk_backend_use_ast_llvm_spirv` also requires `lc_llvm_path` and force-disables the XIR→SPIR-V option (`scripts/xmake_func.lua`).
 - `lc_enable_tests=false` makes the `test_*`, `benchmark_*`, `example_*` and `tutorial_*` targets disappear — `src/tests`, `examples` and `tutorials` are only `includes()`-ed when it is enabled (`src/xmake.lua`, root `xmake.lua`). They are created by the local helpers `test_proj(...)`, `example_proj(...)` and `tutorial_proj(...)`.

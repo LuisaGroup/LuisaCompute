@@ -222,6 +222,7 @@ template<typename Enum>
     return false;
 }
 
+namespace dialect_detail {
 [[nodiscard]] const xir::Value *root_address(
     const xir::Value *value) noexcept {
     while (value != nullptr && value->isa<xir::GEPInst>()) {
@@ -230,6 +231,7 @@ template<typename Enum>
     return value;
 }
 
+}  // namespace dialect_detail
 [[nodiscard]] luisa::string support_diagnostic(
     luisa::string_view family, luisa::string_view name,
     int64_t numeric_opcode, SupportInfo info) noexcept {
@@ -625,7 +627,7 @@ private:
         _validate_variadic_instruction_layout(
             function, block, inst, "OpAccessChain",
             access_fixed_word_count, inst->index_count());
-        auto root = root_address(inst->base());
+        auto root = dialect_detail::root_address(inst->base());
         auto alloca = root != nullptr && root->isa<xir::AllocaInst>() ?
                           static_cast<const xir::AllocaInst *>(root) :
                           nullptr;
@@ -832,7 +834,7 @@ private:
                                inst->operand_count()));
                     break;
                 }
-                auto root = root_address(inst->operand(0));
+                auto root = dialect_detail::root_address(inst->operand(0));
                 auto alloca = root != nullptr && root->isa<xir::AllocaInst>() ?
                                   static_cast<const xir::AllocaInst *>(root) :
                                   nullptr;
@@ -957,7 +959,7 @@ private:
                     break;
                 }
                 {
-                    auto root = root_address(inst->operand(0));
+                    auto root = dialect_detail::root_address(inst->operand(0));
                     auto alloca = root != nullptr && root->isa<xir::AllocaInst>() ?
                                       static_cast<const xir::AllocaInst *>(root) :
                                       nullptr;

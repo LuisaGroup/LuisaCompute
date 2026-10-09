@@ -17,6 +17,7 @@ namespace {
 // indirect dispatch is out of scope for the CUDA Tile route). Returns the CUDA
 // error so the caller can distinguish an unsupported PTX version from other
 // module load failures.
+namespace cuda_shader_tile_detail {
 CUresult load_tile_ptx(CUmodule *module, CUfunction *function,
                        const void *ptx, size_t ptx_size,
                        luisa::string_view entry) noexcept {
@@ -31,6 +32,7 @@ CUresult load_tile_ptx(CUmodule *module, CUfunction *function,
     return CUDA_SUCCESS;
 }
 
+}  // namespace cuda_shader_tile_detail
 }// namespace
 
 CUDAShaderTile::CUDAShaderTile(CUDADevice *device, luisa::vector<std::byte> ptx,
@@ -45,10 +47,10 @@ CUDAShaderTile::CUDAShaderTile(CUDADevice *device, luisa::vector<std::byte> ptx,
       _block_size{block_size},
       _buffer_arguments{std::move(buffer_arguments)} {
     static_cast<void>(device);
-    auto ret = load_tile_ptx(&_module, &_function, ptx.data(), ptx.size(), _entry);
+    auto ret = cuda_shader_tile_detail::load_tile_ptx(&_module, &_function, ptx.data(), ptx.size(), _entry);
     if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
         CUDAShader::_patch_ptx_version(ptx);
-        ret = load_tile_ptx(&_module, &_function, ptx.data(), ptx.size(), _entry);
+        ret = cuda_shader_tile_detail::load_tile_ptx(&_module, &_function, ptx.data(), ptx.size(), _entry);
     }
     LUISA_CHECK_CUDA(ret);
     // Retain the loaded (possibly version-patched) PTX for cross-backend

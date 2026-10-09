@@ -152,18 +152,21 @@ struct CodegenGlobalPool {
         allCodegen.emplace_back(std::move(v));
     }
 };
+namespace codegen_stack_data_detail_2 {
 static CodegenGlobalPool codegenGlobalPool;
+}  // namespace codegen_stack_data_detail_2
 }// namespace detail
 CodegenStackData::~CodegenStackData() = default;
 vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility *util) {
-    auto ptr = detail::codegenGlobalPool.Allocate();
+    auto ptr = detail::codegen_stack_data_detail_2::codegenGlobalPool.Allocate();
     ptr->util = util;
     return ptr;
 }
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
-    detail::codegenGlobalPool.DeAllocate(std::move(v));
+    detail::codegen_stack_data_detail_2::codegenGlobalPool.DeAllocate(std::move(v));
 }
 // # for type, $ for access, @ for arguments
+namespace codegen_stack_data_detail {
 static vstd::string_view _atomic_exchange =
     R"(# r;InterlockedExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange =
@@ -220,6 +223,7 @@ InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(asuint(r)==asuint(old)) return old;
 old=r;
 })"sv;
+}  // namespace codegen_stack_data_detail
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
     CallOp op,
@@ -252,33 +256,33 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
         lowering == HlslAtomicLowering::FLOAT_CAS_LOOP;
     switch (op) {
         case CallOp::ATOMIC_EXCHANGE:
-            tmp.body = _atomic_exchange;
+            tmp.body = codegen_stack_data_detail::_atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
             tmp.body = lowering == HlslAtomicLowering::FLOAT_COMPARE_EXCHANGE ?
-                           _atomic_compare_exchange_float :
-                           _atomic_compare_exchange;
+                           codegen_stack_data_detail::_atomic_compare_exchange_float :
+                           codegen_stack_data_detail::_atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            tmp.body = use_software_float_rmw ? _atomic_add_float : _atomic_add;
+            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_add_float : codegen_stack_data_detail::_atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            tmp.body = use_software_float_rmw ? _atomic_sub_float : _atomic_sub;
+            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_sub_float : codegen_stack_data_detail::_atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
-            tmp.body = _atomic_and;
+            tmp.body = codegen_stack_data_detail::_atomic_and;
             break;
         case CallOp::ATOMIC_FETCH_OR:
-            tmp.body = _atomic_or;
+            tmp.body = codegen_stack_data_detail::_atomic_or;
             break;
         case CallOp::ATOMIC_FETCH_XOR:
-            tmp.body = _atomic_xor;
+            tmp.body = codegen_stack_data_detail::_atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            tmp.body = use_software_float_rmw ? _atomic_min_float : _atomic_min;
+            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_min_float : codegen_stack_data_detail::_atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            tmp.body = use_software_float_rmw ? _atomic_max_float : _atomic_max;
+            tmp.body = use_software_float_rmw ? codegen_stack_data_detail::_atomic_max_float : codegen_stack_data_detail::_atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");

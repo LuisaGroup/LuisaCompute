@@ -24,6 +24,7 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                 std::vector<unsigned>{literal});
 }
 
+namespace spirv_bind_detail {
 [[nodiscard]] const Type *matrix_after_array_layers(
     const Type *type) noexcept {
     while (type != nullptr && type->is_array()) {
@@ -32,6 +33,7 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
     return type != nullptr && type->is_matrix() ? type : nullptr;
 }
 
+}  // namespace spirv_bind_detail
 struct ConstantUBOElementLayout {
     size_t base_alignment;
     size_t occupied_size;
@@ -396,7 +398,7 @@ void SpirvCodegenEntry::generate_binding(
                 static_cast<uint32_t>(array_stride));
             member_types.push_back(array_type);
             member_matrices.push_back(
-                matrix_after_array_layers(element_type));
+                spirv_bind_detail::matrix_after_array_layers(element_type));
 
             _ubo_constant_member_indices.emplace(constant, member_idx);
 

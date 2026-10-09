@@ -6,6 +6,7 @@
 namespace luisa::compute::cuda::native_tile {
 namespace {
 
+namespace cuda_tile_partition_codegen_detail {
 [[nodiscard]] luisa::string_view scalar(tile::ScalarType type) noexcept {
     using tile::ScalarType;
     switch (type) {
@@ -78,6 +79,7 @@ namespace {
     return source;
 }
 
+}  // namespace cuda_tile_partition_codegen_detail
 }// namespace
 
 void append_program_partition(Artifact &original, const tile::Function &function, uint32_t target_rows) noexcept {
@@ -132,7 +134,7 @@ void append_program_partition(Artifact &original, const tile::Function &function
             return fail("program partition cannot discard another live root resource");
         }
     }
-    auto source = emit(p, original);
+    auto source = cuda_tile_partition_codegen_detail::emit(p, original);
     if (source.empty()) { return fail("program partition source generation rejected its argument types"); }
     original.partition_source_offset = original.source.size();
     original.partition_original_rows = static_cast<uint32_t>(old_rows);

@@ -204,6 +204,7 @@ struct ReductionInfo {
     }
 }
 
+namespace decode_constant_int_loopvec_detail {
 [[nodiscard]] bool decode_constant_int(const Value *value, int64_t &out) noexcept {
     if (value == nullptr || !value->isa<Constant>()) { return false; }
     auto constant = static_cast<const Constant *>(value);
@@ -233,6 +234,7 @@ struct ReductionInfo {
     return true;
 }
 
+}  // namespace decode_constant_int_loopvec_detail
 [[nodiscard]] Value *make_int_constant(Module *module, const Type *type,
                                        int64_t value) noexcept {
     if (type->is_int8()) {
@@ -718,7 +720,7 @@ namespace {
             return false;
         }
         int64_t bound_constant = 0;
-        if (!decode_constant_int(bounds.bound_value, bound_constant) ||
+        if (!decode_constant_int_loopvec_detail::decode_constant_int(bounds.bound_value, bound_constant) ||
             bound_constant <
                 std::numeric_limits<int64_t>::min() +
                     static_cast<int64_t>(remainder)) {

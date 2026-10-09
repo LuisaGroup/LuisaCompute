@@ -11,6 +11,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+namespace simplify_libcalls_detail {
 template<typename T>
 [[nodiscard]] static T load_constant_scalar(const void *data) noexcept {
     T value;
@@ -18,16 +19,17 @@ template<typename T>
     return value;
 }
 
+}  // namespace simplify_libcalls_detail
 // Check if a Constant has a specific float value (scalar or uniform vector).
 [[nodiscard]] static bool is_const_float_value(const Value *v, float expected) noexcept {
     if (!v->isa<Constant>()) return false;
     auto c = static_cast<const Constant *>(v);
     auto t = c->type();
     if (t->is_float32()) {
-        return load_constant_scalar<float>(c->data()) == expected;
+        return simplify_libcalls_detail::load_constant_scalar<float>(c->data()) == expected;
     }
     if (t->is_float64()) {
-        return load_constant_scalar<double>(c->data()) ==
+        return simplify_libcalls_detail::load_constant_scalar<double>(c->data()) ==
                static_cast<double>(expected);
     }
     if (t->is_vector()) {
@@ -36,7 +38,7 @@ template<typename T>
         auto base = static_cast<const std::byte *>(c->data());
         if (elem->is_float32()) {
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (load_constant_scalar<float>(base + i * stride) !=
+                if (simplify_libcalls_detail::load_constant_scalar<float>(base + i * stride) !=
                     expected) {
                     return false;
                 }
@@ -46,7 +48,7 @@ template<typename T>
         if (elem->is_float64()) {
             auto de = static_cast<double>(expected);
             for (size_t i = 0; i < t->dimension(); ++i) {
-                if (load_constant_scalar<double>(base + i * stride) != de) {
+                if (simplify_libcalls_detail::load_constant_scalar<double>(base + i * stride) != de) {
                     return false;
                 }
             }
@@ -56,6 +58,7 @@ template<typename T>
     return false;
 }
 
+namespace simplify_libcalls_detail {
 [[nodiscard]] static bool is_const_positive_float_zero(const Value *v) noexcept {
     if (!is_const_float_value(v, 0.0f)) return false;
     auto c = static_cast<const Constant *>(v);
@@ -91,10 +94,12 @@ template<typename T>
     }
     return false;
 }
+}  // namespace simplify_libcalls_detail
 [[nodiscard]] static bool is_const_float_one(const Value *v) noexcept { return is_const_float_value(v, 1.0f); }
 
 /// Attempt to simplify a single ArithmeticInst.
 /// Returns a replacement Value* if simplification applies, nullptr otherwise.
+namespace simplify_libcalls_detail {
 [[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, XIRBuilder &builder) noexcept {
     auto op = inst->op();
     auto type = inst->type();
@@ -157,6 +162,7 @@ template<typename T>
     return nullptr;
 }
 
+}  // namespace simplify_libcalls_detail
 static void simplify_libcalls_on_function(Function *function, SimplifyLibCallsInfo &info) noexcept {
     auto def = function->definition();
     if (!def) return;
@@ -170,7 +176,7 @@ static void simplify_libcalls_on_function(Function *function, SimplifyLibCallsIn
     });
 
     for (auto inst : to_simplify) {
-        auto replacement = try_simplify(inst, builder);
+        auto replacement = simplify_libcalls_detail::try_simplify(inst, builder);
         if (replacement != nullptr) {
             inst->replace_all_uses_with(replacement);
             inst->remove_self();

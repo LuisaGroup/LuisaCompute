@@ -22,7 +22,7 @@ struct IndexExprNode {
     luisa::shared_ptr<const IndexExprNode> rhs;
 };
 
-[[nodiscard]] auto make_constant(int64_t value) noexcept {
+[[nodiscard]] auto make_index_constant(int64_t value) noexcept {
     auto node = luisa::make_shared<IndexExprNode>();
     node->constant = value;
     return node;
@@ -569,7 +569,7 @@ public:
 IndexExpr::~IndexExpr() noexcept = default;
 
 IndexExpr IndexExpr::constant(int64_t value) noexcept {
-    return IndexExpr{detail::make_constant(value)};
+    return IndexExpr{detail::make_index_constant(value)};
 }
 
 IndexExpr IndexExpr::coordinate(Dim dimension) noexcept {
@@ -614,7 +614,7 @@ luisa::shared_ptr<const detail::IndexExprNode> IndexExpr::_substitute_node(
     luisa::span<const IndexExpr> replacements) noexcept {
     if (node == nullptr) { return nullptr; }
     switch (node->kind) {
-        case IndexExprKind::CONSTANT: return detail::make_constant(node->constant);
+        case IndexExprKind::CONSTANT: return detail::make_index_constant(node->constant);
         case IndexExprKind::COORDINATE: {
             auto index = variables.axis_index(node->dimension);
             return index && *index < replacements.size() ? replacements[*index]._node : nullptr;

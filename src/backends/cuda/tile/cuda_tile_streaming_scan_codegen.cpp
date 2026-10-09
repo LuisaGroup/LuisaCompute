@@ -4,6 +4,7 @@
 
 namespace luisa::compute::cuda::native_tile {
 namespace {
+namespace cuda_tile_streaming_scan_codegen_detail {
 [[nodiscard]] luisa::string_view scalar_type_name(tile::ScalarType type) noexcept {
     using tile::ScalarType;
     switch (type) {
@@ -18,6 +19,7 @@ namespace {
         default: return {};
     }
 }
+}  // namespace cuda_tile_streaming_scan_codegen_detail
 }// namespace
 
 luisa::string emit_streaming_scan_entry(const StreamingScanPlan &p, const Artifact &original,
@@ -26,7 +28,7 @@ luisa::string emit_streaming_scan_entry(const StreamingScanPlan &p, const Artifa
     auto source = worker_warps == 0u ? luisa::string{"\nextern \"C\" __tile_global__ void luisa_tile_stream_scan("} :
                                        luisa::format("\nextern \"C\" {{\n[[cutile::hint({}, num_worker_warps_per_cta = {})]]\n__tile_global__ void luisa_tile_stream_scan(", target_sm * 10u, worker_warps);
     for (auto i = size_t{0u}; i < original.arguments.size(); i++) {
-        auto type = scalar_type_name(original.arguments[i].element);
+        auto type = cuda_tile_streaming_scan_codegen_detail::scalar_type_name(original.arguments[i].element);
         if (type.empty()) { return {}; }
         if (i != 0u) { source += ", "; }
         source += luisa::format("{} *buffer{}", type, i);
@@ -49,7 +51,7 @@ luisa::string emit_streaming_scan_entry(const StreamingScanPlan &p, const Artifa
     } else {
         line(luisa::format("        auto valid = (row < {}ll) && (column < {}ll);", p.rows, p.columns));
         line(luisa::format("        auto offset = ct::select(valid, row * {}ll + column, index_zero);", p.columns));
-        line(luisa::format("        auto loaded = ct::load_masked(buffer{} + offset, valid, ct::element_cast<{}>(0));", p.input_slot, scalar_type_name(p.storage)));
+        line(luisa::format("        auto loaded = ct::load_masked(buffer{} + offset, valid, ct::element_cast<{}>(0));", p.input_slot, cuda_tile_streaming_scan_codegen_detail::scalar_type_name(p.storage)));
     }
     line("        auto input = ct::element_cast<float>(loaded);");
     line("        auto cumulative = ct::partial_sum(input, ct::integral_constant<1>{}, ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{}, ct::scan_forward_t{});");
@@ -57,7 +59,7 @@ luisa::string emit_streaming_scan_entry(const StreamingScanPlan &p, const Artifa
     line("            cumulative = ct::add(carry, cumulative, ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{});");
     line("        }");
     line("        auto with_seed = ct::add(0.0f, cumulative, ct::round_ties_to_even_t{}, ct::preserve_subnormals_t{});");
-    line(luisa::format("        auto stored = ct::element_cast<{}>(with_seed);", scalar_type_name(p.storage)));
+    line(luisa::format("        auto stored = ct::element_cast<{}>(with_seed);", cuda_tile_streaming_scan_codegen_detail::scalar_type_name(p.storage)));
     line(fully_in_bounds ? luisa::format("        ct::store(buffer{} + offset, stored);", p.output_slot) :
                            luisa::format("        ct::store_masked(buffer{} + offset, stored, valid);", p.output_slot));
     line(luisa::format("        carry = ct::extract(cumulative, ct::shape<{}, 1>{{}}, 0ull, {}ull);", p.rows_per_program, p.chunk_extent - 1u));

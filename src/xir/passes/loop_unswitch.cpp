@@ -60,6 +60,7 @@ struct UnswitchPlan {
     luisa::unordered_map<PhiInst *, Value *> guard_substitution;
 };
 
+namespace clone_metadata_unswitch_detail {
 template<typename T>
 void clone_metadata(const T &source, T &destination) noexcept {
     for (auto *metadata : source.metadata_list()) {
@@ -67,6 +68,7 @@ void clone_metadata(const T &source, T &destination) noexcept {
     }
 }
 
+}  // namespace clone_metadata_unswitch_detail
 [[nodiscard]] bool is_exit_phi_edge_use(
     Use *use, PhiInst *phi, BasicBlock *exit_source) noexcept {
     if (use == nullptr || phi == nullptr) { return false; }
@@ -439,7 +441,7 @@ void transform_plan(
     LoopCloneValueResolver resolver;
     for (auto *block : plan.blocks) {
         auto *clone = definition->create_basic_block();
-        clone_metadata(*block, *clone);
+        clone_metadata_unswitch_detail::clone_metadata(*block, *clone);
         resolver.map(block, clone);
     }
 
@@ -454,7 +456,7 @@ void transform_plan(
             if (!instruction->isa<PhiInst>()) { break; }
             auto *source_phi = static_cast<PhiInst *>(instruction);
             auto *clone_phi = builder.phi(source_phi->type());
-            clone_metadata(*source_phi, *clone_phi);
+            clone_metadata_unswitch_detail::clone_metadata(*source_phi, *clone_phi);
             resolver.map(source_phi, clone_phi);
             phis.emplace_back(source_phi, clone_phi);
         }
@@ -561,13 +563,13 @@ void transform_plan(
             guard_branch = builder.cond_br(
                 guard_condition, plan.guard_exit, dispatch_block);
         }
-        clone_metadata(*plan.guard_source, *guard_branch);
+        clone_metadata_unswitch_detail::clone_metadata(*plan.guard_source, *guard_branch);
 
         builder.set_insertion_point(dispatch_block);
         auto *dispatch = builder.cond_br(
             plan.candidate->condition(),
             true_preheader, false_preheader);
-        clone_metadata(*plan.candidate, *dispatch);
+        clone_metadata_unswitch_detail::clone_metadata(*plan.candidate, *dispatch);
 
         static_cast<BranchInst *>(old_preheader_branch)
             ->set_target_block(entry_guard);
@@ -576,7 +578,7 @@ void transform_plan(
         auto *dispatch = builder.cond_br(
             plan.candidate->condition(),
             true_preheader, false_preheader);
-        clone_metadata(*plan.candidate, *dispatch);
+        clone_metadata_unswitch_detail::clone_metadata(*plan.candidate, *dispatch);
         static_cast<void>(old_preheader_branch->remove_self());
     }
 

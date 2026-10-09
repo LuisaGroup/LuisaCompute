@@ -167,6 +167,7 @@ struct VectorReductionMap {
     int64_t element_count;
 };
 
+namespace tirx_cpu_detail {
 void flatten_sequence(
     const tvm::tirx::Stmt &statement,
     tvm::ffi::Array<tvm::tirx::Stmt> &result) {
@@ -177,6 +178,7 @@ void flatten_sequence(
     }
 }
 
+}  // namespace tirx_cpu_detail
 [[nodiscard]] bool zero_index(const tvm::ffi::Array<tvm::PrimExpr> &indices) {
     return indices.size() == 1u && indices[0u].as<tvm::IntImmNode>() != nullptr &&
            indices[0u].as<tvm::IntImmNode>()->value == 0;
@@ -196,7 +198,7 @@ void flatten_sequence(
         minimum == nullptr || minimum->value != 0 || extent == nullptr || extent->value <= 0 ||
         (loop->step && (step == nullptr || step->value != 1))) { return luisa::nullopt; }
     tvm::ffi::Array<tvm::tirx::Stmt> statements;
-    flatten_sequence(loop->body, statements);
+    tirx_cpu_detail::flatten_sequence(loop->body, statements);
     if (statements.size() != 3u) { return luisa::nullopt; }
     auto allocation = statements[0u].as<tvm::tirx::AllocBufferNode>();
     auto combine_store = statements[1u].as<tvm::tirx::BufferStoreNode>();

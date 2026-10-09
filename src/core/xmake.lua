@@ -52,7 +52,13 @@ on_load(function(target)
     else
         target:add("deps", "spdlog")
     end
-    target:add("deps", "lc-check-winsdk")
+            target:add("deps", "lc-check-winsdk")
+        -- Optional guard for the unity (jumbo) build: fails when two files of one
+        -- batch declare the same file-local symbol. Needs Python with
+        -- tree-sitter/tree-sitter-cpp; see scripts/check_unity_build_conflicts.py.
+        if has_config("lc_check_unity_build") then
+            target:add("deps", "lc-check-unity-build")
+        end
     if has_config("spdlog_only_fmt") then -- Use no spdlog
         target:add("defines", "LUISA_CUSTOM_LOGGER", {
             public = true

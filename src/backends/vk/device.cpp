@@ -69,6 +69,7 @@
 namespace lc::vk {
 using namespace std::string_literals;
 namespace {
+namespace vk_device_detail {
 
 [[nodiscard]] bool require_native_xir_spirv() noexcept {
     return luisa::compute::detail::env_flag(
@@ -208,13 +209,16 @@ conservative_spirv_artifact_requirements(
     return validated_spirv_artifact_requirements(device, required);
 }
 
+}  // namespace vk_device_detail
 }// namespace
 #ifndef LC_NO_HLSL_BUILTIN
+namespace vk_device_detail_2 {
 static luisa::spin_mutex g_dxc_mutex;
 static vstd::StackObject<hlsl::ShaderCompiler, false> g_dxc_compiler;
 static luisa::filesystem::path g_dxc_runtime_directory;
 static int32 g_dxc_ref_count = 0;
 static bool g_dxc_compiler_initialized = false;
+}  // namespace vk_device_detail_2
 #endif
 
 namespace detail {
@@ -239,6 +243,7 @@ struct Settings {
     bool overlay{true};
 };
 
+namespace vk_device_detail_3 {
 static VkInstance vk_instance{nullptr};
 static std::mutex instance_mtx;
 static std::mutex dispatch_lifetime_mtx;
@@ -249,6 +254,7 @@ static vstd::unordered_set<luisa::string> vk_instance_extra_exts;
 static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
 
+}  // namespace vk_device_detail_3
 // VK_KHR_shader_untyped_pointers was released in Vulkan 1.4.325. Validation
 // layers built against older headers do not know the extension's device
 // feature structure type and reject a vkCreateDevice pNext chain that
@@ -257,7 +263,7 @@ static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
 // Only enable the extension when the active Khronos validation layer is new
 // enough to recognize the structure type, or when validation is disabled.
 [[nodiscard]] bool validation_layer_supports_shader_untyped_pointers() noexcept {
-    if (!settings.validation) { return true; }
+    if (!vk_device_detail_3::settings.validation) { return true; }
     // settings.validation is only true when VK_LAYER_KHRONOS_validation was
     // enabled at instance creation (see create_instance); query the API
     // version the layer was built against.
@@ -280,9 +286,11 @@ static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
     // version is unknown, so do not assume it understands the structure type.
     return false;
 }
+namespace vk_device_detail_3 {
 static PFN_vkDestroyDebugUtilsMessengerEXT vk_destroy_debug_utils_messenger_ext;
 static VkDebugUtilsMessengerEXT debug_utils_messenger;
 static VkInstance debug_utils_messenger_instance;
+}  // namespace vk_device_detail_3
 struct AllocCallbacks {
     VkAllocationCallbacks callbacks{};
     AllocCallbacks() {
@@ -307,7 +315,9 @@ struct AllocCallbacks {
         };
     }
 };
+namespace vk_device_detail_3 {
 static AllocCallbacks alloc;
+}  // namespace vk_device_detail_3
 VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     VkDebugUtilsMessageTypeFlagsEXT message_type,
@@ -344,19 +354,19 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
 
 void setup_debugging(VkInstance instance) {
 
-    if (debug_utils_messenger != VK_NULL_HANDLE) {
+    if (vk_device_detail_3::debug_utils_messenger != VK_NULL_HANDLE) {
         LUISA_ASSERT(
-            debug_utils_messenger_instance == instance,
+            vk_device_detail_3::debug_utils_messenger_instance == instance,
             "Vulkan validation messenger is already attached to a different "
             "process instance.");
         return;
     }
 
-    vk_create_debug_utils_messenger_ext = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
-    vk_destroy_debug_utils_messenger_ext = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+    vk_device_detail_3::vk_create_debug_utils_messenger_ext = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+    vk_device_detail_3::vk_destroy_debug_utils_messenger_ext = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
     LUISA_ASSERT(
-        vk_create_debug_utils_messenger_ext != nullptr &&
-            vk_destroy_debug_utils_messenger_ext != nullptr,
+        vk_device_detail_3::vk_create_debug_utils_messenger_ext != nullptr &&
+            vk_device_detail_3::vk_destroy_debug_utils_messenger_ext != nullptr,
         "VK_EXT_debug_utils was enabled, but its messenger entry points are unavailable.");
 
     VkDebugUtilsMessengerCreateInfoEXT debug_utils_messenger_ci{};
@@ -364,10 +374,10 @@ void setup_debugging(VkInstance instance) {
     debug_utils_messenger_ci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debug_utils_messenger_ci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     debug_utils_messenger_ci.pfnUserCallback = debug_utils_messenger_callback;
-    VK_CHECK_RESULT(vk_create_debug_utils_messenger_ext(
+    VK_CHECK_RESULT(vk_device_detail_3::vk_create_debug_utils_messenger_ext(
         instance, &debug_utils_messenger_ci,
-        Device::alloc_callbacks(), &debug_utils_messenger));
-    debug_utils_messenger_instance = instance;
+        Device::alloc_callbacks(), &vk_device_detail_3::debug_utils_messenger));
+    vk_device_detail_3::debug_utils_messenger_instance = instance;
 }
 vstd::unordered_set<luisa::string> supported_exts(VkPhysicalDevice physical_device) {
     uint extensions_count;
@@ -389,7 +399,7 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
         instance_exts.reserve(8);
         vstd::unordered_set<vstd::string> supported_instance_exts;
         // Validation can also be forced via a define
-        settings.validation = enable_validation;
+        vk_device_detail_3::settings.validation = enable_validation;
 
         VkApplicationInfo app_info = {};
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -471,7 +481,7 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
         // The VK_LAYER_KHRONOS_validation contains all current validation functionality.
         // Note that on Android this layer requires at least NDK r20
         const char *validation_layer_name = "VK_LAYER_KHRONOS_validation";
-        if (settings.validation) {
+        if (vk_device_detail_3::settings.validation) {
             // Check if this layer is available at instance level
             uint32_t instance_layer_count;
             vkEnumerateInstanceLayerProperties(&instance_layer_count, nullptr);
@@ -489,7 +499,7 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
                 instance_create_info.enabledLayerCount = 1;
             } else {
                 LUISA_WARNING("Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled");
-                settings.validation = false;
+                vk_device_detail_3::settings.validation = false;
             }
         }
 
@@ -500,13 +510,13 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
             instance_create_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         }
 #endif
-        if (settings.validation) {
+        if (vk_device_detail_3::settings.validation) {
             emplace_instance_ext(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);// SRS - Dependency when VK_EXT_DEBUG_MARKER is enabled
             if (!emplace_instance_ext(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
                 LUISA_WARNING(
                     "VK_EXT_debug_utils is unavailable; Vulkan validation "
                     "messenger output is disabled.");
-                settings.validation = false;
+                vk_device_detail_3::settings.validation = false;
             }
         }
         instance_create_info.enabledExtensionCount = (uint32_t)instance_exts.size();
@@ -521,13 +531,13 @@ void load_or_create_process_instance(
     luisa::filesystem::path const &custom_path,
     luisa::string_view lib_name,
     luisa::span<luisa::string const> extra_exts) {
-    auto creating = vk_instance == VK_NULL_HANDLE;
+    auto creating = vk_device_detail_3::vk_instance == VK_NULL_HANDLE;
     if (!creating) {
-        enable_surface &= vk_instance_surface_enabled;
-        settings.validation = vk_instance_validation_enabled;
+        enable_surface &= vk_device_detail_3::vk_instance_surface_enabled;
+        vk_device_detail_3::settings.validation = vk_device_detail_3::vk_instance_validation_enabled;
         for (auto &&extension : extra_exts) {
             LUISA_ASSERT(
-                vk_instance_extra_exts.contains(extension),
+                vk_device_detail_3::vk_instance_extra_exts.contains(extension),
                 "The process Vulkan instance is already live without "
                 "requested extension '{}'. Instance extensions cannot be "
                 "added after creation.",
@@ -535,14 +545,14 @@ void load_or_create_process_instance(
         }
     }
     create_instance(
-        enable_validation, enable_surface, vk_instance,
+        enable_validation, enable_surface, vk_device_detail_3::vk_instance,
         custom_path, lib_name, extra_exts);
     if (creating) {
-        vk_instance_surface_enabled = enable_surface;
-        vk_instance_validation_enabled = settings.validation;
-        vk_instance_extra_exts.clear();
+        vk_device_detail_3::vk_instance_surface_enabled = enable_surface;
+        vk_device_detail_3::vk_instance_validation_enabled = vk_device_detail_3::settings.validation;
+        vk_device_detail_3::vk_instance_extra_exts.clear();
         for (auto &&extension : extra_exts) {
-            vk_instance_extra_exts.emplace(extension);
+            vk_device_detail_3::vk_instance_extra_exts.emplace(extension);
         }
     }
 }
@@ -550,25 +560,25 @@ void load_or_create_process_instance(
 }// namespace detail
 
 Device::GlobalDispatchLease::GlobalDispatchLease() noexcept {
-    std::lock_guard lock{detail::dispatch_lifetime_mtx};
+    std::lock_guard lock{detail::vk_device_detail_3::dispatch_lifetime_mtx};
     LUISA_ASSERT(
-        detail::live_device_count == 0u,
+        detail::vk_device_detail_3::live_device_count == 0u,
         "The Vulkan backend currently supports only one live Device per "
         "process because Volk uses process-global instance/device dispatch "
         "tables. Destroy the existing Vulkan Device before creating another.");
-    ++detail::live_device_count;
+    ++detail::vk_device_detail_3::live_device_count;
 }
 
 Device::GlobalDispatchLease::~GlobalDispatchLease() noexcept {
-    std::lock_guard lock{detail::dispatch_lifetime_mtx};
+    std::lock_guard lock{detail::vk_device_detail_3::dispatch_lifetime_mtx};
     LUISA_ASSERT(
-        detail::live_device_count == 1u,
+        detail::vk_device_detail_3::live_device_count == 1u,
         "Vulkan global dispatch lifetime accounting is unbalanced.");
-    --detail::live_device_count;
+    --detail::vk_device_detail_3::live_device_count;
 }
 
 VkAllocationCallbacks *Device::alloc_callbacks() {
-    return &detail::alloc.callbacks;
+    return &detail::vk_device_detail_3::alloc.callbacks;
 }
 //////////////// Not implemented area
 lc::fallback_rtx::FallbackRtxDevice *Device::fallback_rtx() noexcept {
@@ -684,7 +694,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
       prepare_indirect_kernel(BuiltinKernel::load_indirect_prepare_kernel) {
     bool headless = false;
     bool use_lmdb = false;
-    auto require_native_spirv = require_native_xir_spirv();
+    auto require_native_spirv = vk_device_detail::require_native_xir_spirv();
 #ifdef LC_NO_HLSL_BUILTIN
     constexpr auto dxc_compatibility_compiled = false;
 #else
@@ -830,11 +840,11 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
 #ifndef LC_NO_HLSL_BUILTIN
     Context ctx{this->_ctx_impl};
     {
-        std::lock_guard lck(g_dxc_mutex);
-        if (g_dxc_ref_count == 0) {
-            g_dxc_runtime_directory = ctx.runtime_directory();
+        std::lock_guard lck(vk_device_detail_2::g_dxc_mutex);
+        if (vk_device_detail_2::g_dxc_ref_count == 0) {
+            vk_device_detail_2::g_dxc_runtime_directory = ctx.runtime_directory();
         }
-        g_dxc_ref_count++;
+        vk_device_detail_2::g_dxc_ref_count++;
     }
 #endif
     if (!_binary_io) {
@@ -852,7 +862,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         auto capabilities = detail::plan_instance_runtime_capabilities(
             true, surface_enabled,
             detail::validation_enabled_by_default());
-        detail::settings.validation = capabilities.debug_utils;
+        detail::vk_device_detail_3::settings.validation = capabilities.debug_utils;
         auto enable_validation = capabilities.debug_utils;
         auto enable_surface = capabilities.surface;
         detail::create_instance(
@@ -860,7 +870,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
             custom_path, lib_name, {});
         surface_enabled = enable_surface;
     } else {
-        std::lock_guard lck{detail::instance_mtx};
+        std::lock_guard lck{detail::vk_device_detail_3::instance_mtx};
         auto enable_validation = detail::validation_enabled_by_default();
         luisa::vector<luisa::string> extra_exts = [&]() {
             if (_config_ext) {
@@ -877,7 +887,7 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
             enable_validation, enable_surface,
             custom_path, lib_name, extra_exts);
         surface_enabled = enable_surface;
-        _instance = detail::vk_instance;
+        _instance = detail::vk_device_detail_3::vk_instance;
     }
 #ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
     interop_enabled = false;
@@ -1004,7 +1014,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VkResult err;
 
         // If requested, we enable the default validation layers for debugging
-        if (detail::settings.validation) {
+        if (detail::vk_device_detail_3::settings.validation) {
             detail::setup_debugging(instance());
         }
 
@@ -1061,7 +1071,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     .supports_graphics_compute = supports_graphics_compute,
                     .bindless_heap_capacity =
                         bindless_enabled ?
-                            query_bindless_heap_capacity(physical_devices[i]) :
+                            vk_device_detail::query_bindless_heap_capacity(physical_devices[i]) :
                             0u,
                     .device_type = candidate_properties.deviceType,
                     .api_version = candidate_properties.apiVersion};
@@ -2704,13 +2714,13 @@ Device::~Device() {
     _default_file_io = nullptr;
 #ifndef LC_NO_HLSL_BUILTIN
     {
-        std::lock_guard lck(g_dxc_mutex);
-        if (g_dxc_ref_count > 0 && --g_dxc_ref_count == 0) {
-            if (g_dxc_compiler_initialized) {
-                g_dxc_compiler.destroy();
-                g_dxc_compiler_initialized = false;
+        std::lock_guard lck(vk_device_detail_2::g_dxc_mutex);
+        if (vk_device_detail_2::g_dxc_ref_count > 0 && --vk_device_detail_2::g_dxc_ref_count == 0) {
+            if (vk_device_detail_2::g_dxc_compiler_initialized) {
+                vk_device_detail_2::g_dxc_compiler.destroy();
+                vk_device_detail_2::g_dxc_compiler_initialized = false;
             }
-            g_dxc_runtime_directory.clear();
+            vk_device_detail_2::g_dxc_runtime_directory.clear();
         }
     }
 #endif
@@ -3130,6 +3140,7 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
 }
 
 #ifdef LUISA_XIR_TO_SPIRV
+namespace vk_device_detail_2 {
 [[nodiscard]] static uint64_t xir_spirv_environment_hash() noexcept {
     auto hash_env = [](const char *name) noexcept {
         auto value = luisa::get_environment_variable(name);
@@ -3144,6 +3155,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
     });
 }
 
+}  // namespace vk_device_detail_2
+namespace vk_device_detail_2 {
 [[nodiscard]] static vstd::MD5 compute_shader_cache_md5(
     Function kernel, const ShaderOption &option,
     lc::spirv::SpirvTargetFeatures target_features) noexcept {
@@ -3169,12 +3182,13 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
         target_features.enabled_mask(),
         static_cast<uint64_t>(
             target_features.buffer_float32_atomic_rmw_policy),
-        xir_spirv_environment_hash(),
+        vk_device_detail_2::xir_spirv_environment_hash(),
         static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
 }
+}  // namespace vk_device_detail_2
 #endif
 
 ShaderCreationInfo Device::_create_shader_hlsl(
@@ -3322,7 +3336,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
                 code.validation_count,
                 {},
                 kernel.allowed_warp_size(),
-                conservative_spirv_artifact_requirements(
+                vk_device_detail::conservative_spirv_artifact_requirements(
                     this, requires_sampler_anisotropy));
         }
     } else {
@@ -3379,7 +3393,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 #else
     constexpr auto native_xir_spirv_compiled = false;
 #endif
-    auto require_native = require_native_xir_spirv();
+    auto require_native = vk_device_detail::require_native_xir_spirv();
     auto builtin_calls = kernel.propagated_builtin_callables();
     auto requires_motion_blur =
         builtin_calls.uses_raytracing_motion_blur();
@@ -3432,7 +3446,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 #ifdef LUISA_XIR_TO_SPIRV
     luisa::string fallback_reasons;
     if (codegen_route.requires_hlsl_fallback()) {
-        fallback_reasons = describe_hlsl_fallback_reasons(codegen_route);
+        fallback_reasons = vk_device_detail::describe_hlsl_fallback_reasons(codegen_route);
         LUISA_ASSERT(
             native_requirement.status != detail::RequiredNativeXirSpirvStatus::
                                              HLSL_FALLBACK_REQUIRED,
@@ -3447,7 +3461,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     // route has been accepted. In strict mode the route-contract diagnostic
     // must take precedence over unrelated device limitations.
     auto requires_sampler_anisotropy =
-        validate_sampler_anisotropy_requirement(
+        vk_device_detail::validate_sampler_anisotropy_requirement(
             kernel, option.native_include,
             sampler_anisotropy_enabled);
     if (requires_fallback_rtx_traversal) {
@@ -3512,7 +3526,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     vstd::optional<lc::spirv::SpirvResult> spv_result;
     auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
-    auto shader_md5 = compute_shader_cache_md5(
+    auto shader_md5 = vk_device_detail_2::compute_shader_cache_md5(
         kernel, option, target_features);
     auto require_print_code = print_code();
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
@@ -3573,7 +3587,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 
     if (spv_result) {
         auto artifact_requirements =
-            validated_spirv_artifact_requirements(
+            vk_device_detail::validated_spirv_artifact_requirements(
                 this, spv_result->required_target_features);
         for (size_t i = 0; i < spv_result->properties.size(); ++i) {
             auto &p = spv_result->properties[i];
@@ -3729,7 +3743,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             0,
             {},// LLVM constants are embedded in the module; no constant UBO.
             kernel.allowed_warp_size(),
-            conservative_spirv_artifact_requirements(
+            vk_device_detail::conservative_spirv_artifact_requirements(
                 this, requires_sampler_anisotropy),
             detail::ShaderCodegenDialect::LLVM_SPIRV);
     } else {
@@ -3768,7 +3782,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept {
     ShaderCreationInfo info;
     luisa::optional<detail::ShaderCodegenDialect> required_dialect;
-    if (require_native_xir_spirv()) {
+    if (vk_device_detail::require_native_xir_spirv()) {
         required_dialect = detail::ShaderCodegenDialect::XIR_SPIRV;
     }
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(arg_types);
@@ -3830,12 +3844,12 @@ bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noe
 }
 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
-    std::lock_guard dispatch_lock{detail::dispatch_lifetime_mtx};
+    std::lock_guard dispatch_lock{detail::vk_device_detail_3::dispatch_lifetime_mtx};
     LUISA_ASSERT(
-        detail::live_device_count == 0u,
+        detail::vk_device_detail_3::live_device_count == 0u,
         "Cannot enumerate Vulkan devices while a Vulkan Device is live; "
         "Volk uses process-global dispatch tables.");
-    std::lock_guard lck{detail::instance_mtx};
+    std::lock_guard lck{detail::vk_device_detail_3::instance_mtx};
     auto enable_validation = detail::validation_enabled_by_default();
     // Create the reusable enumeration instance with the supported surface
     // extensions as a superset, so a later graphics Device can reuse it.
@@ -3848,13 +3862,13 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
     vstd::vector<VkPhysicalDevice> physical_devices;
     uint32_t gpu_count = 0;
     // Get number of available physical devices
-    VK_CHECK_RESULT(vkEnumeratePhysicalDevices(detail::vk_instance, &gpu_count, nullptr));
+    VK_CHECK_RESULT(vkEnumeratePhysicalDevices(detail::vk_device_detail_3::vk_instance, &gpu_count, nullptr));
     if (gpu_count == 0) {
         return;
     }
     // Enumerate devices
     luisa::enlarge_by(physical_devices, gpu_count);
-    auto err = vkEnumeratePhysicalDevices(detail::vk_instance, &gpu_count, physical_devices.data());
+    auto err = vkEnumeratePhysicalDevices(detail::vk_device_detail_3::vk_instance, &gpu_count, physical_devices.data());
     if (err) {
         LUISA_ERROR("Could not enumerate physical devices : {}", (int)err);
         return;
@@ -3869,15 +3883,15 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
 
 hlsl::ShaderCompiler *Device::compiler() {
 #ifndef LC_NO_HLSL_BUILTIN
-    std::lock_guard lck(g_dxc_mutex);
-    if (!g_dxc_compiler_initialized) {
-        if (g_dxc_runtime_directory.empty()) [[unlikely]] {
+    std::lock_guard lck(vk_device_detail_2::g_dxc_mutex);
+    if (!vk_device_detail_2::g_dxc_compiler_initialized) {
+        if (vk_device_detail_2::g_dxc_runtime_directory.empty()) [[unlikely]] {
             LUISA_ERROR("Vulkan internal HLSL compiler requested before device initialization.");
         }
-        g_dxc_compiler.create(g_dxc_runtime_directory, true);
-        g_dxc_compiler_initialized = true;
+        vk_device_detail_2::g_dxc_compiler.create(vk_device_detail_2::g_dxc_runtime_directory, true);
+        vk_device_detail_2::g_dxc_compiler_initialized = true;
     }
-    return g_dxc_compiler.ptr();
+    return vk_device_detail_2::g_dxc_compiler.ptr();
 #else
     LUISA_ERROR(
         "Vulkan DXC compatibility was disabled at build time. This path "
@@ -3891,12 +3905,12 @@ VkInstance Device::instance() const noexcept {
 }
 // HACK: for some app need external instance without device
 LUISA_EXPORT_API VkInstance init_vk_instance(bool enable_validation, bool &enable_surface, const luisa::string *extra_instance_exts, size_t extra_instance_ext_count, const char *custom_vk_lib_path, const char *custom_vk_lib_name) {
-    std::lock_guard dispatch_lock{detail::dispatch_lifetime_mtx};
+    std::lock_guard dispatch_lock{detail::vk_device_detail_3::dispatch_lifetime_mtx};
     LUISA_ASSERT(
-        detail::live_device_count == 0u,
+        detail::vk_device_detail_3::live_device_count == 0u,
         "Cannot initialize the process Vulkan instance while a Vulkan Device "
         "is live; Volk uses process-global dispatch tables.");
-    std::lock_guard lck{detail::instance_mtx};
+    std::lock_guard lck{detail::vk_device_detail_3::instance_mtx};
     enable_validation |= detail::validation_enabled_by_default();
     // custom_vk_lib_path is application-supplied narrow text: decode it with
     // path_from_narrow() so an unrepresentable path simply means "no custom
@@ -3910,7 +3924,7 @@ LUISA_EXPORT_API VkInstance init_vk_instance(bool enable_validation, bool &enabl
         custom_lib_path.clear();
     }
     detail::load_or_create_process_instance(enable_validation, enable_surface, custom_lib_path, custom_vk_lib_name ? luisa::string_view{custom_vk_lib_name} : luisa::string_view{}, luisa::span{extra_instance_exts, extra_instance_ext_count});
-    return detail::vk_instance;
+    return detail::vk_device_detail_3::vk_instance;
 }
 
 LUISA_EXPORT_API DeviceInterface *create(Context &&c, DeviceConfig const *settings) {

@@ -509,6 +509,37 @@ on_config(function(target)
 end)
 target_end()
 
+-- Unity (jumbo) build collision checker
+-- xmake merges `batch_size` translation units of a target into one, so two files
+-- that declare the same file-local helper (a `static` or an anonymous-namespace
+-- entity) collide as soon as they end up in the same batch. The check is a plain
+-- Python script so it can also run standalone or from CI:
+--
+--     python scripts/check_unity_build_conflicts.py
+--
+-- Enable it for every build with `--lc_check_unity_build=true` (see root xmake.lua).
+target("lc-check-unity-build")
+set_kind("phony")
+set_default(false)
+on_build(function(target)
+    local script = path.join(os.projectdir(), "scripts", "check_unity_build_conflicts.py")
+    if not os.isfile(script) then
+        raise("missing " .. script)
+    end
+    import("core.project.config")
+    local python = os.getenv("PYTHON") or "python"
+    local output = os.iorunv(python, {script,
+                                     "--gens", path.join(os.projectdir(), config.builddir()),
+                                     "--plat", target:plat()},
+                            {curdir = os.projectdir(), try = true})
+    if not output then
+        cprint("${yellow}unity-build check could not run (python + tree-sitter/tree-sitter-cpp required)${clear}")
+        return
+    end
+    print(output)
+end)
+target_end()
+
 -- ============================================================================
 -- SECTION 4: SDK Installation Rule
 -- ============================================================================

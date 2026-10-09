@@ -21,6 +21,7 @@ void add_type_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                 std::vector<unsigned>{literal});
 }
 
+namespace spirv_codegen_type_detail {
 [[nodiscard]] const Type *matrix_after_array_layers(
     const Type *type) noexcept {
     while (type != nullptr && type->is_array()) {
@@ -29,10 +30,11 @@ void add_type_u32_member_decoration(spv::Builder &builder, spv::Id target,
     return type != nullptr && type->is_matrix() ? type : nullptr;
 }
 
+}  // namespace spirv_codegen_type_detail
 void decorate_matrix_layout(spv::Builder &builder, spv::Id struct_type,
                             uint32_t member_index,
                             const Type *member_type) noexcept {
-    if (auto *matrix = matrix_after_array_layers(member_type)) {
+    if (auto *matrix = spirv_codegen_type_detail::matrix_after_array_layers(member_type)) {
         auto *column =
             Type::vector(matrix->element(), matrix->dimension());
         builder.addMemberDecoration(struct_type, member_index,

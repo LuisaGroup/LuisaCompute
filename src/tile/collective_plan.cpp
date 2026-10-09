@@ -7,6 +7,7 @@
 
 namespace luisa::compute::tile {
 namespace {
+namespace collective_plan_detail {
 
 class CollectiveAnalyzer {
 private:
@@ -287,10 +288,11 @@ public:
     }
 };
 
+}  // namespace collective_plan_detail
 }// namespace
 
 CollectiveWorkAnalysis analyze_collective_work(const tile::Function &function) noexcept {
-    return CollectiveAnalyzer{function}.run();
+    return collective_plan_detail::CollectiveAnalyzer{function}.run();
 }
 
 }// namespace luisa::compute::tile

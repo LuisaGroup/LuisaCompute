@@ -16,6 +16,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+namespace simplify_algebraic_detail {
 template<typename T>
 [[nodiscard]] static T load_constant_scalar(const void *data) noexcept {
     T value;
@@ -23,6 +24,7 @@ template<typename T>
     return value;
 }
 
+}  // namespace simplify_algebraic_detail
 // Check if a Constant has a specific value
 [[nodiscard]] static bool is_const_value(const Value *v, int32_t expected) noexcept {
     if (!v->isa<Constant>()) return false;
@@ -30,14 +32,14 @@ template<typename T>
     auto t = c->type();
     auto check_scalar = [expected](const Type *st, const void *data) noexcept {
         if (st->is_int32()) {
-            return load_constant_scalar<int32_t>(data) == expected;
+            return simplify_algebraic_detail::load_constant_scalar<int32_t>(data) == expected;
         }
         if (st->is_uint32()) {
             return static_cast<int32_t>(
-                       load_constant_scalar<uint32_t>(data)) == expected;
+                       simplify_algebraic_detail::load_constant_scalar<uint32_t>(data)) == expected;
         }
         if (st->is_float32()) {
-            return load_constant_scalar<float>(data) ==
+            return simplify_algebraic_detail::load_constant_scalar<float>(data) ==
                    static_cast<float>(expected);
         }
         return false;
@@ -60,6 +62,7 @@ template<typename T>
 
 // Unlike equality with zero, this distinguishes +0 from -0. The identity
 // x - (+0) == x preserves signed zero, while x - (-0) does not.
+namespace simplify_algebraic_detail {
 [[nodiscard]] static bool is_const_positive_float_zero(const Value *v) noexcept {
     if (!v->isa<Constant>()) return false;
     auto c = static_cast<const Constant *>(v);
@@ -88,6 +91,7 @@ template<typename T>
     return false;
 }
 
+}  // namespace simplify_algebraic_detail
 [[nodiscard]] static bool is_float_like(const Type *type) noexcept {
     return type != nullptr &&
            (type->is_float_or_float_vector() ||
@@ -243,6 +247,7 @@ template<typename T>
     return lhs.has_value() && rhs.has_value() && *lhs != *rhs;
 }
 
+namespace simplify_algebraic_detail {
 [[nodiscard]] static Value *try_simplify(
     ArithmeticInst *inst, Module *module, XIRBuilder &builder,
     AlgebraicSimplifyOptions options, bool &changed_in_place) noexcept {
@@ -567,6 +572,7 @@ template<typename T>
     return nullptr;
 }
 
+}  // namespace simplify_algebraic_detail
 static void algebraic_simplify_on_function(Function *function, AlgebraicSimplifyInfo &info, AlgebraicSimplifyOptions options) noexcept {
     if (function == nullptr) { return; }
     auto def = function->definition();
@@ -587,7 +593,7 @@ static void algebraic_simplify_on_function(Function *function, AlgebraicSimplify
         // owner, preserve annotated instructions conservatively in place.
         if (!inst->metadata_list().empty()) { continue; }
         auto changed_in_place = false;
-        auto replacement = try_simplify(
+        auto replacement = simplify_algebraic_detail::try_simplify(
             inst, module, builder, options, changed_in_place);
         if (replacement != nullptr) {
             inst->replace_all_uses_with(replacement);

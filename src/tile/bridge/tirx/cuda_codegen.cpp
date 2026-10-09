@@ -41,6 +41,7 @@
 namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
+namespace tirx_cuda_codegen_detail {
 
 [[nodiscard]] std::string native_cuda_header(const tvm::ffi::Array<tvm::ffi::String> &tags) {
     const auto has = [&](std::string_view tag) noexcept {
@@ -857,6 +858,7 @@ int native_cuda_header_callback(void *, const TVMFFIAny *args, int32_t count, TV
     }
 }
 
+}  // namespace tirx_cuda_codegen_detail
 }// namespace
 
 [[nodiscard]] luisa::string_view native_cuda_subgroup_helpers(bool integer_extrema) noexcept {
@@ -977,7 +979,7 @@ void initialize_native_cuda_codegen() {
         constexpr auto header_name = "tirx.intrinsics.cuda.header_generator";
         if (!tvm::ffi::Function::GetGlobal(header_name)) {
             tvm::ffi::Function::SetGlobal(header_name,
-                tvm::ffi::Function::FromExternC(nullptr, native_cuda_header_callback, nullptr));
+                tvm::ffi::Function::FromExternC(nullptr, tirx_cuda_codegen_detail::native_cuda_header_callback, nullptr));
         }
         constexpr auto lookup_name = "tirx.intrinsics.cuda.get_codegen";
         if (!tvm::ffi::Function::GetGlobal(lookup_name)) {

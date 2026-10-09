@@ -13,6 +13,7 @@ namespace luisa::compute::cuda::native_tile {
 namespace {
 using namespace tile;
 
+namespace cuda_tile_codegen_detail {
 class Emitter {
 private:
     const tile::Function &_function;
@@ -1408,10 +1409,11 @@ public:
         return std::move(_artifact);
     }
 };
+}  // namespace cuda_tile_codegen_detail
 }// namespace
 
 Artifact generate(const tile::Function &function, bool enable_fast_math, bool enable_aligned16,
                   uint32_t worker_warps, uint32_t target_sm, uint32_t scan_chunk_extent, uint32_t independent_axis_extent) noexcept {
-    return Emitter{function, enable_fast_math, enable_aligned16, worker_warps, target_sm, scan_chunk_extent, independent_axis_extent}.run();
+    return cuda_tile_codegen_detail::Emitter{function, enable_fast_math, enable_aligned16, worker_warps, target_sm, scan_chunk_extent, independent_axis_extent}.run();
 }
 }// namespace luisa::compute::cuda::native_tile

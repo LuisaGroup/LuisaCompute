@@ -14,6 +14,7 @@
 namespace lc::vk {
 
 namespace {
+namespace glslang_compiler_detail {
 
 // glslang keeps process-global tables, so process initialisation happens once
 // and is never torn down while shaders may still be compiled; parsing is
@@ -139,6 +140,7 @@ private:
     luisa::span<const luisa::filesystem::path> _include_dirs;
 };
 
+}  // namespace glslang_compiler_detail
 }// namespace
 
 GlslCompileResult compile_glsl_to_spirv(
@@ -150,8 +152,8 @@ GlslCompileResult compile_glsl_to_spirv(
         result.error = "GLSL source is empty.";
         return result;
     }
-    ensure_glslang_initialized();
-    std::lock_guard lock{glslang_mutex()};
+    glslang_compiler_detail::ensure_glslang_initialized();
+    std::lock_guard lock{glslang_compiler_detail::glslang_mutex()};
     // GLSL has exactly one entry point per stage, and it is called `main`;
     // glslang's `setEntryPoint` selects an entry point of that name instead of
     // renaming it.
@@ -164,7 +166,7 @@ GlslCompileResult compile_glsl_to_spirv(
     std::array<const char *, 1u> strings{source.data()};
     // Lives next to the shader so it outlives parse/link; it is always
     // attached, even with an empty search path (see GlslFileIncluder).
-    GlslFileIncluder includer{include_dirs};
+    glslang_compiler_detail::GlslFileIncluder includer{include_dirs};
     glslang::TShader shader{EShLangCompute};
     shader.setStrings(strings.data(), static_cast<int>(strings.size()));
     auto resources = *GetDefaultResources();
@@ -172,7 +174,7 @@ GlslCompileResult compile_glsl_to_spirv(
     if (debug) {
         messages = static_cast<EShMessages>(messages | EShMsgDebugInfo);
     }
-    if (!shader.parse(&resources, glsl_version_number(source), false, messages,
+    if (!shader.parse(&resources, glslang_compiler_detail::glsl_version_number(source), false, messages,
                       includer)) {
         result.error = luisa::string{"GLSL parse failed: "};
         result.error.append(shader.getInfoLog() == nullptr ? "unknown error" :

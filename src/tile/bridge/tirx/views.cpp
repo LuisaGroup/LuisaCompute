@@ -15,6 +15,7 @@
 namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
+namespace views_detail {
 
 using BufferKey = const tvm::tirx::VarNode *;
 using Domain = luisa::vector<const tvm::tirx::ForNode *>;
@@ -554,20 +555,21 @@ public:
     explicit ViewRewriter(const ViewAnalysis &analysis) : _analysis{analysis} {}
 };
 
+}  // namespace views_detail
 }// namespace
 
 tvm::tirx::Stmt forward_coordinate_tiles(const tvm::tirx::PrimFunc &function, uint64_t &forwarded) {
     auto current = function;
     forwarded = 0u;
     for (;;) {
-        InputAccess access;
+        views_detail::InputAccess access;
         access(current->body);
         if (access.opaque) { break; }
-        CoordinateAnalysis analysis{access};
+        views_detail::CoordinateAnalysis analysis{access};
         analysis(current->body);
         if (analysis.coordinates.empty()) { break; }
         forwarded += analysis.coordinates.size();
-        current.CopyOnWrite()->body = CoordinateRewriter{analysis}(current->body);
+        current.CopyOnWrite()->body = views_detail::CoordinateRewriter{analysis}(current->body);
         // Each round removes at least one unique allocation and full producer.
         // Re-audit the new tree before admitting dependent Boolean producers.
     }
@@ -578,26 +580,26 @@ ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, b
     ReadonlyViews result{function->body, {}};
     if (!noalias) { return result; }
     auto current = function;
-    luisa::unordered_set<BufferKey> forwarded_inputs;
+    luisa::unordered_set<views_detail::BufferKey> forwarded_inputs;
     for (;;) {
-        InputAccess access;
+        views_detail::InputAccess access;
         access(current->body);
         if (access.opaque) { break; }
-        luisa::unordered_set<BufferKey> inputs;
+        luisa::unordered_set<views_detail::BufferKey> inputs;
         for (auto &&parameter : current->params) {
             if (parameter->ty.as<tvm::tirx::BufferTypeNode>() == nullptr) { continue; }
             auto buffer = tvm::tirx::BufferVar{parameter};
             auto iter = access.buffers.find(buffer.get());
-            if (buffer.scope() == "global" && compact_buffer(buffer, allow_narrow_storage) && iter != access.buffers.end() &&
+            if (buffer.scope() == "global" && views_detail::compact_buffer(buffer, allow_narrow_storage) && iter != access.buffers.end() &&
                 iter->second.allocations == 0u && iter->second.stores == 0u && !iter->second.escapes) {
                 inputs.emplace(buffer.get());
             }
         }
-        ViewAnalysis analysis{access, inputs, preserve_guards, cache_reused_inputs, allow_narrow_storage};
+        views_detail::ViewAnalysis analysis{access, inputs, preserve_guards, cache_reused_inputs, allow_narrow_storage};
         analysis(current->body);
         if (analysis.views.empty()) { break; }
         for (auto &&[buffer, view] : analysis.views) { forwarded_inputs.emplace(view.source->buffer.get()); }
-        auto body = ViewRewriter{analysis}(current->body);
+        auto body = views_detail::ViewRewriter{analysis}(current->body);
         current.CopyOnWrite()->body = std::move(body);
         // Axis relabeling and other value copies may expose another complete
         // immutable-input snapshot. Recheck all effects, bounds and dominance

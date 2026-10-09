@@ -61,6 +61,7 @@ struct RayQueryHandlerRegion {
     size_t dispatch_exit_count{0u};
 };
 
+namespace clone_metadata_rayquery_detail {
 static void clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
@@ -68,6 +69,7 @@ static void clone_metadata(const MetadataListMixin &source,
     }
 }
 
+}  // namespace clone_metadata_rayquery_detail
 [[nodiscard]] static bool is_ray_query_object(
     const Value *value) noexcept {
     if (value == nullptr || !value->is_lvalue()) { return false; }
@@ -1566,7 +1568,7 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
                                                                             luisa::vector<std::pair<const PhiInst *, PhiInst *>> &phi_nodes,
                                                                             RayQueryLowerPassValueResolver &resolver) noexcept {
     auto bb = static_cast<BasicBlock *>(resolver.resolve(original));
-    clone_metadata(*original, *bb);
+    clone_metadata_rayquery_detail::clone_metadata(*original, *bb);
     XIRBuilder b;
     b.set_insertion_point(bb);
     for (auto inst : original->instructions()) {
@@ -1574,10 +1576,10 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
         if (inst->is_terminator() && inst->isa<BranchInst>() &&
             static_cast<const BranchInst *>(inst)->target_block() == merge) {
             auto *return_inst = b.return_void();
-            clone_metadata(*inst, *return_inst);
+            clone_metadata_rayquery_detail::clone_metadata(*inst, *return_inst);
         } else if (inst->isa<PhiInst>()) {
             auto dup_phi = b.phi(inst->type());
-            clone_metadata(*inst, *dup_phi);
+            clone_metadata_rayquery_detail::clone_metadata(*inst, *dup_phi);
             phi_nodes.emplace_back(static_cast<const PhiInst *>(inst), dup_phi);
             resolver.emplace(inst, dup_phi);
         } else {
@@ -1640,7 +1642,7 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     local_builder.set_insertion_point(function->definition()->body_block());
     for (auto *original : local_allocas) {
         auto *local = local_builder.alloca_(original->type(), original->op());
-        clone_metadata(*original, *local);
+        clone_metadata_rayquery_detail::clone_metadata(*original, *local);
         LUISA_ASSERT(resolver.emplace(original, local),
                      "Duplicate localized ray-query handler alloca.");
     }
@@ -1778,8 +1780,8 @@ static void lower_ray_query_to_pipeline(
     // dispatch and its enclosing loop. Clone dispatch provenance first so the
     // enclosing loop's name/location remains the primary identity if both
     // sources carry single-valued metadata.
-    clone_metadata(*dispatch, *pipeline);
-    clone_metadata(*loop, *pipeline);
+    clone_metadata_rayquery_detail::clone_metadata(*dispatch, *pipeline);
+    clone_metadata_rayquery_detail::clone_metadata(*loop, *pipeline);
     // remove the loop and record the change
     {
         loop->remove_self();
@@ -1845,7 +1847,7 @@ static void replace_phi_uses_with_local_load_in_blocks(BasicBlock *block, PhiIns
             b.set_insertion_point(block->instructions().head_sentinel());
             auto phi_load = b.load(phi->type(), phi_alloca);
             phi_load->add_comment("load from phi alloca");
-            clone_metadata(*phi, *phi_load);
+            clone_metadata_rayquery_detail::clone_metadata(*phi, *phi_load);
             for (auto use : local_uses) {
                 User::set_operand_use_value(use, phi_load);
             }
@@ -1893,7 +1895,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
             b.set_insertion_point(f->body_block()->instructions().head_sentinel());
             auto phi_alloca = b.alloca_local(phi->type());
             phi_alloca->add_comment("alloca to lower phi node in ray query loop");
-            clone_metadata(*phi, *phi_alloca);
+            clone_metadata_rayquery_detail::clone_metadata(*phi, *phi_alloca);
             static constexpr auto is_undef = [](Value *v) noexcept {
                 return v == nullptr || v->isa<Undefined>();
             };
@@ -1919,7 +1921,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
                 b.set_insertion_point(exit_block->instructions().head_sentinel());
                 auto phi_load = b.load(phi->type(), phi_alloca);
                 phi_load->add_comment("load from phi alloca in ray query exit block");
-                clone_metadata(*phi, *phi_load);
+                clone_metadata_rayquery_detail::clone_metadata(*phi, *phi_load);
                 phi->replace_all_uses_with(phi_load);
             }
             LUISA_DEBUG_ASSERT(phi->use_list().empty(), "Phi node has uses but no exit block.");

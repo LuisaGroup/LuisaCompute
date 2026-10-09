@@ -451,6 +451,7 @@ struct LoopCondition {
     return LoopTripCount{.variable = variable, .trip_count = trips};
 }
 
+namespace passes_autodiff_detail {
 struct CloneRemap final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> map;
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
@@ -460,6 +461,7 @@ struct CloneRemap final : public InstructionCloneValueResolver {
     }
 };
 
+}  // namespace passes_autodiff_detail
 struct TransformAdScope {
     Function *function{};
     FunctionDefinition *definition{};
@@ -667,7 +669,7 @@ struct TransformAdScope {
     }
 
     static void resolve_cloned_instruction_operands(
-        BasicBlock *source_block, CloneRemap &remap) noexcept {
+        BasicBlock *source_block, passes_autodiff_detail::CloneRemap &remap) noexcept {
         LUISA_ASSERT(source_block != nullptr,
                      "Autodiff loop cloning received a null source block.");
         for (auto *source : source_block->instructions()) {
@@ -775,7 +777,7 @@ struct TransformAdScope {
     }
 
     static void snapshot_prepare_escapes(
-        XIRBuilder &builder, CloneRemap &remap,
+        XIRBuilder &builder, passes_autodiff_detail::CloneRemap &remap,
         luisa::span<const LoopPrepareEscape> escapes) noexcept {
         for (auto escape : escapes) {
             auto iter = remap.map.find(escape.source);
@@ -869,7 +871,7 @@ struct TransformAdScope {
         auto escapes =
             create_prepare_escape_snapshots(escape_sources);
         auto trips = static_cast<size_t>(trip.trip_count);
-        luisa::vector<CloneRemap> remaps;
+        luisa::vector<passes_autodiff_detail::CloneRemap> remaps;
         remaps.resize(trips);
         for (auto iter = 0u; iter < trips; iter++) {
             for (auto block : ordered) {
@@ -913,7 +915,7 @@ struct TransformAdScope {
         auto *final_prepare =
             definition->create_basic_block();
         clone_local_metadata(prepare, final_prepare);
-        CloneRemap final_prepare_remap;
+        passes_autodiff_detail::CloneRemap final_prepare_remap;
         final_prepare_remap.map.emplace(
             prepare, final_prepare);
         b.set_insertion_point(final_prepare);
@@ -964,7 +966,7 @@ struct TransformAdScope {
 
     [[nodiscard]] auto clone_loop_prepare_condition(
         XIRBuilder &b, BasicBlock *prepare,
-        ConditionalBranchInst *branch, CloneRemap &remap,
+        ConditionalBranchInst *branch, passes_autodiff_detail::CloneRemap &remap,
         BasicBlock *target,
         luisa::span<const LoopPrepareEscape> escapes) noexcept
         -> Value * {
@@ -1042,7 +1044,7 @@ struct TransformAdScope {
         auto escapes =
             create_prepare_escape_snapshots(escape_sources);
         auto done_slot = create_snapshot_slot(Type::of<bool>());
-        luisa::vector<CloneRemap> remaps;
+        luisa::vector<passes_autodiff_detail::CloneRemap> remaps;
         remaps.resize(max_ad_loop_unroll_count);
         luisa::vector<BasicBlock *> gate_blocks;
         luisa::vector<BasicBlock *> eval_blocks;
@@ -1133,7 +1135,7 @@ struct TransformAdScope {
             b.set_insertion_point(iteration_merge_blocks[iter]);
             b.br(next);
         }
-        CloneRemap overflow_remap;
+        passes_autodiff_detail::CloneRemap overflow_remap;
         b.set_insertion_point(overflow_check);
         auto overflow_active = b.call(Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {b.load(Type::of<bool>(), done_slot)});
         auto overflow_active_if = b.if_(overflow_active);

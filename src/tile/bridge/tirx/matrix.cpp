@@ -87,12 +87,14 @@ struct AffineIndex {
     return true;
 }
 
+namespace tirx_matrix_detail {
 [[nodiscard]] bool is_positive_zero(const tvm::PrimExpr &expression) noexcept {
     auto value = expression.as<tvm::FloatImmNode>();
     return value != nullptr && expression.ty() == tvm::PrimType::Float(32) &&
            value->value == 0.0 && !std::signbit(value->value);
 }
 
+}  // namespace tirx_matrix_detail
 // Prove a positive strided matrix projection, rather than guessing it from
 // buffer rank or dimension names. Uniform pipeline-slot coordinates remain
 // symbolic. Nonlinear/reversed element maps conservatively keep the loop.
@@ -251,7 +253,7 @@ struct MatrixView {
     if (auto direct = matrix_view(value.as<tvm::tirx::BufferLoadNode>(), axes, row_axis, column_axis, rows, columns, map_buffer)) { return direct; }
     auto conditional = value.as<tvm::CallNode>();
     if (!bounded_k || conditional == nullptr || !conditional->op.same_as(tvm::tirx::builtin::if_then_else()) ||
-        conditional->args.size() != 3u || !is_positive_zero(conditional->args[2].as_or_throw<tvm::PrimExpr>())) { return {}; }
+        conditional->args.size() != 3u || !tirx_matrix_detail::is_positive_zero(conditional->args[2].as_or_throw<tvm::PrimExpr>())) { return {}; }
     auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version");
     if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
     auto mn_capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version");
@@ -695,7 +697,7 @@ struct MatchedMatrix {
         return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), store ? store_op : load_op, std::move(args)}};
     };
     auto direct = loop_emission != nullptr && loop_emission->output.has_value();
-    auto overwrite = direct ? loop_emission->overwrite_accumulator : !matrix.c && is_positive_zero(matrix.initial);
+    auto overwrite = direct ? loop_emission->overwrite_accumulator : !matrix.c && tirx_matrix_detail::is_positive_zero(matrix.initial);
     tvm::ffi::Array<tvm::tirx::Stmt> initial{tvm::tirx::AllocBuffer{cf}};
     // MPP multiply mode defines D = A * B, so no destination
     // initialization is required or observable.
@@ -781,7 +783,7 @@ luisa::optional<MatrixWorkload> metal_matrix_workload(
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     if (auto matched = match_metal_matrix(loop, map_buffer, bounded_k, ancestors)) {
         MatrixWorkload result{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
-        result.overwrites_accumulator = !matched->c && is_positive_zero(matched->initial);
+        result.overwrites_accumulator = !matched->c && tirx_matrix_detail::is_positive_zero(matched->initial);
         if (matched->reduction_length.defined()) {
             if (auto mean = mean_extent(matched->reduction_length, ancestors)) { result.mean_contraction = *mean; }
         }

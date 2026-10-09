@@ -30,6 +30,7 @@
 namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
+namespace tirx_reduction_detail {
 
 constexpr auto subgroup_size = uint64_t{32u};
 using BufferKey = const tvm::tirx::VarNode *;
@@ -2334,18 +2335,19 @@ struct ReductionTileMatch {
     return ReductionTileMatch{std::move(*domain), std::move(*match), reduction, output};
 }
 
+}  // namespace tirx_reduction_detail
 }// namespace
 
 luisa::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop) {
-    auto match = match_reduction_tile(loop);
+    auto match = tirx_reduction_detail::match_reduction_tile(loop);
     return match ? luisa::optional{match->domain.count} : luisa::nullopt;
 }
 
 tvm::tirx::Stmt try_metal_reduction_tile(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
-    if (threads < subgroup_size || threads % subgroup_size != 0u) { return {}; }
-    auto tile = match_reduction_tile(loop);
+    if (threads < tirx_reduction_detail::subgroup_size || threads % tirx_reduction_detail::subgroup_size != 0u) { return {}; }
+    auto tile = tirx_reduction_detail::match_reduction_tile(loop);
     if (!tile) { return {}; }
     auto domain = &tile->domain;
     auto match = &tile->reduction;
@@ -2371,16 +2373,16 @@ tvm::tirx::Stmt try_metal_reduction_tile(
     } mapper{map_buffer};
 
     auto zero = tvm::IntImm::Int64(0);
-    auto width = tvm::IntImm::Int64(static_cast<int64_t>(subgroup_size));
+    auto width = tvm::IntImm::Int64(static_cast<int64_t>(tirx_reduction_detail::subgroup_size));
     auto lane = tvm::floormod(thread, width);
     auto subgroup = tvm::floordiv(thread, width);
-    auto subgroups = threads / subgroup_size;
+    auto subgroups = threads / tirx_reduction_detail::subgroup_size;
     auto batch = tvm::tirx::PrimVar{loop->loop_var->name + "_reduction_batch", tvm::PrimType::Int(64)};
     auto row = batch * tvm::IntImm::Int64(static_cast<int64_t>(subgroups)) + subgroup;
     tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
     auto trailing = domain->count;
     for (auto axis : domain->axes) {
-        auto extent = *static_extent(axis->extent, true);
+        auto extent = *tirx_reduction_detail::static_extent(axis->extent, true);
         trailing /= extent;
         auto coordinate = tvm::floormod(tvm::floordiv(row, tvm::IntImm::Int64(static_cast<int64_t>(trailing))), axis->extent);
         coordinates.Set(axis->loop_var, axis->min + coordinate);
@@ -2397,9 +2399,9 @@ tvm::tirx::Stmt try_metal_reduction_tile(
         if (match->kind == reduction_max_contract) { return tvm::max(current, value); }
         return tvm::min(current, value);
     };
-    auto chunks = luisa::ceil_div(match->elements, subgroup_size);
+    auto chunks = luisa::ceil_div(match->elements, tirx_reduction_detail::subgroup_size);
     tvm::tirx::Stmt update = tvm::tirx::BufferStore{carry, combine(std::move(contribution)), {zero}};
-    if (match->elements % subgroup_size != 0u) {
+    if (match->elements % tirx_reduction_detail::subgroup_size != 0u) {
         update = tvm::tirx::IfThenElse{index < reduction->extent, std::move(update)};
     }
     auto intrinsic = match->kind == reduction_add_contract ? "simd_sum" :
@@ -2410,7 +2412,7 @@ tvm::tirx::Stmt try_metal_reduction_tile(
     auto indices = output->indices.Map([&](auto &&value) { return tvm::tirx::Substitute(mapper.expression(value), coordinates); });
     tvm::tirx::Stmt body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
         tvm::tirx::AllocBuffer{carry},
-        tvm::tirx::BufferStore{carry, reduction_identity(match->kind), {zero}},
+        tvm::tirx::BufferStore{carry, tirx_reduction_detail::reduction_identity(match->kind), {zero}},
         tvm::tirx::For{chunk, zero, tvm::IntImm::Int64(static_cast<int64_t>(chunks)), tvm::tirx::ForKind::kSerial, std::move(update)},
         // All lanes enter the collective, including identity-padded tails.
         // The leader predicate controls only publication, never participation.
@@ -2428,7 +2430,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     uint64_t shared_memory_limit,
     const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic,
     SubgroupReductionTarget target) {
-    auto groups = static_extent(loop->extent, true);
+    auto groups = tirx_reduction_detail::static_extent(loop->extent, true);
     auto minimum = loop->min.as<tvm::IntImmNode>();
     auto scope = loop->annotations.Get(execution_scope_annotation);
     auto scope_name = scope ? scope.value().as<tvm::ffi::String>() :
@@ -2466,27 +2468,27 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     }
     if (!enabled ||
         options.max_reduction_striped_scalars_per_worker == 0u ||
-        !unit_serial_loop(loop.get()) ||
+        !tirx_reduction_detail::unit_serial_loop(loop.get()) ||
         !groups || minimum == nullptr || loop->loop_var.ty() != tvm::PrimType::Int(64) ||
         (scope && (!scope_name || scope_name.value() != "subgroup")) ||
-        max_threads < subgroup_size) {
+        max_threads < tirx_reduction_detail::subgroup_size) {
         return {};
     }
 
-    ReductionAnalysis analysis;
+    tirx_reduction_detail::ReductionAnalysis analysis;
     analysis(loop->body);
     analysis.finish(loop->body);
     if (!analysis.valid) { return {}; }
-    ProgramAudit audit{analysis};
+    tirx_reduction_detail::ProgramAudit audit{analysis};
     audit(loop->body);
     if (!audit.valid) { return {}; }
-    PackedProgramAudit packing_audit{analysis};
+    tirx_reduction_detail::PackedProgramAudit packing_audit{analysis};
     packing_audit(loop->body);
-    DistributedLocalAudit ownership{analysis};
+    tirx_reduction_detail::DistributedLocalAudit ownership{analysis};
     ownership(loop->body);
     if (!ownership.valid()) { return {}; }
-    auto materializations = striped_materializations(loop->body, analysis, cuda);
-    DistributedAccessAnalysis accesses{analysis};
+    auto materializations = tirx_reduction_detail::striped_materializations(loop->body, analysis, cuda);
+    tirx_reduction_detail::DistributedAccessAnalysis accesses{analysis};
     accesses(loop->body);
     accesses.finish();
 
@@ -2494,11 +2496,11 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     // up to subgroup_size subgroups. This is an algorithmic bound, distinct
     // from the target's thread limit or the automatic search budget.
     auto maximum_subgroups = std::min<uint64_t>(
-        subgroup_size, max_threads / subgroup_size);
+        tirx_reduction_detail::subgroup_size, max_threads / tirx_reduction_detail::subgroup_size);
     auto default_policy = AnalyticExecutionCostPolicy{};
     auto &policy = options.cost_policy ? *options.cost_policy : default_policy;
     auto model = policy.coefficients(
-        ExecutionLimits{max_threads, subgroup_size, shared_memory_limit},
+        ExecutionLimits{max_threads, tirx_reduction_detail::subgroup_size, shared_memory_limit},
         MatrixCostBasis::SIMDGROUP_REFERENCE, options.cost);
     auto scalar_round_cost = model.subgroup_reduction_scalar_round;
     auto collective_cost = model.subgroup_reduction_collective;
@@ -2529,10 +2531,10 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     if (maximum_program_subgroups == 0u) { return {}; }
     if (options.threads_per_group != 0u) {
         if (options.threads_per_group > max_threads ||
-            options.threads_per_group % (subgroup_size * requested_packing) != 0u) {
+            options.threads_per_group % (tirx_reduction_detail::subgroup_size * requested_packing) != 0u) {
             return {};
         }
-        widths.emplace_back(options.threads_per_group / (subgroup_size * requested_packing));
+        widths.emplace_back(options.threads_per_group / (tirx_reduction_detail::subgroup_size * requested_packing));
     } else {
         if (maximum_program_subgroups > options.max_thread_candidates) {
             return diagnostic.reject("reduction thread candidate budget exceeded; increase the budget or request an exact width", tvm::tirx::Stmt{});
@@ -2544,7 +2546,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     }
     struct PreparedCandidate {
         tvm::tirx::Stmt body;
-        luisa::vector<VectorPackPhaseMemoryFacts> memory;
+        luisa::vector<tirx_reduction_detail::VectorPackPhaseMemoryFacts> memory;
         luisa::string error;
         uint64_t striped_storage_scalars{0u};
         uint64_t contribution_storage_scalars{0u};
@@ -2570,7 +2572,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         auto packed_programs = candidate.packed_programs;
         auto threads = candidate.threads;
         auto blocks = luisa::ceil_div(*groups, packed_programs);
-        auto program_workers = subgroups_per_program * subgroup_size;
+        auto program_workers = subgroups_per_program * tirx_reduction_detail::subgroup_size;
         auto block = tvm::tirx::PrimVar{
             loop->loop_var->name + "_subgroup_block", tvm::PrimType::Int(64)};
         auto thread = tvm::tirx::PrimVar{
@@ -2584,7 +2586,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         tvm::PrimExpr worker = (multi_subgroup || vector_packs) ?
                                    tvm::floormod(thread, tvm::IntImm::Int64(static_cast<int64_t>(program_workers))) :
                                    tvm::PrimExpr{lane};
-        auto subgroup = tvm::floordiv(worker, tvm::IntImm::Int64(static_cast<int64_t>(subgroup_size)));
+        auto subgroup = tvm::floordiv(worker, tvm::IntImm::Int64(static_cast<int64_t>(tirx_reduction_detail::subgroup_size)));
         auto partial_base = packed_index * tvm::IntImm::Int64(static_cast<int64_t>(subgroups_per_program));
         auto logical = block * tvm::IntImm::Int64(static_cast<int64_t>(packed_programs)) + packed_index;
         auto packed_tail = blocks * packed_programs != *groups;
@@ -2611,11 +2613,11 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                 allocations.push_back(tvm::tirx::AllocBuffer{std::move(partial)});
             }
         }
-        luisa::unordered_map<BufferKey, tvm::tirx::BufferVar> striped_buffers;
+        luisa::unordered_map<tirx_reduction_detail::BufferKey, tvm::tirx::BufferVar> striped_buffers;
         auto striped_storage_scalars = uint64_t{0u};
         for (auto &&[key, materialization] : materializations) {
             auto slots =
-                stripe_slots(materialization.elements, program_workers, options.reduction_lane_elements);
+                tirx_reduction_detail::stripe_slots(materialization.elements, program_workers, options.reduction_lane_elements);
             striped_storage_scalars += slots;
             auto buffer = tvm::tirx::decl_buffer(
                 {tvm::IntImm::Int64(static_cast<int64_t>(slots))},
@@ -2634,7 +2636,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                 tvm::IntImm::Int64(static_cast<int64_t>(threads)), tvm::tirx::ForKind::kSerial,
                 tvm::tirx::Evaluate{zero}};
         }
-        auto mapper = ReductionProgramMapper{
+        auto mapper = tirx_reduction_detail::ReductionProgramMapper{
             worker, lane, subgroup, partial_base, program_active,
             program_workers, multi_subgroup ? subgroups_per_program : 1u, candidate.unroll_factor, options.reduction_lane_elements,
             vector_packs, options.max_reduction_striped_scalars_per_worker - candidate.striped_storage_scalars,
@@ -2644,7 +2646,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         auto body = mapper(loop->body);
         if (local_diagnostic.failed()) { prepared.error = local_diagnostic.error(); return prepared; }
         if (row_only && multi_subgroup && analysis.reductions.size() == 1u && mapper.second_collective()) {
-            TerminalRowSuffix suffix{mapper.second_collective(), worker, thread, threads, lane, block, loop.get()};
+            tirx_reduction_detail::TerminalRowSuffix suffix{mapper.second_collective(), worker, thread, threads, lane, block, loop.get()};
             if (auto terminal = suffix.rewrite(body, subgroup)) {
                 body = terminal.value();
                 prepared.row_only_applied = true;
@@ -2664,7 +2666,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                 {lane, tvm::floormod(
                            thread,
                            tvm::IntImm::Int64(
-                               static_cast<int64_t>(subgroup_size)))}});
+                               static_cast<int64_t>(tirx_reduction_detail::subgroup_size)))}});
         if (!multi_subgroup && packed_tail) {
             body = tvm::tirx::IfThenElse{
                 logical < loop->extent, std::move(body)};
@@ -2711,7 +2713,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                        prepared->launch_participation_coverage_complete);
             LUISA_INFO("Private CUDA prepared staging: extra-scratch-scalars={} primitive-IR-counts-known={}; experimental score retains original pre-staging features.",
                        prepared->contribution_storage_scalars, prepared->primitive_ir_counts_known);
-            report_prepared_memory(prepared->memory);
+            tirx_reduction_detail::report_prepared_memory(prepared->memory);
         }
         return policy.reduction_cost(features, model);
     };
@@ -2725,14 +2727,14 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
                                  analysis.reductions.size() * subgroups *
                                      sizeof(float) :
                                  0u;
-        auto workers = subgroups * subgroup_size;
+        auto workers = subgroups * tirx_reduction_detail::subgroup_size;
         auto striped_storage_scalars = uint64_t{0u};
         auto striped_storage_valid = true;
         auto striped_storage_budget = static_cast<uint64_t>(
             options.max_reduction_striped_scalars_per_worker);
         for (auto &&[key, materialization] : materializations) {
             static_cast<void>(key);
-            auto slots = stripe_slots(materialization.elements, workers, options.reduction_lane_elements);
+            auto slots = tirx_reduction_detail::stripe_slots(materialization.elements, workers, options.reduction_lane_elements);
             if (slots > striped_storage_budget ||
                 striped_storage_scalars > striped_storage_budget - slots) {
                 striped_storage_valid = false;
@@ -2746,7 +2748,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
             continue;
         }
         auto minimum_unroll = cuda ?
-                                  constant_striped_index_min_unroll(materializations, workers, options.reduction_lane_elements) :
+                                  tirx_reduction_detail::constant_striped_index_min_unroll(materializations, workers, options.reduction_lane_elements) :
                                   luisa::optional<uint64_t>{};
         auto resolved_unroll = options.reduction_unroll_factor;
         if (resolved_unroll == 0u) {
@@ -2763,13 +2765,13 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         for (auto elements : analysis.independent_domains) {
             scalar_elements += static_cast<double>(elements);
             scalar_rounds +=
-                static_cast<double>(stripe_slots(elements, workers, options.reduction_lane_elements));
+                static_cast<double>(tirx_reduction_detail::stripe_slots(elements, workers, options.reduction_lane_elements));
         }
         for (auto reduction : analysis.reduction_order) {
             auto elements = analysis.reductions.at(reduction).elements;
             scalar_elements += static_cast<double>(elements);
             scalar_rounds +=
-                static_cast<double>(stripe_slots(elements, workers, options.reduction_lane_elements));
+                static_cast<double>(tirx_reduction_detail::stripe_slots(elements, workers, options.reduction_lane_elements));
         }
         // Packing and cooperating width are independent dimensions. Retain
         // the automatic family's incumbent while explicit packing/JIT search
@@ -2781,7 +2783,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
         auto lane_utilization = scalar_rounds == 0.0 ? 0.0 :
                                                        scalar_elements / (scalar_rounds * static_cast<double>(workers));
         for (auto packed = packing_begin; packed <= packing_end; packed++) {
-            auto threads = subgroups * packed * subgroup_size;
+            auto threads = subgroups * packed * tirx_reduction_detail::subgroup_size;
             if (threads > max_threads ||
                 partial_bytes > shared_memory_limit / packed ||
                 // Every cooperating CUDA program must finish reading its
@@ -2855,7 +2857,7 @@ tvm::tirx::Stmt try_map_subgroup_reduction(
     auto packed_programs = best.packed_programs;
     auto threads = best.threads;
     auto blocks = luisa::ceil_div(*groups, packed_programs);
-    auto program_workers = subgroups_per_program * subgroup_size;
+    auto program_workers = subgroups_per_program * tirx_reduction_detail::subgroup_size;
     auto striped_storage_scalars = best_prepared->striped_storage_scalars;
 
     GroupPlan plan;

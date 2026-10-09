@@ -40,6 +40,7 @@ struct MaterializedProjection {
     LoadInst *load{nullptr};
 };
 
+namespace clone_metadata_defer_detail {
 void clone_metadata(const MetadataListMixin &source,
                     MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
@@ -47,6 +48,7 @@ void clone_metadata(const MetadataListMixin &source,
     }
 }
 
+}  // namespace clone_metadata_defer_detail
 [[nodiscard]] bool has_static_local_pointer_path(
     Value *pointer) noexcept {
     while (pointer != nullptr && pointer->isa<Instruction>()) {
@@ -184,6 +186,7 @@ void remove_projection_dag(
 #endif
 }
 
+namespace clone_metadata_defer_detail {
 void run_on_function(Function *function,
                      DeferLocalAggregateLoadInfo &info) noexcept {
     auto *definition =
@@ -281,6 +284,7 @@ void run_on_function(Function *function,
     }
 }
 
+}  // namespace clone_metadata_defer_detail
 }// namespace
 
 }// namespace detail
@@ -289,7 +293,7 @@ DeferLocalAggregateLoadInfo
 defer_local_aggregate_load_pass_run_on_function(
     Function *function) noexcept {
     DeferLocalAggregateLoadInfo info;
-    detail::run_on_function(function, info);
+    detail::clone_metadata_defer_detail::run_on_function(function, info);
     return info;
 }
 
@@ -299,7 +303,7 @@ defer_local_aggregate_load_pass_run_on_module(
     DeferLocalAggregateLoadInfo info;
     if (module != nullptr) {
         for (auto *function : module->function_list()) {
-            detail::run_on_function(function, info);
+            detail::clone_metadata_defer_detail::run_on_function(function, info);
         }
     }
     if (report != nullptr) {

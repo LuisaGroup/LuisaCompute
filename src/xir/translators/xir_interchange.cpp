@@ -30,6 +30,7 @@
 namespace luisa::compute::xir {
 
 namespace {
+namespace xir_interchange_detail {
 
 constexpr std::array<std::byte, 8u> bitcode_magic{
     std::byte{'L'}, std::byte{'X'}, std::byte{'I'}, std::byte{'R'},
@@ -5464,13 +5465,14 @@ template<typename OperandSpan>
     return result;
 }
 
+}  // namespace xir_interchange_detail
 }// namespace
 
 bool detail::interchange_instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
     luisa::span<const Value *const> operands,
     BindlessResourceAccess bindless_access) noexcept {
-    return instruction_semantics_valid(
+    return xir_interchange_detail::instruction_semantics_valid(
         tag, op, type, operands, bindless_access);
 }
 
@@ -5493,7 +5495,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         }
         return result;
     }
-    auto writer_records_remaining = max_record_count;
+    auto writer_records_remaining = xir_interchange_detail::max_record_count;
     auto consume_writer_records = [&](size_t count) noexcept {
         if (count > writer_records_remaining) {
             return fail("Cumulative XIR record count exceeds the supported output budget.");
@@ -5505,7 +5507,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     for (auto count : {module->constant_list().count_size(),
                        module->undefined_list().count_size(),
                        module->special_register_list().count_size()}) {
-        if (count > max_record_count - global_count || !consume_writer_records(count)) {
+        if (count > xir_interchange_detail::max_record_count - global_count || !consume_writer_records(count)) {
             if (result.diagnostics.empty()) { fail("XIR global count exceeds the supported limit."); }
             return result;
         }
@@ -5520,7 +5522,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         auto instruction_count = size_t{0u};
         for (auto block : function->basic_blocks()) {
             auto count = block->instructions().count_size();
-            if (count > max_record_count - instruction_count) {
+            if (count > xir_interchange_detail::max_record_count - instruction_count) {
                 fail("XIR instruction count exceeds the supported limit.");
                 return result;
             }
@@ -5550,7 +5552,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         return luisa::nullopt;
     };
     auto append_type = [&](const Type *type) noexcept {
-        append_quoted(result.text, type == nullptr ? luisa::string_view{"void"} : type->description());
+        xir_interchange_detail::append_quoted(result.text, type == nullptr ? luisa::string_view{"void"} : type->description());
     };
     auto append_metadata = [&](const MetadataListMixin &owner, luisa::string_view indentation) noexcept {
         if (!consume_writer_records(owner.metadata_list().count_size())) { return false; }
@@ -5561,7 +5563,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
             }
         }
         luisa::string error;
-        if (append_metadata_records(result.text, owner, indentation, error)) { return true; }
+        if (xir_interchange_detail::append_metadata_records(result.text, owner, indentation, error)) { return true; }
         fail(std::move(error));
         return false;
     };
@@ -5575,15 +5577,15 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         if (value->type() == nullptr || value->type()->is_resource() ||
             value->type()->is_custom() || value->type()->is_cooperative_vector() ||
             value->type()->is_cooperative_vector_ref() ||
-            value->type()->is_cooperative_matrix_ref() || !round_trippable_type(value->type())) {
+            value->type()->is_cooperative_matrix_ref() || !xir_interchange_detail::round_trippable_type(value->type())) {
             fail("XIR interchange cannot serialize this constant.");
             return result;
         }
         size_t canonical_size = 0u;
         luisa::vector<std::byte> bytes;
-        if (!canonical_constant_size(value->type(), canonical_size) ||
-            canonical_size > max_payload_size ||
-            !encode_canonical_constant(value->type(), value->data(), bytes)) {
+        if (!xir_interchange_detail::canonical_constant_size(value->type(), canonical_size) ||
+            canonical_size > xir_interchange_detail::max_payload_size ||
+            !xir_interchange_detail::encode_canonical_constant(value->type(), value->data(), bytes)) {
             fail("XIR constant payload exceeds the supported size limit.");
             return result;
         }
@@ -5600,7 +5602,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     }
     for (auto value : module->undefined_list()) {
         if (value->type() == nullptr || value->type()->is_resource() ||
-            !round_trippable_type(value->type())) {
+            !xir_interchange_detail::round_trippable_type(value->type())) {
             fail("XIR interchange cannot serialize this undefined value.");
             return result;
         }
@@ -5621,7 +5623,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
             fail("XIR external function contains a definition.");
             return result;
         }
-        if (!round_trippable_type(function->type())) {
+        if (!xir_interchange_detail::round_trippable_type(function->type())) {
             fail("XIR interchange cannot serialize this function return type.");
             return result;
         }
@@ -5643,7 +5645,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         luisa::format_to(std::back_inserter(result.text), "    arguments {}\n", function->arguments().count_size());
         for (auto argument : function->arguments()) {
             if (argument->type() == nullptr ||
-                !round_trippable_type(argument->type())) {
+                !xir_interchange_detail::round_trippable_type(argument->type())) {
                 fail("XIR interchange cannot serialize this argument.");
                 return result;
             }
@@ -5670,9 +5672,9 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         luisa::format_to(std::back_inserter(result.text), "    instructions {}\n", instruction_count);
         for (auto block : function->basic_blocks()) {
             for (auto instruction : block->instructions()) {
-                auto name = instruction_name(instruction->derived_instruction_tag());
+                auto name = xir_interchange_detail::instruction_name(instruction->derived_instruction_tag());
                 if (!name ||
-                    !round_trippable_type(instruction->type())) {
+                    !xir_interchange_detail::round_trippable_type(instruction->type())) {
                     fail("XIR interchange v1 encountered an unsupported instruction.");
                     return result;
                 }
@@ -5755,7 +5757,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                                                    -1ll :
                                                    static_cast<int64_t>(*id(merge)));
                         for (auto case_value : switch_inst->case_values()) {
-                            auxiliary.emplace_back(encode_switch_case_value(
+                            auxiliary.emplace_back(xir_interchange_detail::encode_switch_case_value(
                                 switch_inst->value()->type(), case_value));
                         }
                         break;
@@ -5766,7 +5768,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         for (auto case_value :
                              indexed_branch->case_values()) {
                             auxiliary.emplace_back(
-                                encode_switch_case_value(
+                                xir_interchange_detail::encode_switch_case_value(
                                     indexed_branch->value()->type(),
                                     case_value));
                         }
@@ -5805,7 +5807,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         break;
                     }
                     case DerivedInstructionTag::CORO_SUSPEND:
-                        encode_coro_suspend_record(
+                        xir_interchange_detail::encode_coro_suspend_record(
                             static_cast<const CoroSuspendInst *>(instruction),
                             auxiliary, payloads);
                         break;
@@ -5862,13 +5864,13 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     default: break;
                 }
                 for (auto payload : payloads) {
-                    if (payload.size() > max_string_payload_size) {
+                    if (payload.size() > xir_interchange_detail::max_string_payload_size) {
                         fail("XIR instruction string payload exceeds the supported limit.");
                         return result;
                     }
                 }
-                if (!valid_op(instruction->derived_instruction_tag(), op) ||
-                    !instruction_operand_count_valid(instruction->derived_instruction_tag(), op,
+                if (!xir_interchange_detail::valid_op(instruction->derived_instruction_tag(), op) ||
+                    !xir_interchange_detail::instruction_operand_count_valid(instruction->derived_instruction_tag(), op,
                                                      instruction->operand_count(), auxiliary.size(), payloads.size())) {
                     fail("XIR instruction has an unsupported operand or opcode layout.");
                     return result;
@@ -5878,7 +5880,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     !consume_writer_records(payloads.size())) {
                     return result;
                 }
-                auto op_name = instruction_op_name(instruction->derived_instruction_tag(), op);
+                auto op_name = xir_interchange_detail::instruction_op_name(instruction->derived_instruction_tag(), op);
                 if (!op_name) {
                     fail("XIR instruction has an unsupported operation.");
                     return result;
@@ -5904,7 +5906,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }();
                 if (instruction->derived_instruction_tag() !=
                         DerivedInstructionTag::CORO_SUSPEND &&
-                    !instruction_semantics_valid(
+                    !xir_interchange_detail::instruction_semantics_valid(
                         instruction->derived_instruction_tag(), op,
                         instruction->type(), luisa::span{semantic_operands},
                         bindless_access)) {
@@ -5930,7 +5932,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     luisa::format_to(std::back_inserter(result.text), " payloads {}", payloads.size());
                     for (auto payload : payloads) {
                         result.text.push_back(' ');
-                        append_quoted(result.text, payload);
+                        xir_interchange_detail::append_quoted(result.text, payload);
                     }
                 }
                 result.text.push_back('\n');
@@ -5940,7 +5942,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         result.text.append("  }\n");
     }
     result.text.append("}\n");
-    if (result.text.size() > max_payload_size) {
+    if (result.text.size() > xir_interchange_detail::max_payload_size) {
         fail("XIR text payload exceeds the supported size limit.");
     }
     return result;
@@ -5948,19 +5950,19 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
 
 XIRInterchangeParseResult xir_from_interchange_text(luisa::string_view text) noexcept {
     XIRInterchangeParseResult result;
-    if (text.size() > max_payload_size) {
-        result.diagnostics.emplace_back(diagnostic_at(text, 0u, "XIR text payload exceeds the supported size limit."));
+    if (text.size() > xir_interchange_detail::max_payload_size) {
+        result.diagnostics.emplace_back(xir_interchange_detail::diagnostic_at(text, 0u, "XIR text payload exceeds the supported size limit."));
         return result;
     }
-    TextParser parser{text, result.diagnostics};
-    ModuleRecord record;
-    if (!parse_module_record(parser, record)) {
+    xir_interchange_detail::TextParser parser{text, result.diagnostics};
+    xir_interchange_detail::ModuleRecord record;
+    if (!xir_interchange_detail::parse_module_record(parser, record)) {
         if (result.diagnostics.empty()) {
-            result.diagnostics.emplace_back(diagnostic_at(text, parser.offset(), "Malformed XIR interchange text."));
+            result.diagnostics.emplace_back(xir_interchange_detail::diagnostic_at(text, parser.offset(), "Malformed XIR interchange text."));
         }
         return result;
     }
-    return build_module(record);
+    return xir_interchange_detail::build_module(record);
 }
 
 XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
@@ -5970,9 +5972,9 @@ XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
         result.diagnostics = std::move(text_result.diagnostics);
         return result;
     }
-    ModuleRecord record;
-    TextParser parser{text_result.text, result.diagnostics};
-    if (!parse_module_record(parser, record)) {
+    xir_interchange_detail::ModuleRecord record;
+    xir_interchange_detail::TextParser parser{text_result.text, result.diagnostics};
+    if (!xir_interchange_detail::parse_module_record(parser, record)) {
         if (result.diagnostics.empty()) {
             result.diagnostics.emplace_back(XIRInterchangeDiagnostic{
                 .message = "Internal error while lowering XIR to its binary module record."});
@@ -5981,16 +5983,16 @@ XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
     }
     luisa::vector<std::byte> payload;
     luisa::string error;
-    if (!encode_binary_module_record(record, payload, error)) {
+    if (!xir_interchange_detail::encode_binary_module_record(record, payload, error)) {
         result.diagnostics.emplace_back(XIRInterchangeDiagnostic{.message = std::move(error)});
         return result;
     }
-    result.bitcode.reserve(bitcode_header_size + payload.size());
-    result.bitcode.insert(result.bitcode.end(), bitcode_magic.begin(), bitcode_magic.end());
-    append_u32(result.bitcode, bitcode_version);
-    append_u32(result.bitcode, 0u);
-    append_u64(result.bitcode, payload.size());
-    append_u64(result.bitcode, checksum(payload));
+    result.bitcode.reserve(xir_interchange_detail::bitcode_header_size + payload.size());
+    result.bitcode.insert(result.bitcode.end(), xir_interchange_detail::bitcode_magic.begin(), xir_interchange_detail::bitcode_magic.end());
+    xir_interchange_detail::append_u32(result.bitcode, xir_interchange_detail::bitcode_version);
+    xir_interchange_detail::append_u32(result.bitcode, 0u);
+    xir_interchange_detail::append_u64(result.bitcode, payload.size());
+    xir_interchange_detail::append_u64(result.bitcode, xir_interchange_detail::checksum(payload));
     result.bitcode.insert(result.bitcode.end(), payload.begin(), payload.end());
     return result;
 }
@@ -6002,58 +6004,58 @@ XIRInterchangeParseResult xir_from_bitcode(luisa::span<const std::byte> bitcode)
             .offset = offset,
             .message = std::move(message)});
     };
-    if (bitcode.size() < bitcode_header_size) {
+    if (bitcode.size() < xir_interchange_detail::bitcode_header_size) {
         fail("Truncated XIR bitcode header.", bitcode.size());
         return result;
     }
-    for (auto i = 0u; i < bitcode_magic.size(); i++) {
-        if (bitcode[i] != bitcode_magic[i]) {
+    for (auto i = 0u; i < xir_interchange_detail::bitcode_magic.size(); i++) {
+        if (bitcode[i] != xir_interchange_detail::bitcode_magic[i]) {
             fail("Invalid XIR bitcode magic.", i);
             return result;
         }
     }
-    auto version = read_u32(bitcode, 8u);
-    if (version != interchange_version && version != bitcode_version) {
+    auto version = xir_interchange_detail::read_u32(bitcode, 8u);
+    if (version != xir_interchange_detail::interchange_version && version != xir_interchange_detail::bitcode_version) {
         fail("Unsupported XIR bitcode version.", 8u);
         return result;
     }
-    if (read_u32(bitcode, 12u) != 0u) {
+    if (xir_interchange_detail::read_u32(bitcode, 12u) != 0u) {
         fail("XIR bitcode reserved header bits are nonzero.", 12u);
         return result;
     }
-    auto payload_size_u64 = read_u64(bitcode, 16u);
-    if (payload_size_u64 > max_payload_size || payload_size_u64 > std::numeric_limits<size_t>::max()) {
+    auto payload_size_u64 = xir_interchange_detail::read_u64(bitcode, 16u);
+    if (payload_size_u64 > xir_interchange_detail::max_payload_size || payload_size_u64 > std::numeric_limits<size_t>::max()) {
         fail("XIR bitcode payload exceeds the supported size limit.", 16u);
         return result;
     }
     auto payload_size = static_cast<size_t>(payload_size_u64);
-    if (payload_size > bitcode.size() - bitcode_header_size) {
+    if (payload_size > bitcode.size() - xir_interchange_detail::bitcode_header_size) {
         fail("Truncated XIR bitcode payload.", bitcode.size());
         return result;
     }
-    if (payload_size != bitcode.size() - bitcode_header_size) {
-        fail("Unexpected trailing bytes after XIR bitcode payload.", bitcode_header_size + payload_size);
+    if (payload_size != bitcode.size() - xir_interchange_detail::bitcode_header_size) {
+        fail("Unexpected trailing bytes after XIR bitcode payload.", xir_interchange_detail::bitcode_header_size + payload_size);
         return result;
     }
-    auto payload = bitcode.subspan(bitcode_header_size, payload_size);
-    if (checksum(payload) != read_u64(bitcode, 24u)) {
+    auto payload = bitcode.subspan(xir_interchange_detail::bitcode_header_size, payload_size);
+    if (xir_interchange_detail::checksum(payload) != xir_interchange_detail::read_u64(bitcode, 24u)) {
         fail("XIR bitcode payload checksum mismatch.", 24u);
         return result;
     }
-    if (version == interchange_version) {
+    if (version == xir_interchange_detail::interchange_version) {
         auto text = luisa::string_view{
             reinterpret_cast<const char *>(payload.data()), payload.size()};
         return xir_from_interchange_text(text);
     }
-    ModuleRecord record;
-    BinaryReader reader{payload, bitcode_header_size, result.diagnostics};
-    if (!decode_binary_module_record(reader, record)) {
+    xir_interchange_detail::ModuleRecord record;
+    xir_interchange_detail::BinaryReader reader{payload, xir_interchange_detail::bitcode_header_size, result.diagnostics};
+    if (!xir_interchange_detail::decode_binary_module_record(reader, record)) {
         if (result.diagnostics.empty()) {
-            fail("Malformed XIR binary module record.", bitcode_header_size + reader.offset());
+            fail("Malformed XIR binary module record.", xir_interchange_detail::bitcode_header_size + reader.offset());
         }
         return result;
     }
-    return build_module(record);
+    return xir_interchange_detail::build_module(record);
 }
 
 }// namespace luisa::compute::xir

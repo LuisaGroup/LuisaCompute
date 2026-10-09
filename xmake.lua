@@ -9,6 +9,14 @@ option("lc_enable_mimalloc", {default = true})
 option("lc_enable_custom_malloc", {default = false})
 -- enable unity(jumbo) build, enable this option will optimize compile speed
 option("lc_enable_unity_build", {default = true})
+-- run scripts/check_unity_build_conflicts.py as part of every build. The unity
+-- build merges several translation units of a target into one, so two files that
+-- declare the same file-local helper name (`static` or in an anonymous namespace)
+-- collide as soon as they land in the same batch. The check needs Python with the
+-- tree-sitter and tree-sitter-cpp packages (`pip install tree-sitter tree-sitter-cpp`).
+option("lc_check_unity_build", {default = false,
+    description = "Fail the build when two files of a unity build batch declare the same file-local symbol.",
+    showmenu = true})
 -- enable Pre-Compile header, enable this option will optimize compile speed
 option("lc_enable_pch", {default = true})
 -- enable sse and sse2 SIMD

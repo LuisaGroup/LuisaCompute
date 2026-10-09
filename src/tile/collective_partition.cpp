@@ -4,6 +4,7 @@
 
 namespace luisa::compute::tile {
 namespace {
+namespace collective_partition_detail {
 
 [[nodiscard]] bool same_space(const IndexSpace &a, const IndexSpace &b) noexcept {
     if (a.rank() != b.rank()) { return false; }
@@ -136,6 +137,7 @@ namespace {
     return source;
 }
 
+}  // namespace collective_partition_detail
 }// namespace
 
 IndependentCollectivePlan plan_independent_collective(const Function &function, IndependentPartitionRequest request) noexcept {
@@ -172,7 +174,7 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
         (store->domain()->rank() != 1u && store->domain()->rank() != 2u) || load->bounds_mode() != BoundsMode::ZERO ||
         store->bounds_mode() != BoundsMode::ZERO || load->operand_count() != 3u ||
         store->operand_count() != store->domain()->rank() + 2u) { return fail("requires one zero-padded rank-two snapshot and rank-one or rank-two store"); }
-    auto reduction = find(*root, work.operation_id);
+    auto reduction = collective_partition_detail::find(*root, work.operation_id);
     auto map = reduction == nullptr ? nullptr : reduction->parent_block()->parent_region()->parent_operation();
     if (map == nullptr || map->kind() != OperationKind::TILE_MAP || map->parent_block() != program ||
         !map->domain() || map->domain()->rank() != 1u || map->result_count() != 1u) { return fail("reduction result is not one direct independent Tile map"); }
@@ -194,7 +196,7 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
         input->index() > std::numeric_limits<uint32_t>::max() || output->index() > std::numeric_limits<uint32_t>::max()) {
         return fail("requires distinct direct root views with matched positional ranks");
     }
-    if (!storage(input->type().scalar_type()) || !storage(output->type().scalar_type())) { return fail("requires FP32, FP16 or BF16 view storage"); }
+    if (!collective_partition_detail::storage(input->type().scalar_type()) || !collective_partition_detail::storage(output->type().scalar_type())) { return fail("requires FP32, FP16 or BF16 view storage"); }
     auto in_space = input->type().index_space(), out_space = output->type().index_space();
     for (auto &&axis : in_space->axes()) {
         if (!axis.extent.is_constant() || axis.extent.constant_value() == 0u || axis.extent.constant_value() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
@@ -224,16 +226,16 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     plan.original = geometry(independent_extent);
     plan.candidate = geometry(target);
     uint64_t padded_independent;
-    if (analysis.programs != plan.original.programs || !multiply(plan.original.programs, independent_extent, padded_independent) ||
+    if (analysis.programs != plan.original.programs || !collective_partition_detail::multiply(plan.original.programs, independent_extent, padded_independent) ||
         padded_independent - 1u > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
         contribution_extent - 1u > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) { return fail("program grid does not give a safe complete independent cover"); }
     for (auto i = size_t{0u}; i < 2u; i++) {
-        if (i == *ia ? !origin(load->operand(i + 1u), program->argument(0u), independent_extent) : !integer_constant(load->operand(i + 1u), 0u)) {
+        if (i == *ia ? !collective_partition_detail::origin(load->operand(i + 1u), program->argument(0u), independent_extent) : !collective_partition_detail::integer_constant(load->operand(i + 1u), 0u)) {
             return fail("input origin is not the proved independent ownership map");
         }
     }
     for (auto i = size_t{0u}; i < out_space->rank(); i++) {
-        if (i == *oa ? !origin(store->operand(i + 1u), program->argument(0u), independent_extent) : !integer_constant(store->operand(i + 1u), 0u)) {
+        if (i == *oa ? !collective_partition_detail::origin(store->operand(i + 1u), program->argument(0u), independent_extent) : !collective_partition_detail::integer_constant(store->operand(i + 1u), 0u)) {
             return fail("output origin is not an injective independent ownership map");
         }
     }
@@ -243,14 +245,14 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     }
     if (extract == nullptr) { return fail("missing admitted contribution extraction"); }
     auto source = extract->operand(0u);
-    if (!same_space(*source->type().index_space(), *load->domain()) || source->use_count() != 1u) {
+    if (!collective_partition_detail::same_space(*source->type().index_space(), *load->domain()) || source->use_count() != 1u) {
         return fail("contribution snapshot changes shape or has another use");
     }
     auto source_op = source->defining_operation();
     if (source_op != nullptr && source_op->parent_block() == program && source_op->kind() == OperationKind::ELEMENTWISE &&
         source_op->elementwise_op() == ElementwiseOp::SELECT) {
-        if (source_op->operand_count() != 3u || !identity(source_op->operand(2u), work.kind) ||
-            !identity_mask(source_op->operand(0u), contribution, contribution_extent, logical_contribution, program)) {
+        if (source_op->operand_count() != 3u || !collective_partition_detail::identity(source_op->operand(2u), work.kind) ||
+            !collective_partition_detail::identity_mask(source_op->operand(0u), contribution, contribution_extent, logical_contribution, program)) {
             return fail("contribution mask is not its actual coordinate bound and reducer identity");
         }
         source = source_op->operand(1u);
@@ -258,7 +260,7 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     }
     auto loaded = load->result(0u);
     if (source->use_count() != 1u || loaded->use_count() != 1u ||
-        (source != loaded && tile_cast(source, input->type().scalar_type(), ScalarType::FLOAT32, program) != loaded)) {
+        (source != loaded && collective_partition_detail::tile_cast(source, input->type().scalar_type(), ScalarType::FLOAT32, program) != loaded)) {
         return fail("contribution is not the sole original snapshot or its FP32 conversion");
     }
     auto stored = store->operand(store->operand_count() - 1u);
@@ -267,14 +269,14 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     for (auto step = 0u; step < 3u && stored != result; step++) {
         if (stored->use_count() != 1u) { return fail("store chain has an extra snapshot use"); }
         if (!saw_cast) {
-            if (auto previous = tile_cast(stored, ScalarType::FLOAT32, output->type().scalar_type(), program)) {
+            if (auto previous = collective_partition_detail::tile_cast(stored, ScalarType::FLOAT32, output->type().scalar_type(), program)) {
                 saw_cast = true;
                 stored = previous;
                 continue;
             }
         }
         if (!saw_projection) {
-            if (auto previous = projection(stored, independent, independent_extent, program)) {
+            if (auto previous = collective_partition_detail::projection(stored, independent, independent_extent, program)) {
                 saw_projection = true;
                 stored = previous;
                 continue;
@@ -284,9 +286,9 @@ IndependentCollectivePlan plan_independent_collective(const Function &function, 
     }
     if (stored != result || result->use_count() != 1u) { return fail("reduction Tile has another use or unmatched epilogue"); }
     uint64_t elements, input_bytes, output_bytes;
-    if (!multiply(logical_independent, logical_contribution, elements) ||
-        !multiply(elements, scalar_type_size(input->type().scalar_type()), input_bytes) ||
-        !multiply(logical_independent, scalar_type_size(output->type().scalar_type()), output_bytes)) {
+    if (!collective_partition_detail::multiply(logical_independent, logical_contribution, elements) ||
+        !collective_partition_detail::multiply(elements, scalar_type_size(input->type().scalar_type()), input_bytes) ||
+        !collective_partition_detail::multiply(logical_independent, scalar_type_size(output->type().scalar_type()), output_bytes)) {
         return fail("root view byte interval overflows");
     }
     plan.parallel_operation_id = parallel->id();
@@ -318,7 +320,7 @@ IndependentCollectiveWorkFacts analyze_independent_collective_candidate(
         return std::move(facts);
     };
     if (!plan.ok() || (plan.kind != CollectiveKind::SUM && plan.kind != CollectiveKind::MAXIMUM) ||
-        !storage(plan.input_storage) || !storage(plan.output_storage) ||
+        !collective_partition_detail::storage(plan.input_storage) || !collective_partition_detail::storage(plan.output_storage) ||
         !plan.independent_axis || !plan.contribution_axis || plan.independent_axis == plan.contribution_axis) {
         return fail("requires a successful independent collective plan");
     }
@@ -349,16 +351,16 @@ IndependentCollectiveWorkFacts analyze_independent_collective_candidate(
     auto extent = geometry.independent_extent_per_program;
     auto input_bytes = static_cast<uint64_t>(scalar_type_size(plan.input_storage));
     auto output_bytes = static_cast<uint64_t>(scalar_type_size(plan.output_storage));
-    if (!multiply(geometry.programs, extent, facts.padded_independent_elements) ||
-        !multiply(extent, width, facts.collective_input_elements_per_program) ||
-        !multiply(geometry.programs, facts.collective_input_elements_per_program, facts.collective_input_elements_total) ||
-        !multiply(rows, columns, facts.valid_input_elements) ||
-        !multiply(facts.valid_input_elements, input_bytes, facts.valid_input_bytes) ||
-        !multiply(rows, output_bytes, facts.valid_output_bytes) ||
-        !multiply(facts.collective_input_elements_per_program, input_bytes, facts.input_snapshot_bytes_per_program) ||
-        !multiply(facts.collective_input_elements_per_program, uint64_t{4u}, facts.fp32_source_bytes_per_program) ||
-        !multiply(extent, uint64_t{4u}, facts.fp32_result_bytes_per_program) ||
-        !multiply(extent, output_bytes, facts.output_value_bytes_per_program)) {
+    if (!collective_partition_detail::multiply(geometry.programs, extent, facts.padded_independent_elements) ||
+        !collective_partition_detail::multiply(extent, width, facts.collective_input_elements_per_program) ||
+        !collective_partition_detail::multiply(geometry.programs, facts.collective_input_elements_per_program, facts.collective_input_elements_total) ||
+        !collective_partition_detail::multiply(rows, columns, facts.valid_input_elements) ||
+        !collective_partition_detail::multiply(facts.valid_input_elements, input_bytes, facts.valid_input_bytes) ||
+        !collective_partition_detail::multiply(rows, output_bytes, facts.valid_output_bytes) ||
+        !collective_partition_detail::multiply(facts.collective_input_elements_per_program, input_bytes, facts.input_snapshot_bytes_per_program) ||
+        !collective_partition_detail::multiply(facts.collective_input_elements_per_program, uint64_t{4u}, facts.fp32_source_bytes_per_program) ||
+        !collective_partition_detail::multiply(extent, uint64_t{4u}, facts.fp32_result_bytes_per_program) ||
+        !collective_partition_detail::multiply(extent, output_bytes, facts.output_value_bytes_per_program)) {
         return fail("independent collective work arithmetic overflows");
     }
     if (plan.disjoint.input.argument_index == plan.disjoint.output.argument_index ||

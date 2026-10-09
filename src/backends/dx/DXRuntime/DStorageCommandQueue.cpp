@@ -9,11 +9,13 @@
 #include <Resource/TextureBase.h>
 namespace lc::dx {
 namespace {
+namespace DStorageCommandQueue_detail {
 [[nodiscard]] bool dstorage_is_read_command(luisa::compute::Command const *cmd) noexcept {
     return cmd->tag() == luisa::compute::Command::Tag::ECustomCommand &&
            static_cast<luisa::compute::CustomCommand const *>(cmd)->custom_cmd_uuid() ==
                luisa::to_underlying(luisa::compute::CustomCommandUUID::DSTORAGE_READ);
 }
+}  // namespace DStorageCommandQueue_detail
 }// namespace
 
 void dstorage_split_texture_region(
@@ -175,7 +177,7 @@ uint64_t DStorageCommandQueue::Execute(
             }
         };
         for (auto &&i : commands) {
-            if (!dstorage_is_read_command(i.get())) [[unlikely]] {
+            if (!DStorageCommandQueue_detail::dstorage_is_read_command(i.get())) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Only DStorage commands are allowed in this stream.");
             }
             auto cmd = static_cast<luisa::compute::DStorageReadCommand const *>(i.get());

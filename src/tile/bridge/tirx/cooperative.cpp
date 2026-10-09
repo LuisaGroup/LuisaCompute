@@ -41,12 +41,15 @@ void validate_domain(const tvm::tirx::ForNode *loop, Diagnostic &diagnostic) {
     }
 }
 
+namespace tirx_cooperative_detail {
 struct ElementDomain {
     luisa::vector<const tvm::tirx::ForNode *> axes;
     tvm::tirx::Stmt body;
     uint64_t count{1u};
 };
 
+}  // namespace tirx_cooperative_detail
+namespace tirx_cooperative_detail {
 [[nodiscard]] ElementDomain element_domain(const tvm::tirx::ForNode *loop, Diagnostic &diagnostic) {
     if (diagnostic.failed()) { return {}; }
     auto rank = int64_t{1};
@@ -82,6 +85,7 @@ struct ElementDomain {
     return result;
 }
 
+}  // namespace tirx_cooperative_detail
 [[nodiscard]] tvm::tirx::Stmt metal_group_barrier() {
     // TIRx's built-in shared barrier only fences threadgroup memory on Metal.
     // A Tile phase may also write a global view consumed by the next phase.
@@ -113,15 +117,17 @@ struct AccumulatorLoop {
 
 using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, AccumulatorLoop>;
 
+namespace tirx_cooperative_detail {
 [[nodiscard]] bool is_positive_zero(const tvm::PrimExpr &expression) noexcept {
     auto value = expression.as<tvm::FloatImmNode>();
     return value != nullptr && expression.ty() == tvm::PrimType::Float(32) &&
            value->value == 0.0 && !std::signbit(value->value);
 }
 
+}  // namespace tirx_cooperative_detail
 [[nodiscard]] bool is_carry_update(const tvm::tirx::ForNode *loop, const MatrixCarry &carry, Diagnostic &diagnostic) {
     if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return false; }
-    auto domain = element_domain(loop, diagnostic);
+    auto domain = tirx_cooperative_detail::element_domain(loop, diagnostic);
     if (diagnostic.failed() || domain.axes.size() != 2u) { return false; }
     auto rows = static_extent(domain.axes[0]->extent, diagnostic);
     if (diagnostic.failed() || rows != carry.rows) { return false; }
@@ -156,7 +162,7 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
 
 [[nodiscard]] tvm::PrimExpr literal_initial(const tvm::tirx::ForNode *loop, const MatrixCarry &carry, Diagnostic &diagnostic) {
     if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return {}; }
-    auto domain = element_domain(loop, diagnostic);
+    auto domain = tirx_cooperative_detail::element_domain(loop, diagnostic);
     if (diagnostic.failed() || domain.axes.size() != 2u) { return {}; }
     auto rows = static_extent(domain.axes[0]->extent, diagnostic);
     if (diagnostic.failed() || rows != carry.rows) { return {}; }
@@ -393,7 +399,7 @@ protected:
                     if (iter->second.direct->destination.epilogue) { store_work = 0u; }
                     matrix.direct_output_elements = initial_work + std::min(store_work, std::numeric_limits<uint64_t>::max() - initial_work);
                     workload.matrices[iter->second.matrix_index].overwrites_accumulator =
-                        iter->second.iterations == 1u && is_positive_zero(iter->second.direct->value);
+                        iter->second.iterations == 1u && tirx_cooperative_detail::is_positive_zero(iter->second.direct->value);
                 }
             }
         }
@@ -419,7 +425,7 @@ protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
         auto independent = loop->annotations.count(independent_elements_annotation) || loop->annotations.count(logical_parallel_annotation);
         if (independent) {
-            auto domain = element_domain(loop, _diagnostic);
+            auto domain = tirx_cooperative_detail::element_domain(loop, _diagnostic);
             if (_diagnostic.failed()) { return; }
             workload.max_independent_elements = std::max(workload.max_independent_elements, domain.count);
             if (_lane_depth == 0u) {
@@ -541,7 +547,7 @@ private:
     }
 
     [[nodiscard]] tvm::tirx::Stmt _distribute(const tvm::tirx::ForNode *loop) {
-        auto domain = element_domain(loop, _diagnostic);
+        auto domain = tirx_cooperative_detail::element_domain(loop, _diagnostic);
         if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         auto count = domain.count;
         _lane_depth++;
@@ -643,7 +649,7 @@ protected:
             if (direct) {
                 emission.initial = iter->second.direct->value;
                 emission.output = iter->second.direct->destination;
-                emission.overwrite_accumulator = iter->second.iterations == 1u && is_positive_zero(emission.initial);
+                emission.overwrite_accumulator = iter->second.iterations == 1u && tirx_cooperative_detail::is_positive_zero(emission.initial);
             }
             _active_accumulator = &iter->second;
             _loop_emission = &emission;

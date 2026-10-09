@@ -15,6 +15,7 @@
 namespace luisa::compute::cuda {
 
 namespace {
+namespace cuda_graph_ext_detail {
 
 [[nodiscard]] CUstream to_cu_stream(uint64_t stream_handle) noexcept {
     return reinterpret_cast<CUDAStream *>(stream_handle)->handle();
@@ -133,6 +134,7 @@ struct DagResource {
     }
 };
 
+}  // namespace cuda_graph_ext_detail
 }// namespace
 
 CudaGraphExtImpl::CudaGraphExtImpl(CUDADevice *device) noexcept
@@ -236,7 +238,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
         nodes.reserve(commands.size());
         CUgraph graph = nullptr;
         if (auto err = cuGraphCreate(&graph, 0u); err != CUDA_SUCCESS) {
-            cuda_graph_dag_fail("cuGraphCreate", err);
+            cuda_graph_ext_detail::cuda_graph_dag_fail("cuGraphCreate", err);
             return {invalid_handle, nullptr};
         }
 
@@ -247,9 +249,9 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
             CUgraph graph;
             CUcontext ctx;
             luisa::vector<CUgraphNode> &nodes;
-            luisa::unordered_map<uint64_t, DagResource> buffer_states;
-            luisa::unordered_map<uint64_t, DagResource> texture_states;
-            luisa::unordered_map<uint64_t, DagResource> bindless_states;
+            luisa::unordered_map<uint64_t, cuda_graph_ext_detail::DagResource> buffer_states;
+            luisa::unordered_map<uint64_t, cuda_graph_ext_detail::DagResource> texture_states;
+            luisa::unordered_map<uint64_t, cuda_graph_ext_detail::DagResource> bindless_states;
             luisa::vector<uint32_t> deps;
             luisa::vector<CUgraphNode> dep_nodes;
             luisa::vector<uint32_t> tile_nodes;
@@ -279,7 +281,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                                                     dependencies.data(), dependencies.size(),
                                                     &params, ctx);
                     err != CUDA_SUCCESS) {
-                    cuda_graph_dag_fail(what, err);
+                    cuda_graph_ext_detail::cuda_graph_dag_fail(what, err);
                     ok = false;
                     return;
                 }
@@ -587,7 +589,7 @@ ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noex
                                                     dependencies.data(), dependencies.size(),
                                                     &params);
                     err != CUDA_SUCCESS) {
-                    cuda_graph_dag_fail("cuGraphAddKernelNode", err);
+                    cuda_graph_ext_detail::cuda_graph_dag_fail("cuGraphAddKernelNode", err);
                     ok = false;
                     return;
                 }
@@ -636,7 +638,7 @@ ResourceCreationInfo CudaGraphExtImpl::_instantiate(GraphHandle graph, Instantia
     return _device->with_handle([&]() -> ResourceCreationInfo {
         CUgraphExec exec = nullptr;
         auto ret = cuGraphInstantiateWithFlags(&exec, reinterpret_cast<CUgraph>(graph),
-                                               to_instantiate_flags(flags));
+                                               cuda_graph_ext_detail::to_instantiate_flags(flags));
         if (ret != CUDA_SUCCESS) {
             const char *err_name = nullptr;
             cuGetErrorName(ret, &err_name);
@@ -680,7 +682,7 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
   void CudaGraphExtImpl::launch(GraphExecHandle exec, uint64_t stream_handle) noexcept {
       if (exec == invalid_handle) { return; }
       _device->with_handle([&] {
-          auto stream = to_cu_stream(stream_handle);
+          auto stream = cuda_graph_ext_detail::to_cu_stream(stream_handle);
           auto ret = cuGraphLaunch(reinterpret_cast<CUgraphExec>(exec), stream);
           if (ret != CUDA_SUCCESS) {
               const char *err_name = nullptr;
@@ -695,7 +697,7 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
           std::scoped_lock lock{_mutex};
           if (auto it = _exec_data.find(exec); it != _exec_data.end()) {
               for (auto &host_copy : it->second.host_copies) {
-                  if (auto err = cuLaunchHostFunc(stream, cuda_graph_host_copy_callback, &host_copy);
+                  if (auto err = cuLaunchHostFunc(stream, cuda_graph_ext_detail::cuda_graph_host_copy_callback, &host_copy);
                       err != CUDA_SUCCESS) {
                       const char *err_name = nullptr;
                       cuGetErrorName(err, &err_name);
@@ -711,7 +713,7 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
 void CudaGraphExtImpl::upload(GraphExecHandle exec, uint64_t stream_handle) noexcept {
     if (exec == invalid_handle) { return; }
     _device->with_handle([&] {
-        auto ret = cuGraphUpload(reinterpret_cast<CUgraphExec>(exec), to_cu_stream(stream_handle));
+        auto ret = cuGraphUpload(reinterpret_cast<CUgraphExec>(exec), cuda_graph_ext_detail::to_cu_stream(stream_handle));
         if (ret != CUDA_SUCCESS) {
             const char *err_name = nullptr;
             cuGetErrorName(ret, &err_name);
