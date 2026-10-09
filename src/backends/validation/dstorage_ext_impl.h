@@ -25,6 +25,11 @@ public:
     void unpin_host_memory(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
     DStorageExtImpl(DStorageExt *ext, Device *self);
+    /// Forward the backend's capability probe so callers behind the validation
+    /// layer see the real answer (the base class only knows about `None`).
+    [[nodiscard]] bool supports_compression(Compression algorithm) const noexcept override {
+        return _impl->supports_compression(algorithm);
+    }
     void compress(const void *data, size_t size_bytes,
                   Compression algorithm,
                   CompressionQuality quality,

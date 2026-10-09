@@ -1698,6 +1698,94 @@ stream << std::move(launcher).build(thread_count) << synchronize();
   `src/tests/unit/ext/test_native_shader_{command,reflection,cuda_reflection}.cpp` /
   `src/tests/integration/runtime/test_native_shader.cpp` for the contract tests.
 
+### Direct Storage (`DStorageExt`)
+
+Streams file-system reads (and reads from pinned host memory) directly into buffers, textures
+and raw memory, bypassing the regular upload path. Header:
+`include/luisa/backends/ext/dstorage_ext.hpp` (interface in `dstorage_ext_interface.h`,
+command in `dstorage_cmd.h`).
+
+```cpp
+#include <luisa/backends/ext/dstorage_ext.hpp>
+
+auto *ext = device.extension<DStorageExt>();          // nullptr on backends without it
+if (ext == nullptr) { return; }
+
+DStorageStreamOption option;
+option.source = DStorageStreamSource::AnySource;       // FileSource | MemorySource | AnySource
+option.staging_buffer_size = 4ull * 1024ull * 1024ull; // process-global hint on DX
+auto dstream = ext->create_stream(option);             // StreamTag::CUSTOM stream
+
+auto file = ext->open_file("data.bin");                // RAII: closes on scope exit
+if (!file) { /* invalid path / empty file */ }
+auto buffer = device.create_buffer<uint8_t>(file.size_bytes());
+dstream << file.copy_to(buffer) << synchronize();      // file -> buffer
+dstream << file.view(1024u, 512u).copy_to(buffer.view(0u, 512u)) << synchronize();
+
+auto image = device.create_image<float>(PixelStorage::BYTE4, make_uint2(w, h));
+dstream << file.copy_to(image) << synchronize();       // file -> image (pitch-aligned source)
+dstream << file.view().copy_to(image, uint2{32u, 16u}, uint2{64u, 48u}, 0u) << synchronize();
+
+auto host = luisa::vector<uint8_t>(n);
+auto pinned = ext->pin_memory(host.data(), host.size_bytes());
+dstream << pinned.copy_to(buffer) << synchronize();    // pinned host memory -> buffer
+dstream << pinned.copy_to(out.data(), out.size()) << synchronize(); // -> raw memory
+
+luisa::vector<std::byte> compressed;
+if (ext->supports_compression(DStorageCompression::GDeflate)) {
+    ext->compress(src.data(), src.size(), DStorageCompression::GDeflate,
+                  DStorageCompressionQuality::Default, compressed);
+}
+dstream << compressed_file.copy_to(image, DStorageCompression::GDeflate) << synchronize();
+```
+
+* **Command flow**: `copy_to(...)` does not submit anything; it manufactures a
+  `DStorageReadCommand` (a `CustomCommand`, UUID `CustomCommandUUID::DSTORAGE_READ`) that is
+  appended to the stream with `<<`. `dstream << read << synchronize()` blocks until the transfer
+  is done; `dstream << event.signal(v)` / `other_stream << event.wait(v)` order it against other
+  streams. A DStorage stream only accepts DStorage commands.
+* **Source layout contract** (see the header of `dstorage_cmd.h`):
+  * Buffer / raw-memory destinations take contiguous source bytes from `source.offset_bytes`; the
+    transfer size is `min(source size, destination size)` and is **clamped at construction**, so a
+    short file view can never read past the end of the source.
+  * Texture destinations require the source rows to be padded to a 256-byte pitch
+    (`D3D12_TEXTURE_DATA_PITCH_ALIGNMENT`): use
+    `dstorage_texture_row_pitch(storage, width)` and `dstorage_texture_source_size(storage, size)`
+    (free functions in `dstorage_ext.hpp`) to lay data out. `TextureRequest::storage` makes the
+    request self-describing. The VK fallback repacks the padded rows into the tightly packed rows
+    its upload path needs; DX/CUDA read the padded source directly.
+  * Compressed requests are *not* byte-sliceable: the whole compressed blob is one request and
+    `UncompressedSize` is the copyable footprint of the destination (the pitch-aligned size for
+    textures). DX requires `UncompressedSize <= staging_buffer_size`.
+* **`DStorageFile` / `DStorageFileView`**: `view(offset)` / `view(offset, size)` / `subview(...)`
+  are zero-copy windows (`offset == size_bytes` and zero-size views are legal). `size_bytes()`
+  round-trips through `open_file`. `pin_memory` returns a `DStorageFile` with tag
+  `DSTORAGE_PINNED_MEMORY` whose handle is whatever `pin_host_memory` returned - the value is
+  **opaque and backend-private** (DX and the VK fallback use the raw host pointer, CUDA/Metal use
+  an internal object), so never interpret it.
+* **Staging buffer**: DirectStorage applies `IDStorageFactory::SetStagingBufferSize` once,
+  process-globally, before the first queue exists. The first stream decides; a later stream asking
+  for a different size is ignored with a warning. Requests larger than the applied size are split
+  transparently (buffers/memory) or rejected with a clear error (compressed requests). The VK
+  fallback stages through host memory and has no such limit.
+* **Backend support matrix**:
+
+  | backend | implementation | Notes |
+  |---|---|---|
+  | `dx` | real DirectStorage (`IDStorageQueue2`), one native queue per source type | requires `dstorage.dll`/`dstoragecore.dll` next to the app; GDeflate is the only compressor |
+  | `vk` | host-staged fallback on an internal `COPY` stream (`src/backends/vk/dstorage_ext.cpp`) | reads are synchronous on the dispatching thread, then uploaded with normal commands; `None` compression only |
+  | `cuda` | mapped files + `cuMemHostRegister`-pinned host memory | `nvcomp` compressors when `LUISA_COMPUTE_ENABLE_NVCOMP` |
+  | `metal` | MTLIO | `None` and the Apple compression codecs |
+
+  `supports_compression(algorithm)` is the capability probe (forwarded through the validation
+  layer); `compress()` fails loudly for everything else instead of silently producing garbage.
+* **Not supported** (reported, never silently ignored): sparse-texture/tile destinations,
+  custom decompression queues, `CancelRequestsWithTag`.
+* See `examples/extension/dstorage.cpp` for a runnable demo (`dx`/`vk`/`cuda`) and
+  `src/tests/integration/runtime/test_dstorage.cpp` for the coverage test
+  (`test_dstorage dx|vk|cuda [--validation]`).
+
+
 ### Complete Runtime Example
 
 ```cpp
@@ -1780,6 +1868,8 @@ stream << buf.copy_to(luisa::span{host_data}) << synchronize();
 | `luisa/runtime/rtx/ray.h` | Ray, hit types |
 | `luisa/runtime/raster/raster_shader.h` | RasterShader |
 | `luisa/runtime/raster/raster_scene.h` | RasterMesh, VertexBufferView |
+| `luisa/backends/ext/dstorage_ext.hpp` | DStorageExt, DStorageFile, DStorageFileView |
+| `luisa/backends/ext/dstorage_cmd.h` | DStorageReadCommand, source-layout helpers |
 
 ## VSTL: Containers and Utilities
 

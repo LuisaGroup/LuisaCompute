@@ -41,6 +41,7 @@
 #include "pinned_memory_ext.h"
 #include "vk_raster_ext.h"
 #include "vk_native_res_ext.h"
+#include "dstorage_ext.h"
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
@@ -959,6 +960,20 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         },
         [](DeviceExtension *ext) {
             delete static_cast<VkNativeShaderExt *>(ext);
+        });
+    // Direct storage: the Vulkan backend provides a host-staged fallback
+    // (see src/backends/vk/dstorage_ext.{h,cpp}).
+    _exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{DStorageExt::name},
+#else
+        DStorageExt::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkDStorageExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkDStorageExt *>(ext);
         });
 
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
@@ -2650,6 +2665,23 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
+    // Extension-owned streams must go first: their destructors synchronize and
+    // destroy the internal COPY stream they own, which needs both the logical
+    // device and `_streams` to still be alive.
+    {
+        vstd::vector<CustomStream *> leftovers;
+        {
+            std::lock_guard lck{_custom_stream_mtx};
+            leftovers.reserve(_custom_streams.size());
+            for (auto &i : _custom_streams) {
+                leftovers.emplace_back(i.second);
+            }
+            _custom_streams.clear();
+        }
+        for (auto *stream : leftovers) {
+            delete stream;
+        }
+    }
     if (_vk_device) {
         vkDestroyDescriptorSetLayout(logic_device(), _sampler_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_buffer_set_layout, alloc_callbacks());
@@ -2863,6 +2895,24 @@ void Device::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 // stream
+void Device::add_custom_stream(uint64_t handle, CustomStream *stream) noexcept {
+    std::lock_guard lck{_custom_stream_mtx};
+    auto emplaced = _custom_streams.try_emplace(handle, stream).second;
+    LUISA_ASSERT(emplaced, "Duplicate Vulkan custom-stream handle registered.");
+}
+CustomStream *Device::find_custom_stream(uint64_t handle) noexcept {
+    std::lock_guard lck{_custom_stream_mtx};
+    auto iter = _custom_streams.find(handle);
+    return iter == _custom_streams.end() ? nullptr : iter->second;
+}
+CustomStream *Device::remove_custom_stream(uint64_t handle) noexcept {
+    std::lock_guard lck{_custom_stream_mtx};
+    auto iter = _custom_streams.find(handle);
+    if (iter == _custom_streams.end()) { return nullptr; }
+    auto *stream = iter->second;
+    _custom_streams.erase(iter);
+    return stream;
+}
 ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
     auto ptr = new Stream(this, stream_tag);
     {
@@ -2875,6 +2925,12 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
     return info;
 }
 void Device::destroy_stream(uint64_t handle) noexcept {
+    if (auto *custom = remove_custom_stream(handle)) {
+        // Unregister before deleting: the destructor must not be able to
+        // re-enter this path for its own handle.
+        delete custom;
+        return;
+    }
     auto *stream = reinterpret_cast<Stream *>(handle);
     {
         std::lock_guard lck{_stream_mtx};
@@ -2883,10 +2939,18 @@ void Device::destroy_stream(uint64_t handle) noexcept {
     delete stream;
 }
 void Device::synchronize_stream(uint64_t stream_handle) noexcept {
+    if (auto *custom = find_custom_stream(stream_handle)) {
+        custom->synchronize();
+        return;
+    }
     reinterpret_cast<Stream *>(stream_handle)->sync();
 }
 void Device::dispatch(
     uint64_t stream_handle, CommandList &&list) noexcept {
+    if (auto *custom = find_custom_stream(stream_handle)) {
+        custom->dispatch(std::move(list));
+        return;
+    }
     reinterpret_cast<Stream *>(stream_handle)->dispatch(list.commands(), list.steal_callbacks(), list.presents(), _inqueue_limit);
 }
 
@@ -3744,9 +3808,17 @@ void Device::destroy_event(uint64_t handle) noexcept {
     delete reinterpret_cast<Event *>(handle);
 }
 void Device::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {
+    if (auto *custom = find_custom_stream(stream_handle)) {
+        custom->signal(reinterpret_cast<Event *>(handle), fence_value);
+        return;
+    }
     reinterpret_cast<Stream *>(stream_handle)->signal(reinterpret_cast<Event *>(handle), fence_value);
 }
 void Device::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {
+    if (auto *custom = find_custom_stream(stream_handle)) {
+        custom->wait(reinterpret_cast<Event *>(handle), fence_value);
+        return;
+    }
     reinterpret_cast<Stream *>(stream_handle)->wait(reinterpret_cast<Event *>(handle), fence_value);
 }
 void Device::synchronize_event(uint64_t handle, uint64_t fence_value) noexcept {
@@ -4025,6 +4097,10 @@ void Device::destroy_sparse_buffer(uint64_t handle) noexcept {
 }
 void Device::set_stream_log_callback(uint64_t stream_handle,
                                      const StreamLogCallback &callback) noexcept {
+    if (auto *custom = find_custom_stream(stream_handle)) {
+        custom->set_log_callback(callback);
+        return;
+    }
     reinterpret_cast<Stream *>(stream_handle)->logger = callback;
 }
 }// namespace lc::vk

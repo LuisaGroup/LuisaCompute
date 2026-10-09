@@ -15,6 +15,9 @@
 #include <DXApi/TypeCheck.h>
 #include <luisa/runtime/image.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/magic_enum.h>
+#include <algorithm>
+#include <cstring>
 namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -154,53 +157,94 @@ SwapchainCreationInfo DxNativeResourceExt::register_external_swapchain(
     info.native_handle = swapchain_ptr;
     return info;
 }
-void DStorageExtImpl::_init_factory_nolock() {
-    HRESULT(WINAPI * DStorageGetFactory)
-    (REFIID riid, _COM_Outptr_ void **ppv);
-    if (!_dstorage_module || !_dstorage_core_module) {
-        LUISA_WARNING("Direct-Storage DLL not found.");
-        return;
+bool DStorageExtImpl::_init_factory_nolock() noexcept {
+    if (_factory) [[likely]] {
+        return true;
     }
-    DStorageGetFactory = _dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
-    DStorageGetFactory(IID_PPV_ARGS(_factory.GetAddressOf()));
+    if (!_dstorage_module || !_dstorage_core_module) {
+        if (!_dll_warning_issued) {
+            _dll_warning_issued = true;
+            LUISA_WARNING("DirectStorage runtime (dstorage.dll / dstoragecore.dll) was "
+                          "not found next to the application; DirectStorage is "
+                          "unavailable on this machine.");
+        }
+        return false;
+    }
+    // Take the exact function type (including the calling convention) from the
+    // in-tree DirectStorage header instead of re-spelling it.
+    using DStorageGetFactoryFn = std::remove_pointer_t<decltype(&DStorageGetFactory)>;
+    auto get_factory = _dstorage_module.function<DStorageGetFactoryFn>("DStorageGetFactory");
+    if (get_factory == nullptr) [[unlikely]] {
+        LUISA_WARNING("dstorage.dll does not export DStorageGetFactory; DirectStorage is unavailable.");
+        return false;
+    }
+    if (FAILED(get_factory(IID_PPV_ARGS(_factory.GetAddressOf()))) || !_factory) [[unlikely]] {
+        LUISA_WARNING("DStorageGetFactory failed; DirectStorage is unavailable.");
+        return false;
+    }
+    return true;
 }
-void DStorageExtImpl::_init_factory() {
+bool DStorageExtImpl::_init_factory() {
     {
         std::lock_guard lck{_spin_mtx};
         if (_factory) [[likely]] {
-            return;
+            return true;
         }
     }
     std::lock_guard lck{_mtx};
     if (_factory) [[unlikely]] {
-        return;
+        return true;
     }
-    _init_factory_nolock();
+    return _init_factory_nolock();
 }
 DStorageExtImpl::DStorageExtImpl(luisa::filesystem::path const &runtime_dir, LCDevice *device) noexcept
     : _dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       _dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
       _mdevice{device} {
 }
+DStorageExtImpl::~DStorageExtImpl() noexcept {
+    // Streams own the native queues and release them through
+    // `LCDevice::destroy_stream`, which must have happened before the device
+    // (and therefore this extension) is destroyed.  Release the codec before
+    // the factory so a late `close_file_handle` can never touch a dead factory.
+    std::lock_guard lck{_mtx};
+    _compression_codec.Reset();
+    _pinned_ranges.clear();
+    _factory.Reset();
+}
 ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
     _set_config(option.supports_hdd);
-    if (option.staging_buffer_size != _staging_buffer_size) {
-        if (!_staging.exchange(true)) {
-            _factory->SetStagingBufferSize(option.staging_buffer_size);
-            _staging_buffer_size = option.staging_buffer_size;
-        } else {
-            LUISA_WARNING("Staging buffer already setted, staging set failed.");
-        }
+    if (!_init_factory()) {
+        return ResourceCreationInfo::make_invalid();
+    }
+    // `SetStagingBufferSize` is process-global and must be applied before the
+    // first queue is created; later requests must be consistent.
+    if (!_staging_applied) {
+        _factory->SetStagingBufferSize(static_cast<UINT32>(option.staging_buffer_size));
+        _staging_buffer_size = option.staging_buffer_size;
+        _staging_applied = true;
+    } else if (option.staging_buffer_size != _staging_buffer_size) {
+        LUISA_WARNING(
+            "DirectStorage's staging buffer size is process-global and was already "
+            "set to {} byte(s); ignoring the request for {} byte(s).",
+            _staging_buffer_size, option.staging_buffer_size);
+    }
+    if (option.source == DStorageStreamSource::AnySource) {
+        LUISA_INFO("DirectStorage stream created with AnySource: one native queue "
+                   "per source type (file + memory).");
     }
     ResourceCreationInfo r{};
-    auto ptr = new DStorageCommandQueue{_factory.Get(), &_mdevice->native_device, option.source};
-    ptr->staging_buffer_size = _staging_buffer_size;
+    auto ptr = new DStorageCommandQueue{
+        this, _factory.Get(), &_mdevice->native_device,
+        option.source, _staging_buffer_size};
     r.handle = reinterpret_cast<uint64_t>(ptr);
     r.native_handle = nullptr;
     return r;
 }
 DStorageExtImpl::FileCreationInfo DStorageExtImpl::open_file_handle(luisa::string_view path) noexcept {
-    _init_factory();
+    if (!_init_factory()) {
+        return FileCreationInfo::make_invalid();
+    }
     ComPtr<IDStorageFile> file;
     luisa::vector<wchar_t> wstr;
     luisa::enlarge_by(wstr, path.size() + 1);
@@ -239,10 +283,63 @@ DeviceInterface *DStorageExtImpl::device() const noexcept {
 void DStorageExtImpl::close_file_handle(uint64_t handle) noexcept {
     delete reinterpret_cast<DStorageFileImpl *>(handle);
 }
+size_t DStorageExtImpl::pinned_memory_size(uint64_t handle) noexcept {
+    std::lock_guard lck{_mtx};
+    auto iter = _pinned_ranges.find(handle);
+    return iter == _pinned_ranges.end() ? 0u : iter->second;
+}
+DStorageExtImpl::PinnedMemoryInfo DStorageExtImpl::pin_host_memory(void *ptr, size_t size_bytes) noexcept {
+    // There is no device-side pinning in DX yet: the raw host pointer *is* the
+    // handle (see the handle contract in dstorage_ext_interface.h).  The range
+    // is recorded so memory-sourced requests can be validated.
+    if (ptr == nullptr || size_bytes == 0u) [[unlikely]] {
+        LUISA_WARNING("Cannot pin a null or empty host range "
+                      "(pointer = {}, size = {} byte(s)).",
+                      ptr, size_bytes);
+        return PinnedMemoryInfo::make_invalid();
+    }
+    auto handle = reinterpret_cast<uint64_t>(ptr);
+    {
+        std::lock_guard lck{_mtx};
+        auto iter = _pinned_ranges.try_emplace(handle, size_bytes);
+        if (!iter.second) {
+            // Overlapping/re-pinned range: keep the widest window so a range
+            // check never rejects valid requests.
+            iter.first->second = std::max(iter.first->second, size_bytes);
+        }
+    }
+    PinnedMemoryInfo info;
+    info.handle = handle;
+    info.native_handle = ptr;
+    info.size_bytes = size_bytes;
+    return info;
+}
+void DStorageExtImpl::unpin_host_memory(uint64_t handle) noexcept {
+    std::lock_guard lck{_mtx};
+    _pinned_ranges.erase(handle);
+}
 void DStorageExtImpl::compress(
     const void *data, size_t size_bytes,
     Compression algorithm, CompressionQuality quality,
     luisa::vector<std::byte> &result) noexcept {
+    if (algorithm == Compression::None) {
+        result.resize(size_bytes);
+        if (size_bytes != 0u) {
+            std::memcpy(result.data(), data, size_bytes);
+        }
+        return;
+    }
+    if (algorithm != Compression::GDeflate) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Unsupported DirectStorage compression format {}: the DX backend "
+            "only provides GDeflate (use DStorageCompression::None for a plain copy).",
+            to_string(algorithm));
+    }
+    if (!_dstorage_module) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "DirectStorage runtime is unavailable; cannot GDeflate-compress. "
+            "Use DStorageCompression::None or compress offline.");
+    }
     constexpr DSTORAGE_COMPRESSION qua[] = {
         DSTORAGE_COMPRESSION_FASTEST,
         DSTORAGE_COMPRESSION_DEFAULT,
@@ -261,10 +358,23 @@ void DStorageExtImpl::compress(
         if (_compression_codec) [[unlikely]] {
             return;
         }
-        HRESULT(WINAPI * DStorageCreateCompressionCodec)
-        (DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void **ppv);
-        DStorageCreateCompressionCodec = _dstorage_module.function<std::remove_pointer_t<decltype(DStorageCreateCompressionCodec)>>("DStorageCreateCompressionCodec");
-        DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE, std::thread::hardware_concurrency(), IID_PPV_ARGS(_compression_codec.GetAddressOf()));
+        using DStorageCreateCompressionCodecFn =
+            std::remove_pointer_t<decltype(&DStorageCreateCompressionCodec)>;
+        auto create_codec = _dstorage_module.function<DStorageCreateCompressionCodecFn>(
+            "DStorageCreateCompressionCodec");
+        if (create_codec == nullptr) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "dstorage.dll does not export DStorageCreateCompressionCodec; "
+                "cannot GDeflate-compress. Use DStorageCompression::None or "
+                "compress offline.");
+        }
+        if (FAILED(create_codec(DSTORAGE_COMPRESSION_FORMAT_GDEFLATE,
+                                std::thread::hardware_concurrency(),
+                                IID_PPV_ARGS(_compression_codec.GetAddressOf()))) ||
+            !_compression_codec) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to create the GDeflate compression codec.");
+        }
     }();
     luisa::enlarge_by(result, _compression_codec->CompressBufferBound(size_bytes));
     ThrowIfFailed(_compression_codec->CompressBuffer(
@@ -278,27 +388,49 @@ void DStorageExtImpl::compress(
 }
 void DStorageExtImpl::_set_config(bool hdd) noexcept {
     std::lock_guard lck{_mtx};
-    if (hdd == _is_hdd) {
-        if (!_factory) {
-            _init_factory_nolock();
+    if (!_config_set) {
+        // First use decides the process-global configuration.  DirectStorage
+        // requires it to be set before the factory exists, so an app that
+        // called `open_file()` first cannot influence it any more.
+        _config_set = true;
+        _is_hdd = hdd;
+        if (_factory) [[unlikely]] {
+            LUISA_WARNING(
+                "DirectStorage configuration can no longer be changed: the "
+                "factory already exists (open_file() was called before "
+                "create_stream()). Ignoring supports_hdd={}.",
+                hdd);
+        } else if (_dstorage_module) {
+            using DStorageSetConfiguration1Fn =
+                std::remove_pointer_t<decltype(&DStorageSetConfiguration1)>;
+            auto set_configuration = _dstorage_module.function<DStorageSetConfiguration1Fn>(
+                "DStorageSetConfiguration1");
+            if (set_configuration != nullptr) {
+                if (hdd) {
+                    DSTORAGE_CONFIGURATION1 cfg{
+                        .DisableBypassIO = true,
+                        .ForceFileBuffering = true};
+                    set_configuration(&cfg);
+                } else {
+                    DSTORAGE_CONFIGURATION1 cfg{};
+                    set_configuration(&cfg);
+                }
+            } else {
+                LUISA_WARNING("dstorage.dll does not export DStorageSetConfiguration1; "
+                              "ignoring supports_hdd={}.",
+                              hdd);
+            }
         }
+        _init_factory_nolock();
         return;
     }
-    _is_hdd = hdd;
-    if (_factory) [[unlikely]] {
-        LUISA_ERROR("set_config can only be called before first open_file and create_stream");
-    }
-    HRESULT(WINAPI * DStorageSetConfiguration1)
-    (DSTORAGE_CONFIGURATION1 const *configuration);
-    DStorageSetConfiguration1 = _dstorage_module.function<std::remove_pointer_t<decltype(DStorageSetConfiguration1)>>("DStorageSetConfiguration1");
-    if (hdd) {
-        DSTORAGE_CONFIGURATION1 cfg{
-            .DisableBypassIO = true,
-            .ForceFileBuffering = true};
-        DStorageSetConfiguration1(&cfg);
-    } else {
-        DSTORAGE_CONFIGURATION1 cfg{};
-        DStorageSetConfiguration1(&cfg);
+    if (hdd != _is_hdd) [[unlikely]] {
+        // Fixes the "first stream silently pins the process to non-HDD" trap:
+        // the mismatch is reported instead of being fatal or silent.
+        LUISA_WARNING(
+            "DirectStorage configuration is process-global and was already "
+            "latched with supports_hdd={}; ignoring supports_hdd={}.",
+            _is_hdd, hdd);
     }
     _init_factory_nolock();
 }

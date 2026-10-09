@@ -14,6 +14,14 @@
 
 namespace luisa::compute {
 
+/// A view into a `DStorageFile` (a file or a pinned-memory range).
+///
+/// `copy_to` manufactures a `DStorageReadCommand`.  For buffer and raw-memory
+/// destinations the request size is clamped to the view size, so a short view
+/// can never read past the end of the source.  For texture destinations the
+/// source must follow the pitch-aligned layout described in
+/// `luisa/backends/ext/dstorage_cmd.h` (use `dstorage_texture_row_pitch` /
+/// `dstorage_texture_source_size` to lay out such data).
 class DStorageFileView {
 
 private:
@@ -39,8 +47,9 @@ public:
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
 
+    /// A zero-length subview at the very end is legal (`offset == size`).
     [[nodiscard]] auto subview(size_t offset_bytes, size_t size_bytes) const noexcept {
-        LUISA_ASSERT(offset_bytes < _size_bytes, "Offset out of range.");
+        LUISA_ASSERT(offset_bytes <= _size_bytes, "Offset out of range.");
         LUISA_ASSERT(size_bytes <= _size_bytes - offset_bytes, "Size out of range.");
         return DStorageFileView{_handle, _offset_bytes + offset_bytes,
                                 size_bytes, _is_pinned_memory};
@@ -65,6 +74,16 @@ private:
         return source;
     }
 
+    // Compressed requests carry the compressed byte count on the source and the
+    // uncompressed byte count on the destination, so their sizes must not be
+    // clamped against each other.
+    [[nodiscard]] size_t _clamp_destination_size(size_t destination_bytes,
+                                                 DStorageCompression compression) const noexcept {
+        if (compression != DStorageCompression::None) { return destination_bytes; }
+        auto source = size_bytes();
+        return destination_bytes < source ? destination_bytes : source;
+    }
+
 public:
     template<typename BufferOrView>
         requires is_buffer_or_view_v<BufferOrView>
@@ -76,7 +95,7 @@ public:
             DStorageReadCommand::BufferRequest{
                 .handle = view.handle(),
                 .offset_bytes = view.offset_bytes(),
-                .size_bytes = view.size_bytes()},
+                .size_bytes = _clamp_destination_size(view.size_bytes(), compression)},
             compression);
     }
 
@@ -86,26 +105,34 @@ public:
                                DStorageCompression compression = DStorageCompression::None) const noexcept {
         ImageView view{image};
         auto size = view.size();
+        auto storage = view.storage();
+        _check_texture_source(storage, uint3{size.x, size.y, 1u}, compression);
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = view.handle(),
                 .level = view.level(),
+                .storage = storage,
                 .size = {size.x, size.y, 1u}},
             compression);
     }
 
+    // Takes the volume by forwarding reference (like the image overload) so an
+    // lvalue `Volume<T>` can be passed without copying a non-copyable resource.
     template<typename VolumeOrView>
         requires is_volume_or_view_v<VolumeOrView>
-    [[nodiscard]] auto copy_to(VolumeOrView volume,
+    [[nodiscard]] auto copy_to(VolumeOrView &&volume,
                                DStorageCompression compression = DStorageCompression::None) const noexcept {
         VolumeView view{volume};
         auto size = view.size();
+        auto storage = view.storage();
+        _check_texture_source(storage, uint3{size.x, size.y, size.z}, compression);
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = view.handle(),
                 .level = view.level(),
+                .storage = storage,
                 .size = {size.x, size.y, size.z}},
             compression);
     }
@@ -117,11 +144,14 @@ public:
         uint2 start_coord, uint2 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         LUISA_ASSERT(all(start_coord + size <= image.size()), "Out of range.");
+        auto storage = image.storage();
+        _check_texture_source(storage, uint3{size.x, size.y, 1u}, compression);
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = image.handle(),
                 .level = mip_level,
+                .storage = storage,
                 .offset = {start_coord.x, start_coord.y, 0u},
                 .size = {size.x, size.y, 1u}},
             compression);
@@ -134,11 +164,14 @@ public:
         uint3 start_coord, uint3 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         LUISA_ASSERT(all(start_coord + size <= volume.size()), "Out of range.");
+        auto storage = volume.storage();
+        _check_texture_source(storage, size, compression);
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = volume.handle(),
                 .level = mip_level,
+                .storage = storage,
                 .offset = {start_coord.x, start_coord.y, start_coord.z},
                 .size = {size.x, size.y, size.z}},
             compression);
@@ -150,7 +183,7 @@ public:
             _dstorage_source(),
             DStorageReadCommand::MemoryRequest{
                 .data = data,
-                .size_bytes = size},
+                .size_bytes = _clamp_destination_size(size, compression)},
             compression);
     }
 
@@ -158,6 +191,21 @@ public:
     [[nodiscard]] auto copy_to(luisa::span<T> data,
                                DStorageCompression compression = DStorageCompression::None) const noexcept {
         return copy_to(data.data(), data.size_bytes(), compression);
+    }
+
+private:
+    void _check_texture_source(PixelStorage storage, uint3 size,
+                               DStorageCompression compression) const noexcept {
+        if (compression != DStorageCompression::None) { return; }// source is compressed
+        auto required = dstorage_texture_source_size(storage, size);
+        if (size_bytes() < required) [[unlikely]] {
+            LUISA_WARNING(
+                "DStorage texture request: source view of {} byte(s) is smaller "
+                "than the pitch-aligned source layout of {} byte(s); the "
+                "transfer will be truncated. Lay out texture sources with "
+                "dstorage_texture_row_pitch()/dstorage_texture_source_size().",
+                size_bytes(), required);
+        }
     }
 };
 
@@ -209,8 +257,9 @@ public:
 
     [[nodiscard]] size_t size_bytes() const noexcept { return _size_bytes; }
 
+    /// A view of the whole file.  A zero-length file yields a zero-length view.
     [[nodiscard]] DStorageFileView view(size_t offset_bytes = 0u) const noexcept {
-        LUISA_ASSERT(offset_bytes < _size_bytes, "Offset exceeds file size.");
+        LUISA_ASSERT(offset_bytes <= _size_bytes, "Offset exceeds file size.");
         return DStorageFileView{*this}.subview(offset_bytes, _size_bytes - offset_bytes);
     }
     [[nodiscard]] DStorageFileView view(size_t offset_bytes, size_t size_bytes) const noexcept {
@@ -254,7 +303,7 @@ inline DStorageFileView::DStorageFileView(const DStorageFile &file) noexcept
 inline DStorageFileView::DStorageFileView(const DStorageFile &file, size_t offset_bytes, size_t size_bytes) noexcept
     : DStorageFileView{file.handle(), offset_bytes, size_bytes,
                        file.tag() == Resource::Tag::DSTORAGE_PINNED_MEMORY} {
-    LUISA_ASSERT(offset_bytes < file.size_bytes() &&
+    LUISA_ASSERT(offset_bytes <= file.size_bytes() &&
                      size_bytes <= file.size_bytes() - offset_bytes,
                  "Offset exceeds file size.");
 }

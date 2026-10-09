@@ -277,6 +277,12 @@ void CUDADStorageExt::compress(const void *data, size_t size_bytes,
 }
 
 ResourceCreationInfo CUDADStorageExt::create_stream_handle(const DStorageStreamOption &option) noexcept {
+    // The CUDA path maps files into host memory and registers pinned host
+    // memory, so a single stream handles both source types transparently: the
+    // `source` option is honored by accepting every value (there is no native
+    // per-source queue to split, unlike DirectStorage).
+    LUISA_INFO("CUDA DStorage stream created with source = {}.",
+               to_string(option.source));
     auto p = _device->with_handle([this] {
         return luisa::new_with_allocator<CUDACompressionStream>(_device);
     });

@@ -112,23 +112,44 @@ void CUDACommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
 
 namespace detail {
 
+/// `source_pitch == 0` means the source rows are tightly packed (the layout
+/// produced by `BufferToTextureCopyCommand`).  A non-zero `source_pitch` lets
+/// callers feed a pitch-aligned source, as the direct-storage contract
+/// requires; `source_bytes` is then the number of source bytes to account for
+/// (defaults to the tightly packed footprint).  `array_offset` addresses a
+/// sub-region of the destination array (texels), so sub-region direct-storage
+/// reads work like they do on DX and VK.
 static void memcpy_buffer_to_texture(CUdeviceptr buffer, size_t buffer_offset, size_t buffer_total_size,
                                      CUarray array, PixelStorage array_storage, uint3 array_size,
-                                     CUstream stream) noexcept {
+                                     CUstream stream, size_t source_pitch = 0u,
+                                     size_t source_bytes = 0u,
+                                     uint3 array_offset = uint3::zero()) noexcept {
     CUDA_MEMCPY3D copy{};
-    auto pitch = pixel_storage_size(array_storage, make_uint3(array_size.x, 1u, 1u));
-    auto height = pixel_storage_size(array_storage, make_uint3(array_size.xy(), 1u)) / pitch;
-    auto full_size = pixel_storage_size(array_storage, array_size);
+    auto tight_row = pixel_storage_size(array_storage, make_uint3(array_size.x, 1u, 1u));
+    auto pitch = source_pitch == 0u ? tight_row : source_pitch;
+    auto height = pixel_storage_size(array_storage, make_uint3(array_size.xy(), 1u)) / tight_row;
+    auto full_size = source_bytes == 0u ? pixel_storage_size(array_storage, array_size) : source_bytes;
     LUISA_ASSERT(buffer_offset < buffer_total_size &&
                      buffer_total_size - buffer_offset >= full_size,
                  "Buffer size too small for texture copy.");
+    // `dstXInBytes` is a byte offset inside a row; block-compressed formats
+    // would need block-granular arithmetic, so only allow x == 0 for them.
+    auto element_size = pixel_storage_size(array_storage, make_uint3(1u, 1u, 1u));
+    if (is_block_compressed(array_storage)) {
+        LUISA_ASSERT(array_offset.x == 0u,
+                     "Sub-region direct-storage copies into block-compressed "
+                     "textures are not supported on CUDA.");
+    }
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
     copy.srcDevice = buffer + buffer_offset;
     copy.srcPitch = pitch;
     copy.srcHeight = height;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.dstArray = array;
-    copy.WidthInBytes = pitch;
+    copy.dstXInBytes = static_cast<size_t>(array_offset.x) * element_size;
+    copy.dstY = array_offset.y;
+    copy.dstZ = array_offset.z;
+    copy.WidthInBytes = tight_row;
     copy.Height = height;
     copy.Depth = array_size.z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
@@ -365,12 +386,27 @@ static void dstorage_copy(const void *input_host_ptr,
         auto dst = luisa::get<DSTextureRequest>(output_request);
         auto texture = reinterpret_cast<const CUDATexture *>(dst.handle);
         auto size = make_uint3(dst.size[0], dst.size[1], dst.size[2]);
-        LUISA_ASSERT(all(size == max(texture->size() >> dst.level, 1u)),
-                     "DStorageReadCommand size mismatch.");
+        auto offset = make_uint3(dst.offset[0], dst.offset[1], dst.offset[2]);
+        auto mip_size = max(texture->size() >> dst.level, 1u);
+        LUISA_ASSERT(all(offset + size <= mip_size),
+                     "DStorageReadCommand region (offset {} + size {}) exceeds the "
+                     "destination mip ({}).",
+                     offset, size, mip_size);
         auto array = texture->level(dst.level);
+        // The direct-storage contract pads source rows to a 256-byte pitch.
+        // Accept a tightly packed source as well (`input_size` shorter than the
+        // padded layout) so simple callers keep working.
+        auto storage = dst.storage;
+        auto tight_row = pixel_storage_size(storage, make_uint3(size.x, 1u, 1u));
+        auto padded_pitch = dstorage_texture_row_pitch(storage, size.x);
+        auto padded_size = dstorage_texture_source_size(storage, size);
+        auto src_pitch = (padded_pitch == tight_row || input_size >= padded_size)
+                             ? padded_pitch
+                             : tight_row;
         detail::memcpy_buffer_to_texture(
             input_device_ptr, 0u, input_size,
-            array, texture->storage(), size, stream);
+            array, storage, size, stream,
+            src_pitch, input_size, offset);
     } else if (luisa::holds_alternative<DSMemoryRequest>(output_request)) {
         auto dst = luisa::get<DSMemoryRequest>(output_request);
         auto p = static_cast<std::byte *>(dst.data);
@@ -425,17 +461,22 @@ static void dstorage_decompress(DStorageCompression algorithm,
         auto dst = luisa::get<DSTextureRequest>(output_request);
         auto texture = reinterpret_cast<const CUDATexture *>(dst.handle);
         auto size = make_uint3(dst.size[0], dst.size[1], dst.size[2]);
-        LUISA_ASSERT(all(size == max(texture->size() >> dst.level, 1u)),
-                     "DStorageReadCommand size mismatch.");
+        auto offset = make_uint3(dst.offset[0], dst.offset[1], dst.offset[2]);
+        auto mip_size = max(texture->size() >> dst.level, 1u);
+        LUISA_ASSERT(all(offset + size <= mip_size),
+                     "DStorageReadCommand region (offset {} + size {}) exceeds the "
+                     "destination mip ({}).",
+                     offset, size, mip_size);
         auto array = texture->level(dst.level);
-        auto storage = texture->storage();
+        auto storage = dst.storage;
         auto temp_buffer_size = pixel_storage_size(storage, size);
         auto temp_buffer = static_cast<CUdeviceptr>(0ull);
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, temp_buffer_size, stream));
         decompress_to_buffer(input_device_ptr, input_size, temp_buffer, temp_buffer_size);
         detail::memcpy_buffer_to_texture(
             temp_buffer, 0u, temp_buffer_size,
-            array, storage, size, stream);
+            array, storage, size, stream,
+            0u, 0u, offset);
         LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, stream));
     } else if (luisa::holds_alternative<DSMemoryRequest>(output_request)) {
         auto dst = luisa::get<DSMemoryRequest>(output_request);
@@ -481,6 +522,14 @@ void CUDACommandEncoder::visit(DStorageReadCommand *command) noexcept {
             }
         },
         command->source());
+
+    // Requests built through `DStorageFileView::copy_to` are clamped to the
+    // source size (and, for texture destinations, to the pitch-aligned source
+    // layout), so transfer exactly that many bytes.  Compressed requests carry
+    // the whole compressed blob on the source, untouched by the clamp.
+    size = command->is_compressed()
+               ? command->source_size_bytes()
+               : command->effective_transfer_size();
 
     // copy or decompress
     switch (auto compression = command->compression()) {

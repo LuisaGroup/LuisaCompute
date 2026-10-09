@@ -350,8 +350,8 @@ private:
                          "DirectStorage cannot write a Metal depth texture.");
             auto texture = static_cast<MetalTexture *>(texture_base);
             auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
-            auto pitch_size = pixel_storage_size(texture->storage(), make_uint3(size.x, 1u, 1u));
-            auto image_size = pixel_storage_size(texture->storage(), make_uint3(size.xy(), 1u));
+            auto pitch_size = pixel_storage_size(r.storage, make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(r.storage, make_uint3(size.xy(), 1u));
             _io_command_buffer->loadTexture(texture->handle(), 0u, r.level,
                                             MTL::Size{r.size[0], r.size[1], r.size[2]},
                                             pitch_size, image_size, MTL::Origin{0, 0, 0},
@@ -386,8 +386,8 @@ private:
             auto dst = static_cast<MetalTexture *>(dst_base);
             use_resource(dst->handle());
             auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
-            auto pitch_size = pixel_storage_size(dst->storage(), make_uint3(size.x, 1u, 1u));
-            auto image_size = pixel_storage_size(dst->storage(), make_uint3(size.xy(), 1u));
+            auto pitch_size = pixel_storage_size(r.storage, make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(r.storage, make_uint3(size.xy(), 1u));
             encoder->copyFromBuffer(buffer, offset, pitch_size, image_size,
                                     MTL::Size{r.size[0], r.size[1], r.size[2]},
                                     dst->handle(), 0u, r.level, MTL::Origin{0, 0, 0});

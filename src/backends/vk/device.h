@@ -29,6 +29,31 @@ struct NativeImageState;
 using namespace luisa;
 using namespace luisa::compute;
 static constexpr size_t kSparseBufferSize = 65536ull;
+class Event;
+
+/// A stream-like object owned by a device *extension* rather than by the
+/// backend's built-in `Stream`.
+///
+/// `Device::create_stream` rejects anything that is not GRAPHICS/COMPUTE/COPY
+/// (see `stream.cpp`), so an extension that needs its own command stream (e.g.
+/// `DStorageExt`) allocates a `CustomStream`, registers it through
+/// `Device::add_custom_stream`, and lets the device route
+/// `dispatch` / `synchronize_stream` / `destroy_stream` / `signal_event` /
+/// `wait_event` / `set_stream_log_callback` to it.  Handles that are not in the
+/// registry keep the pre-existing `reinterpret_cast<Stream *>` behavior, so
+/// normal streams are completely unaffected.
+class CustomStream {
+public:
+    virtual ~CustomStream() = default;
+    virtual void dispatch(CommandList &&list) noexcept = 0;
+    virtual void synchronize() noexcept = 0;
+    virtual void signal(Event *event, uint64_t fence) noexcept = 0;
+    virtual void wait(Event *event, uint64_t fence) noexcept = 0;
+    virtual void set_log_callback(const DeviceInterface::StreamLogCallback &callback) noexcept {
+        static_cast<void>(callback);
+    }
+};
+
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     friend class Texture;
     // Volk uses process-global instance/device dispatch tables. Keep one live
@@ -94,6 +119,11 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     CommandReorderExtImpl _command_reorder_ext{this};
     std::mutex _ext_mtx;
     vstd::unordered_set<Stream *> _streams;
+    // Extension-owned command streams (see `CustomStream`).  The registry never
+    // owns the objects: `destroy_stream` removes and deletes them, and ~Device
+    // deletes any leftover so a misbehaving extension cannot leak them.
+    std::mutex _custom_stream_mtx;
+    vstd::unordered_map<uint64_t, CustomStream *> _custom_streams;
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     VkInstance _instance{};
     vstd::optional<vks::VulkanDevice> _vk_device;
@@ -416,6 +446,14 @@ public:
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override;
+
+    /// Register an extension-owned stream handle (see `CustomStream`).
+    void add_custom_stream(uint64_t handle, CustomStream *stream) noexcept;
+    /// Look up a registered custom stream; `nullptr` when `handle` is a normal
+    /// `Stream`.
+    [[nodiscard]] CustomStream *find_custom_stream(uint64_t handle) noexcept;
+    /// Remove a registered custom stream from the registry without deleting it.
+    [[nodiscard]] CustomStream *remove_custom_stream(uint64_t handle) noexcept;
 
     // swap chain
     SwapchainCreationInfo create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept override;

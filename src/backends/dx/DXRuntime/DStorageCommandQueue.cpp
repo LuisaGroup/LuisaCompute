@@ -1,11 +1,75 @@
 #include "DStorageCommandQueue.h"
 #include <DXApi/LCEvent.h>
+#include <DXApi/ext.h>
 #include <luisa/core/logging.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
+#include <luisa/backends/ext/dstorage_cmd.h>
 #include <Resource/SparseTexture.h>
 #include <Resource/Buffer.h>
-#include <luisa/backends/ext/dstorage_cmd.h>
+#include <Resource/TextureBase.h>
 namespace lc::dx {
+namespace {
+[[nodiscard]] bool dstorage_is_read_command(luisa::compute::Command const *cmd) noexcept {
+    return cmd->tag() == luisa::compute::Command::Tag::ECustomCommand &&
+           static_cast<luisa::compute::CustomCommand const *>(cmd)->custom_cmd_uuid() ==
+               luisa::to_underlying(luisa::compute::CustomCommandUUID::DSTORAGE_READ);
+}
+}// namespace
+
+void dstorage_split_texture_region(
+    luisa::compute::PixelStorage storage,
+    uint32_t const *offset, uint32_t const *size,
+    size_t staging_buffer_size,
+    vstd::vector<DStorageTextureSubRegion> &result) noexcept {
+    result.clear();
+    if (size[0] == 0u || size[1] == 0u || size[2] == 0u) { return; }
+    auto pitch = luisa::compute::dstorage_texture_row_pitch(storage, size[0]);
+    // Number of rows (spanning whole planes when possible) that fit into one
+    // staging buffer.  `staging_buffer_size == 0` means "do not split".
+    auto max_rows = (staging_buffer_size == 0u || pitch == 0u)
+                        ? std::numeric_limits<size_t>::max()
+                        : std::max<size_t>(1u, staging_buffer_size / pitch);
+    auto plane_rows = static_cast<size_t>(size[1]);
+    uint32_t y = 0u;
+    for (uint32_t z = 0u; z < size[2];) {
+        if (plane_rows <= max_rows) {
+            // Take as many whole planes as fit.
+            auto planes = std::max<size_t>(1u, max_rows / std::max<size_t>(1u, plane_rows));
+            auto take = static_cast<uint32_t>(
+                std::min<size_t>(planes, static_cast<size_t>(size[2] - z)));
+            DStorageTextureSubRegion r{};
+            r.offset[0] = offset[0];
+            r.offset[1] = offset[1];
+            r.offset[2] = offset[2] + z;
+            r.size[0] = size[0];
+            r.size[1] = size[1];
+            r.size[2] = take;
+            r.source_bytes = pitch * plane_rows * take;
+            result.emplace_back(r);
+            z += take;
+            y = 0u;
+        } else {
+            // Split the current plane by rows.
+            auto take = static_cast<uint32_t>(
+                std::min<size_t>(max_rows, plane_rows - y));
+            DStorageTextureSubRegion r{};
+            r.offset[0] = offset[0];
+            r.offset[1] = offset[1] + y;
+            r.offset[2] = offset[2] + z;
+            r.size[0] = size[0];
+            r.size[1] = take;
+            r.size[2] = 1u;
+            r.source_bytes = pitch * take;
+            result.emplace_back(r);
+            y += take;
+            if (y == size[1]) {
+                y = 0u;
+                ++z;
+            }
+        }
+    }
+}
+
 void DStorageCommandQueue::ExecuteThread() {
     while (enabled || executedAllocators.length() != 0) {
         uint64_t fence;
@@ -17,9 +81,11 @@ void DStorageCommandQueue::ExecuteThread() {
             }
         };
         auto ExecuteAllocator = [&](WaitQueueHandle const &b) {
-            if (b.handle) {
-                WaitForSingleObject(b.handle, INFINITE);
-                CloseHandle(b.handle);
+            for (auto handle : b.handles) {
+                if (handle) {
+                    WaitForSingleObject(handle, INFINITE);
+                    CloseHandle(handle);
+                }
             }
             if (wakeupThread) {
                 max_fence();
@@ -70,184 +136,250 @@ void DStorageCommandQueue::AddEvent(LCEvent const *evt, uint64_t fenceIdx) {
 }
 uint64_t DStorageCommandQueue::Execute(
     vstd::span<const luisa::unique_ptr<luisa::compute::Command>> commands,
-        luisa::vector<luisa::move_only_function<void()>> &&funcs
-) {
-    size_t curFrame;
+    luisa::vector<luisa::move_only_function<void()>> &&funcs) {
     WaitQueueHandle waitQueueHandle;
-    waitQueueHandle.handle = nullptr;
     {
         std::lock_guard lck{exec_mtx};
+        bool used_file = false;
+        bool used_memory = false;
+        auto enqueue_request = [&](DSTORAGE_REQUEST &request) {
+            if (request.Options.SourceType == DSTORAGE_REQUEST_SOURCE_FILE) {
+                if (!_file_queue) [[unlikely]] {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "A file-sourced DirectStorage request was dispatched on a "
+                        "memory-only stream. Create the stream with "
+                        "DStorageStreamSource::FileSource or AnySource.");
+                }
+                used_file = true;
+                _file_pending = true;
+                _file_queue->EnqueueRequest(&request);
+            } else {
+                if (!_memory_queue) [[unlikely]] {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "A memory-sourced DirectStorage request was dispatched on a "
+                        "file-only stream. Create the stream with "
+                        "DStorageStreamSource::MemorySource or AnySource.");
+                }
+                used_memory = true;
+                _memory_pending = true;
+                _memory_queue->EnqueueRequest(&request);
+            }
+        };
+        auto check_staging = [&](size_t bytes, char const *what) {
+            if (staging_buffer_size != 0u && bytes > staging_buffer_size) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "DirectStorage request {} ({} byte(s)) exceeds the process-global "
+                    "staging buffer size ({} byte(s)). Create the first DirectStorage "
+                    "stream with a larger DStorageStreamOption::staging_buffer_size.",
+                    what, bytes, staging_buffer_size);
+            }
+        };
         for (auto &&i : commands) {
-            if (i->tag() != luisa::compute::Command::Tag::ECustomCommand ||
-                static_cast<luisa::compute::CustomCommand const *>(i.get())->custom_cmd_uuid() != luisa::to_underlying(CustomCommandUUID::DSTORAGE_READ)) [[unlikely]] {
-                LUISA_ERROR("Only DStorage command allowed in this stream.");
+            if (!dstorage_is_read_command(i.get())) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION("Only DStorage commands are allowed in this stream.");
             }
             auto cmd = static_cast<luisa::compute::DStorageReadCommand const *>(i.get());
+            auto compressed = cmd->is_compressed();
+            auto transfer = cmd->effective_transfer_size();
+            auto required = cmd->required_source_size_bytes();
             DSTORAGE_REQUEST request{};
-            size_t src_size{};
-            uint yz_tex_offsets[] = {0, 0};
-            auto set_request_dst = [&](size_t sub_offset, size_t sub_size) {
-                size_t real_size = sub_size;
-                if (request.Options.SourceType != sourceType) {
-                    LUISA_ERROR("Source type not match.");
-                }
-                luisa::visit(
-                    [&]<typename T>(T const &t) {
-                        if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::BufferRequest>) {
-                            request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
-                            request.Destination.Buffer.Resource = reinterpret_cast<Buffer *>(t.handle)->GetResource();
-                            request.Destination.Buffer.Offset = t.offset_bytes + sub_offset;
-                            request.Destination.Buffer.Size = sub_size;
-                            if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
-                                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                                request.UncompressedSize = t.size_bytes;
-                                LUISA_ASSERT(t.size_bytes <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", t.size_bytes, staging_buffer_size);
-                            }
-
-                        } else if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::TextureRequest>) {
-                            request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
-                            auto tex = reinterpret_cast<TextureBase *>(t.handle);
-                            request.Destination.Texture.SubresourceIndex = t.level;
-                            request.Destination.Texture.Resource = tex->GetResource();
-                            auto row_count = t.size[1] * t.size[2];
-                            auto pixel_size = Resource::GetTexturePixelSize(tex->Format());
-                            auto tex_size = pixel_size * t.size[0] * row_count;
-                            auto row_size = CalcAlign(tex_size / row_count, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-                            uint local_offset[3] = {
-                                t.offset[0],
-                                t.offset[1] + yz_tex_offsets[0],
-                                t.offset[2] + yz_tex_offsets[1],
-                            };
-                            uint local_size[3] = {t.size[0], t.size[1], t.size[2]};
-                            if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
-                                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                                LUISA_ASSERT(tex_size <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", tex_size, staging_buffer_size);
-                            } else {
-                                // Use slice copy
-                                if (tex_size > sub_size) {
-                                    auto plane_size = pixel_size * t.size[0] * t.size[1];
-                                    // per x_row copy
-                                    if (plane_size > sub_size) {
-                                        if (yz_tex_offsets[0] == t.size[1]) {
-                                            yz_tex_offsets[0] = 0;
-                                            yz_tex_offsets[1] += 1;
-                                        }
-                                        uint max_allowed_height = sub_size / row_size;
-                                        max_allowed_height = std::min<uint>(max_allowed_height, t.size[1] - yz_tex_offsets[0]);
-                                        local_size[2] = 1;
-                                        local_size[1] = max_allowed_height;
-                                        yz_tex_offsets[0] += max_allowed_height;
-                                        real_size = row_size * max_allowed_height;
-                                    }
-                                    // per xy_plane copy
-                                    else {
-                                        // copy full plane
-                                        if (yz_tex_offsets[0] == 0) {
-                                            uint max_allowed_depth = std::min<uint>(sub_size / plane_size, t.size[2] - yz_tex_offsets[1]);
-                                            local_size[2] = max_allowed_depth;
-                                            yz_tex_offsets[1] += max_allowed_depth;
-                                            real_size = plane_size * max_allowed_depth;
-                                        } else {
-                                            local_size[2] = 1;
-                                            local_size[1] = t.size[1] - yz_tex_offsets[0];
-                                            yz_tex_offsets[0] = 0;
-                                            real_size = pixel_size * row_size * local_size[1];
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (row_size < D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) [[unlikely]] {
-                                LUISA_ERROR("DirectX direct-storage can not support texture destination with row size(width * pixel_size) less than {}, current row size: {}, try use buffer instead.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, row_size);
-                            }
-
-                            request.Destination.Texture.Region = D3D12_BOX{
-                                local_offset[0], local_offset[1], local_offset[2],
-                                local_offset[0] + local_size[0], local_offset[1] + local_size[1], local_offset[2] + local_size[2]};
-
-                        } else {
-                            // request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-
-                            // if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
-                            //     request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                            //     request.UncompressedSize = t.size_bytes;
-                            // }
-                            request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-                            request.Destination.Memory.Buffer = reinterpret_cast<std::byte *>(t.data) + sub_offset;
-                            request.Destination.Memory.Size = sub_size;
-                            if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
-                                request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
-                                request.UncompressedSize = t.size_bytes;
-                                LUISA_ASSERT(t.size_bytes <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", t.size_bytes, staging_buffer_size);
-                            }
-                        }
-                    },
-                    cmd->request());
-                return real_size;
-            };
-
+            if (compressed) {
+                request.Options.CompressionFormat =
+                    DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+            }
+            // ---- bind the source -------------------------------------------
+            size_t src_offset = 0u;
+            size_t src_size = 0u;
+            bool from_file = false;
+            std::byte const *memory_base = nullptr;
             luisa::visit(
-                [&]<typename T>(T const &t) {
-                    src_size = t.size_bytes;
-                    size_t sub_offset = 0;
-                    if constexpr (std::is_same_v<T, DStorageReadCommand::FileSource>) {
-                        auto file = reinterpret_cast<DStorageFileImpl *>(t.handle);
+                [&]<typename T>(T const &s) {
+                    src_offset = s.offset_bytes;
+                    src_size = s.size_bytes;
+                    if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::FileSource>) {
+                        from_file = true;
+                        if (s.handle == luisa::compute::invalid_resource_handle) [[unlikely]] {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "DStorage file source is invalid (the file failed to open).");
+                        }
+                        auto file = reinterpret_cast<DStorageFileImpl *>(s.handle);
+                        // Per-request bounds check against the real file size
+                        // (mirrors the reference implementation).
+                        LUISA_ASSERT(src_offset <= file->size_bytes &&
+                                         src_size <= file->size_bytes - src_offset,
+                                     "DStorage file source out of range: offset {} + size {} "
+                                     "exceeds file size {}.",
+                                     src_offset, src_size, file->size_bytes);
                         request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
                         request.Source.File.Source = file->file.Get();
-                        request.Source.File.Offset = t.offset_bytes;
-                        // if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
-                        //     request.Source.File.Size = t.size_bytes;
-                        //     set_request_dst(0, t.size_bytes);
-                        //     queue->EnqueueRequest(&request);
-                        // } else {
-                        auto lefted_size = static_cast<int64_t>(t.size_bytes);
-                        auto slice_size = std::min(t.size_bytes, staging_buffer_size);
-                        while (lefted_size > 0) {
-                            auto real_size = set_request_dst(sub_offset, slice_size);
-                            request.Source.File.Size = real_size;
-                            queue->EnqueueRequest(&request);
-                            request.Source.File.Offset += real_size;
-                            sub_offset += real_size;
-                            lefted_size -= real_size;
-                        }
-                        // }
+                        request.Source.File.Offset = src_offset;
                     } else {
+                        auto base = reinterpret_cast<std::byte const *>(s.handle);
+                        if (base == nullptr) [[unlikely]] {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "DStorage memory source is null (the pinned-memory handle "
+                                "is invalid).");
+                        }
+                        if (_ext != nullptr) {
+                            auto pinned = _ext->pinned_memory_size(s.handle);
+                            if (pinned != 0u) {
+                                LUISA_ASSERT(src_offset <= pinned &&
+                                                 src_size <= pinned - src_offset,
+                                             "DStorage memory source out of range: offset {} + "
+                                             "size {} exceeds the pinned range {}.",
+                                             src_offset, src_size, pinned);
+                            }
+                        }
+                        memory_base = base;
                         request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
-                        auto ptr = reinterpret_cast<std::byte const *>(t.handle + t.offset_bytes);
-                        request.Source.Memory.Source = ptr;
-                        request.Source.Memory.Size = t.size_bytes;
-                        if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
-                            request.Source.Memory.Size = t.size_bytes;
-                            set_request_dst(0, t.size_bytes);
-                            queue->EnqueueRequest(&request);
+                        request.Source.Memory.Source = base;
+                    }
+                },
+                cmd->source());
+            auto set_source_chunk = [&](size_t consumed, size_t bytes) {
+                if (from_file) {
+                    request.Source.File.Offset = src_offset + consumed;
+                    request.Source.File.Size = bytes;
+                } else {
+                    request.Source.Memory.Source = memory_base + consumed;
+                    request.Source.Memory.Size = bytes;
+                }
+            };
+
+            // ---- bind the destination and emit requests ---------------------
+            luisa::visit(
+                [&]<typename T>(T const &dst) {
+                    if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::BufferRequest>) {
+                        auto *buffer = reinterpret_cast<Buffer *>(dst.handle);
+                        request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_BUFFER;
+                        request.Destination.Buffer.Resource = buffer->GetResource();
+                        if (compressed) {
+                            // Compressed requests are *not* byte-sliceable: the
+                            // source is one contiguous compressed blob and the
+                            // destination gets the whole decompressed payload.
+                            // `UncompressedSize` is the number of bytes written,
+                            // so `Destination.Buffer.Size` is that same value
+                            // ("number of bytes to write to the destination").
+                            auto uncompressed = dst.size_bytes;
+                            check_staging(uncompressed, "uncompressed size");
+                            check_staging(src_size, "source size");
+                            request.Destination.Buffer.Offset = dst.offset_bytes;
+                            request.Destination.Buffer.Size = uncompressed;
+                            request.UncompressedSize = static_cast<UINT32>(uncompressed);
+                            set_source_chunk(0u, src_size);
+                            enqueue_request(request);
                         } else {
-                            auto lefted_size = static_cast<int64_t>(t.size_bytes);
-                            auto slice_size = std::min(t.size_bytes, staging_buffer_size);
-                            while (lefted_size > 0) {
-                                auto real_size = set_request_dst(sub_offset, slice_size);
-                                request.Source.Memory.Size = real_size;
-                                queue->EnqueueRequest(&request);
-                                ptr += real_size;
-                                request.Source.Memory.Source = ptr;
-                                sub_offset += real_size;
-                                lefted_size -= real_size;
+                            size_t consumed = 0u;
+                            while (consumed < transfer) {
+                                auto chunk = std::min(transfer - consumed,
+                                                      staging_buffer_size == 0u ? transfer : staging_buffer_size);
+                                request.Destination.Buffer.Offset = dst.offset_bytes + consumed;
+                                request.Destination.Buffer.Size = chunk;
+                                set_source_chunk(consumed, chunk);
+                                enqueue_request(request);
+                                consumed += chunk;
+                            }
+                        }
+                    } else if constexpr (std::is_same_v<T, luisa::compute::DStorageReadCommand::TextureRequest>) {
+                        auto *tex = reinterpret_cast<TextureBase *>(dst.handle);
+                        auto region = luisa::make_uint3(dst.size[0], dst.size[1], dst.size[2]);
+                        // DirectStorage requires the source to be the D3D12
+                        // "copyable footprint" of the region, i.e. rows padded
+                        // to D3D12_TEXTURE_DATA_PITCH_ALIGNMENT (256 bytes).
+                        // `dstorage_texture_source_size` derives that pitch
+                        // from the row (`align(width * pixel_size, 256)`), which
+                        // D3D12 also uses for the subresource layout, so no
+                        // extra pitch check is needed here.  This is exactly
+                        // what the old `CalcAlign(tex_size / row_count, 256)`
+                        // computed.
+                        auto padded = luisa::compute::dstorage_texture_source_size(dst.storage, region);
+                        request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION;
+                        request.Destination.Texture.Resource = tex->GetResource();
+                        request.Destination.Texture.SubresourceIndex = dst.level;
+                        if (compressed) {
+                            check_staging(src_size, "compressed source size");
+                            check_staging(padded, "uncompressed size");
+                            request.Destination.Texture.Region = D3D12_BOX{
+                                dst.offset[0], dst.offset[1], dst.offset[2],
+                                dst.offset[0] + dst.size[0],
+                                dst.offset[1] + dst.size[1],
+                                dst.offset[2] + dst.size[2]};
+                            request.UncompressedSize = static_cast<UINT32>(padded);
+                            set_source_chunk(0u, src_size);
+                            enqueue_request(request);
+                        } else {
+                            if (src_size < required) [[unlikely]] {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "DStorage texture source is too small: {} byte(s) available, "
+                                    "but the pitch-aligned layout of a {}x{}x{} region needs {} "
+                                    "byte(s). Lay out texture sources with "
+                                    "dstorage_texture_row_pitch()/dstorage_texture_source_size(), "
+                                    "or use a buffer destination.",
+                                    src_size, region.x, region.y, region.z, required);
+                            }
+                            vstd::vector<DStorageTextureSubRegion> sub_regions;
+                            dstorage_split_texture_region(
+                                dst.storage, dst.offset, dst.size,
+                                staging_buffer_size, sub_regions);
+                            size_t consumed = 0u;
+                            for (auto &&sub : sub_regions) {
+                                request.Destination.Texture.Region = D3D12_BOX{
+                                    sub.offset[0], sub.offset[1], sub.offset[2],
+                                    sub.offset[0] + sub.size[0],
+                                    sub.offset[1] + sub.size[1],
+                                    sub.offset[2] + sub.size[2]};
+                                set_source_chunk(consumed, sub.source_bytes);
+                                enqueue_request(request);
+                                consumed += sub.source_bytes;
+                            }
+                        }
+                    } else {// MemoryRequest
+                        auto *data = static_cast<std::byte *>(dst.data);
+                        if (data == nullptr) [[unlikely]] {
+                            LUISA_ERROR_WITH_LOCATION("DStorage memory destination is null.");
+                        }
+                        request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
+                        if (compressed) {
+                            auto uncompressed = dst.size_bytes;
+                            request.Destination.Memory.Buffer = data;
+                            request.Destination.Memory.Size = uncompressed;
+                            request.UncompressedSize = static_cast<UINT32>(uncompressed);
+                            set_source_chunk(0u, src_size);
+                            enqueue_request(request);
+                        } else {
+                            size_t consumed = 0u;
+                            while (consumed < transfer) {
+                                auto chunk = std::min(transfer - consumed,
+                                                      staging_buffer_size == 0u ? transfer : staging_buffer_size);
+                                request.Destination.Memory.Buffer = data + consumed;
+                                request.Destination.Memory.Size = chunk;
+                                set_source_chunk(consumed, chunk);
+                                enqueue_request(request);
+                                consumed += chunk;
                             }
                         }
                     }
                 },
-                cmd->source());
+                cmd->request());
         }
-        if (!commands.empty()) {
-            waitQueueHandle.handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
-            queue->EnqueueSetEvent(waitQueueHandle.handle);
-            queue->Submit();
+        if (used_file) {
+            auto handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
+            _file_queue->EnqueueSetEvent(handle);
+            _file_queue->Submit();
+            waitQueueHandle.handles.emplace_back(handle);
+        }
+        if (used_memory) {
+            auto handle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
+            _memory_queue->EnqueueSetEvent(handle);
+            _memory_queue->Submit();
+            waitQueueHandle.handles.emplace_back(handle);
         }
     }
     bool callbackEmpty = funcs.empty();
-    curFrame = ++lastFrame;
+    auto curFrame = ++lastFrame;
     {
         std::unique_lock lck(mtx);
-        executedAllocators.enqueue(waitQueueHandle, curFrame, callbackEmpty);
+        executedAllocators.enqueue(std::move(waitQueueHandle), curFrame, callbackEmpty);
         if (!callbackEmpty) {
             executedAllocators.enqueue(std::move(funcs), curFrame, true);
         }
@@ -258,45 +390,99 @@ void DStorageCommandQueue::Complete(uint64_t fence) {
     while (executedFrame < fence) {
         std::this_thread::yield();
     }
+    if (fence >= lastFrame.load()) {
+        // Every submitted batch has completed, so no native queue holds
+        // uncovered work any more (`Signal` uses these flags to decide which
+        // queues a fence must be enqueued on).
+        std::lock_guard lck{exec_mtx};
+        _file_pending = false;
+        _memory_pending = false;
+    }
 }
 void DStorageCommandQueue::Complete() {
     Complete(lastFrame);
 }
-DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *device, luisa::compute::DStorageStreamSource source)
+DStorageCommandQueue::DStorageCommandQueue(DStorageExtImpl *ext,
+                                           IDStorageFactory *factory,
+                                           Device *device,
+                                           luisa::compute::DStorageStreamSource source,
+                                           size_t staging_buffer_size)
     : CmdQueueBase(device, CmdQueueTag::DStorage),
+      _ext{ext},
+      _source_hint{source},
       thd([this] { ExecuteThread(); }) {
+    this->staging_buffer_size = staging_buffer_size;
+    auto create_queue = [&](DSTORAGE_REQUEST_SOURCE_TYPE type,
+                            ComPtr<IDStorageQueue2> &queue) {
+        DSTORAGE_QUEUE_DESC queue_desc{
+            .SourceType = type,
+            .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
+            .Priority = DSTORAGE_PRIORITY_LOW,
+            .Device = device->device.Get()};
+        ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
+    };
     switch (source) {
-        case DStorageStreamSource::FileSource: {
-            DSTORAGE_QUEUE_DESC queue_desc{
-                .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
-                .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                .Priority = DSTORAGE_PRIORITY_LOW,
-                .Device = device->device.Get()};
-            sourceType = DSTORAGE_REQUEST_SOURCE_FILE;
-            ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
-        } break;
-        case DStorageStreamSource::MemorySource: {
-            DSTORAGE_QUEUE_DESC queue_desc{
-                .SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY,
-                .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                .Priority = DSTORAGE_PRIORITY_LOW,
-                .Device = device->device.Get()};
-            sourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
-            ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
-        } break;
+        case DStorageStreamSource::FileSource:
+            create_queue(DSTORAGE_REQUEST_SOURCE_FILE, _file_queue);
+            break;
+        case DStorageStreamSource::MemorySource:
+            create_queue(DSTORAGE_REQUEST_SOURCE_MEMORY, _memory_queue);
+            break;
+        case DStorageStreamSource::AnySource:
+            create_queue(DSTORAGE_REQUEST_SOURCE_FILE, _file_queue);
+            create_queue(DSTORAGE_REQUEST_SOURCE_MEMORY, _memory_queue);
+            break;
         default:
-            LUISA_ERROR("Unsupported source type.");
+            LUISA_ERROR("Unsupported DirectStorage source type.");
             break;
     }
 }
 void DStorageCommandQueue::Signal(ID3D12Fence *fence, UINT64 value) {
     std::lock_guard lck{exec_mtx};
-    queue->EnqueueSignal(fence, value);
-    queue->Submit();
+    // Signal only the queues that still hold uncovered work: an *empty* native
+    // queue executes `EnqueueSignal` immediately, which would let a shared
+    // fence reach `value` before the queue that actually has work is done.
+    auto signal_queue = [&](ComPtr<IDStorageQueue2> &queue) {
+        queue->EnqueueSignal(fence, value);
+        queue->Submit();
+    };
+    auto file = _file_pending;
+    auto memory = _memory_pending;
+    if (!file && !memory) {
+        // Nothing outstanding: fire from the primary queue so waiters unblock.
+        if (_file_queue) {
+            signal_queue(_file_queue);
+        } else if (_memory_queue) {
+            signal_queue(_memory_queue);
+        }
+        return;
+    }
+    if (file && memory) {
+        // A single DX fence cannot join two native queues: the fence reaches
+        // `value` when the first one finishes.  `synchronize()` waits for both
+        // (the worker thread waits on every submitted queue's set-event), so
+        // use it for AnySource cross-stream ordering.
+        if (!_signal_join_warned) {
+            _signal_join_warned = true;
+            LUISA_WARNING(
+                "Signalling a DirectStorage event while an AnySource stream has "
+                "outstanding file *and* memory work: a single DirectStorage fence "
+                "cannot join two native queues, so the event may fire when the "
+                "first queue completes. Use synchronize() for strict ordering.");
+        }
+    }
+    if (file && _file_queue) {
+        signal_queue(_file_queue);
+        _file_pending = false;
+    }
+    if (memory && _memory_queue) {
+        signal_queue(_memory_queue);
+        _memory_pending = false;
+    }
 }
 DStorageCommandQueue::~DStorageCommandQueue() {
     {
-        std::lock_guard lck(mtx);
+        std::lock_guard lck{mtx};
         enabled = false;
     }
     thd.join();

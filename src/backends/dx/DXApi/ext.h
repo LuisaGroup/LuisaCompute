@@ -212,29 +212,39 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     vstd::spin_mutex _spin_mtx;
     std::mutex _mtx;
     LCDevice *_mdevice;
-    std::atomic_bool _staging{false};
-    size_t _staging_buffer_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
+    // DirectStorage configuration and staging-buffer size are process-global
+    // and latched at first use (see the `IDStorageFactory` docs in
+    // `dstorage/dstorage.h`).  They are recorded here so later, conflicting
+    // requests can be reported instead of silently ignored.
+    bool _config_set{false};
     bool _is_hdd = false;
-    void _init_factory();
-    void _init_factory_nolock();
+    bool _staging_applied{false};
+    bool _dll_warning_issued{false};
+    size_t _staging_buffer_size = DStorageStreamOption::default_staging_buffer_size;
+    // Ranges registered through `pin_host_memory`, keyed by the opaque handle
+    // (the raw host pointer).  Used to validate memory-sourced requests.
+    vstd::unordered_map<uint64_t, size_t> _pinned_ranges;
+    [[nodiscard]] bool _init_factory();
+    [[nodiscard]] bool _init_factory_nolock() noexcept;
     void _set_config(bool hdd) noexcept;
 
 public:
     auto factory() const { return _factory.Get(); }
     DeviceInterface *device() const noexcept override;
     DStorageExtImpl(luisa::filesystem::path const &runtime_dir, LCDevice *device) noexcept;
+    ~DStorageExtImpl() noexcept;
     ResourceCreationInfo create_stream_handle(const DStorageStreamOption &option) noexcept override;
     FileCreationInfo open_file_handle(luisa::string_view path) noexcept override;
     void close_file_handle(uint64_t handle) noexcept override;
-    PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept override {
-        // no pin memory in dx yet
-        PinnedMemoryInfo info;
-        info.handle = reinterpret_cast<uint64_t>(ptr);
-        info.native_handle = ptr;
-        info.size_bytes = size_bytes;
-        return info;
+    PinnedMemoryInfo pin_host_memory(void *ptr, size_t size_bytes) noexcept override;
+    void unpin_host_memory(uint64_t handle) noexcept override;
+    [[nodiscard]] bool supports_compression(Compression algorithm) const noexcept override {
+        return algorithm == Compression::None ||
+               algorithm == Compression::GDeflate;
     }
-    void unpin_host_memory(uint64_t handle) noexcept override {}
+    /// Size in bytes of a previously pinned host range, or 0 when the handle
+    /// is unknown (memory-sourced requests are then not range-checked).
+    [[nodiscard]] size_t pinned_memory_size(uint64_t handle) noexcept;
     void compress(
         const void *data, size_t size_bytes,
         Compression algorithm, CompressionQuality quality,

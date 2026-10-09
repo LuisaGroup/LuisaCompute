@@ -198,8 +198,9 @@ BufferCreationInfo Device::create_buffer(const Type *element,
     auto buffer = _native->create_buffer(element, elem_count, external_memory);
     auto is_indirect_dispatch =
         element == Type::of<IndirectKernelDispatch>();
-    new Buffer{buffer.handle, 0u, is_indirect_dispatch,
-               is_indirect_dispatch ? elem_count : 0u};
+      new Buffer{buffer.handle, 0u, is_indirect_dispatch,
+                 is_indirect_dispatch ? elem_count : 0u,
+                 buffer.total_size_bytes};
     return buffer;
 }
 void Device::destroy_buffer(uint64_t handle) noexcept {
@@ -214,7 +215,8 @@ ResourceCreationInfo Device::create_texture(
     uint mipmap_levels, void *external_native_handle,
     bool simultaneous_access, bool allow_raster_target) noexcept {
     auto tex = _native->create_texture(format, dimension, width, height, depth, mipmap_levels, external_native_handle, simultaneous_access, allow_raster_target);
-    new Texture{tex.handle, dimension, simultaneous_access, uint3(0, 0, 0), format};
+      new Texture{tex.handle, dimension, simultaneous_access, uint3(0, 0, 0), format, 0u,
+                  uint3(width, height, depth), mipmap_levels};
     return tex;
 }
 void Device::destroy_texture(uint64_t handle) noexcept {
@@ -520,8 +522,9 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access) noexcept {
     auto tex = _native->create_sparse_texture(format, dimension, width, height, depth, mipmap_levels, simultaneous_access);
-    new Texture{tex.handle, dimension, simultaneous_access,
-                tex.tile_size, format, tex.tile_size_bytes};
+      new Texture{tex.handle, dimension, simultaneous_access,
+                  tex.tile_size, format, tex.tile_size_bytes,
+                  uint3(width, height, depth), mipmap_levels};
     return tex;
 }
 void Device::destroy_sparse_texture(uint64_t handle) noexcept {

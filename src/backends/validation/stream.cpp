@@ -351,6 +351,65 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
+            // The source and destination handles must be registered resources
+            // of the matching kind, and the addressed range must fit inside the
+            // resource.  Byte sizes / mip counts are only checked when the
+            // creating call recorded them (see `lc::validation::Buffer` /
+            // `lc::validation::Texture`).
+            auto require_tag = [&](uint64_t handle, Resource::Tag expected,
+                                   luisa::string_view what) -> RWResource * {
+                if (handle == invalid_resource_handle) { return nullptr; }
+                auto *res = RWResource::try_get<RWResource>(handle);
+                if (res == nullptr) {
+                    LUISA_ERROR("DStorageReadCommand {} handle {} is not a "
+                                "registered resource.",
+                                what, handle);
+                }
+                if (res->tag() != expected) {
+                    LUISA_ERROR("DStorageReadCommand {} handle {} has resource "
+                                "tag {}, but {} is required.",
+                                what, handle,
+                                luisa::to_underlying(res->tag()),
+                                luisa::to_underlying(expected));
+                }
+                return res;
+            };
+            auto check_texture_region = [&](Resource::Tag expected, uint64_t handle,
+                                            uint level, uint32_t const *offset,
+                                            uint32_t const *size, luisa::string_view what) {
+                auto *res = require_tag(handle, expected, what);
+                if (res == nullptr) { return; }
+                auto *tex = static_cast<Texture *>(res);
+                auto any_zero = size[0] == 0u || size[1] == 0u || size[2] == 0u;
+                if (auto levels = tex->mip_levels(); levels != 0u && !any_zero) {
+                    if (level >= levels) {
+                        LUISA_ERROR("DStorageReadCommand {} handle {} addresses mip "
+                                    "level {}, but the texture has {} level(s).",
+                                    what, handle, level, levels);
+                    }
+                    auto mip = luisa::max(tex->size() >> level, 1u);
+                    auto region_offset = uint3{offset[0], offset[1], offset[2]};
+                    auto region_size = uint3{size[0], size[1], size[2]};
+                    if (luisa::any(region_offset + region_size > mip)) {
+                        LUISA_ERROR("DStorageReadCommand {} region ({} + {}) exceeds "
+                                    "mip {} of handle {} (size {}).",
+                                    what, region_offset, region_size, level, handle, mip);
+                    }
+                }
+            };
+            auto check_buffer_range = [&](uint64_t handle, size_t offset, size_t size,
+                                          luisa::string_view what) {
+                auto *res = require_tag(handle, Resource::Tag::BUFFER, what);
+                if (res == nullptr) { return; }
+                auto *buffer = static_cast<Buffer *>(res);
+                if (auto bytes = buffer->size_bytes(); bytes != 0u) {
+                    if (offset > bytes || size > bytes - offset) {
+                        LUISA_ERROR("DStorageReadCommand {} (handle {}, offset {}, "
+                                    "size {}) exceeds the buffer size {}.",
+                                    what, handle, offset, size, bytes);
+                    }
+                }
+            };
             auto check_range = [&](uint64_t handle, Range range) -> vstd::optional<std::pair<Range, Range>> {
                 auto add_range = vstd::scope_exit([&] {
                     dstorage_range_check.try_emplace(handle).first->second.emplace_back(range);
@@ -364,6 +423,14 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             };
             luisa::visit(
                 [&](auto t) {
+                    using T = std::remove_cvref_t<decltype(t)>;
+                    require_tag(t.handle,
+                                std::is_same_v<T, DStorageReadCommand::FileSource>
+                                    ? Resource::Tag::DSTORAGE_FILE
+                                    : Resource::Tag::DSTORAGE_PINNED_MEMORY,
+                                std::is_same_v<T, DStorageReadCommand::FileSource>
+                                    ? "file source"
+                                    : "pinned-memory source");
                     mark_handle(t.handle, Usage::READ, Range{});
                 },
                 c->source());
@@ -375,12 +442,16 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<DStorageReadCommand::BufferRequest, T>) {
+                        check_buffer_range(t.handle, t.offset_bytes, t.size_bytes,
+                                           "buffer destination");
                         mark_handle(t.handle, Usage::WRITE, Range{t.offset_bytes, t.size_bytes});
                         auto check_result = check_range(t.handle, Range{t.offset_bytes, t.size_bytes});
                         if (check_result) [[unlikely]] {
                             log_error(t.handle, check_result);
                         }
                     } else if constexpr (std::is_same_v<DStorageReadCommand::TextureRequest, T>) {
+                        check_texture_region(Resource::Tag::TEXTURE, t.handle, t.level,
+                                             t.offset, t.size, "texture destination");
                         mark_handle(t.handle, Usage::WRITE, Range{t.level, 1});
                         auto check_result = check_range(t.handle, Range{t.level, 1});
                         if (check_result) [[unlikely]] {
