@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Debug crashes and test failures via stack-traces, host/device logging, and DSL buffer inspection.
+description: Debug crashes and test failures via stack-traces, host/device logging, DSL buffer inspection, and add_debug_checks kernel restrict-mode guards.
 ---
 
 # Debugging LuisaCompute
@@ -179,7 +179,70 @@ for (size_t i = 0; i < 8; ++i) {
 - Guard the slot (`if (slot < N)`) so a flooded kernel cannot write past the buffer.
 - This captures the first N interesting threads without over-allocating.
 
-## 6. Environment Variables for Backend Diagnosis
+## 6. Kernel Restrict Mode: `add_debug_checks`
+
+`add_debug_checks(kernel)` (`include/luisa/dsl/func.h:736-749`, pulled in by `luisa-compute.h`) rewrites a kernel **and, transitively, every custom callable it uses** so that every operation that can fail at runtime is guarded: on failure the guard prints a diagnostic through the device printer and the thread stops early (`return_`). A failure inside a callable is reported to its caller through a generated trailing `reference<uint>` error out-parameter (0 = ok, 1 = failed), so one bad value stops the whole kernel thread. This is the kernel *restrict mode* — use it to turn a silently corrupted, out-of-bounds or NaN-producing dispatch into an explicit device-side message plus a provable early stop. Implementation: `src/ast/function_builder_debugger.cpp` (its header comment is the definitive operator-by-operator check table, kept in sync with `include/luisa/ast/op.h`); options: `include/luisa/ast/function_builder_debugger.h:15-48`.
+
+**Canonical usage** (from `src/tests/integration/runtime/test_function_debugger.cpp`):
+
+```cpp
+#include <luisa/luisa-compute.h>
+
+auto kernel = add_debug_checks(Kernel1D{[&](BufferVar<float> in, BufferVar<uint> out) noexcept {
+    auto i = dispatch_id().x;
+    auto v = in->read(i * 100u);   // BUFFER_READ bounds guard
+    auto y = v / 0.0f;             // float-div-by-zero + NaN/Inf guard
+    out->write(i, 1u);             // sentinel: must not run for a faulting thread
+    static_cast<void>(y);
+}});
+// Guards call BUFFER_SIZE/BYTE_BUFFER_SIZE/ACCEL_SIZE, so compile with debug
+// info (required on dx, harmless elsewhere).
+auto shader = device.compile(kernel, {.enable_debug_info = true});
+
+// Guards print through the device printer -> capture them on the stream.
+stream.set_log_callback([](luisa::string_view message) { LUISA_INFO("device: {}", message); });
+stream << shader(input, output).dispatch(4u) << synchronize();  // input/output are the host buffers
+```
+
+Guards emit `lc-debug: <what> in <kernel> (...)` lines. The callback receives the raw print payload (no severity prefix is added by the backends); match on a substring, e.g. `"buffer index out of range"` or `"NaN/Inf result"`. (The reference test's helper drops the **first byte** of every message, a leftover from `test_printer_custom_callback.cpp` where the kernel prepends its own severity letter — so it deliberately never matches `lc-debug:` itself.)
+
+**What is checked by default** (`detail::DebugKernelOptions`):
+
+| Guard | Fires on | Message contains |
+|---|---|---|
+| Integer div/mod | `x / 0`, `x % 0` (int/uint) | `integer division/modulo by zero in <fn>` |
+| Float div | float divisor `== 0` | `float division by zero in <fn>` |
+| NaN/Inf result | NaN/Inf result of float `ADD/SUB/MUL/DIV/MOD`, and math domain errors (`SQRT`/`RSQRT` negative, `LOG*` `<= 0`, `ACOS/ASIN` `\|x\| > 1`, `ACOSH` `< 1`, `ATANH` `\|x\| > 1`, `POW`, `ATAN2(0,0)`, `EXP*` overflow, `NORMALIZE` zero-length, `INVERSE` singular) | `NaN/Inf result in <fn>` |
+| Shift amount | `SHL/SHR` amount `>=` bit width or negative | `shift amount out of range in <fn>` |
+| Buffer bounds | `BUFFER_READ/WRITE` (+`volatile`) `index >= buffer.size()`; `BYTE_BUFFER_*` range (`offset + sizeof(T) > size`) | `buffer index out of range in <fn>`, `byte-buffer range out of bounds in <fn>` |
+| Bindless bounds | bindless element index vs `BINDLESS_BUFFER_SIZE` (slot validity is a host-encoder contract) | `bindless element index out of range` |
+| Accel instance index | `RAY_TRACING_INSTANCE_*` / `SET_INSTANCE_*` index vs `accel.size()` (needs `CallOp::ACCEL_SIZE`: dx/vk/cuda) | `accel instance index out of range in <fn>` |
+| Callee error | a transformed callable failed at a `CUSTOM` call site | `callee <name> failed in <fn>` |
+
+**Opt-in / not checked:**
+- `check_texture_bounds{false}` — `TEXTURE_READ/WRITE` coordinates vs `TEXTURE_SIZE` (writes are clamped on some backends); `check_ray_validity{false}` — NaN/Inf ray origin/direction.
+- Never guarded: atomics (the `AtomicRef` sits on an already-bound buffer), size queries (`BUFFER_SIZE`/`TEXTURE_SIZE`/`ACCEL_SIZE`), texture sampling `uv`/`coord` (hardware-clamped), int overflow (`MINUS`/`ADD`/`SUB`/`MUL`, off in v1), accel motion keys, and loop `for`-init/cond/update + `$while` provenance expressions (the AST has no per-iteration statement position — documented v1 limitation).
+- Rejected outright with a clear error: autodiff (`BACKWARD`/`GRADIENT`), raster-stage `RASTER_*`, and cooperative/async/expert ops (`COOPERATIVE_*`, `ASYNC_COPY`, `PIPELINE_*`, `MBARRIER_*`, …).
+- Zero overhead when there is nothing to check: a function whose ops are all safe is rebuilt statement-for-statement identical (the test asserts equal statement counts for a plain shared-memory kernel and for `acc->intersect` without instance access).
+
+**Tune the checks.** `add_debug_checks` always uses the default `DebugKernelOptions`; for per-check control call the detail entry point and rebuild the kernel type:
+
+```cpp
+namespace detail = luisa::compute::detail;
+detail::DebugKernelOptions opts;
+opts.check_accel_instance_index = false;  // backend without CallOp::ACCEL_SIZE
+opts.check_texture_bounds = true;         // opt in
+Kernel1D<BufferVar<float>, BufferVar<uint>> checked{
+    detail::debug_function(*plain_kernel.function(), opts)};
+```
+
+**Zero-touch variant:** `LUISA_AST_DEBUG_KERNEL=1` (also `true`/`on`; read once per process, `src/ast/function_builder_debugger.cpp:1404-1408`) makes `FunctionBuilder::define_kernel` run the generator on every kernel defined afterwards — non-kernel builders pass through unchanged (`include/luisa/ast/function_builder.h:289-297`). Fastest way to check a whole app without touching source.
+
+**Pre-flight sanity:** a guarded kernel sets `requires_printing()` and advertises the size queries it needs via `propagated_builtin_callables()` (`CallOp::BUFFER_SIZE` / `BYTE_BUFFER_SIZE` / `ACCEL_SIZE`) — assert both when wiring a new backend, and skip the check whose query that backend does not implement.
+
+**Reference test:** `src/tests/integration/runtime/test_function_debugger.cpp` (xmake `test_proj`, CMake `luisa_compute_add_test`) is the end-to-end spec of every guard; run `xmake run test_function_debugger <backend>` (the accel-structure cases need cuda/dx/vk/metal). It checks both the message and that faulting threads stop *before* their sentinel write — copy that pattern to reproduce a suspected OOB/NaN kernel.
+
+## 7. Environment Variables for Backend Diagnosis
 
 177 distinct `LUISA_*` names are read from the environment in `src/` outside `src/tests` (114 of them `LUISA_SIMD_*` codegen toggles), plus the system `MTL_*`/`METAL_*` variables; enumerate them with `grep -rn '"LUISA_' src/`. The table lists the diagnosis-relevant subset. Booleans are read through `luisa::compute::detail::env_flag` (`src/backends/common/env_flag.h:11-17`: `1`, `true`, `TRUE`, `on`, `ON`), while a few checks compare against exactly `"1"` (noted below). Set flags to `1` and you are always safe.
 
@@ -221,13 +284,14 @@ Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruct
 
 The runtime directories are printed by `LUISA_INFO` at context creation; they default to the executable directory. When running under `xmake run`, dumps written directly to the current working directory will appear in the project root.
 
-## 7. Decision Checklist
+## 8. Decision Checklist
 
 | Symptom | First Action | Next Action |
 |---|---|---|
 | Crash with stack-trace | Read innermost + first Luisa frame | Hypothesize → plan → fix |
-| Crash with **no** frames | Rebuild `-m debug`/`-m releasedbg` (Windows backtrace is `#ifndef NDEBUG`) | Attach `scripts/debugger.py` (Section 8) |
+| Crash with **no** frames | Rebuild `-m debug`/`-m releasedbg` (Windows backtrace is `#ifndef NDEBUG`) | Attach `scripts/debugger.py` (Section 9) |
 | Silent wrong result | Add `LUISA_INFO` at host entry points | Use buffer read-back to inspect values |
+| Suspected kernel OOB / NaN / div-by-zero | Wrap the kernel with `add_debug_checks` + `enable_debug_info` (Section 6) | Read the `lc-debug:` messages on the stream log callback; faulting threads stop early |
 | Kernel dispatch hangs | Check synchronize() and stream callback | Add minimal device_log at start of kernel |
 | Hang burning CPU | Suspect spin on freed memory (UAF masquerading as hang) | Isolate per-test; audit destructor unlink paths |
 | Unsure if failure is yours | Stash changes and re-run the same binary path | Persistent failure = pre-existing, out of scope |
@@ -235,7 +299,7 @@ The runtime directories are printed by `LUISA_INFO` at context creation; they de
 | Suspected API/resource misuse | Set `LUISA_ENABLE_VALIDATION=1` | Re-run and read validation messages |
 | Test timeout | Read build file for target entry | Narrow phase with host logging |
 
-## 8. Windows Crash Debugging with `scripts/debugger.py`
+## 9. Windows Crash Debugging with `scripts/debugger.py`
 
 A lightweight Python debugger using Windows Debug API + DbgHelp.dll (pure `ctypes`, no third-party packages) to launch an x64 executable under the debugger, print a symbolic stack trace for every exception event, and stop at the second-chance one. Output: `[!] Caught exception:` header (code/address/`FirstChance`), then `=== C++ stack trace (with PDB symbols) ===` rows `#NN 0xADDR func` followed by ` file:line` when line info exists.
 
@@ -255,7 +319,7 @@ python scripts/debugger.py <path_to_exe> [pdb_search_path] [-- <args>...]
 python scripts/debugger.py bin/debug/test_runtime.exe -- dx
 ```
 
-## 9. Tracking Memory Growth with `scripts/mem_monitor.py`
+## 10. Tracking Memory Growth with `scripts/mem_monitor.py`
 
 A cross-platform (Windows/Linux) Python wrapper that launches a process, samples its memory at a fixed interval, writes a timeline log, and **kills the process tree** when private memory exceeds a threshold — essential when a runaway test could exhaust machine RAM before you can observe it.
 
@@ -292,5 +356,6 @@ python scripts/mem_monitor.py --kill-gb 6 --interval 0.25 --log mem.log -- bin/d
 - **Always plan** before editing; record each failed attempt so it is not repeated.
 - **No trace** → read `CMakeLists.txt`/`xmake.lua`, add `LUISA_INFO`/`LUISA_VERBOSE`, then `device_log`.
 - **DSL values** → prefer `Buffer` write + host read-back for bulk inspection; use `device_log` for targeted per-thread messages.
+- **Kernel OOB / NaN / div-by-zero / bad shift** → `add_debug_checks(kernel)` + `enable_debug_info` (Section 6), or `LUISA_AST_DEBUG_KERNEL=1` for the whole app: guards print `lc-debug:` messages and stop the faulting thread.
 - **Backend/codegen issues** → set `LUISA_DUMP_SOURCE=1` to inspect generated shaders and `LUISA_ENABLE_VALIDATION=1` to catch API/resource misuse.
 - **Memory blow-up / suspected leak** → run under `scripts/mem_monitor.py` with `--kill-gb` (Windows/Linux); constant-rate growth = unbounded accumulation loop, stepwise growth = per-phase leak.
