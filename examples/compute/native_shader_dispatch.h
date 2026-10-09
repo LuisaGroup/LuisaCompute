@@ -188,6 +188,12 @@ struct ShaderJson {
     luisa::string entry_point;// empty => language default
     uint3 block_size{0u, 0u, 0u};
     uint32_t push_constant_size{0u};
+    // Optional manual reflection metadata ("bindings"): when non-empty, this
+    // table replaces the binding list the compiler reflects, so `load()` and
+    // the dispatch's index/register resolution see it instead. The entries
+    // must describe the shader's real interface - the backend still
+    // cross-checks them against the compiled binary.
+    luisa::vector<compute::NativeShaderResourceBinding> bindings;
     bool optimize{true};
     bool fast_math{false};
     bool debug_info{false};

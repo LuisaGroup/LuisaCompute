@@ -1744,6 +1744,25 @@ bool ShaderRegistry::compile_all(const DispatchJson &document,
             ok = false;
             continue;
         }
+        // Manual reflection metadata: a declared binding table replaces the one
+        // the compiler reflected. It must describe the shader's real interface -
+        // `load()` re-checks every entry against the compiled binary (on the
+        // DirectX route the table must still carry the `register(b0)` cbuffer,
+        // which `load()` lifts out as the uniform block).
+        if (!shader->bindings.empty()) {
+            if (shader->bindings.size() != result.bindings.size()) {
+                LUISA_WARNING(
+                    "shader '{}': the declared reflection lists {} binding(s) but "
+                    "the compiler reflected {}: the declared table wins and "
+                    "`load()` cross-checks it against the binary",
+                    shader->name, shader->bindings.size(), result.bindings.size());
+            }
+            result.bindings.clear();
+            result.bindings.reserve(shader->bindings.size());
+            for (auto &binding : shader->bindings) {
+                result.bindings.emplace_back(binding);
+            }
+        }
         LUISA_INFO("compiled a native {} shader '{}': {} bytes, workgroup size "
                    "({} {} {}), {} reflected binding(s)",
                    native_shader_language_name(result.language), shader->name,

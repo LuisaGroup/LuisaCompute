@@ -960,6 +960,27 @@ constexpr Case kNegativeCases[] = {
      "{\"shaders\": [{\"name\": \"s\", \"language\": \"hlsl\", \"source\": \"a\"},"
      " {\"name\": \"s\", \"language\": \"hlsl\", \"source\": \"b\"}]}",
      "name"},
+    // ---- manual reflection metadata (the "bindings" key of a shader) --------
+    {"unknown shader binding kind",
+     "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\", \"bindings\": [{\"kind\": \"tensor\"}]}]}",
+     "kind"},
+    {"shader binding usage none",
+     "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\","
+     " \"bindings\": [{\"kind\": \"structured_buffer\", \"usage\": \"none\"}]}]}",
+     "usage"},
+    {"read-only shader binding declared writable",
+     "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\","
+     " \"bindings\": [{\"kind\": \"structured_buffer\", \"usage\": \"write\"}]}]}",
+     "usage"},
+    {"shader binding array size zero",
+     "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\","
+     " \"bindings\": [{\"kind\": \"structured_buffer\", \"array_size\": 0}]}]}",
+     "array_size"},
+    {"duplicate shader binding address",
+     "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\","
+     " \"bindings\": [{\"kind\": \"structured_buffer\", \"register\": 0},"
+     " {\"kind\": \"rw_structured_buffer\", \"register\": 0}]}]}",
+     "bindings"},
     // ---- parsing corner cases (section 7 of the plan) ----------------------
     {"trailing garbage after the document", "{\"version\": 1} trailing", ""},
     {"fractional value in an integer field", "{\"mode\": {\"frames\": 1.5}}", "frames"},
@@ -1306,6 +1327,19 @@ constexpr RejectionCase kRejectionCases[] = {
     check(check_table_drift(),
           "drift: the codec's spelling tables and the runtime's mappings disagree");
     // ---- 1. the embedded corpus must match the files it names --------------
+    // Translation phase 1 maps every source newline to '\n', so a raw string
+    // compiled into the binary always holds LF even when the on-disk twin was
+    // checked out with CRLF endings: compare with the line endings normalized
+    // or every corpus entry reads as "stale" on such a checkout.
+    auto normalize_newlines = [](std::string_view text) noexcept {
+        auto out = luisa::string{};
+        out.reserve(text.size());
+        for (auto i = size_t{0u}; i < text.size(); i++) {
+            if (text[i] == '\r' && i + 1u < text.size() && text[i + 1u] == '\n') { continue; }
+            out.push_back(text[i]);
+        }
+        return out;
+    };
     auto missing_files = 0u;
     for (auto &&file : ns::kEmbeddedFiles) {
         auto path = find_example_file(file.path);
@@ -1320,7 +1354,7 @@ constexpr RejectionCase kRejectionCases[] = {
         }
         auto text = std::string_view{reinterpret_cast<const char *>(bytes.data()),
                                      bytes.size()};
-        check(text == file.contents,
+        check(normalize_newlines(text) == normalize_newlines(file.contents),
               luisa::format("corpus: the embedded copy of '{}' is stale", file.path));
     }
     if (missing_files != 0u) {
@@ -1414,6 +1448,34 @@ constexpr RejectionCase kRejectionCases[] = {
         check(errors.empty(), luisa::format(
                                   "codec: positional bindings were rejected ('{}')",
                                   errors.empty() ? "no diagnostic" : errors.front()));
+    }
+    // A shader entry that declares its reflection manually ("bindings")
+    // round-trips through the writer byte-stable.
+    {
+        auto text = std::string_view{
+            "{\"shaders\": [{\"name\": \"s\", \"source\": \"x\","
+            " \"bindings\": [{\"kind\": \"structured_buffer\", \"register\": 0,"
+            " \"usage\": \"read\"},"
+            " {\"kind\": \"rw_structured_buffer\", \"space\": 0, \"register\": 1,"
+            " \"array_size\": 2}]}] }"};
+        auto first = ns::parse_dispatch_json(text, ns::JsonLimits{});
+        check(first.value.has_value() && first.value->shaders.size() == 1u &&
+                  first.value->shaders[0].bindings.size() == 2u,
+              "codec: a shader with manual reflection metadata was rejected");
+        if (first.value.has_value()) {
+            auto written = ns::write_dispatch_json(*first.value);
+            check(written.error.empty(),
+                  luisa::format("codec: serialising manual reflection failed: {}",
+                                written.error));
+            auto second = ns::parse_dispatch_json(written.json, ns::JsonLimits{});
+            check(second.value.has_value(),
+                  "codec: the written manual reflection does not parse");
+            auto mismatch = luisa::string{};
+            check(second.value.has_value() &&
+                      ns::equivalent(*first.value, *second.value, mismatch),
+                  luisa::format("codec: the manual reflection does not round-trip: {}",
+                                mismatch));
+        }
     }
 
     // ---- 4. execution corpus ----------------------------------------------

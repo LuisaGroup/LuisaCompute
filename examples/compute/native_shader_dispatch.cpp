@@ -391,7 +391,27 @@ constexpr luisa::string_view kLimitKeys[]{
     "max_errors", "max_depth"};
 constexpr luisa::string_view kShaderKeys[]{
     "name", "language", "path", "source", "source_type", "entry_point", "block_size",
-    "push_constant_size", "include_dirs", "optimize", "fast_math", "debug_info"};
+    "push_constant_size", "bindings", "include_dirs", "optimize", "fast_math", "debug_info"};
+// One row of a shader's manual reflection table (`bindings`): the
+// (space, register) address, the resource kind, the array size and the
+// effective usage. `kind` is required; `usage` defaults to the kind's
+// reflection default.
+constexpr luisa::string_view kShaderBindingKeys[]{"space", "register", "kind", "array_size", "usage"};
+constexpr Spelling kResourceKindSpellings[]{
+    {"constant_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::ConstantBuffer)},
+    {"sampler", luisa::to_underlying(compute::NativeShaderResourceKind::Sampler)},
+    {"structured_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::StructuredBuffer)},
+    {"rw_structured_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::RWStructuredBuffer)},
+    {"byte_address_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::ByteAddressBuffer)},
+    {"rw_byte_address_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::RWByteAddressBuffer)},
+    {"typed_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::TypedBuffer)},
+    {"rw_typed_buffer", luisa::to_underlying(compute::NativeShaderResourceKind::RWTypedBuffer)},
+    {"texture2d", luisa::to_underlying(compute::NativeShaderResourceKind::Texture2D)},
+    {"rw_texture2d", luisa::to_underlying(compute::NativeShaderResourceKind::RWTexture2D)},
+    {"texture3d", luisa::to_underlying(compute::NativeShaderResourceKind::Texture3D)},
+    {"rw_texture3d", luisa::to_underlying(compute::NativeShaderResourceKind::RWTexture3D)},
+    {"acceleration_structure", luisa::to_underlying(compute::NativeShaderResourceKind::AccelerationStructure)},
+};
 constexpr luisa::string_view kCommonResourceKeys[]{"name", "type", "input"};
 constexpr luisa::string_view kBufferResourceKeys[]{"name", "type", "element", "count", "byte_size", "input"};
 constexpr luisa::string_view kTextureResourceKeys[]{"name", "type", "storage", "size", "levels", "element", "input"};
@@ -1293,6 +1313,74 @@ void field_enum(Ctx &ctx, const yyjson_val *object, const char *key, luisa::stri
     return result;
 }
 
+// The manual reflection table of a shader entry ("bindings"): a replacement
+// for the binding list the compiler reflects. The usage defaults to the
+// kind's reflection default; a read-class kind (SRV/CBV/sampler) can never be
+// declared writable, matching the `load()` contract.
+[[nodiscard]] luisa::vector<compute::NativeShaderResourceBinding> parse_shader_bindings(
+    Ctx &ctx, const yyjson_val *value, luisa::string_view path) noexcept {
+    auto result = luisa::vector<compute::NativeShaderResourceBinding>{};
+    auto *array = expect_array(ctx, value, path);
+    if (array == nullptr || !check_depth(ctx, path)) { return result; }
+    auto guard = DepthGuard{ctx};
+    auto count = yyjson_arr_size(array);
+    result.reserve(count);
+    for (auto i = size_t{0u}; i < count; i++) {
+        auto item_path = path_index(path, i);
+        auto *object = expect_object(ctx, yyjson_arr_get(array, i), item_path);
+        if (object == nullptr) { continue; }
+        check_object_keys(ctx, object, item_path, keys_of(kShaderBindingKeys), {});
+        auto binding = compute::NativeShaderResourceBinding{};
+        if (auto *kind_value = yyjson_obj_get(object, "kind")) {
+            auto kind_path = path_key(item_path, "kind");
+            if (auto text = expect_string(ctx, kind_value, kind_path)) {
+                auto canonical = canonical_spelling(*text);
+                auto *spelling = find_spelling(kResourceKindSpellings, canonical);
+                if (spelling == nullptr) {
+                    ctx.diag.error(luisa::format(FMT_STRING("{}: unknown binding kind '{}' (expected one of {})"),
+                                                 kind_path, *text, spelling_list(kResourceKindSpellings)));
+                } else {
+                    binding.kind = static_cast<compute::NativeShaderResourceKind>(spelling->value);
+                }
+            }
+        } else {
+            ctx.diag.error(luisa::format(FMT_STRING("{}: missing 'kind'"), item_path));
+        }
+        field_u32(ctx, object, "space", item_path, binding.space_index);
+        field_u32(ctx, object, "register", item_path, binding.register_index);
+        field_u32(ctx, object, "array_size", item_path, binding.array_size);
+        if (binding.array_size == 0u) {
+            ctx.diag.error(luisa::format(FMT_STRING("{}: array_size must be at least 1"),
+                                         path_key(item_path, "array_size")));
+        }
+        if (auto *usage_value = yyjson_obj_get(object, "usage")) {
+            auto usage_path = path_key(item_path, "usage");
+            if (auto text = expect_string(ctx, usage_value, usage_path)) {
+                auto canonical = canonical_spelling(*text);
+                auto *spelling = find_spelling(kUsageSpellings, canonical);
+                if (spelling == nullptr) {
+                    ctx.diag.error(luisa::format(FMT_STRING("{}: unknown usage '{}' (expected one of {})"),
+                                                 usage_path, *text, spelling_list(kUsageSpellings)));
+                } else {
+                    binding.usage = static_cast<compute::Usage>(spelling->value);
+                }
+            }
+        } else {
+            binding.usage = compute::native_shader_default_usage(binding.kind);
+        }
+        if (binding.usage == compute::Usage::NONE) {
+            ctx.diag.error(luisa::format(FMT_STRING("{}: a reflected binding cannot have usage 'none'"),
+                                         path_key(item_path, "usage")));
+        } else if (compute::native_shader_default_usage(binding.kind) == compute::Usage::READ &&
+                   (luisa::to_underlying(binding.usage) & luisa::to_underlying(compute::Usage::WRITE)) != 0) {
+            ctx.diag.error(luisa::format(FMT_STRING("{}: an SRV/CBV-class binding can only be read"),
+                                         path_key(item_path, "usage")));
+        }
+        result.emplace_back(binding);
+    }
+    return result;
+}
+
 [[nodiscard]] ShaderJson parse_shader(Ctx &ctx, const yyjson_val *value,
                                       luisa::string_view path) noexcept {
     auto result = ShaderJson{};
@@ -1342,6 +1430,9 @@ void field_enum(Ctx &ctx, const yyjson_val *object, const char *key, luisa::stri
     field_string(ctx, object, "entry_point", path, result.entry_point);
     field_uint3(ctx, object, "block_size", path, result.block_size);
     field_u32(ctx, object, "push_constant_size", path, result.push_constant_size);
+    if (auto *bindings = yyjson_obj_get(object, "bindings")) {
+        result.bindings = parse_shader_bindings(ctx, bindings, path_key(path, "bindings"));
+    }
     field_string_array(ctx, object, "include_dirs", path, result.include_dirs);
     field_bool(ctx, object, "optimize", path, result.optimize);
     field_bool(ctx, object, "fast_math", path, result.fast_math);
@@ -2236,6 +2327,20 @@ template<size_t N>
     return {};
 }
 
+[[nodiscard]] luisa::string_view resource_kind_name(compute::NativeShaderResourceKind kind) noexcept {
+    for (auto spelling : kResourceKindSpellings) {
+        if (spelling.value == luisa::to_underlying(kind)) { return spelling.name; }
+    }
+    return {};
+}
+
+[[nodiscard]] luisa::string_view usage_spelling(compute::Usage usage) noexcept {
+    for (auto spelling : kUsageSpellings) {
+        if (spelling.value == luisa::to_underlying(usage)) { return spelling.name; }
+    }
+    return {};
+}
+
 [[nodiscard]] yyjson_mut_val *make_window(WriteCtx &w, const WindowJson &window) noexcept {
     auto *object = make_object(w, "window");
     if (object == nullptr) { return nullptr; }
@@ -2322,6 +2427,33 @@ template<size_t N>
     return object;
 }
 
+[[nodiscard]] yyjson_mut_val *make_shader_bindings(
+    WriteCtx &w, const luisa::vector<compute::NativeShaderResourceBinding> &bindings) noexcept {
+    auto *array = make_array(w, "shader bindings");
+    if (array == nullptr) { return nullptr; }
+    for (auto &binding : bindings) {
+        auto *item = make_object(w, "shader binding");
+        if (item == nullptr) { break; }
+        auto kind = resource_kind_name(binding.kind);
+        if (kind.empty()) {
+            w.fail("shader binding kind");
+        } else {
+            add_string(w, item, "kind", kind);
+        }
+        add_uint(w, item, "space", binding.space_index);
+        add_uint(w, item, "register", binding.register_index);
+        add_uint(w, item, "array_size", binding.array_size);
+        auto usage = usage_spelling(binding.usage);
+        if (usage.empty()) {
+            w.fail("shader binding usage");
+        } else {
+            add_string(w, item, "usage", usage);
+        }
+        if (!yyjson_mut_arr_add_val(array, item)) { w.fail("shader bindings"); }
+    }
+    return array;
+}
+
 [[nodiscard]] yyjson_mut_val *make_shader(WriteCtx &w, const ShaderJson &shader) noexcept {
     auto *object = make_object(w, "shader");
     if (object == nullptr) { return nullptr; }
@@ -2340,6 +2472,9 @@ template<size_t N>
     add_string(w, object, "entry_point", view_of(shader.entry_point));
     add_value(w, object, "block_size", make_uint3(w, shader.block_size));
     add_uint(w, object, "push_constant_size", shader.push_constant_size);
+    // The manual reflection table (empty for most shaders) is written
+    // unconditionally, so the canonical form round-trips it unchanged.
+    add_value(w, object, "bindings", make_shader_bindings(w, shader.bindings));
     add_value(w, object, "include_dirs", make_string_array(w, shader.include_dirs));
     add_bool(w, object, "optimize", shader.optimize);
     add_bool(w, object, "fast_math", shader.fast_math);
@@ -3858,6 +3993,23 @@ void validate_mode(SemanticState &state) noexcept {
         if (shader.path.empty() && shader.source.empty()) {
             state.error(luisa::format(FMT_STRING("{}: shader '{}' needs either 'path' or 'source'"),
                                       path, shader.name));
+        }
+        if (shader.bindings.size() > limits.max_bindings_per_dispatch) {
+            state.error(luisa::format(FMT_STRING("{}: the manual reflection of shader '{}' lists {} binding(s), "
+                                                 "exceeding the limit of {}"),
+                                      path, shader.name, shader.bindings.size(),
+                                      limits.max_bindings_per_dispatch));
+        }
+        for (auto b = size_t{0u}; b < shader.bindings.size(); b++) {
+            for (auto other = b + 1u; other < shader.bindings.size(); other++) {
+                if (shader.bindings[b].space_index == shader.bindings[other].space_index &&
+                    shader.bindings[b].register_index == shader.bindings[other].register_index) {
+                    state.error(luisa::format(FMT_STRING("{}.bindings[{}]: binding address (space {}, register {}) "
+                                                         "is also declared at bindings[{}] of shader '{}'"),
+                                              path, b, shader.bindings[b].space_index,
+                                              shader.bindings[b].register_index, other, shader.name));
+                }
+            }
         }
         // Shaders and resources live in separate namespaces; a collision is
         // legal but worth a warning.

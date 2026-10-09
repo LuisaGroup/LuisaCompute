@@ -8,6 +8,17 @@ downloads and verifies the results, and — in interactive mode — displays an 
 image through an ImGui window with a DSL kernel that converts it to the display
 destination.
 
+The example is split across four translation units:
+
+| file | owns |
+|---|---|
+| `native_shader.cpp` | command line, mode orchestration, shader registry glue, ImGui display pass, self test |
+| `native_shader_dispatch.{h,cpp}` | the in-memory model of the document, the JSON codec (parse/write) and the semantic validator — **no device, no filesystem** |
+| `native_shader_runtime.{h,cpp}` | device-side execution: resource creation, inputs, the workflow, output sinks, verification |
+| `native_shader_embedded.h` | the default document plus one embedded `scale` shader per native language |
+
+Schema id `luisa.native_shader.dispatch`, `version: 1`.
+
 ```
 example_native_shader <backend> <dispatch.json> [shader...] [options]
 example_native_shader <backend> <shader...>                  # embedded default workflow
@@ -100,10 +111,32 @@ destination, every `every` frames.
 | `path` / `source` | string | – | a file *or* inline text (one of them) |
 | `source_type` | `"file"`\|`"code"` | inferred | |
 | `entry_point` | string | `"main"` | HLSL needs the real name (e.g. `CSMain`) |
-| `block_size` | `[x,y,z]` | `[0,0,0]` | required for CUDA without `__launch_bounds__` |
-| `push_constant_size` | int | `0` | `0` = no uniform block / reflect |
-| `include_dirs` | [path] | `[]` | |
-| `optimize`/`fast_math`/`debug_info` | bool | inherit `config` | |
+| block_size | [x,y,z] | [0,0,0] | required for CUDA without `__launch_bounds__` |
+| push_constant_size | int | 0 | 0 = no uniform block / reflect |
+| bindings | [object] | [] | manual reflection metadata; see below |
+| include_dirs | [path] | [] | |
+| optimize/fast_math/debug_info | bool | inherit config | |
+
+ bindings (manual reflection metadata). By default the binding table
+  comes from the compiler's reflection of the compiled shader. A non-empty
+  bindings list replaces that table before `load()`: each entry is
+  {"kind", "space", "register", "array_size", "usage"} with kind one of
+  constant_buffer, sampler, structured_buffer, rw_structured_buffer,
+  byte_address_buffer, rw_byte_address_buffer, typed_buffer,
+  rw_typed_buffer, texture2d, rw_texture2d, texture3d, rw_texture3d,
+  acceleration_structure, space/register defaulting to 0, array_size to 1
+  and usage to the kind's reflection default. A usage of none is rejected,
+  and an SRV/CBV-class kind (everything but the rw_* kinds) can never be
+  declared writable. The declared table must describe the shader's real
+  interface - `load()` still cross-checks every entry against the compiled
+  binary (on the DirectX route it must therefore keep the
+  `cbuffer ... : register(b0)` row, which `load()` lifts out as the
+  uniform block), and a dispatch's binding index/register still address it.
+  A row count differing from the compiler's reflection warns (the declared
+  table wins); the count is bounded by
+  config.limits.max_bindings_per_dispatch and a duplicate
+  (space, register) address is an error. See
+  simple_add_manual.json for a runnable declaration.
 
 Language/backend compatibility is validated before compiling: `dx` → HLSL only,
 `vk` → HLSL or GLSL, `cuda` → CUDA C++ only. Note that the HLSL *uniform-block
@@ -211,6 +244,10 @@ texture/volume `[x,y,z]` region; `buffer_offset` is always a byte count.
 | `log` | `message` — host-side `LUISA_INFO`, no device command |
 | `synchronize` | `label` — flush the segment and `stream.synchronize()` |
 
+`request` is `prefer_update` | `force_build`. `dispatch` and `grid` are
+alternatives — supplying both, or neither, is an error. There is no `indirect`
+form: the codec recognises the key and rejects it with a dedicated diagnostic.
+
 `native_dispatch.bindings` entries:
 
 ```json
@@ -265,6 +302,25 @@ valid for a full 2-D `byte4`/`float4` image download. `verify` is available on
 compares the downloaded floats with `src * k + c`, `{"kind":"copy","source":"other"}`
 compares bytes.
 
+`custom_command` is the escape hatch for extension commands; the example
+registers two UUIDs, spellable by name or number:
+
+| name | uuid | fields |
+|---|---|---|
+| `native_shader_dispatch` | `1536` | the whole `native_dispatch` field set (alias form) |
+| `dstorage_read` | `512` | `resource`, `offset`, `input` |
+
+```json
+{ "cmd": "custom_command", "uuid": "native_shader_dispatch", "shader": "scale",
+  "dispatch": [64,1,1],
+  "bindings": [ { "register": 0, "space": 0, "resource": "src", "usage": "read" },
+                { "index": 1, "resource": "check2", "usage": "write" } ],
+  "uniforms": [ { "type": "float32", "value": 3.0 },
+                { "type": "float32", "value": 0.0 } ] }
+```
+
+An unknown UUID is rejected by the semantic pass.
+
 ## Registered DSL kernels
 
 Besides the native shaders the document declares, the example registers these
@@ -297,6 +353,224 @@ xmake run example_native_shader cuda <abs path>/scale_offline.json
 `--self-test` additionally writes a small binary file and runs a file-input
 document through it, which is what exercises the dstorage path on the backends
 that have one.
+
+## A complete example
+
+`scale_offline.json` in full, annotated:
+
+```json
+{
+  "version": 1,
+  "mode": { "type": "offline", "frames": 1 },
+  "config": {
+    "default_language": "hlsl",
+    "include_dirs": ["shaders"],          // resolved next to the JSON file
+    "output_dir": "native_shader_output"  // relative sinks land here
+  },
+  "shaders": [
+    { "name": "scale", "language": "glsl",       "path": "shaders/scale.glsl", "entry_point": "main",   "push_constant_size": 8, "block_size": [64,1,1] },
+    { "name": "scale", "language": "hlsl",       "path": "shaders/scale.hlsl", "entry_point": "CSMain", "push_constant_size": 8, "block_size": [64,1,1] },
+    { "name": "scale", "language": "cuda_nvrtc", "path": "shaders/scale.cuda", "entry_point": "scale",  "push_constant_size": 8, "block_size": [64,1,1] }
+  ],
+  "resources": [
+    { "name": "src", "type": "buffer", "element": "float", "count": 64,
+      "input": { "inline": { "hex": "000000000000803f..." } } },  // 0, 1, 2, ...
+    { "name": "dst", "type": "buffer", "element": "float", "count": 64 }
+  ],
+  "workflow": [
+    { "cmd": "log", "message": "scaling 64 elements by 2 and adding 1" },
+    { "cmd": "native_dispatch", "shader": "scale", "grid": [1,1,1],
+      "bindings": [ { "index": 0, "resource": "src", "usage": "read" },
+                    { "index": 1, "resource": "dst", "usage": "write" } ],
+      "uniforms": [ { "type": "float32", "value": 2.0 },
+                    { "type": "float32", "value": 1.0 } ] },
+    { "cmd": "buffer_download", "resource": "dst",
+      "output": { "file": "dst.bin", "format": "raw", "overwrite": true },
+      "verify": { "kind": "linear", "source": "src", "k": 2.0, "c": 1.0 } }
+  ]
+}
+```
+
+Run on `dx`, the log ends with:
+
+```
+resource 'src': buffer (256 byte(s))
+resource 'dst': buffer (256 byte(s))
+[workflow 0] scaling 64 elements by 2 and adding 1
+[workflow 2] wrote 256 bytes to 'native_shader_output\dst.bin'
+dispatch document executed on 'dx': 1 frame(s), 3 device command(s),
+  per-kind [buffer_download=1, native_dispatch=1, log=1]
+```
+
+(`log` counts as a command in the per-kind tally, the inline `input` of `src`
+is uploaded during resource creation (not as a workflow command), and the
+written path proves the `output_dir` prefix rule.)
+
+### Round-tripping with `--dump-dispatch`
+
+`--dump-dispatch out.json` writes the **effective** document — after CLI
+overrides and shader merging — in the codec's canonical form, and exits. The
+canonical form states every key, including the defaults, so it doubles as a
+machine-readable answer to "what defaults am I getting?":
+
+```jsonc
+"config": {
+  "push_constant_size": null,          // null = reflect per shader
+  "output_dir": "native_shader_output",
+  "dstorage": { "enabled": true, "staging_buffer_size": 67108864, "compression": "none" },
+  "limits": { "max_resources": 256, ... }
+},
+"workflow": [
+  { "cmd": "native_dispatch", "shader": "scale",
+    "dispatch": [0,0,0], "grid": [1,1,1],        // both written, one is zero
+    "bindings": [ { "index": 0, "resource": "src", "offset": 0, "size": 0, "usage": "read" }, ... ],
+    "allow_usage_override": false },
+  { "cmd": "buffer_download", "resource": "dst", "offset": 0, "size": 0,
+    "output": { "discard": false, "file": "dst.bin", "format": "raw", "overwrite": true },
+    "verify": { "kind": "linear", "source": "src", "k": 2.0, "c": 1.0, "tolerance": 0.0 } }
+]
+```
+
+The codec round-trip (parse → write → parse) is part of `--self-test`.
+
+## Path resolution and `native_shader_output/`
+
+Paths inside the document are resolved by `PathResolver`
+(`native_shader_runtime.h`):
+
+* **inputs** (`shaders[].path`, `input.file`, includes) resolve against the
+  document's directory, or `--workdir DIR` when given; absolute paths are kept.
+* **output sinks** (`output.file`, `mode.snapshot.path`) get
+  `config.output_dir` (or `--output-dir DIR`) prefixed when they are relative —
+  the parent directory is created on demand.
+* shader sources follow the input rule.
+
+Because `xmake run` sets the working directory to `bin/<mode>/`, the default
+`output_dir` of `"native_shader_output"` produces artifacts under
+`bin/<mode>/native_shader_output/`. A checkout that ran the example therefore
+looks like:
+
+| file | produced by | example size | content |
+|---|---|---|---|
+| `dst.bin` | `buffer_download` of `dst` in `scale_offline.json` | 256 B | 64 `float`s, `src[i] * 2 + 1` |
+| `frame.png` | interactive `mode.snapshot` of `scale_interactive.json` | ~28 KB | the 1024×1024 display destination |
+| `selftest_src.bin` | `--self-test` | 256 B | the file-input corpus (the default workflow's `src` loaded from this file at offset 0) |
+
+`dst.bin` is the verified readback (the sink only writes because it names a
+file; `discard: true` would have skipped it), `frame.png` is a `float4`
+full-image PNG download, and `selftest_src.bin` is what exercises the
+DirectStorage path on the backends that have one — the self test rewrites it
+(256 zero bytes) and points a *rejected* document at offset 65536 to cover the
+bounds check as well.
+
+## Limits
+
+`config.limits` bounds the document and is printed by `--print-schema`:
+
+| limit | default |
+|---|---|
+| `max_document_bytes` | 64 MiB |
+| `max_resources` / `max_shaders` / `max_commands` | 256 / 64 / 4096 |
+| `max_inline_bytes` / `max_uniform_bytes` | 32 MiB / 65536 |
+| `max_bindings_per_dispatch` | 256 |
+| `max_resource_bytes` | 16 GiB |
+| `max_string_bytes` / `max_errors` / `max_depth` | 1 MiB / 32 / 64 |
+
+`max_resource_bytes` bounds one resource (a buffer's total, or the sum over all
+mip levels of a texture/volume). Without it an absurd size would reach a backend
+allocator that aborts the process instead of reporting anything — with it the
+run fails with e.g. `resources[0]: texture 't' is 160000000000 byte(s), which
+exceeds the limit of 17179869184 byte(s) (config.limits.max_resource_bytes)`.
+
+## A minimal compute shader in three languages
+
+The smallest useful native dispatch is one read-only buffer, one
+read-write buffer and one scalar uniform: `dst[i] = src[i] + c`. The
+runnable document is `simple_add.json`; it carries
+the three language variants inline (`"source"` + `"source_type": "code"`
+instead of `"path"`), so the file is the whole example. All three entries
+share the name `add`; the backend picks the variant it speaks (dx →
+HLSL, vk → GLSL then HLSL, cuda → CUDA C++) and logs the skipped ones.
+
+HLSL (dx; vk also accepts it through DXC). Resources are declared by
+`register`, the uniform block is the root 32-bit constant block, and the
+entry point is the real function name:
+
+```hlsl
+StructuredBuffer<float> src : register(t0);
+RWStructuredBuffer<float> dst : register(u0);
+cbuffer Params : register(b0) { float c; };
+[numthreads(32, 1, 1)]
+void CSMain(uint3 tid : SV_DispatchThreadID) {
+    dst[tid.x] = src[tid.x] + c;
+}
+```
+
+GLSL (vk). `(set, binding)` pairs replace registers and the uniform block
+is `layout(push_constant)`; the entry point stays `main`:
+
+```glsl
+#version 450
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, binding = 0) readonly buffer A { float a[]; } src;
+layout(set = 0, binding = 1) buffer B { float b[]; } dst;
+layout(push_constant) uniform Push { float c; } params;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    dst.b[i] = src.a[i] + params.c;
+}
+```
+
+CUDA C++ (cuda, NVRTC). The kernel signature is the binding declaration:
+`const` pointer = read-only buffer, mutable pointer = read-write buffer,
+trailing scalar parameters are the uniforms in declaration order, and
+`extern "C"` keeps the name unmangled:
+
+```cuda
+extern "C" __global__ void add(const float *src, float *dst, float c) {
+    auto i = blockIdx.x * blockDim.x + threadIdx.x;
+    dst[i] = src[i] + c;
+}
+```
+
+The matching document parts: each entry states `"push_constant_size": 4`
+(one float) and `"block_size": [32, 1, 1]`; `src` is a 32-element `float`
+buffer with an inline hex input (0.0 … 31.0) and `dst` a 32-element `float`
+buffer. The workflow is the canonical three commands — a `log`, a
+`native_dispatch`, a verified download:
+
+```
+{"cmd": "native_dispatch", "shader": "add", "dispatch": [32, 1, 1],
+ "bindings": [{"index": 0, "resource": "src", "usage": "read"},
+              {"index": 1, "resource": "dst", "usage": "write"}],
+ "uniforms": [{"type": "float32", "value": 10.0}]}
+```
+
+`dispatch` is in threads, exactly one per element, so no bounds check is
+needed. Run it (from the repository root, or pass an absolute document
+path — `xmake run` makes `bin/<mode>/` the working directory, see the note
+above):
+
+```
+bin/release/example_native_shader.exe cuda examples/compute/native_shader_examples/simple_add.json
+```
+
+On cuda the log ends with the variant selection, the reflection and the
+verified sink:
+
+```
+shader 'add': skipping the glsl variant (this backend uses hlsl)
+shader 'add': using the cuda_nvrtc variant
+compiled a native cuda_nvrtc shader 'add': 878 bytes, workgroup size (32 1 1), 2 reflected binding(s)
+binding 0: set 0 register 0 array 1 usage read
+binding 1: set 0 register 1 array 1 usage read_write
+[workflow 2] wrote 128 bytes to 'native_shader_output\simple_add.bin'
+dispatch document executed on 'cuda': 1 frame(s), 3 device command(s), ...
+```
+
+The download's verify (`{"kind": "linear", "source": "src", "k": 1.0,
+"c": 10.0}`) fails the run unless `dst` holds `src[i] + 10`; the same
+document runs unmodified on dx (HLSL variant) and vk (GLSL variant).
 
 ## Error catalogue
 
