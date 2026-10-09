@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "mode": {
+    "type": "offline",
+    "frames": 1
+  },
+  "config": {
+    "default_language": "hlsl",
+    "include_dirs": [
+      "shaders"
+    ],
+    "output_dir": "native_shader_output"
+  },
+  "shaders": [
+    {
+      "name": "scale",
+      "language": "glsl",
+      "path": "shaders/scale.glsl",
+      "entry_point": "main",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "scale",
+      "language": "hlsl",
+      "path": "shaders/scale.hlsl",
+      "entry_point": "CSMain",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "scale",
+      "language": "cuda_nvrtc",
+      "path": "shaders/scale.cuda",
+      "entry_point": "scale",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "name": "src",
+      "type": "buffer",
+      "element": "float",
+      "count": 64,
+      "input": {
+        "inline": {
+          "hex": "000000000000803f0000004000004040000080400000a0400000c0400000e0400000004100001041000020410000304100004041000050410000604100007041000080410000884100009041000098410000a0410000a8410000b0410000b8410000c0410000c8410000d0410000d8410000e0410000e8410000f0410000f84100000042000004420000084200000c4200001042000014420000184200001c4200002042000024420000284200002c4200003042000034420000384200003c4200004042000044420000484200004c4200005042000054420000584200005c4200006042000064420000684200006c4200007042000074420000784200007c42"
+        }
+      }
+    },
+    {
+      "name": "dst",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    }
+  ],
+  "workflow": [
+    {
+      "cmd": "log",
+      "message": "scaling 64 elements by 2 and adding 1"
+    },
+    {
+      "cmd": "native_dispatch",
+      "shader": "scale",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "index": 0,
+          "resource": "src",
+          "usage": "read"
+        },
+        {
+          "index": 1,
+          "resource": "dst",
+          "usage": "write"
+        }
+      ],
+      "uniforms": [
+        {
+          "type": "float32",
+          "value": 2.0
+        },
+        {
+          "type": "float32",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "dst",
+      "output": {
+        "file": "dst.bin",
+        "format": "raw",
+        "overwrite": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 2.0,
+        "c": 1.0
+      }
+    }
+  ]
+}

@@ -181,6 +181,29 @@ for (size_t i = 0; i < 8; ++i) {
 
 ## 6. Kernel Restrict Mode: `add_debug_checks`
 
+> **TEMPORARY DEBUG SCAFFOLDING — DELETE IT BEFORE SHIPPING.**
+> `add_debug_checks` rebuilds the whole function (and every custom callable it
+> uses) with a guard around *every* operation, and a guard is a printed
+> diagnostic, never a free assertion. Expect an **extremely huge performance
+> cost**, far beyond a few percent:
+> - each guarded op adds comparisons/branches plus size-query and diagnostic
+>   plumbing, and forces device printing on (`requires_printing()`), which
+>   defeats vectorization, unrolling and dead-code elimination on the
+>   instrumented path;
+> - error propagation adds a trailing `reference<uint>` out-parameter to
+>   *every* transformed callable and a check at *every* call site
+>   (`propagate_callable_errors`);
+> - a faulting thread additionally pays for building and flushing a device
+>   log line (asynchronous, so a flooded kernel also floods the log buffer).
+> Real dispatches can slow down by orders of magnitude, so an instrumented
+> build is unusable for timing or throughput work.
+> Therefore: instrument only to localize a bug, then **remove every
+> `add_debug_checks(...)` call (plus `LUISA_AST_DEBUG_KERNEL=1`, the debug
+> kernel type, and its extra shader/dispatch) as soon as the bug is found** —
+> never commit it, never measure performance with it, and re-run the normal
+> uninstrumented kernel to confirm the fix. The GPU-side cost is identical in
+> Debug and Release, so do not expect a release build to make it cheap.
+
 `add_debug_checks(kernel)` (`include/luisa/dsl/func.h:736-749`, pulled in by `luisa-compute.h`) rewrites a kernel **and, transitively, every custom callable it uses** so that every operation that can fail at runtime is guarded: on failure the guard prints a diagnostic through the device printer and the thread stops early (`return_`). A failure inside a callable is reported to its caller through a generated trailing `reference<uint>` error out-parameter (0 = ok, 1 = failed), so one bad value stops the whole kernel thread. This is the kernel *restrict mode* — use it to turn a silently corrupted, out-of-bounds or NaN-producing dispatch into an explicit device-side message plus a provable early stop. Implementation: `src/ast/function_builder_debugger.cpp` (its header comment is the definitive operator-by-operator check table, kept in sync with `include/luisa/ast/op.h`); options: `include/luisa/ast/function_builder_debugger.h:15-48`.
 
 **Canonical usage** (from `src/tests/integration/runtime/test_function_debugger.cpp`):
@@ -236,7 +259,7 @@ Kernel1D<BufferVar<float>, BufferVar<uint>> checked{
     detail::debug_function(*plain_kernel.function(), opts)};
 ```
 
-**Zero-touch variant:** `LUISA_AST_DEBUG_KERNEL=1` (also `true`/`on`; read once per process, `src/ast/function_builder_debugger.cpp:1404-1408`) makes `FunctionBuilder::define_kernel` run the generator on every kernel defined afterwards — non-kernel builders pass through unchanged (`include/luisa/ast/function_builder.h:289-297`). Fastest way to check a whole app without touching source.
+**Zero-touch variant:** `LUISA_AST_DEBUG_KERNEL=1` (also `true`/`on`; read once per process, `src/ast/function_builder_debugger.cpp:1404-1408`) makes `FunctionBuilder::define_kernel` run the generator on every kernel defined afterwards — non-kernel builders pass through unchanged (`include/luisa/ast/function_builder.h:289-297`). Fastest way to check a whole app without touching source — but it is process-wide, so **unset it (or restart the shell) when done**: as long as it is set, *every* kernel defined afterwards carries the guards and pays the huge cost described above.
 
 **Pre-flight sanity:** a guarded kernel sets `requires_printing()` and advertises the size queries it needs via `propagated_builtin_callables()` (`CallOp::BUFFER_SIZE` / `BYTE_BUFFER_SIZE` / `ACCEL_SIZE`) — assert both when wiring a new backend, and skip the check whose query that backend does not implement.
 

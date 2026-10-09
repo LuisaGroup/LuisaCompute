@@ -108,7 +108,27 @@ example_proj("example_software_lbvh_test", "compute/lbvh/test/lbvh_test.cpp", fa
     add_files("compute/lbvh/*.cpp")
 end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
-example_proj("example_native_shader", "compute/native_shader.cpp", false)
+    -- Native shader injection driven by a dispatch document (JSON): the example
+    -- compiles one or more native sources (HLSL/GLSL/CUDA C++), creates the
+    -- resources the document declares, loads their inputs (through the
+    -- dstorage extension when the backend has one) and replays the document's
+    -- workflow - every command being separately serializable - then verifies the
+    -- results on the host. `mode.interactive` additionally drives an ImGui
+    -- window through an HDR->display DSL kernel.
+    example_proj("example_native_shader", "compute/native_shader.cpp", false, function()
+        add_files("compute/native_shader_dispatch.cpp", "compute/native_shader_runtime.cpp")
+        -- yyjson: lc-runtime only re-exports the include dir when lc_enable_xir is
+        -- on, so depend on it explicitly (mirrors src/runtime/xmake.lua).
+        if has_config("lc_yyjson_use_xrepo") then
+            add_packages("yyjson")
+        else
+            add_deps("lc-yyjson")
+        end
+        -- GUI is optional at runtime: example_proj already adds lc-gui when
+        -- lc_enable_gui is on; the define only tells the example that
+        -- <luisa/gui/imgui_window.h> is available.
+        if has_config("lc_enable_gui") then add_defines("LUISA_ENABLE_GUI") end
+    end)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
             example_proj(name, source, gui_dep, function()
@@ -132,9 +152,15 @@ example_proj("example_native_shader", "compute/native_shader.cpp", false)
     includes("compute/compact")
 
 -- extension
+-- The direct-storage demo is backend agnostic: it runs on dx (real
+-- DirectStorage), vk (host-staged fallback), cuda (mapped files) and metal
+-- (MTLIO), and skips itself when DStorageExt is unavailable.
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") or
+    has_config("lc_cuda_backend") or has_config("lc_metal_backend") then
+    example_proj("example_dstorage", "extension/dstorage.cpp", false)
+end
 if has_config("lc_dx_backend") then
     example_proj("example_dml", "extension/dml.cpp", false)
-    example_proj("example_dstorage", "extension/dstorage.cpp", false)
     -- example_proj("example_dx_supersampling", "extension/dx_supersampling.cpp", true)
     example_proj("example_supersampling", "extension/supersampling.cpp", true)
 end

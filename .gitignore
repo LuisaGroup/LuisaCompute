@@ -375,3 +375,6 @@ build-verify/
 
 # torch2 canonical export archives (regenerable via examples/tensor/rnn_train.py)
 rnn_exported.pt2
+
+# JSON-driven native shader example: generated outputs (--output-dir)
+native_shader_output/

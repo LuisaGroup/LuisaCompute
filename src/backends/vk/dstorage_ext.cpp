@@ -4,6 +4,10 @@
 #include <new>
 #include <luisa/core/magic_enum.h>
 #include <luisa/runtime/rhi/pixel.h>
+// `CommandList::steal_presents()` returns a `luisa::vector<SwapchainPresent>` by
+// value, so the type must be complete here (with the system STL this is an error
+// rather than a deferred instantiation).
+#include <luisa/runtime/swapchain.h>
 
 namespace lc::vk {
 

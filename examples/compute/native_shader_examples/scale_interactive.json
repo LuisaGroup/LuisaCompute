@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "mode": {
+    "type": "interactive",
+    "gui": true,
+    "window": {
+      "title": "native shader (HDR display)",
+      "width": 1024,
+      "height": 1024,
+      "vsync": true
+    },
+    "display_image": "hdr",
+    "display_destination": "auto",
+    "display_scale": 0.125,
+    "display_kernel": "hdr_to_display",
+    "dispatch_per_frame": false,
+    "exit_after_frames": 0,
+    "snapshot": {
+      "every": 0,
+      "path": "frame.png"
+    }
+  },
+  "config": {
+    "default_language": "hlsl",
+    "output_dir": "native_shader_output"
+  },
+  "shaders": [],
+  "resources": [
+    {
+      "name": "hdr",
+      "type": "texture",
+      "storage": "float4",
+      "element": "float",
+      "size": [
+        512,
+        512
+      ],
+      "levels": 1
+    }
+  ],
+  "workflow": [
+    {
+      "cmd": "log",
+      "message": "filling the 512x512 HDR display image"
+    },
+    {
+      "cmd": "shader_dispatch",
+      "shader": "fill_hdr_gradient",
+      "arguments": [
+        {
+          "kind": "texture",
+          "resource": "hdr"
+        },
+        {
+          "kind": "uniform",
+          "type": "float32",
+          "value": 512.0
+        },
+        {
+          "kind": "uniform",
+          "type": "float32",
+          "value": 512.0
+        },
+        {
+          "kind": "uniform",
+          "type": "float32",
+          "value": 0.125
+        }
+      ],
+      "dispatch": [
+        512,
+        512,
+        1
+      ]
+    }
+  ]
+}

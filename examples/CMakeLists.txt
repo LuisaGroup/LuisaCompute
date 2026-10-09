@@ -128,7 +128,10 @@ luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TE
 luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/compact/gdeflate.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
-luisa_compute_add_example(example_native_shader compute/native_shader.cpp)
+luisa_compute_add_example(example_native_shader
+        compute/native_shader.cpp
+        compute/native_shader_dispatch.cpp
+        compute/native_shader_runtime.cpp)
 luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
@@ -291,9 +294,15 @@ if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
 endif ()
 
+# The direct-storage demo is backend agnostic: it runs on dx (real
+# DirectStorage), vk (host-staged fallback), cuda (mapped files) and metal
+# (MTLIO), and skips itself when DStorageExt is unavailable.
+if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN
+        OR LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_METAL)
+    luisa_compute_add_example(example_dstorage extension/dstorage.cpp)
+endif ()
 if (LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_dml extension/dml.cpp)
-    luisa_compute_add_example(example_dstorage extension/dstorage.cpp)
     luisa_compute_add_example(example_dx_supersampling extension/dx_supersampling.cpp)
     luisa_compute_add_example(example_fsr3 extension/fsr3.cpp)
     luisa_compute_add_example(example_supersampling extension/supersampling.cpp)
