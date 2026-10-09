@@ -171,11 +171,26 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionCo
             [&](auto lhs, auto rhs) { return builder.CreateICmpNE(lhs, rhs); },
             [&](auto lhs, auto rhs) { return builder.CreateICmpNE(lhs, rhs); },
             [&](auto lhs, auto rhs) { return builder.CreateFCmpUNE(lhs, rhs); });
-        case xir::ArithmeticOp::ALL: return unary([&](auto value) noexcept {
-            return reduce(value, builder.getTrue(), [&](auto lhs, auto rhs) { return builder.CreateAnd(lhs, rhs); });
-        });
-        case xir::ArithmeticOp::ANY: return unary([&](auto value) noexcept {
-            return reduce(value, builder.getFalse(), [&](auto lhs, auto rhs) { return builder.CreateOr(lhs, rhs); });
+        case xir::ArithmeticOp::ALL:
+        case xir::ArithmeticOp::ANY: return unary([&](auto value) noexcept -> llvm::Value * {
+            if (!value->getType()->isVectorTy()) { return value; }
+            // LLVM can fold scalar boolean reductions into i3 bitcasts, which
+            // AGX cannot legalize. Match metalfe's native AIR reduction ABI.
+            auto vector_type = llvm::cast<llvm::FixedVectorType>(value->getType());
+            auto name = luisa::format("air.{}.v{}i1",
+                                      inst->op() == xir::ArithmeticOp::ALL ? "all" : "any",
+                                      vector_type->getNumElements());
+            auto function_type = llvm::FunctionType::get(
+                builder.getInt1Ty(), {vector_type}, false);
+            auto air_function = llvm::cast<llvm::Function>(
+                _module.getOrInsertFunction(
+                    llvm::StringRef{name.data(), name.size()}, function_type).getCallee());
+            air_function->setDoesNotAccessMemory();
+            air_function->setDoesNotFreeMemory();
+            air_function->setDoesNotThrow();
+            air_function->setNoSync();
+            air_function->setWillReturn();
+            return builder.CreateCall(air_function, {value});
         });
         case xir::ArithmeticOp::SELECT: {
             auto false_value = _value(builder, function, inst->operand(0u));

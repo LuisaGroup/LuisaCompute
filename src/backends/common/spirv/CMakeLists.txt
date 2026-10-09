@@ -1,23 +1,9 @@
 file(GLOB LUISA_COMPUTE_SPIRV_SOURCES CONFIGURE_DEPENDS spirv_codegen/*.cpp)
-# Build glslang SPIR-V builder sources directly into this lib (mirrors xmake lc-glslang).
-# The upstream `SPIRV` shared target hides spv:: symbols (visibility=hidden), which makes
-# linking against spv::Builder etc. fail at runtime. Compiling the sources here gives us
-# full access to spv::Builder, GlslangToSpv, etc. without depending on shared lib exports.
+# The bundled static glslang target provides its SPIR-V builder and frontend
+# internals together, including the private APIs used by this code generator.
 set(_LUISA_GLSLANG_DIR
         "${CMAKE_CURRENT_LIST_DIR}/../../../ext/glslang")
-set(_LUISA_GLSLANG_SPIRV_DIR "${_LUISA_GLSLANG_DIR}/SPIRV")
-set(LUISA_COMPUTE_SPIRV_GLSLANG_SOURCES
-        ${_LUISA_GLSLANG_SPIRV_DIR}/GlslangToSpv.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/InReadableOrder.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/Logger.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/SpvBuilder.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/SpvPostProcess.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/doc.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/SpvTools.cpp
-        ${_LUISA_GLSLANG_SPIRV_DIR}/disassemble.cpp)
-add_library(luisa-compute-spirv STATIC
-        ${LUISA_COMPUTE_SPIRV_SOURCES}
-        ${LUISA_COMPUTE_SPIRV_GLSLANG_SOURCES})
+add_library(luisa-compute-spirv STATIC ${LUISA_COMPUTE_SPIRV_SOURCES})
 set_target_properties(luisa-compute-spirv PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         OUTPUT_NAME luisa-spirv)

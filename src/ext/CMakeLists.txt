@@ -291,8 +291,13 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
             POSITION_INDEPENDENT_CODE ON
             FOLDER ext
             OUTPUT_NAME luisa-ext-llvm-downgrade)
-    llvm_map_components_to_libnames(LUISA_LLVM_DOWNGRADE_LIBS
-            bitwriter core support transformutils)
+    if (LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+        # Share LLVM state with the AIR emitter and other linked consumers.
+        set(LUISA_LLVM_DOWNGRADE_LIBS LLVM)
+    else ()
+        llvm_map_components_to_libnames(LUISA_LLVM_DOWNGRADE_LIBS
+                bitwriter core support transformutils)
+    endif ()
     target_link_libraries(luisa-compute-ext-llvm-downgrade
             PRIVATE ${LUISA_LLVM_DOWNGRADE_LIBS})
 endif ()
@@ -649,40 +654,26 @@ set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
 set(LUISA_VSTL ON CACHE BOOL "" FORCE)
+# LuisaCompute uses glslang's private spv::Builder API, whose implementation
+# also depends on non-exported frontend helpers. Keep the bundled compiler in
+# a single static archive instead of duplicating its SPIR-V sources next to a
+# shared glslang library. Scope this choice to the dependency; core/runtime and
+# backend libraries retain the project's BUILD_SHARED_LIBS setting.
+set(_luisa_glslang_build_shared_libs ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
 add_subdirectory(glslang)
-# glslang's runtime payload.
+set(BUILD_SHARED_LIBS ${_luisa_glslang_build_shared_libs})
+unset(_luisa_glslang_build_shared_libs)
+set_target_properties(glslang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# glslang's package payload.
 # `glslang` must be part of the export set because the static luisa-compute-spirv
-# library links it with a PUBLIC (interface) dependency. When BUILD_SHARED_LIBS is
-# ON -- every non-iOS configuration -- glslang is split over several shared
-# libraries and the Vulkan backend module additionally links
-# `glslang-default-resource-limits` (runtime GLSL/HLSL compilation of native
-# shaders). install(TARGETS) does not follow dependency edges, so every sibling
-# that ends up as a DT_NEEDED entry of an installed binary has to be installed as
-# well; otherwise the shipped SDK carries a backend module that cannot be loaded
-# ("libglslang-default-resource-limits.so.16: cannot open shared object file").
+# library links it with a PUBLIC (interface) dependency. Its private sibling
+# libraries are static too, so their code is included in the Vulkan module and
+# standalone executables rather than installed as separate runtime libraries.
 install(TARGETS glslang EXPORT LuisaComputeTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-foreach (_luisa_glslang_sibling IN ITEMS glslang-default-resource-limits SPIRV)
-    if (NOT TARGET ${_luisa_glslang_sibling})
-        continue ()
-    endif ()
-    get_target_property(_luisa_glslang_sibling_type
-            ${_luisa_glslang_sibling} TYPE)
-    if (NOT _luisa_glslang_sibling_type STREQUAL "SHARED_LIBRARY")
-        # Statically linked: the code is already part of its consumers.
-        continue ()
-    endif ()
-    # Private runtime payload, hence no EXPORT: consumers never link against it
-    # directly (the backend module does so with a PRIVATE dependency).
-    install(TARGETS ${_luisa_glslang_sibling}
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-endforeach ()
-unset(_luisa_glslang_sibling)
-unset(_luisa_glslang_sibling_type)
 # spvIR.h's spv::Instruction inherits vstd::IOperatorNewBase, so the glslang
 # target (which compiles the SPIRV sources) needs the luisa/EASTL headers, a
 # link dependency on the luisa core allocator its class-specific operators

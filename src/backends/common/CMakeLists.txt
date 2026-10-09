@@ -233,6 +233,14 @@ function(luisa_compute_link_llvm_into_backend backend)
                 "${LUISA_LINK_LLVM_COMPONENTS}.")
     endif ()
 
+    if (APPLE AND LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+        # Clang and other backends may already load the package's LLVM dylib.
+        # Reuse it so coalesced LLVM symbols cannot mix separate registries
+        # from that dylib and component archives embedded in this backend.
+        message(STATUS "Linking with LLVM shared library.")
+        set(LLVM_LIBS LLVM)
+    endif ()
+
     if (UNIX AND NOT APPLE)
         if (LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
             # Respect LLVM's exported shared-library policy. Recent official

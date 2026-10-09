@@ -430,7 +430,7 @@ void test_dstorage(Device &device, luisa::string_view requested_backend) {
     // ---- 6. pinned host memory --------------------------------------------
     {
         auto host = make_pattern(kStagingBufferSize + 4096u);
-        auto pinned = ext->pin_memory(host.data(), luisa::size_bytes(host));
+        auto pinned = ext->pin_memory(host.data(), host.size());
         expect(static_cast<bool>(pinned)) << "pin_memory must succeed for a valid range";
         {
             auto buffer = device.create_buffer<uint8_t>(host.size());
@@ -459,7 +459,7 @@ void test_dstorage(Device &device, luisa::string_view requested_backend) {
             DStorageStreamOption{DStorageStreamSource::MemorySource, kStagingBufferSize});
         expect(static_cast<bool>(memory_stream));
         auto host = make_pattern(4096u);
-        auto pinned = ext->pin_memory(host.data(), luisa::size_bytes(host));
+        auto pinned = ext->pin_memory(host.data(), host.size());
         auto buffer = device.create_buffer<uint8_t>(4096u);
         memory_stream << pinned.copy_to(buffer) << synchronize();
         auto got = readback_buffer(compute_stream, buffer);
@@ -469,7 +469,7 @@ void test_dstorage(Device &device, luisa::string_view requested_backend) {
     // ---- 7. AnySource stream: both source kinds in one queue ---------------
     {
         auto host = make_pattern(2048u);
-        auto pinned = ext->pin_memory(host.data(), luisa::size_bytes(host));
+        auto pinned = ext->pin_memory(host.data(), host.size());
         auto from_file = device.create_buffer<uint8_t>(4096u);
         auto from_memory = device.create_buffer<uint8_t>(2048u);
         dstream << basic_file.copy_to(from_file)

@@ -151,7 +151,8 @@ private:
         builder.CreateCondBr(condition, then_block, end_block);
         builder.SetInsertPoint(then_block);
         body(builder);
-        if (builder.GetInsertBlock()->getTerminator() == nullptr) {
+        auto current_block = builder.GetInsertBlock();
+        if (current_block->empty() || !current_block->back().isTerminator()) {
             builder.CreateBr(end_block);
         }
         builder.SetInsertPoint(end_block);

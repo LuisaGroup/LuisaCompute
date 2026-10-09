@@ -5,11 +5,15 @@
 #include <fstream>
 #include <string>
 
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/LoopUtils.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -165,6 +169,38 @@ static_assert(!current_device_sdk_compatible(
     LUISA_ERROR_WITH_LOCATION("Invalid Metal AIR target platform.");
 }
 
+void lower_llvm_float_reductions(llvm::Module &module) noexcept {
+    // LLVM O2 can form generic floating-point vector reductions that AGX
+    // cannot legalize. Expand them after optimization, preserving their
+    // accumulator and fast-math flags, including non-power-of-two vectors.
+    llvm::SmallVector<llvm::IntrinsicInst *, 16u> reductions;
+    for (auto &function : module) {
+        for (auto &block : function) {
+            for (auto &instruction : block) {
+                if (auto intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(&instruction)) {
+                    auto id = intrinsic->getIntrinsicID();
+                    if (id == llvm::Intrinsic::vector_reduce_fadd ||
+                        id == llvm::Intrinsic::vector_reduce_fmul) {
+                        reductions.emplace_back(intrinsic);
+                    }
+                }
+            }
+        }
+    }
+    for (auto reduction : reductions) {
+        LUISA_ASSERT(llvm::isa<llvm::FixedVectorType>(reduction->getArgOperand(1u)->getType()),
+                     "Metal AIR does not support scalable floating-point reductions.");
+        llvm::IRBuilder<> builder{reduction};
+        builder.setFastMathFlags(reduction->getFastMathFlags());
+        auto opcode = reduction->getIntrinsicID() == llvm::Intrinsic::vector_reduce_fadd ?
+                          llvm::Instruction::FAdd : llvm::Instruction::FMul;
+        auto result = llvm::getOrderedReduction(
+            builder, reduction->getArgOperand(0u), reduction->getArgOperand(1u), opcode);
+        reduction->replaceAllUsesWith(result);
+        reduction->eraseFromParent();
+    }
+}
+
 void optimize_llvm_module(llvm::Module &module) noexcept {
     // LLVM creates globals for transformations such as switch-to-lookup using
     // the module's default global address space. AIR's ordinary address space
@@ -194,6 +230,7 @@ void optimize_llvm_module(llvm::Module &module) noexcept {
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
         llvm::OptimizationLevel::O2);
     pipeline.run(module, module_analysis);
+    lower_llvm_float_reductions(module);
     module.setDataLayout(original_data_layout);
 }
 
