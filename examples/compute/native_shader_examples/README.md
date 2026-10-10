@@ -19,7 +19,7 @@ The example is split across four translation units:
 
 Schema id `luisa.native_shader.dispatch`, `version: 1`.
 
-```
+```console
 example_native_shader <backend> <dispatch.json> [shader...] [options]
 example_native_shader <backend> <shader...>                  # embedded default workflow
 example_native_shader <backend> --self-test                  # codec + execution corpus
@@ -43,6 +43,51 @@ example_native_shader --print-schema | --help
 the working directory, so a relative document path must be given relative to
 `bin/<mode>/` (or use an absolute path). `--self-test` locates its corpus by
 searching upwards from the working directory, so it works from anywhere.
+
+## The dispatch JSON format
+
+A **dispatch document** is a single JSON file that declaratively describes a
+complete native-shader workload: the *native* shader sources to compile, the
+resources to create (and their inputs), and a *workflow* of commands that is
+replayed on a `Stream`. One document runs unmodified on every backend the
+example supports (dx, vk, cuda) by declaring one shader variant per language;
+the backend picks the variant it speaks. The document is pure data — it names
+shaders and resources by name, never carries device handles, and never embeds
+backend-specific state.
+
+The format is implemented by `native_shader_dispatch.{h,cpp}`, which owns the
+in-memory document model, the JSON codec (parse/write, built on yyjson) and the
+semantic validator. That translation unit is deliberately free of any device or
+filesystem dependency, so the codec can be exercised entirely on the host (the
+`--self-test` corpus does exactly that). The format's guarantees:
+
+* **Parsing is total and never raises.** Every problem — a missing file, a
+  structural mismatch, an unknown spelling, a dangling reference, a size
+  violation — becomes a diagnostic of the form `<json path>: <message>` in a
+  `ParseResult`, never a fatal log or a trap. The codec keeps collecting after
+  an error and reports as many document problems as it can (up to
+  `config.limits.max_errors`, 32 by default); a run only fails once parsing and
+  validation finished. Diagnostics are classed as *errors* (the document is
+  unusable) or *warnings* (it is usable but suspicious; `--strict` promotes
+  warnings to errors).
+* **Spellings are liberal, canonicalization is strict.** Every enumerating key
+  (`cmd` names, resource `type`s, `language`, `storage`, `usage`, ...) is
+  matched case-insensitively with `-` and `_` treated as the same character,
+  so `"BufferUpload"`, `"buffer-upload"` and `"buffer_upload"` all parse.
+  The canonical spelling — lowercase, `_` — is what the model stores and what
+  the writer emits.
+* **The writer is canonical and byte-stable.** `write_dispatch_json` emits
+  every key, including the defaults, in the order of the tables below, so that
+  `write -> parse -> write` is byte-stable; `--dump-dispatch FILE` writes the
+  effective document in this form (it doubles as a machine-readable list of
+  the defaults). The codec round-trip is part of `--self-test`.
+* **Key sets are closed and diagnosed.** Each object accepts exactly the keys
+  documented for it. An unknown key is a warning, a key that belongs to a
+  different `cmd` is an error naming the valid set, and a `handle` key is
+  always an error (documents never carry device handles).
+* **The format is versioned.** The root `version` selects the schema
+  (`luisa.native_shader.dispatch`, currently `1`); a newer version is
+  rejected rather than misread.
 
 ## Dispatch document (v1)
 
@@ -352,12 +397,12 @@ DSL kernels, which a `shader_dispatch` command can name without declaring a
 |---|---|
 | `scale_offline.json` | one buffer in, one native dispatch (`grid` form), one verified readback with a raw sink |
 | `scale_interactive.json` | an HDR image filled by `shader_dispatch`, displayed through `hdr_to_display` |
-| `all_commands_offline.json` | every portable command: uploads (inline, resource-to-resource, file), copies, the three texture/buffer copy pairs, bindless updates, `native_dispatch`, the `custom_command` alias, `shader_dispatch`, mesh/procedural-primitive/accel builds, `log`, `synchronize` and the verifications |
+| `all_commands_offline.json` | every portable command: uploads (inline, resource-to-resource — the file form would break the self-contained corpora and is exercised by `--self-test` instead), copies, the three texture/buffer copy pairs, bindless updates, `native_dispatch`, the `custom_command` alias, `shader_dispatch`, mesh/procedural-primitive/accel builds, `log`, `synchronize` and the verifications |
 
 The corpora are self-contained (inline payloads) and declare one shader variant
 per native language, so they run unmodified on `dx`, `vk` and `cuda`:
 
-```
+```console
 example_native_shader dx   <abs path>/scale_offline.json
 example_native_shader vk   <abs path>/all_commands_offline.json
 example_native_shader cuda <abs path>/scale_offline.json
@@ -406,7 +451,7 @@ that have one.
 
 Run on `dx`, the log ends with:
 
-```
+```text
 resource 'src': buffer (256 byte(s))
 resource 'dst': buffer (256 byte(s))
 [workflow 0] scaling 64 elements by 2 and adding 1
@@ -552,7 +597,7 @@ buffer with an inline hex input (0.0 … 31.0) and `dst` a 32-element `float`
 buffer. The workflow is the canonical three commands — a `log`, a
 `native_dispatch`, a verified download:
 
-```
+```json
 {"cmd": "native_dispatch", "shader": "add", "dispatch": [32, 1, 1],
  "bindings": [{"index": 0, "resource": "src", "usage": "read"},
               {"index": 1, "resource": "dst", "usage": "write"}],
@@ -564,14 +609,14 @@ needed. Run it (from the repository root, or pass an absolute document
 path — `xmake run` makes `bin/<mode>/` the working directory, see the note
 above):
 
-```
+```console
 bin/release/example_native_shader.exe cuda examples/compute/native_shader_examples/simple_add.json
 ```
 
 On cuda the log ends with the variant selection, the reflection and the
 verified sink:
 
-```
+```text
 shader 'add': skipping the glsl variant (this backend uses hlsl)
 shader 'add': using the cuda_nvrtc variant
 compiled a native cuda_nvrtc shader 'add': 878 bytes, workgroup size (32 1 1), 2 reflected binding(s)
