@@ -1405,7 +1405,7 @@ public:
                     .Format = static_cast<DXGI_FORMAT>(tex->Format()),
                     .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
                     .Flags = D3D12_DSV_FLAG_NONE};
-                viewDesc.Texture2D.MipSlice = 0;
+                viewDesc.Texture2D.MipSlice = dsv.level;
                 device->device->CreateDepthStencilView(tex->GetResource(), &viewDesc, dsvHandle);
                 dsvFormat = DepthBuffer::GFXFormatToDepth(tex->Format());
             }

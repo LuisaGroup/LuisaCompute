@@ -4379,7 +4379,33 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
                             auto cmd = static_cast<DrawRasterSceneCommand const *>(c);
                             auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
-                            auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state());
+                            // Vulkan bakes the vertex binding stride into the
+                            // pipeline, so it must come from the meshes'
+                            // VertexBufferViews (like on DX), not from the
+                            // mesh format's attribute sizes. All meshes of
+                            // one draw share the pipeline and must therefore
+                            // agree on the per-binding strides.
+                            luisa::fixed_vector<uint, 4> strides;
+                            for (auto &mesh : cmd->scene()) {
+                                auto vb = mesh.vertex_buffers();
+                                if (strides.empty()) {
+                                    for (auto &i : vb) {
+                                        strides.emplace_back(static_cast<uint>(i.stride()));
+                                    }
+                                } else {
+                                    LUISA_ASSERT(
+                                        strides.size() == vb.size(),
+                                        "Raster meshes of one draw disagree on the vertex stream count ({} vs {}).",
+                                        strides.size(), vb.size());
+                                    for (auto binding : vstd::range(vb.size())) {
+                                        LUISA_ASSERT(
+                                            strides[binding] == vb[binding].stride(),
+                                            "Raster meshes of one draw disagree on the stride of vertex stream {} ({} vs {}).",
+                                            binding, strides[binding], vb[binding].stride());
+                                    }
+                                }
+                            }
+                            auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state(), strides);
                             BindPropVisitor visitor{};
                             visitor.device = device();
                             // bind arguments

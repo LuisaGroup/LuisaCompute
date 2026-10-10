@@ -179,7 +179,20 @@ creation-time `input`.
 | `procedural_primitive` | `aabb_buffer` (optional creation-time range) | `create_procedural_primitive` |
 
 Curve BLAS, motion-blur instances and indirect dispatch buffers are deliberately
-**not** resource types here: see "Deliberately unsupported" below.
+not resource types here: see "Deliberately unsupported" below.
+
+export_path (buffers, textures and volumes only) marks a resource for the
+end-of-run export: after the whole workflow finished — offline: the last
+frame; interactive: the window closed or exit_after_frames was reached —
+the resource is downloaded through the run's stream and its raw payload is
+written to this path (relative paths get the output_dir prefix, like the
+download sinks; a texture or volume exports its full-resolution mip level).
+An export always overwrites the destination: it is the run's deterministic
+output. A failed write is a warning, not an error — the workflow itself
+already succeeded — and names the resource and the path. On a resource
+type that cannot be downloaded (accel, mesh, procedural_primitive,
+bindless_array) the key is reported as unknown, which is a warning here
+and an error with --strict, never a silently ignored export request.
 
 * `element` for buffers is one of `float float2 float3 float4 uint uint2 uint3
   uint4 int int2 int3 int4 byte triangle aabb` — `triangle` (12 bytes) and
@@ -345,9 +358,9 @@ The corpora are self-contained (inline payloads) and declare one shader variant
 per native language, so they run unmodified on `dx`, `vk` and `cuda`:
 
 ```
-xmake run example_native_shader dx   <abs path>/scale_offline.json
-xmake run example_native_shader vk   <abs path>/all_commands_offline.json
-xmake run example_native_shader cuda <abs path>/scale_offline.json
+example_native_shader dx   <abs path>/scale_offline.json
+example_native_shader vk   <abs path>/all_commands_offline.json
+example_native_shader cuda <abs path>/scale_offline.json
 ```
 
 `--self-test` additionally writes a small binary file and runs a file-input
@@ -591,14 +604,19 @@ exit code is non-zero. The classes the self test pins down:
 | a size/limit violation | `resources[0].count: ... must be non-zero`, `workflow[0].size: 1024 exceeds the 16 bytes of 'a'` |
 | a resource over the document budget | `resources[0]: texture 't' is 160000000000 byte(s), which exceeds the limit of 17179869184 byte(s) (config.limits.max_resource_bytes)` |
 | a binding that names no resource, or no usage | `workflow[0].bindings[1].resource: a buffer or texture or volume resource name is required`, `workflow[0].bindings[0].usage: a binding needs a usage (read, write or read_write)` |
-| a backend/language mismatch | `shaders (scale): backend 'cuda' cannot compile a native hlsl shader (dx: HLSL only; vk: HLSL or GLSL; cuda: CUDA C++ (cuda_nvrtc) only)` |
+| a backend/language mismatch | shaders (scale): backend 'cuda' cannot compile a native hlsl shader (dx: HLSL only; vk: HLSL or GLSL; cuda: CUDA C++ (cuda_nvrtc) only) |
+| a shader that fails to compile | shaders (scale): hlsl compilation failed on backend 'dx' (compiler DXC (DXIL), entry 'main'): hlsl.hlsl:4:32: error: expected expression ... |
+
+Every compile is announced at info level before it runs — `compiling native hlsl shader 'scale' with DXC (DXIL): entry 'main', shader model 65, block size (0, 0, 0), 0 uniform byte(s)` — so a failure can be read against the process that produced it, and the backend additionally logs the compiler's own diagnostic as a warning (DXC/glslang verbatim; NVRTC's log and exit code). A failed compile is never silent and never crashes or hangs the process: the NVRTC helper exits with a non-zero status instead of aborting, so the run ends with the diagnostic above and a non-zero exit code.
 | a reflected-contract violation (the launcher's own message, verbatim) | `Native shader binding (register 0, space 0) was supplied more than once.` |
 | a device refusal | `a PNG sink needs byte4, byte4_srgb or float4 pixels, got 'byte1'`, `the input offset 65536 is not below the size 256 of 'x.bin'` |
 | a verification failure | `verification failed: element 1 of 'check2' is 0 but 1 * 3 + 0 is 3 (tolerance 0)` |
 
-`--self-test` runs this catalogue as data: ~40 malformed documents (parse and
-semantic stages), 6 documents that must still be accepted as warnings, 8 that
-parse and validate but must be refused at run time, and 3 execution corpora.
+--self-test runs this catalogue as data: ~70 malformed documents (parse and
+semantic stages), 10 documents that must still be accepted as warnings, 9 that
+parse and validate but must be refused at run time, and the execution corpora
+(including one that marks a resource with export_path and one whose export
+cannot be written — the run must still exit 0 with a warning).
 
 ## Deliberately unsupported
 
@@ -646,6 +664,9 @@ the semantic validator, the writer and the executor no longer mention them.
 * `texture_download` results cannot be `verify`-ed in place; round-trip a texture
   through `texture_to_buffer_copy` into a buffer and verify that download
   against the buffer the texture was uploaded from (as the corpus does).
-* Interactive mode needs a GUI build (`lc_enable_gui` / `LUISA_COMPUTE_ENABLE_GUI`);
-  asking for it without one (or with `--no-gui`) is an error, never a silent
-  fallback.
+* Interactive mode needs a GUI build (lc_enable_gui / LUISA_COMPUTE_ENABLE_GUI);
+  asking for it without one (or with --no-gui) is an error, never a silent
+  fallback. The stream is created as GRAPHICS only when a window will actually
+  be shown; every other run (offline, or interactive without a GUI) uses a
+  COMPUTE stream. Either way the run synchronizes the stream after the export
+  step, before it reports its result and main returns.

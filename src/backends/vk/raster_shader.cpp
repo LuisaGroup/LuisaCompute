@@ -34,6 +34,9 @@ RasterShader::~RasterShader() {
 auto RasterShader::_make_pipeline_key(
     luisa::compute::MeshFormat const &mesh_format,
     RasterState const &state,
+    luisa::span<Argument::Texture const> rtv_textures,
+    Argument::Texture dsv_texture,
+    luisa::span<uint const> strides,
     VkPipelineVertexInputStateCreateInfo &vertex_input_create_info) -> BinaryBlob {
     size_t key_size = 0;
     vertex_input_create_info = VkPipelineVertexInputStateCreateInfo{
@@ -45,6 +48,11 @@ auto RasterShader::_make_pipeline_key(
         vertex_input_create_info.vertexBindingDescriptionCount = mesh_format.vertex_stream_count();
         key_size += vertex_input_create_info.vertexAttributeDescriptionCount * sizeof(VkVertexInputAttributeDescription) + vertex_input_create_info.vertexBindingDescriptionCount * sizeof(VkVertexInputBindingDescription);
         key_size += sizeof(RasterState);
+        // The render pass (and therefore the pipeline) depends on the
+        // attachment formats; a draw with a different color/depth format
+        // must not reuse a pipeline cached for another one.
+        key_size += rtv_textures.size() * sizeof(VkFormat);
+        key_size += sizeof(VkFormat);
     }
     if (key_size == 0) [[unlikely]]
         return {};
@@ -53,36 +61,51 @@ auto RasterShader::_make_pipeline_key(
     // push data
     {
         std::byte *ptr = result.data();
-        luisa::fixed_vector<uint32_t, 16> offsets;
-        offsets.reserve(mesh_format.vertex_stream_count());
         vertex_input_create_info.pVertexAttributeDescriptions = reinterpret_cast<const VkVertexInputAttributeDescription *>(ptr);
-        uint32_t location = 0;
         for (auto stream_idx : vstd::range((int64_t)mesh_format.vertex_stream_count())) {
             uint32_t offset = 0;
             for (auto &&attrs : mesh_format.attributes(stream_idx)) {
+                // Vertex input locations follow the canonical semantic order
+                // used by raster codegen (position, normal, tangent, color,
+                // uv0..uv3), not the order the attributes happen to appear
+                // in the stream, so a mesh format may list its attributes
+                // in any order like on the DX/Metal backends.
                 VkVertexInputAttributeDescription desc{
-                    .location = location,
+                    .location = static_cast<uint32_t>(attrs.type),
                     .binding = (uint32_t)stream_idx,
                     .format = Texture::to_vk_format(attrs.format),
                     .offset = offset};
-                ++location;
                 offset += pixel_format_size(attrs.format, uint3(1));
                 std::memcpy(ptr, &desc, sizeof(desc));
                 ptr += sizeof(desc);
             }
-            offsets.emplace_back(offset);
         }
         vertex_input_create_info.pVertexBindingDescriptions = reinterpret_cast<const VkVertexInputBindingDescription *>(ptr);
+        LUISA_ASSERT(
+            strides.size() == mesh_format.vertex_stream_count(),
+            "Raster pipeline requires one vertex stride per mesh stream (got {}, expected {}).",
+            strides.size(), mesh_format.vertex_stream_count());
         for (auto stream_idx : vstd::range((int64_t)mesh_format.vertex_stream_count())) {
             VkVertexInputBindingDescription desc{
                 .binding = (uint32_t)stream_idx,
-                .stride = offsets[stream_idx],
+                .stride = strides[stream_idx],
                 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
             std::memcpy(ptr, &desc, sizeof(desc));
             ptr += sizeof(desc);
         }
         std::memcpy(ptr, &state, sizeof(state));
         ptr += sizeof(RasterState);
+        for (auto &i : rtv_textures) {
+            auto tex = reinterpret_cast<Texture const *>(i.handle);
+            auto format = Texture::to_vk_format(tex->format());
+            std::memcpy(ptr, &format, sizeof(format));
+            ptr += sizeof(format);
+        }
+        auto dsv_format = dsv_texture.handle != invalid_resource_handle ?
+                              Texture::to_vk_format(reinterpret_cast<Texture const *>(dsv_texture.handle)->format()) :
+                              VK_FORMAT_UNDEFINED;
+        std::memcpy(ptr, &dsv_format, sizeof(dsv_format));
+        ptr += sizeof(dsv_format);
         LUISA_ASSERT(ptr == result.data() + result.size());
     }
     return result;
@@ -91,13 +114,17 @@ auto RasterShader::create_pipeline(
     luisa::span<Argument::Texture const> rtv_textures,
     Argument::Texture dsv_textures,
     luisa::compute::MeshFormat const &mesh_format,
-    RasterState const &state) -> Pipeline {
+    RasterState const &state,
+    luisa::span<uint const> strides) -> Pipeline {
     VkPrimitiveTopology topo;
     VkCullModeFlags cull_mode;
     VkPipelineVertexInputStateCreateInfo vertex_input;
     auto binary_blob = _make_pipeline_key(
         mesh_format,
         state,
+        rtv_textures,
+        dsv_textures,
+        strides,
         vertex_input);
     auto iter = _pipelines.try_emplace(std::move(binary_blob));
     auto &v = iter.first.value();
@@ -131,7 +158,13 @@ auto RasterShader::create_pipeline(
 
     VkPipelineRasterizationStateCreateInfo raster_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .depthClampEnable = state.depth_clip,
+        // RasterState::depth_clip follows the D3D12 DepthClipEnable
+        // semantics: enabled clips primitives outside [0, 1], which is the
+        // Vulkan default (depth clamp off); disabled requests clamping,
+        // which is only available when the depthClamp feature is enabled.
+        .depthClampEnable = static_cast<VkBool32>(
+            !state.depth_clip &&
+            device()->enabled_features().depthClamp == VK_TRUE),
         .rasterizerDiscardEnable = false,
         .polygonMode = state.fill_mode == FillMode::Solid ? VK_POLYGON_MODE_FILL : VK_POLYGON_MODE_LINE,
         .cullMode = cull_mode,
@@ -187,13 +220,30 @@ auto RasterShader::create_pipeline(
         }
     };
 
+    // Vulkan does not allow the *_COLOR blend factors on the alpha channel;
+    // map them to their alpha counterparts like D3D12 does implicitly.
+    auto get_alpha_blend_factor = [&get_blend_factor](BlendWeight weight) {
+        switch (weight) {
+            case BlendWeight::PrimColor:
+                return VK_BLEND_FACTOR_SRC_ALPHA;
+            case BlendWeight::ImgColor:
+                return VK_BLEND_FACTOR_DST_ALPHA;
+            case BlendWeight::OneMinusPrimColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            case BlendWeight::OneMinusImgColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+            default:
+                return get_blend_factor(weight);
+        }
+    };
+
     VkPipelineColorBlendAttachmentState blend_attachment{
         .blendEnable = state.blend_state.enable_blend,
         .srcColorBlendFactor = get_blend_factor(state.blend_state.prim_op),
         .dstColorBlendFactor = get_blend_factor(state.blend_state.img_op),
         .colorBlendOp = get_blend_op(state.blend_state.op),
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .srcAlphaBlendFactor = get_alpha_blend_factor(state.blend_state.prim_op),
+        .dstAlphaBlendFactor = get_alpha_blend_factor(state.blend_state.img_op),
         .alphaBlendOp = VK_BLEND_OP_ADD,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
     luisa::vector<VkPipelineColorBlendAttachmentState> blend_attachments(rtv_textures.size(), blend_attachment);
@@ -250,7 +300,9 @@ auto RasterShader::create_pipeline(
         .depthTestEnable = state.depth_state.enable_depth,
         .depthWriteEnable = state.depth_state.write,
         .depthCompareOp = get_compare_op(state.depth_state.comparison),
-        .depthBoundsTestEnable = VK_TRUE,
+        // No depth-bounds test is exposed through RasterState, and the
+        // depthBounds feature is not enabled on the logical device.
+        .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = state.stencil_state.enable_stencil,
         .front = VkStencilOpState{
             .failOp = get_stencil_state(state.stencil_state.front_face_op.stencil_fail_op),

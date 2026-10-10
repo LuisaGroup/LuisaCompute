@@ -244,6 +244,11 @@ struct ResourceJson {
     luisa::string triangle_buffer;
     luisa::string aabb_buffer;
     InputJson input;
+    // Optional end-of-run export (buffers, textures and volumes only): when
+    // non-empty, the resource is downloaded after the whole workflow finished
+    // (offline: the last frame; interactive: the window closed or the fixed
+    // frame count was reached) and its raw payload is written to this path.
+    luisa::string export_path;
 };
 
 // ---------------------------------------------------------------------------

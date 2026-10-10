@@ -93,6 +93,9 @@ namespace {
         info.entry_point, include_dirs);
     if (compiled.is_type_of<vstd::string>()) {
         result.error = luisa::string{compiled.get<1>()};
+        LUISA_WARNING("Vulkan native shader compile failed (HLSL -> SPIR-V via "
+                      "DXC, entry point '{}'): {}",
+                      info.entry_point, result.error);
         return result;
     }
     auto &blob = compiled.get<0>();
@@ -122,6 +125,9 @@ namespace {
         include_dirs);
     if (!compiled.ok()) {
         result.error = std::move(compiled.error);
+        LUISA_WARNING("Vulkan native shader compile failed (GLSL -> SPIR-V via "
+                      "glslang, entry point 'main'): {}",
+                      result.error);
         return result;
     }
     result.binary = std::move(compiled.spirv);

@@ -442,6 +442,7 @@ ID3D12PipelineState *RasterShader::get_pso(
     // The stencil reference is set dynamically with OMSetStencilRef and does
     // not participate in D3D12 graphics pipeline creation.
     psoState.raster_state.stencil_state.reference = 0u;
+    psoState.mesh_format_md5 = gen_md5(vstd::MD5{}, meshFormat);
     {
         std::lock_guard lck{_pso_mtx};
         idx = _pso_map.try_emplace(psoState);
@@ -466,6 +467,7 @@ ID3D12PipelineState *RasterShader::get_pso(
     pushArray(psoState.rtv_formats.data(), psoState.rtv_formats.size());
     push(psoState.dsv_format);
     push(psoState.raster_state);
+    push(psoState.mesh_format_md5);
     push(this->_md5);
     auto psoDesc = get_state(
         elements,

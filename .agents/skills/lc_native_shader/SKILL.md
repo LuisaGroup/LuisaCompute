@@ -198,9 +198,10 @@ info.source_type  = NativeShaderSourceType::FilePath;
 info.source       = luisa::string_view{source_path};   // must outlive compile()
 info.include_dirs = { scratch_dir };
 ```
-Includes go through DXC / glslang's includer / NVRTC `-I` respectively. A bogus include
-directory fails closed (except the CUDA route, whose NVRTC process aborts without a
-graceful message).
+Includes go through DXC / glslang's includer / NVRTC -I respectively. A bogus include
+directory fails closed on every route: the standalone `luisa_nvrtc` child prints the
+compiler log to its stderr, exits non-zero (it never aborts), and the parent surfaces
+the log plus the exit code in `result.error`.
 
 ## Lifetime
 

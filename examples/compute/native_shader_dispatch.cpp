@@ -413,9 +413,9 @@ constexpr Spelling kResourceKindSpellings[]{
     {"acceleration_structure", luisa::to_underlying(compute::NativeShaderResourceKind::AccelerationStructure)},
 };
 constexpr luisa::string_view kCommonResourceKeys[]{"name", "type", "input"};
-constexpr luisa::string_view kBufferResourceKeys[]{"name", "type", "element", "count", "byte_size", "input"};
-constexpr luisa::string_view kTextureResourceKeys[]{"name", "type", "storage", "size", "levels", "element", "input"};
-constexpr luisa::string_view kVolumeResourceKeys[]{"name", "type", "storage", "size", "levels", "element", "input"};
+constexpr luisa::string_view kBufferResourceKeys[]{"name", "type", "element", "count", "byte_size", "input", "export_path"};
+constexpr luisa::string_view kTextureResourceKeys[]{"name", "type", "storage", "size", "levels", "element", "input", "export_path"};
+constexpr luisa::string_view kVolumeResourceKeys[]{"name", "type", "storage", "size", "levels", "element", "input", "export_path"};
 constexpr luisa::string_view kBindlessResourceKeys[]{"name", "type", "slot_count", "slot_type", "input"};
 constexpr luisa::string_view kMeshResourceKeys[]{"name", "type", "vertex_buffer", "triangle_buffer", "input"};
 // A procedural primitive names the buffer of its creation-time AABB range. That
@@ -1523,6 +1523,11 @@ void field_storage(Ctx &ctx, const yyjson_val *object, const char *key,
     }
     check_object_keys(ctx, object, path, resource_key_set(result.type), {});
     field_string(ctx, object, "name", path, result.name);
+    // `export_path` is allowed only on the resource kinds that can be
+    // downloaded (buffer, texture, volume): on any other type the key set
+    // above turns it into an "unknown key" warning, which `--strict`
+    // escalates to an error.
+    field_string(ctx, object, "export_path", path, result.export_path);
     switch (result.type) {
         case ResourceType::Buffer: {
             field_enum(ctx, object, "element", path, kBufferElementSpellings,
@@ -2590,6 +2595,9 @@ template<size_t N>
         case ResourceType::Accel: {
             break;
         }
+    }
+    if (!resource.export_path.empty()) {
+        add_string(w, object, "export_path", view_of(resource.export_path));
     }
     if (resource.input.kind != InputJson::Kind::None) {
         add_value(w, object, "input", make_input(w, resource.input));

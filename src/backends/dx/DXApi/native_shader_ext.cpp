@@ -168,6 +168,9 @@ NativeShaderCompileResult DxNativeShaderExt::compile(
         info.entry_point, include_dirs);
     if (compiled.is_type_of<vstd::string>()) {
         result.error = luisa::string{compiled.get<1>()};
+        LUISA_WARNING("DirectX native shader compile failed (HLSL -> DXIL via "
+                      "DXC, entry point '{}'): {}",
+                      info.entry_point, result.error);
         return result;
     }
     auto &blob = compiled.get<0>();

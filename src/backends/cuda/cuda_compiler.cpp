@@ -62,14 +62,14 @@ namespace {
 
 }// namespace
 
-[[nodiscard]] inline auto read_from_subprocess(reproc::process &p, size_t chunk_size = 4_k) noexcept {
+[[nodiscard]] inline auto read_from_subprocess(reproc::process &p, reproc::stream stream, size_t chunk_size = 4_k) noexcept {
     luisa::vector<std::byte> buffer;
     for (;;) {
         auto current_size = buffer.size();
         buffer.resize(luisa::next_pow2(buffer.size() + chunk_size));
         auto max_read = buffer.size() - current_size;
         auto [read_size, error] = p.read(
-            reproc::stream::out, reinterpret_cast<uint8_t *>(buffer.data() + current_size), max_read);
+            stream, reinterpret_cast<uint8_t *>(buffer.data() + current_size), max_read);
         if (error) {
             buffer.resize(current_size);
             break;
@@ -79,7 +79,19 @@ namespace {
     return buffer;
 }
 
-[[nodiscard]] inline auto compile_with_standalone_compiler(
+namespace {
+
+struct StandaloneNvrtcResult {
+    luisa::vector<std::byte> binary;// the PTX/OptiX IR the child wrote to the file
+    luisa::string log; // everything the child wrote to stderr (compiler diagnostics)
+    int exit_code{0}; // the 32-bit status the child terminated with
+    bool wait_failed{false}; // wait() itself failed: `exit_code` is meaningless
+    std::error_code wait_error{};
+};
+
+}// namespace
+
+[[nodiscard]] static auto compile_with_standalone_compiler(
     const char *exe_path,
     const luisa::string &src, const luisa::string &src_filename,
     luisa::span<const char *const> options) {
@@ -99,12 +111,17 @@ namespace {
     // setup the options
     reproc::options o;
     o.redirect.in.type = reproc::redirect::pipe;
-    o.redirect.err.type = reproc::redirect::parent;
+    // The child's stderr carries the NVRTC diagnostics: capture it so a
+    // failed compile reports the compiler's own message instead of a bare
+    // "empty PTX". (The child only writes to stderr once, right before it
+    // exits, so draining the pipe to EOF before wait() cannot deadlock.)
+    o.redirect.err.type = reproc::redirect::pipe;
     o.redirect.out.type = reproc::redirect::file_;
     o.redirect.out.file = temp_file;
 
     reproc::process p;
     if (auto error = p.start(reproc::arguments{argv.data()}, o)) {
+        fclose(temp_file);
         LUISA_ERROR_WITH_LOCATION("Failed to start the process: {}.", error.message());
     }
 
@@ -125,14 +142,21 @@ namespace {
     };
     write(src_filename);
     write(src);
+    auto result = StandaloneNvrtcResult{};
+    // Drain stderr to EOF (the child closes it on exit).
+    auto log_bytes = read_from_subprocess(p, reproc::stream::err);
+    result.log.assign(reinterpret_cast<const char *>(log_bytes.data()),
+                      log_bytes.size());
     using namespace std::chrono_literals;
-    if (auto [exit_code, error] = p.wait(1024h /* almost forever */); exit_code || error) {
-        // `exit_code` is the 32-bit status the compiler terminated with, which is an
-        // NTSTATUS (e.g. 0xC0000005 for a crash) and therefore negative as an `int`.
-        // Report it in hex; `error` only describes a failed wait.
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to terminate the process: {} (exit code = {:#010x}).",
-            error.message(), static_cast<uint32_t>(exit_code));
+    if (auto [exit_code, error] = p.wait(1024h /* almost forever */); error) {
+        // `error` describes a failed wait; `exit_code` is meaningless then.
+        result.wait_failed = true;
+        result.wait_error = error;
+    } else {
+        // `exit_code` is the 32-bit status the compiler terminated with, which
+        // is an NTSTATUS (e.g. 0xC0000005 for a crash) and therefore negative
+        // as an `int`; the caller reports it in hex.
+        result.exit_code = exit_code;
     }
     if (fseek(temp_file, 0, SEEK_END) != 0) {
         LUISA_ERROR_WITH_LOCATION("Failed to seek temp file end.");
@@ -142,9 +166,8 @@ namespace {
     if (fseek(temp_file, 0, SEEK_SET) != 0) {
         LUISA_ERROR_WITH_LOCATION("Failed to seek temp file begin.");
     }
-    luisa::vector<std::byte> buffer;
-    buffer.resize(length);
-    if (fread(buffer.data(), 1, length, temp_file) != length) {
+    result.binary.resize(length);
+    if (length > 0 && fread(result.binary.data(), 1, length, temp_file) != length) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to read temp file. "
             "The CUDA kernel might be incomplete.");
@@ -152,7 +175,7 @@ namespace {
     if (fclose(temp_file) != 0) {
         LUISA_WARNING_WITH_LOCATION("Failed to close temp file.");
     }
-    return buffer;
+    return result;
 }
 
 inline auto find_standalone_nvrtc(const luisa::filesystem::path &runtime_dir) noexcept {
@@ -185,7 +208,7 @@ inline auto query_nvrtc_version(const char *exe_path) {
     if (auto error = p.start(reproc::arguments{argv.data()}, o)) {
         LUISA_ERROR_WITH_LOCATION("Failed to start the process: {}.", error.message());
     }
-    auto buffer = read_from_subprocess(p, 16u);
+    auto buffer = read_from_subprocess(p, reproc::stream::out, 16u);
     using namespace std::chrono_literals;
     if (auto [exit_code, error] = p.wait(0ms); exit_code || error) {
         // `exit_code` is the 32-bit status the compiler terminated with, which is an
@@ -207,7 +230,8 @@ inline auto query_nvrtc_version(const char *exe_path) {
 
 luisa::vector<std::byte> CUDACompiler::compile(const luisa::string &src, const luisa::string &src_filename,
                                                luisa::span<const char *const> options,
-                                               const CUDAShaderMetadata *metadata) const noexcept {
+                                               const CUDAShaderMetadata *metadata,
+                                               luisa::string *error) const noexcept {
 
     Clock clk;
 
@@ -222,7 +246,41 @@ luisa::vector<std::byte> CUDACompiler::compile(const luisa::string &src, const l
 
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
     auto filename = src_filename.empty() ? "my_kernel.cu" : src_filename.c_str();
-    auto ptx = compile_with_standalone_compiler(_nvrtc_path.c_str(), src, filename, options);
+    auto compiled = compile_with_standalone_compiler(_nvrtc_path.c_str(), src, filename, options);
+    // The child always prints its diagnostics (errors, or warnings on success);
+    // surface them through the host log so they stay visible now that stderr is
+    // captured instead of inherited.
+    auto trimmed_log = luisa::string_view{compiled.log};
+    while (!trimmed_log.empty() &&
+           (trimmed_log.back() == '\n' || trimmed_log.back() == '\r')) {
+        trimmed_log = trimmed_log.substr(0u, trimmed_log.size() - 1u);
+    }
+    if (compiled.wait_failed) {
+        auto message = luisa::format(
+            "the NVRTC compiler process failed while compiling '{}': {}",
+            filename, compiled.wait_error.message());
+        if (!trimmed_log.empty()) { message.append("\n").append(trimmed_log.data(), trimmed_log.size()); }
+        if (error != nullptr) { *error = message; } else { LUISA_WARNING("{}", message); }
+        return {};
+    }
+    if (compiled.exit_code != 0 || compiled.binary.empty()) {
+        // `exit_code` is an NTSTATUS on Windows, so negative as an `int`:
+        // report its bits in hex.
+        auto message = luisa::format(
+            "NVRTC failed to compile '{}' (compiler exit code {:#010x})",
+            filename, static_cast<uint32_t>(compiled.exit_code));
+        if (trimmed_log.empty()) {
+            message.append(": the compiler reported no diagnostics");
+        } else {
+            message.append(":\n").append(trimmed_log.data(), trimmed_log.size());
+        }
+        if (error != nullptr) { *error = message; } else { LUISA_WARNING("{}", message); }
+        return {};
+    }
+    if (!trimmed_log.empty()) {
+        LUISA_WARNING("NVRTC diagnostics for '{}': {}", filename, trimmed_log);
+    }
+    auto ptx = std::move(compiled.binary);
     // Fill the in-memory LRU so repeated compile() calls for the same source
     // and options (for example a recreated Tile shader) do not re-run NVRTC.
     _cache->update(hash, ptx);

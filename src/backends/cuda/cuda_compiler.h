@@ -48,9 +48,13 @@ public:
     [[nodiscard]] auto fallback_rtx_device_library() const noexcept {
         return luisa::string_view{_fallback_rtx_device_library};
     }
+    // On failure returns an empty vector; when `error` is non-null it receives
+    // a message with the NVRTC diagnostics (the compiler log and exit code)
+    // instead of the failure only being logged.
     [[nodiscard]] luisa::vector<std::byte> compile(const luisa::string &src, const luisa::string &src_filename,
                                                    luisa::span<const char *const> options,
-                                                   const CUDAShaderMetadata *metadata = nullptr) const noexcept;
+                                                   const CUDAShaderMetadata *metadata = nullptr,
+                                                   luisa::string *error = nullptr) const noexcept;
     [[nodiscard]] static uint64_t compute_hash(const luisa::string &src, luisa::span<const char *const> options) noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
     [[nodiscard]] auto device() const noexcept { return _device; }

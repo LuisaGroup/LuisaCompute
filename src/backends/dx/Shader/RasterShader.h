@@ -14,6 +14,11 @@ struct RasterPSOState {
     vstd::vector<GFXFormat> rtv_formats;
     DepthFormat dsv_format;
     RasterState raster_state;
+    // The input layout (derived from the mesh format) is baked into the
+    // PSO, so the mesh format must participate in the cache key; two
+    // draws with the same formats/state but different mesh formats need
+    // distinct pipelines.
+    vstd::MD5 mesh_format_md5;
 };
 struct RasterPSOStateHash {
     size_t operator()(RasterPSOState const &v) const {
@@ -25,6 +30,7 @@ struct RasterPSOStateHash {
         }
         hash = luisa::hash64(&v.dsv_format, sizeof(v.dsv_format), hash);
         hash = luisa::hash64(&v.raster_state, sizeof(v.raster_state), hash);
+        hash = luisa::hash64(&v.mesh_format_md5, sizeof(v.mesh_format_md5), hash);
         return hash;
     }
 };
@@ -39,7 +45,10 @@ struct RasterPSOStateEqual {
         auto dsvComp = vstd::compare<DepthFormat>{}(a.dsv_format, b.dsv_format);
         if (dsvComp != 0)
             return dsvComp;
-        return std::memcmp(&a.raster_state, &b.raster_state, sizeof(RasterState));
+        auto stateComp = std::memcmp(&a.raster_state, &b.raster_state, sizeof(RasterState));
+        if (stateComp != 0)
+            return stateComp;
+        return std::memcmp(&a.mesh_format_md5, &b.mesh_format_md5, sizeof(vstd::MD5));
     }
 };
 class RasterShader final : public Shader {

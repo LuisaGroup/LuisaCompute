@@ -48,13 +48,17 @@ extern nvrtcResult nvrtcGetPTX(nvrtcProgram prog, char *ptx);
 }
 #endif
 
+// Never abort(): the parent process waits on this child, and an abort would
+// pop a blocking crash-report dialog in the user's session, hanging the
+// parent. A clean non-zero exit lets the parent read the message from our
+// stderr and report it as a normal compile failure.
 static void report_error(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
     fflush(stderr);
-    abort();
+    exit(1);
 }
 
 #define LUISA_CHECK_NVRTC(...)                     \
@@ -163,16 +167,23 @@ int main(int argc, char *argv[]) {
     free(filename.data);
     free(src.data);
 
-    // print compile log
+    // print compile log (errors, or warnings on a successful compile): the
+    // parent captures stderr, so the diagnostics reach the caller verbatim
     size_t log_size = 0;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
     if (log_size > 1u) {
         char *log = (char *)malloc(log_size);
         LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log));
-        fprintf(stderr, "Compile log:\n%s\n", log);
+        fprintf(stderr, "%s", log);
+        if (log[log_size - 2u] != '\n') { fputc('\n', stderr); }
         free(log);
     }
-    LUISA_CHECK_NVRTC(err);
+    if (err != 0) {
+        // Graceful failure: the parent turns this exit code plus the log
+        // above into a compile error instead of hanging on a crashed child.
+        nvrtcDestroyProgram(&prog);
+        return 1;
+    }
 
     // get PTX
     str_buffer buffer = {};

@@ -739,10 +739,13 @@ struct RunReport {
         shaders.set_device(device, native_ext);
         register_builtin_kernels(device, shaders);
 
-        // The stream tag must accept the GUI's graphics commands in interactive
-        // mode; offline stays on a compute stream.
+        // The stream must accept the GUI's graphics commands only when a
+        // window will actually be shown: offline stays on a compute stream,
+        // and so does an interactive run whose GUI is disabled or unavailable.
         auto interactive = document.mode.interactive;
-        auto stream = device.create_stream(interactive ? StreamTag::GRAPHICS : StreamTag::COMPUTE);
+        auto use_interactive_gui = interactive && document.mode.gui && !options.no_gui;
+        auto stream = device.create_stream(use_interactive_gui ? StreamTag::GRAPHICS
+                                                               : StreamTag::COMPUTE);
         auto dstorage_stream = Stream{};
         auto has_dstorage = create_dstorage_stream(device, document, dstorage_stream);
         if (!has_dstorage && document.config.dstorage.enabled) {
@@ -776,43 +779,54 @@ struct RunReport {
                                "no silent fallback)");
                 return 1;
             }
-            return run_interactive(device, stream, options, document, resources,
-                                   shaders, executor, paths);
+            if (auto code = run_interactive(device, stream, options, document,
+                                            resources, shaders, executor, paths);
+                code != 0) {
+                return code;
+            }
 #else
             report_failure("interactive mode is not available: this build has no GUI "
                            "support (rebuild with lc_enable_gui / "
                            "LUISA_COMPUTE_ENABLE_GUI, or pass --offline)");
             return 1;
 #endif
-        }
-        Clock clock;
-        auto frames = std::max(1u, document.mode.frames);
-        for (auto frame = 0u; frame < frames; frame++) {
-            // File sinks are written once, on the last frame, so that a multi-frame
-            // run neither rewrites nor refuses to overwrite its own output.
-            executor.set_write_sinks(frame + 1u == frames);
-            if (!executor.execute(document)) {
-                report_diagnostics(diagnostics);
-                return 1;
+        } else {
+            Clock clock;
+            auto frames = std::max(1u, document.mode.frames);
+            for (auto frame = 0u; frame < frames; frame++) {
+                // File sinks are written once, on the last frame, so that a
+                // multi-frame run neither rewrites nor refuses to overwrite its
+                // own output.
+                executor.set_write_sinks(frame + 1u == frames);
+                if (!executor.execute(document)) {
+                    report_diagnostics(diagnostics);
+                    return 1;
+                }
             }
+            if (options.stats) {
+                LUISA_INFO("{} frame(s) of {} command(s) in {:.3f} ms ({:.3f} ms/frame)",
+                           frames, executor.last_command_count(), clock.toc(),
+                           clock.toc() / static_cast<double>(frames));
+            }
+            command_counts.assign(executor.last_command_counts().begin(),
+                                  executor.last_command_counts().end());
+            LUISA_INFO("dispatch document executed on '{}': {} frame(s), {} device "
+                       "command(s), per-kind [{}]",
+                       backend, frames, executor.last_command_count(),
+                       summarize_command_counts(command_counts));
         }
+        // The whole workflow is done — offline: every frame ran; interactive:
+        // the window closed or the fixed frame count was reached. Write the
+        // resources the document marked with `export_path` (a failed export is
+        // a warning, not an error) and synchronize, so every device command
+        // the run submitted is complete before main returns.
+        ns::export_marked_resources(stream, resources, paths, diagnostics);
         stream << synchronize();
         if (!diagnostics.ok()) {
             report_diagnostics(diagnostics);
             return 1;
         }
         report_diagnostics(diagnostics);
-        if (options.stats) {
-            LUISA_INFO("{} frame(s) of {} command(s) in {:.3f} ms ({:.3f} ms/frame)",
-                       frames, executor.last_command_count(), clock.toc(),
-                       clock.toc() / static_cast<double>(frames));
-        }
-        command_counts.assign(executor.last_command_counts().begin(),
-                              executor.last_command_counts().end());
-        LUISA_INFO("dispatch document executed on '{}': {} frame(s), {} device "
-                   "command(s), per-kind [{}]",
-                   backend, frames, executor.last_command_count(),
-                   summarize_command_counts(command_counts));
         return 0;
     }();
     if (report != nullptr) {
@@ -1138,6 +1152,14 @@ constexpr Case kWarningCases[] = {
      " \"workflow\": [{\"cmd\": \"buffer_download\", \"resource\": \"sink\","
      " \"output\": {\"discard\": true}}]}",
      "dispatch_per_frame"},
+    // `export_path` is only a known key of buffers, textures and volumes: on
+    // any other resource type it reads as an unknown key (a warning, an
+    // error under --strict), never as a silently ignored export request.
+    {"export_path on a resource that cannot be exported",
+     "{\"resources\": [{\"name\": \"as\", \"type\": \"accel\","
+     " \"export_path\": \"as.bin\"}],"
+     " \"workflow\": [{\"cmd\": \"log\", \"message\": \"x\"}]}",
+     "export_path"},
 };
 
 // Rejects a document through the same two stages the tool runs, and returns the
@@ -1238,7 +1260,8 @@ reject(const std::string_view json, luisa::vector<luisa::string> &warnings) noex
         R"({{"version":1,"mode":{{"type":"offline"}},)"
         R"("resources":[{{"name":"a","type":"buffer","element":"float","count":64,)"
         R"("input":{{"inline":{{"hex":"{}"}}}}}},)"
-        R"({{"name":"b","type":"buffer","element":"float","count":64}}],)"
+        R"({{"name":"b","type":"buffer","element":"float","count":64,)"
+        R"("export_path":"dsl_only_b.bin"}}],)"
         R"("workflow":[)"
         R"({{"cmd":"buffer_copy","src":"a","dst":"b","size":256}},)"
         R"({{"cmd":"shader_dispatch","shader":"scale_buffer",)"
@@ -1308,9 +1331,29 @@ constexpr RejectionCase kRejectionCases[] = {
      " \"workflow\": [{\"cmd\": \"buffer_download\", \"resource\": \"a\","
      " \"output\": {\"file\": \"nope.png\", \"format\": \"png\", \"overwrite\": true}}]}",
      ""},
-    {"an unknown custom command uuid",
-     "{\"workflow\": [{\"cmd\": \"custom_command\", \"uuid\": 4660}]}",
-     "uuid"},
+      {"an unknown custom command uuid",
+       "{\"workflow\": [{\"cmd\": \"custom_command\", \"uuid\": 4660}]}",
+       "uuid"},
+      {"a native shader that does not compile",
+       // One broken variant per language: every backend compiles the variant it
+       // speaks and must refuse the document with the compiler's diagnostic,
+       // never a crash or a hang.
+       "{\"shaders\": [{\"name\": \"broken\", \"language\": \"hlsl\","
+       " \"source_type\": \"code\", \"entry_point\": \"CSMain\","
+       " \"block_size\": [32, 1, 1], \"source\": \"RWStructuredBuffer<float> buf"
+       " : register(u0);\\n[numthreads(32, 1, 1)]\\nvoid CSMain(uint3 tid :"
+       " SV_DispatchThreadID) { buf[tid.x] = tid.x +; }\"},"
+       " {\"name\": \"broken\", \"language\": \"glsl\", \"source_type\": \"code\","
+       " \"entry_point\": \"main\", \"block_size\": [32, 1, 1], \"source\": \"#version"
+       " 450\\nlayout(local_size_x = 32) in;\\nlayout(set = 0, binding = 0, std430)"
+       " buffer D { float v[]; } b;\\nvoid main() { b.v[gl_GlobalInvocationID.x] ="
+       " 1.0 +; }\"},"
+       " {\"name\": \"broken\", \"language\": \"cuda_nvrtc\", \"source_type\": \"code\","
+       " \"entry_point\": \"broken\", \"block_size\": [32, 1, 1], \"source\": \"extern"
+       " \\\"C\\\" __global__ void broken(float *buf) { auto i = blockIdx.x *"
+       " blockDim.x + threadIdx.x; buf[i] = 1.0f +; }\"}],"
+       " \"workflow\": [{\"cmd\": \"log\", \"message\": \"x\"}]}",
+       "compilation failed"},
 };
 [[nodiscard]] int run_self_test(Context &context, const Options &options) noexcept {
     auto checks = 0u;
@@ -1477,6 +1520,32 @@ constexpr RejectionCase kRejectionCases[] = {
                                 mismatch));
         }
     }
+    // A resource `export_path` survives the write/read cycle: the document
+    // below marks one buffer and one texture for the end-of-run export.
+    {
+        auto text = std::string_view{
+            "{\"resources\": [{\"name\": \"b\", \"type\": \"buffer\", \"byte_size\": 16,"
+            " \"export_path\": \"out/b.bin\"},"
+            " {\"name\": \"t\", \"type\": \"texture\", \"storage\": \"float4\","
+            " \"size\": [4, 4], \"export_path\": \"out/t.raw\"}],"
+            " \"workflow\": [{\"cmd\": \"log\", \"message\": \"x\"}]}"};
+        auto first = ns::parse_dispatch_json(text, ns::JsonLimits{});
+        check(first.value.has_value() && first.value->resources.size() == 2u &&
+                  first.value->resources[0].export_path == "out/b.bin" &&
+                  first.value->resources[1].export_path == "out/t.raw",
+              "codec: resource 'export_path' fields were rejected or lost");
+        if (first.value.has_value()) {
+            auto written = ns::write_dispatch_json(*first.value);
+            check(written.error.empty(),
+                  luisa::format("codec: serialising 'export_path' failed: {}",
+                                written.error));
+            auto second = ns::parse_dispatch_json(written.json, ns::JsonLimits{});
+            auto mismatch = luisa::string{};
+            check(second.value.has_value() &&
+                      ns::equivalent(*first.value, *second.value, mismatch),
+                  luisa::format("codec: 'export_path' does not round-trip: {}", mismatch));
+        }
+    }
 
     // ---- 4. execution corpus ----------------------------------------------
     auto backend = options.backend;
@@ -1600,6 +1669,70 @@ constexpr RejectionCase kRejectionCases[] = {
             auto kind = static_cast<size_t>(luisa::to_underlying(ns::CommandKind::ShaderDispatch));
             check(kind < report.command_counts.size() && report.command_counts[kind] == 1u,
                   "execution: the DSL-only document did not run its shader_dispatch");
+            // The document marks 'b' with `export_path`: after the workflow the
+            // run must have written the resource to the output directory.
+            auto exported = luisa::vector<std::byte>{};
+            auto read_error = luisa::string{};
+            auto export_file = luisa::filesystem::path{"."} / "native_shader_output" /
+                               "dsl_only_b.bin";
+            check(ns::read_file(export_file, 1u << 20u, exported, read_error) &&
+                      exported.size() == 64u * sizeof(float),
+                  luisa::format("execution: the exported resource is missing or has the "
+                                "wrong size ('{}': {})",
+                                luisa::to_string(export_file), read_error));
+            if (exported.size() == 64u * sizeof(float)) {
+                auto correct = true;
+                for (auto i = 0u; i < 64u && correct; i++) {
+                    auto value = 0.0f;
+                    std::memcpy(&value, exported.data() + i * sizeof(float), sizeof(float));
+                    correct = value == static_cast<float>(i);
+                }
+                check(correct, "execution: the exported resource holds the wrong data");
+            }
+        }
+    }
+
+    // 4f. an export that cannot be written downgrades to a warning: the run
+    //     itself succeeded, so the exit code stays 0 and the diagnostic names
+    //     the resource.
+    {
+        // A regular file sitting where the export wants a directory makes the
+        // write fail for a reason the run cannot fix.
+        auto blocker = luisa::filesystem::path{"."} / "native_shader_output" /
+                       "export_blocker";
+        if (auto error = luisa::string{}; !ns::write_output(
+                blocker, luisa::span<const std::byte>{}, "raw", uint3{0u, 0u, 0u},
+                PixelStorage::BYTE1, true, error)) {
+            check(false, luisa::format("execution: cannot prepare the export blocker: {}",
+                                       error));
+        } else {
+            auto parsed = ns::parse_dispatch_json(
+                "{\"resources\": [{\"name\": \"a\", \"type\": \"buffer\", \"byte_size\": 16,"
+                " \"export_path\": \"export_blocker/out.bin\"}],"
+                " \"workflow\": [{\"cmd\": \"log\", \"message\": \"x\"}]}",
+                ns::JsonLimits{});
+            check(parsed.value.has_value(),
+                  "execution: the failed-export document does not parse");
+            if (parsed.value.has_value()) {
+                auto report = RunReport{};
+                auto status = run_document(context, backend, options,
+                                           std::move(*parsed.value), ".", &report);
+                check(status == 0,
+                      luisa::format("execution: a failed export failed the run (exit {})",
+                                    status));
+                auto warned = false;
+                for (auto &&warning : report.diagnostics.warnings) {
+                    if (warning.find("export of resource 'a'") != luisa::string::npos) {
+                        warned = true;
+                        break;
+                    }
+                }
+                check(warned,
+                      "execution: a failed export did not produce a warning naming the "
+                      "resource");
+            }
+            std::error_code ec;
+            luisa::filesystem::remove(blocker, ec);
         }
     }
 

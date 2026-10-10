@@ -141,12 +141,19 @@ NativeShaderCompileResult CUDANativeShaderExt::compile(
     auto filename = info.source_type == NativeShaderSourceType::FilePath ?
                         luisa::string{info.source} :
                         luisa::string{"native_shader.cu"};
+    luisa::string compile_error;
     auto ptx = compiler->compile(luisa::string{source}, filename,
-                                 options, nullptr);
+                                 options, nullptr, &compile_error);
     if (ptx.empty()) {
         result.error = luisa::format(
-            "NVRTC produced an empty PTX module for kernel '{}'.",
+            "NVRTC failed to compile the CUDA C++ source for kernel '{}'.",
             reflection.entry_point);
+        if (!compile_error.empty()) {
+            result.error.append("\n").append(compile_error);
+        }
+        LUISA_WARNING("CUDA native shader compile failed (CUDA C++ -> PTX via "
+                      "NVRTC, kernel '{}'): {}",
+                      reflection.entry_point, result.error);
         return result;
     }
     // `cuModuleLoadData` requires a NUL-terminated PTX image (NVRTC already

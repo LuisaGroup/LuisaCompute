@@ -54,6 +54,7 @@ using compute::ComputeDispatchCmdEncoder;
 using compute::CustomCommandUUID;
 using compute::DStorageCompression;
 using compute::DStorageExt;
+using compute::DStorageFile;
 using compute::DStorageFileView;
 using compute::DStorageReadCommand;
 using compute::MeshBuildCommand;
@@ -1003,6 +1004,73 @@ bool read_file(const luisa::filesystem::path &path, size_t max_bytes,
     return true;
 }
 
+void export_marked_resources(Stream &stream,
+                             const ResourceRegistry &resources,
+                             const PathResolver &paths,
+                             Diagnostics &diagnostics) noexcept {
+    // One export whose downloaded bytes live until the stream synchronized.
+    struct PendingExport {
+        const ResourceRegistry::Entry *entry;
+        luisa::filesystem::path path;
+        luisa::vector<std::byte> bytes;
+        uint3 extent{0u, 0u, 0u};
+    };
+    auto pending = luisa::vector<PendingExport>{};
+    auto segment = CommandList{};
+    for (auto &&entry : resources.entries()) {
+        if (entry.spec.export_path.empty()) { continue; }
+        auto &&resource = entry.resource;
+        auto item = PendingExport{&entry, paths.resolve_output(entry.spec.export_path),
+                                  luisa::vector<std::byte>{}, resource.extent};
+        switch (entry.spec.type) {
+            case ResourceType::Buffer:
+                item.bytes.resize(resource.byte_size);
+                segment << luisa::make_unique<compute::BufferDownloadCommand>(
+                    resource.handle, 0u, resource.byte_size, item.bytes.data());
+                break;
+            case ResourceType::Texture:
+            case ResourceType::Volume:
+                // `byte_size` is the full-resolution level (level 0), which is
+                // the level an export writes.
+                item.bytes.resize(resource.byte_size);
+                segment << luisa::make_unique<compute::TextureDownloadCommand>(
+                    resource.handle, resource.storage, 0u, resource.extent,
+                    item.bytes.data(), uint3{0u, 0u, 0u});
+                break;
+            default:
+                // The codec only allows `export_path` on the three kinds
+                // above; a CLI-built document bypassing the codec is
+                // reported instead of exporting the wrong thing.
+                diagnostics.warning(luisa::format(
+                    "resource '{}': 'export_path' is only supported for buffers, "
+                    "textures and volumes; nothing was exported",
+                    entry.spec.name));
+                continue;
+        }
+        pending.emplace_back(std::move(item));
+    }
+    if (pending.empty()) { return; }
+    stream << segment.commit();
+    stream.synchronize();
+    for (auto &&item : pending) {
+        auto &&entry = *item.entry;
+        auto error = luisa::string{};
+        if (write_output(item.path,
+                         luisa::span<const std::byte>{item.bytes.data(), item.bytes.size()},
+                         "raw", item.extent, entry.resource.storage, true, error)) {
+            LUISA_INFO("exported resource '{}' ({} byte(s)) to '{}'", entry.spec.name,
+                       item.bytes.size(), luisa::to_string(item.path));
+        } else {
+            // The workflow itself succeeded; a failed export must not turn the
+            // run into a failure, so it downgrades to a warning.
+            auto message = luisa::format("export of resource '{}' to '{}' failed: {}",
+                                         entry.spec.name, luisa::to_string(item.path), error);
+            diagnostics.warning(message);
+            LUISA_WARNING("{}", message);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // resources
 // ---------------------------------------------------------------------------
@@ -1340,8 +1408,17 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
         }
     }
 
-    // ---- pass 2: load the `input` of every created resource ---------------
+    // ---- pass 2: load the `input` of every created resource ------------
+    // Every host-side load is gathered into one segment and submitted with a
+    // single commit + synchronize: the payload pointers (the document's inline
+    // bytes and the staging arena blocks) stay valid until this function
+    // returns, which is exactly the lifetime an upload command needs, and the
+    // dependency pass above already orders every copy after its source. A
+    // DirectStorage read goes to the other stream, so the pending segment is
+    // committed first to keep the two streams' writes ordered.
     ByteArena staging;
+    CommandList segment;
+    auto flush = [&]() noexcept { stream << segment.commit(); };
     for (auto i = size_t{0u}; i < count; i++) {
         if (state[i] != kResourceCreated) { continue; }
         auto &&entry = _entries[i];
@@ -1363,7 +1440,6 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                     ok = false;
                     break;
                 }
-                CommandList list;
                 if (byte_addressable) {
                     if (bytes.size() > resource.byte_size) {
                         error_at(i, luisa::format("the inline input is {} bytes, which exceeds the {} "
@@ -1379,7 +1455,7 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                         ok = false;
                         break;
                     }
-                    list << luisa::make_unique<compute::BufferUploadCommand>(
+                    segment << luisa::make_unique<compute::BufferUploadCommand>(
                         resource.handle, 0u, bytes.size(), bytes.data());
                 } else if (texture_like) {
                     auto expected = compute::pixel_storage_size(resource.storage, resource.extent);
@@ -1391,7 +1467,7 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                         ok = false;
                         break;
                     }
-                    list << luisa::make_unique<compute::TextureUploadCommand>(
+                    segment << luisa::make_unique<compute::TextureUploadCommand>(
                         resource.handle, resource.storage, 0u, resource.extent,
                         bytes.data(), uint3{0u, 0u, 0u});
                 } else {
@@ -1399,7 +1475,6 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                     ok = false;
                     break;
                 }
-                stream << list.commit() << compute::synchronize();
                 break;
             }
             case InputJson::Kind::Resource: {
@@ -1443,10 +1518,8 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                     ok = false;
                     break;
                 }
-                CommandList list;
-                list << luisa::make_unique<compute::BufferCopyCommand>(
+                segment << luisa::make_unique<compute::BufferCopyCommand>(
                     source.resource.handle, resource.handle, src_offset, 0u, size);
-                stream << list.commit() << compute::synchronize();
                 break;
             }
             case InputJson::Kind::File: {
@@ -1477,6 +1550,9 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                                     compression_supported, compression_name, path, file_offset,
                                     size, device.backend_name(), document.config.strict,
                                     diagnostics)) {
+                    // The read lands on the other stream: commit what is
+                    // pending so it cannot overlap this resource's write.
+                    flush();
                     auto file = dstorage->open_file(luisa::to_string(path));
                     if (file) {
                         auto view = file.view(file_offset, size);
@@ -1501,18 +1577,14 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
                     ok = false;
                     break;
                 }
-                CommandList list;
                 if (byte_addressable) {
-                    list << luisa::make_unique<compute::BufferUploadCommand>(
+                    segment << luisa::make_unique<compute::BufferUploadCommand>(
                         resource.handle, 0u, size, staging_block);
                 } else {
-                    list << luisa::make_unique<compute::TextureUploadCommand>(
+                    segment << luisa::make_unique<compute::TextureUploadCommand>(
                         resource.handle, resource.storage, 0u, resource.extent,
                         staging_block, uint3{0u, 0u, 0u});
                 }
-                // The staging block is arena-owned, but an upload of a resource
-                // is complete before the next one starts.
-                stream << list.commit() << compute::synchronize();
                 break;
             }
         }
@@ -1520,6 +1592,12 @@ bool ResourceRegistry::create_all(Device &device, Stream &stream, Stream *dstora
         // must not be retried, and a successful one may serve later copies.
         state[i] = kResourceLoaded;
     }
+    // One commit and one wait for every gathered load. The staging arena and
+    // the document still own every payload pointer, as the upload commands
+    // require; after the synchronize the resources are loaded for real, which
+    // is the state the workflow expects.
+    flush();
+    stream.synchronize();
     return ok;
 }
 
@@ -1545,6 +1623,19 @@ namespace {
     }
     if (backend == "cuda") { return language == NativeShaderLanguage::CUDA_NVRTC; }
     return false;
+}
+
+// The compiler a backend routes a language through; named in the compile log
+// and the failure diagnostic so the message says which tool actually failed.
+[[nodiscard]] luisa::string_view native_shader_compiler_name(
+    luisa::string_view backend, NativeShaderLanguage language) noexcept {
+    if (backend == "dx") { return "DXC (DXIL)"; }
+    if (backend == "vk") {
+        return language == NativeShaderLanguage::GLSL ? "glslang (SPIR-V)" :
+                                                        "DXC (SPIR-V)";
+    }
+    if (backend == "cuda") { return "NVRTC (PTX)"; }
+    return "unknown compiler";
 }
 
 // The language of a shader that does not declare one: the source file's
@@ -1734,12 +1825,29 @@ bool ShaderRegistry::compile_all(const DispatchJson &document,
         for (auto &&directory : shader->include_dirs) {
             info.include_dirs.emplace_back(paths.resolve_shader(directory));
         }
+        auto compiler_name = native_shader_compiler_name(backend, language);
+        // The process in one line: which tool compiles what, with which
+        // settings, so a following failure can be read against it.
+        auto flags = luisa::string{};
+        if (!info.optimize) { flags.append(", optimize off"); }
+        if (info.enable_fast_math) { flags.append(", fast math"); }
+        if (info.enable_debug_info) { flags.append(", debug info"); }
+        LUISA_INFO("compiling native {} shader '{}' with {}: entry '{}', shader "
+                   "model {}, block size ({}, {}, {}), {} uniform byte(s){}",
+                   native_shader_language_name(language), shader->name,
+                   compiler_name, info.entry_point, info.shader_model,
+                   info.block_size.x, info.block_size.y, info.block_size.z,
+                   info.push_constant_size, flags);
         auto result = ext->compile(info);
         if (!result.ok()) {
             diagnostics.error(luisa::format(
-                "shaders ({}): {}", shader->name,
+                "shaders ({}): {} compilation failed on backend '{}' (compiler "
+                "{}, entry '{}'): {}",
+                shader->name, native_shader_language_name(language), backend,
+                compiler_name, info.entry_point,
                 result.error.empty() ?
-                    luisa::string{"the native shader compiler produced no binary"} :
+                    luisa::string{"the compiler rejected the source without a "
+                                 "diagnostic"} :
                     result.error));
             ok = false;
             continue;
@@ -2585,6 +2693,16 @@ bool WorkflowExecutor::execute(const DispatchJson &document) noexcept {
     CommandList segment;
     ByteArena arena;
     luisa::vector<PendingDownload> downloads;
+    // DirectStorage reads resolve their source file handle when the upload
+    // stream executes the command, which can be after every command is built
+    // and, in the default async mode, after the workflow case that opened the
+    // file has returned. The opened files are therefore kept until the final
+    // synchronize below: the upload stream either signals the timeline event
+    // the main stream waits on or is synchronized inline (--sync-uploads), so
+    // once `_stream.synchronize()` returns every read has finished with its
+    // file. Closing a file earlier would delete the handle the queued read
+    // still dereferences.
+    luisa::vector<DStorageFile> open_files;
     TimelineEvent timeline_event;
     auto has_timeline_event = false;
     auto fence = uint64_t{0u};
@@ -2735,10 +2853,11 @@ bool WorkflowExecutor::execute(const DispatchJson &document) noexcept {
                             compression_name, compression);
                         if (choose_dstorage(document.config.dstorage.enabled, dstorage,
                                             _upload_stream, compression_supported,
-                                            compression_name, path, file_offset, size,
-                                            _device.backend_name(),
-                                            document.config.strict, _diagnostics)) {
-                            auto file = dstorage->open_file(luisa::to_string(path));
+                                            compression_name, path, file_offset,
+                                            size, _device.backend_name(), document.config.strict,
+                                            _diagnostics)) {
+                            open_files.emplace_back(dstorage->open_file(luisa::to_string(path)));
+                            auto &file = open_files.back();
                             if (!file) {
                                 fail(i, command, luisa::format("the DirectStorage extension cannot open '{}'", luisa::to_string(path)));
                                 ok = false;
@@ -2970,7 +3089,8 @@ bool WorkflowExecutor::execute(const DispatchJson &document) noexcept {
                                             compression_name, path, file_offset, file_size,
                                             _device.backend_name(), document.config.strict,
                                             _diagnostics)) {
-                            auto file = dstorage->open_file(luisa::to_string(path));
+                            open_files.emplace_back(dstorage->open_file(luisa::to_string(path)));
+                            auto &file = open_files.back();
                             if (!file) {
                                 fail(i, command, luisa::format("the DirectStorage extension cannot open '{}'", luisa::to_string(path)));
                                 ok = false;
@@ -3230,7 +3350,8 @@ bool WorkflowExecutor::execute(const DispatchJson &document) noexcept {
                                         compression_name, path, file_offset, size,
                                         _device.backend_name(), document.config.strict,
                                         _diagnostics)) {
-                        auto file = dstorage->open_file(luisa::to_string(path));
+                        open_files.emplace_back(dstorage->open_file(luisa::to_string(path)));
+                        auto &file = open_files.back();
                         if (!file) {
                             fail(i, command, luisa::format("the DirectStorage extension cannot open '{}'", luisa::to_string(path)));
                             ok = false;

@@ -397,4 +397,20 @@ private:
                              luisa::vector<std::byte> &bytes,
                              luisa::string &error) noexcept;
 
+// ---------------------------------------------------------------------------
+// end-of-run export
+// ---------------------------------------------------------------------------
+
+// Downloads every resource whose spec marks `export_path` (a buffer, texture
+// or volume) and writes the raw payload to that path. Called exactly once per
+// run, after the whole workflow finished — offline: the last frame;
+// interactive: the window closed or the fixed frame count was reached. A
+// texture or volume exports its full-resolution mip level. `overwrite` is
+// always on: an export is the run's deterministic output. A failed write is
+// reported as a warning, never an error — the run itself already succeeded.
+void export_marked_resources(Stream &stream,
+                             const ResourceRegistry &resources,
+                             const PathResolver &paths,
+                             Diagnostics &diagnostics) noexcept;
+
 }// namespace luisa::native_shader
