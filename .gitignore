@@ -13,7 +13,6 @@ coro_sdf.png
 /hlsl_output.hlsl
 /spirv_output*.spvasm
 /kernel.*.xir*
-
 # Benchmark / profiling artifacts
 /archlinux-desktop/
 /results.db
@@ -378,3 +377,7 @@ rnn_exported.pt2
 
 # JSON-driven native shader example: generated outputs (--output-dir)
 native_shader_output/
+
+# Kimix LSP bridge unit tests (local only, never committed)
+scripts/tests/
+!.kimix/config.json
