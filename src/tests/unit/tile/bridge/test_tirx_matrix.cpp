@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <tvm/ffi/error.h>
 #include <tvm/tirx/builtin.h>
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
@@ -954,6 +955,103 @@ void test_mpp_typed_contract(Runtime &runtime) {
     }
 }
 
+template<typename Input, typename Output>
+void test_mpp_narrow_input_cases(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_narrow_input_contract_version");
+    Shape cases[]{{32, 64, 32, 32, 64, 32}, {37, 29, 21, 16, 32, 8}};
+    for (auto cfg : cases) {
+        for (auto window : {1u, 2u}) {
+            for (auto guarded : {false, true}) {
+                auto padding = guarded ? size_t{64} : size_t{0};
+                auto kernel = tile_kernel("matrix_mpp_narrow_inputs", [=](TensorView<const Input, 2> A, TensorView<const Input, 2> B, TensorView<Output, 2> D) {
+                                  auto gm = axis("gm", ceil_div(cfg.m, cfg.bm));
+                                  auto gn = axis("gn", ceil_div(cfg.n, cfg.bn));
+                                  auto m = axis("m", cfg.bm), n = axis("n", cfg.bn), k = axis("k", cfg.bk);
+                                  for (auto &owner : parallel(shape(gm, gn), exec::Scope::GROUP)) {
+                                      auto row = owner.index(gm) * cfg.bm, column = owner.index(gn) * cfg.bn;
+                                      auto acc = full<float>(shape(m, n), 0.5f);
+                                      for (auto &step : owner.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.window = window})) {
+                                          step.stage("load");
+                                          auto a = A.tile(coord(row, step.index() * cfg.bk), shape(m, k)).load();
+                                          auto b = B.tile(coord(step.index() * cfg.bk, column), shape(k, n)).load();
+                                          step.stage("compute");
+                                          acc = mma(a, b, acc);
+                                      }
+                                      D(coord(row, column), shape(m, n)).store(cast<Output>(acc));
+                                  }
+                              }).capture(tensor_shape(cfg.m, cfg.k), tensor_shape(cfg.k, cfg.n), tensor_shape(cfg.m, cfg.n));
+                expect(kernel.valid());
+                auto executable = runtime.build(kernel, true, true, true, false, {}, true, true);
+                if (!capability) {
+                    // An explicit narrow MPP request must reject a compiler
+                    // lacking the typed ABI instead of silently scalarizing.
+                    expect(!executable.ok());
+                    expect(executable.error.find("narrow") != luisa::string::npos) << executable.error;
+                    continue;
+                }
+                expect(eq((*capability)().cast<int64_t>(), int64_t{1}));
+                expect(executable.ok()) << executable.error << " shape=" << cfg.m << "x" << cfg.n << "x" << cfg.k << " window=" << window << " guarded=" << guarded;
+                if (!executable.ok()) { continue; }
+                auto source = metal_source(executable.module.value());
+                auto code = luisa::string_view{source.data(), source.size()};
+                expect(code.find("mpp::tensor_ops::matmul2d<") != luisa::string_view::npos) << code;
+                expect(code.find(std::is_same_v<Input, half> ? "tensor<device half" : "tensor<device bfloat") != luisa::string_view::npos) << code;
+                expect(!executable.plans.empty());
+                for (auto &plan : executable.plans) { expect(plan.metal_mpp); }
+                for (auto repeat = uint32_t{0}; repeat < 2u; repeat++) {
+                    vector<Input> a(static_cast<size_t>(cfg.m * cfg.k)), b(static_cast<size_t>(cfg.k * cfg.n));
+                    for (auto i = size_t{0}; i < a.size(); i++) { a[i] = static_cast<Input>(static_cast<float>(static_cast<int32_t>((i * 13u + 3u) % 31u) - 15) / 32.0f + static_cast<float>(repeat) / 64.0f); }
+                    for (auto i = size_t{0}; i < b.size(); i++) { b[i] = static_cast<Input>(static_cast<float>(static_cast<int32_t>((i * 7u + 11u) % 29u) - 14) / 32.0f - static_cast<float>(repeat) / 64.0f); }
+                    auto canary = static_cast<Output>(123.0f);
+                    auto elements = static_cast<size_t>(cfg.m * cfg.n);
+                    vector<Output> initial(elements + padding, canary);
+                    auto left = runtime.upload<Input>({cfg.m, cfg.k}, a);
+                    auto right = runtime.upload<Input>({cfg.k, cfg.n}, b);
+                    auto allocation = runtime.upload<Output>({static_cast<int64_t>(initial.size())}, initial);
+                    // The generated packed host API has elem_offset=0.
+                    // Preserve its contract while retaining physical suffix
+                    // canaries outside the zero-offset logical output view.
+                    auto destination = allocation.CreateView(tvm::ffi::Shape{cfg.m, cfg.n}, luisa::test::tile_tirx::dl_data_type<Output>());
+                    try {
+                        (*executable.entry)(left, right, destination);
+                    } catch (const tvm::ffi::Error &error) {
+                        expect(false) << error.FullMessage() << " shape=" << cfg.m << "x" << cfg.n << "x" << cfg.k << " window=" << window << " guarded=" << guarded;
+                        continue;
+                    }
+                    auto actual = runtime.download<Output>(allocation, initial.size());
+                    auto valid = true;
+                    for (auto index = size_t{0}; index < initial.size(); index++) {
+                        auto expected = static_cast<float>(canary);
+                        if (index < elements) {
+                            auto row = static_cast<int64_t>(index / static_cast<size_t>(cfg.n));
+                            auto column = static_cast<int64_t>(index % static_cast<size_t>(cfg.n));
+                            auto sum = 0.5;
+                            for (auto depth = int64_t{0}; depth < cfg.k; depth++) {
+                                sum += static_cast<double>(static_cast<float>(a[row * cfg.k + depth])) *
+                                       static_cast<float>(b[depth * cfg.n + column]);
+                            }
+                            expected = static_cast<float>(static_cast<Output>(static_cast<float>(sum)));
+                        }
+                        // Small binary fractions have exact FP32 products
+                        // and sums, exposing a premature narrow accumulator
+                        // or any write outside the destination rectangle.
+                        valid &= static_cast<float>(actual[index]) == expected;
+                    }
+                    expect(valid) << "complete rounded FP64 oracle and border guards; repeat=" << repeat << " window=" << window;
+                }
+            }
+        }
+    }
+}
+
+void test_mpp_narrow_inputs(Runtime &runtime) {
+    test_mpp_narrow_input_cases<half, float>(runtime);
+    test_mpp_narrow_input_cases<bf16, float>(runtime);
+    test_mpp_narrow_input_cases<half, half>(runtime);
+    test_mpp_narrow_input_cases<bf16, bf16>(runtime);
+}
+
 void test_mpp_element_contract(Runtime &runtime) {
     if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version")) { return; }
     auto i32 = [](int32_t value) { return tvm::IntImm::Int32(value); };
@@ -1186,6 +1284,174 @@ void test_mpp_bounded_mn_contract(Runtime &runtime) {
             }
         }
         expect(all_valid);
+    }
+}
+
+template<typename Input>
+void test_mpp_narrow_empty_contract(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    auto narrow = tvm::ffi::Function::GetGlobal("target.metal.mpp_narrow_input_contract_version");
+    auto bounded = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version");
+    if (!narrow || !bounded) { return; }
+    expect(eq((*narrow)().cast<int64_t>(), int64_t{1}));
+    expect(eq((*bounded)().cast<int64_t>(), int64_t{1}));
+    if ((*narrow)().cast<int64_t>() != 1 || (*bounded)().cast<int64_t>() != 1) { return; }
+    struct Case {
+        int64_t nominal_m, nominal_n, actual_m, actual_n;
+        bool transpose_a{false}, transpose_b{false};
+    };
+    // Only the present operand's orientation matters. The long dimension
+    // observes classification/shuffle in the second 32-lane ownership chunk.
+    Case cases[]{
+        {16, 64, 0, 64, false, false}, {16, 64, 0, 64, false, true}, {16, 64, 16, 0, false, false}, {16, 64, 16, 0, true, false}, {64, 16, 64, 0, false, false}, {64, 16, 64, 0, true, false}, {16, 64, 0, 0, false, false}};
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto input_type = std::is_same_v<Input, half> ? tvm::PrimType::Float(16) : tvm::PrimType::BFloat(16);
+    auto input_name = std::is_same_v<Input, half> ? "fp16" : "bf16";
+    constexpr const char *payload_names[]{"positive_finite", "negative_finite", "negative_zero", "mixed_sign_selected_outer_last_k", "negative_infinity_selected_outer_last_k", "quiet_nan_selected_outer_last_k"};
+    auto buffer = [&](int64_t rows, int64_t columns, tvm::PrimType type, const char *name, const char *scope = "global") {
+        return tvm::tirx::decl_buffer({i64(rows), i64(columns)}, type, name, scope);
+    };
+    auto address = [&](const tvm::tirx::BufferVar &value) {
+        return tvm::Call{value.DataPointerType(), tvm::tirx::builtin::address_of(), {tvm::tirx::BufferLoad{value, {i64(0), i64(0)}}}};
+    };
+    auto call = [](const char *name, tvm::ffi::Array<tvm::Expr> arguments) {
+        return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::Op::Get(name), std::move(arguments)}};
+    };
+    auto bind = [&](const char *name, int64_t extent, const char *tag, tvm::tirx::Stmt body) {
+        auto index = tvm::tirx::PrimVar{name, tvm::PrimType::Int(64)};
+        auto axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(i64(0), i64(extent)), index, tvm::tirx::IterVarType::kThreadIndex, tag};
+        return tvm::tirx::For{index, i64(0), i64(extent), tvm::tirx::ForKind::kThreadBinding, std::move(body), axis};
+    };
+    constexpr auto actual_k = int64_t{7}, nominal_k = int64_t{8};
+    for (auto cfg : cases) {
+        auto elements = static_cast<size_t>(cfg.nominal_m * cfg.nominal_n);
+        auto storage_m = std::max(cfg.actual_m, int64_t{1}), storage_n = std::max(cfg.actual_n, int64_t{1});
+        auto a_rows = cfg.transpose_a ? actual_k : storage_m;
+        auto a_columns = cfg.transpose_a ? storage_m : actual_k;
+        auto b_rows = cfg.transpose_b ? storage_n : actual_k;
+        auto b_columns = cfg.transpose_b ? actual_k : storage_n;
+        auto kernel = gemm(runtime, {cfg.nominal_m, cfg.nominal_n, nominal_k, cfg.nominal_m, cfg.nominal_n, nominal_k}, 1u);
+        for (auto overwrite : {false, true}) {
+            auto context = luisa::format("input={} nominal={}x{} actual={}x{} K={}/{} transposeA/B={}/{} mode={}",
+                                         input_name, cfg.nominal_m, cfg.nominal_n, cfg.actual_m, cfg.actual_n, actual_k, nominal_k,
+                                         cfg.transpose_a, cfg.transpose_b, overwrite ? "multiply" : "multiply_accumulate");
+            auto a = buffer(a_rows, a_columns, input_type, "narrow_bounded_a");
+            auto b = buffer(b_rows, b_columns, input_type, "narrow_bounded_b");
+            auto c = buffer(cfg.nominal_m, cfg.nominal_n, tvm::PrimType::Float(32), "initial");
+            auto d = buffer(cfg.nominal_m, cfg.nominal_n, tvm::PrimType::Float(32), "result");
+            auto cf = buffer(1, static_cast<int64_t>(elements), tvm::PrimType::Float(32), "initial_fragment", "metal.cooperative_tensor");
+            auto df = buffer(1, static_cast<int64_t>(elements), tvm::PrimType::Float(32), "result_fragment", "metal.cooperative_tensor");
+            tvm::ffi::Array<tvm::tirx::Stmt> statements;
+            if (!overwrite) {
+                statements.push_back(tvm::tirx::AllocBuffer{cf});
+                statements.push_back(call("tirx.cooperative_tensor_load", {cf, i64(0), address(c), i64(cfg.nominal_n),
+                                                                           i64(cfg.nominal_m), i64(cfg.nominal_n), tvm::IntImm::Bool(false),
+                                                                           i64(cfg.nominal_m), i64(cfg.nominal_n), i64(nominal_k), i64(2)}));
+            }
+            statements.push_back(tvm::tirx::AllocBuffer{df});
+            tvm::ffi::Array<tvm::Expr> args{df, i64(0), address(a), i64(a_columns), address(b), i64(b_columns)};
+            if (!overwrite) {
+                args.push_back(cf);
+                args.push_back(i64(0));
+            }
+            for (auto value : {cfg.nominal_m, cfg.nominal_n, nominal_k}) { args.push_back(i64(value)); }
+            args.push_back(tvm::IntImm::Bool(cfg.transpose_a));
+            args.push_back(tvm::IntImm::Bool(cfg.transpose_b));
+            for (auto value : {cfg.actual_m, cfg.actual_n, actual_k}) { args.push_back(i64(value)); }
+            statements.push_back(call(overwrite ? "tirx.cooperative_tensor_multiply_from_memory" :
+                                                  "tirx.cooperative_tensor_multiply_accumulate_from_memory",
+                                      std::move(args)));
+            statements.push_back(call("tirx.cooperative_tensor_store", {df, i64(0), address(d), i64(cfg.nominal_n),
+                                                                        i64(cfg.nominal_m), i64(cfg.nominal_n), tvm::IntImm::Bool(false),
+                                                                        i64(cfg.nominal_m), i64(cfg.nominal_n), i64(nominal_k), i64(2)}));
+            auto function = tvm::tirx::PrimFunc{{a, b, c, d}, bind("program", 1, "blockIdx.x", bind("worker", 32, "threadIdx.x", tvm::tirx::SeqStmt::Flatten(statements)))};
+            auto executable = compile_native(runtime, kernel, std::move(function));
+            expect(executable.ok()) << context << ": " << executable.error;
+            if (!executable.ok()) { continue; }
+            auto source = metal_source(executable.module.value());
+            auto code = luisa::string_view{source.data(), source.size()};
+            // Both-empty has no present operand to read/classify. Its source
+            // may omit this dead path; only the full-output oracle is required.
+            // Marker checks below describe emitted code, not functional proof.
+            auto exactly_one_empty = (cfg.actual_m == 0) != (cfg.actual_n == 0);
+            if (exactly_one_empty) {
+                expect(code.find("as_type<ushort>(") != luisa::string_view::npos) << context << ": narrow raw-bit codegen marker missing\n"
+                                                                                  << code;
+                expect(code.find(std::is_same_v<Input, half> ? "0x7c00u" : "0x7f80u") != luisa::string_view::npos) << context << ": typed exponent-mask marker missing\n"
+                                                                                                                   << code;
+            }
+            auto source_logged = false;
+            auto both_empty = cfg.actual_m == 0 && cfg.actual_n == 0;
+            auto payload_count = both_empty ? uint32_t{1} : uint32_t{6};
+            for (auto payload = uint32_t{0}; payload < payload_count; payload++) {
+                // Poison each missing operand. Finite expected outputs prove
+                // the classifier did not inspect its physically present data.
+                auto nan = static_cast<Input>(std::numeric_limits<float>::quiet_NaN());
+                vector<Input> left_values(static_cast<size_t>(a_rows * a_columns), nan);
+                vector<Input> right_values(static_cast<size_t>(b_rows * b_columns), nan);
+                auto negative = payload == 1u || payload == 2u || payload == 3u;
+                auto finite = static_cast<Input>(payload == 2u ? -0.0f : negative ? -1.0f :
+                                                                                    1.0f);
+                auto &present = cfg.actual_m == 0 ? right_values : left_values;
+                if (cfg.actual_m != 0 || cfg.actual_n != 0) { std::fill(present.begin(), present.end(), finite); }
+                auto outer = std::min(int64_t{33}, (cfg.actual_m == 0 ? cfg.actual_n : cfg.actual_m) - 1);
+                auto payload_name = both_empty ? "both_missing_nan_poison" : payload_names[payload];
+                auto selected_outer = !both_empty && payload >= 3u ? outer : int64_t{-1};
+                auto selected_k = selected_outer >= 0 ? actual_k - 1 : int64_t{-1};
+                if (outer >= 0 && payload >= 3u) {
+                    auto index = cfg.actual_m == 0 ?
+                                     (cfg.transpose_b ? outer * actual_k + actual_k - 1 : (actual_k - 1) * storage_n + outer) :
+                                     (cfg.transpose_a ? (actual_k - 1) * storage_m + outer : outer * actual_k + actual_k - 1);
+                    present[static_cast<size_t>(index)] = static_cast<Input>(payload == 3u ? 1.0f :
+                                                                             payload == 4u ? -std::numeric_limits<float>::infinity() :
+                                                                                             std::numeric_limits<float>::quiet_NaN());
+                }
+                vector<float> initial(elements, -0.0f);
+                initial[1] = -std::numeric_limits<float>::infinity();
+                initial[2] = std::numeric_limits<float>::quiet_NaN();
+                initial[3] = 0.375f;
+                auto left = runtime.upload<Input>({a_rows, a_columns}, left_values);
+                auto right = runtime.upload<Input>({b_rows, b_columns}, right_values);
+                auto input_c = runtime.upload<float>({cfg.nominal_m, cfg.nominal_n}, initial);
+                auto output = runtime.upload<float>({cfg.nominal_m, cfg.nominal_n}, vector<float>(elements, 12345.0f));
+                try {
+                    (*executable.entry)(left, right, input_c, output);
+                } catch (const tvm::ffi::Error &error) {
+                    expect(false) << context << " payload=" << payload_name << " selected_outer=" << selected_outer << " selected_k=" << selected_k << ": " << error.FullMessage();
+                    if (!source_logged) {
+                        LUISA_WARNING("narrow empty contract source: {}\n{}", context, code);
+                        source_logged = true;
+                    }
+                    continue;
+                }
+                auto actual = runtime.download<float>(output, elements);
+                auto valid = true;
+                for (auto row = int64_t{0}; row < cfg.nominal_m; row++) {
+                    for (auto column = int64_t{0}; column < cfg.nominal_n; column++) {
+                        auto expected = overwrite ? 0.0 : static_cast<double>(initial[row * cfg.nominal_n + column]);
+                        for (auto depth = int64_t{0}; depth < actual_k; depth++) {
+                            auto av = row < cfg.actual_m ? static_cast<float>(left_values[cfg.transpose_a ? depth * storage_m + row : row * actual_k + depth]) : 0.0f;
+                            auto bv = column < cfg.actual_n ? static_cast<float>(right_values[cfg.transpose_b ? column * actual_k + depth : depth * storage_n + column]) : 0.0f;
+                            expected += static_cast<double>(av) * static_cast<double>(bv);
+                        }
+                        auto observed = actual[row * cfg.nominal_n + column];
+                        auto matches = std::isnan(expected) ? std::isnan(observed) :
+                                       std::isinf(expected) ? std::isinf(observed) && std::signbit(observed) == std::signbit(expected) :
+                                                              static_cast<double>(observed) == expected && (expected != 0.0 || std::signbit(observed) == std::signbit(expected));
+                        if (!matches && valid) {
+                            LUISA_WARNING("narrow empty contract mismatch: {} payload={} selected_outer={} selected_k={} first=({}, {}) actual={} expected={} actual_sign={} expected_sign={}",
+                                          context, payload_name, selected_outer, selected_k, row, column, observed, expected, std::signbit(observed), std::signbit(expected));
+                            if (!source_logged) {
+                                LUISA_WARNING("narrow empty contract source: {}\n{}", context, code);
+                                source_logged = true;
+                            }
+                        }
+                        valid &= matches;
+                    }
+                }
+                expect(valid) << context << " payload=" << payload_name << " selected_outer=" << selected_outer << " selected_k=" << selected_k;
+            }
+        }
     }
 }
 
@@ -2808,6 +3074,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_exact_threads_use_actual_target_limit"_test = [&] { test_explicit_threads_use_target_capacity(runtime); };
     "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"_test = [&] { test_mpp_memory_realization(runtime); };
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
+    "tile_matrix_mpp_narrow_inputs_fp32_accumulation_and_storage"_test = [&] { test_mpp_narrow_inputs(runtime); };
     "tile_matrix_mpp_element_contract_and_rejections"_test = [&] { test_mpp_element_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_output_only_fragment_budget"_test = [&] { test_mpp_output_only_fragment_budget(runtime); };
@@ -2815,6 +3082,10 @@ int main(int argc, char *argv[]) {
     "tile_matrix_program_traversal"_test = [&] { test_matrix_program_traversal(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
+    "tile_matrix_mpp_narrow_empty_mn_special_values"_test = [&] {
+        test_mpp_narrow_empty_contract<half>(runtime);
+        test_mpp_narrow_empty_contract<bf16>(runtime);
+    };
     "tile_matrix_mpp_bounded_store_contract"_test = [&] { test_mpp_bounded_store_contract(runtime); };
     "tile_matrix_mpp_bounded_mn_views"_test = [&] { test_mpp_bounded_mn_views(runtime); };
     "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"_test = [&] { test_mpp_subgroup_isolation(runtime); };

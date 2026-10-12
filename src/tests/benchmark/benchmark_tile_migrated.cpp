@@ -1,6 +1,7 @@
 #include "tile_migrated_test_utils.h"
 #include "tile_native_test_utils.h"
 #include "metal_benchmark.h"
+#include "metal4_benchmark.h"
 #include <luisa/core/logging.h>
 #include <luisa/ast/ast2json.h>
 #include <luisa/tile/runtime.h>
@@ -24,9 +25,9 @@ namespace migrated = luisa::test::tile_migrated;
 
 template<typename T>
 int run(int argc, char *argv[]) {
-    LUISA_ASSERT(argc == 13 || argc == 16, "Usage: benchmark_tile_migrated <simd|metal|metal-native|metal-tirx-mpp|metal-tirx-reference> <operation> M N K block-M block-N block-K samples sample-ms warmup-ms output-prefix [legacy.ast.json dispatch-X dispatch-Y]");
+    LUISA_ASSERT(argc == 13 || argc == 16, "Usage: benchmark_tile_migrated <simd|metal4|metal|metal-native|metal-tirx-mpp|metal-tirx-reference> <operation> M N K block-M block-N block-K samples sample-ms warmup-ms output-prefix [legacy.ast.json dispatch-X dispatch-Y]");
     auto route = string_view{argv[1]};
-    auto backend = route.starts_with("metal") ? string_view{"metal"} : route;
+    auto backend = route == "metal4" ? route : route.starts_with("metal") ? string_view{"metal"} : route;
     auto direct_gemm = string_view{argv[2]} == "gemm_direct";
     auto operation = migrated::parse(std::same_as<T, float> && !direct_gemm ? argv[2] : "gemm");
     constexpr auto precision = std::same_as<T, float> ? "fp32" : std::same_as<T, half> ? "fp16" :
@@ -37,7 +38,7 @@ int run(int argc, char *argv[]) {
                                                                                                     ".input1.bf16";
     constexpr auto output_suffix = std::same_as<T, float> ? ".output.f32" : std::same_as<T, half> ? ".output.f16" :
                                                                                                     ".output.bf16";
-    LUISA_ASSERT((route == "simd" || route == "metal" || route == "metal-native" || route == "metal-tirx-mpp" || route == "metal-tirx-reference") && operation, "unknown lowering route or operation: {} / {}", route, argv[2]);
+    LUISA_ASSERT((route == "simd" || route == "metal4" || route == "metal" || route == "metal-native" || route == "metal-tirx-mpp" || route == "metal-tirx-reference") && operation, "unknown lowering route or operation: {} / {}", route, argv[2]);
     LUISA_ASSERT(argc != 16 || route == "simd" || route == "metal", "legacy AST replay has no TileIR lowering options");
     auto integer = [](string_view text) {
         int64_t value{};
@@ -49,7 +50,7 @@ int run(int argc, char *argv[]) {
     auto block = example::tile::Block{integer(argv[6]), integer(argv[7]), integer(argv[8])};
     auto samples = integer(argv[9]), sample_ms = integer(argv[10]), warmup_ms = integer(argv[11]);
     LUISA_ASSERT(rows <= 16384 && columns <= 16384 && depth <= 16384 &&
-                     rows * columns <= (1ll << 24) && rows * depth <= (1ll << 24) && depth * columns <= (1ll << 24) &&
+                     rows * columns <= (1ll << 26) && rows * depth <= (1ll << 26) && depth * columns <= (1ll << 26) &&
                      block.m <= 128 && block.n <= 128 && block.k <= 256 && samples <= 101 && sample_ms <= 10000 && warmup_ms <= 60000 &&
                      (*operation == migrated::Operation::GEMM || depth == 1),
                  "invalid shape, block or timing limits");
@@ -102,8 +103,16 @@ int run(int argc, char *argv[]) {
     tile::bridge::xir::PlannerOptions xir_options;
     if (auto value = std::getenv("LUISA_TILE_BENCH_XIR_MAX_UNROLLED")) {
         auto limit = integer(value);
-        LUISA_ASSERT(backend == "simd" && argc != 16 && limit <= UINT32_MAX, "unroll constraint requires the modern SIMD route");
+        LUISA_ASSERT((backend == "simd" || backend == "metal4") && argc != 16 && limit <= UINT32_MAX, "unroll constraint requires the modern SIMD or Metal4 route");
         xir_options.max_unrolled_tile_elements = static_cast<uint32_t>(limit);
+        options.xir = &xir_options;
+    }
+    if (auto value = std::getenv("LUISA_TILE_BENCH_XIR_LOCAL_LANES")) {
+        auto text = string_view{value};
+        auto parsed = std::from_chars(text.data(), text.data() + text.size(), xir_options.local_lanes);
+        LUISA_ASSERT((backend == "simd" || backend == "metal4") && argc != 16 &&
+                         parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size(),
+                     "local lane constraint requires an unsigned integer and the modern SIMD or Metal4 route");
         options.xir = &xir_options;
     }
     options.lowering = backend == "metal" && route != "metal-native" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
@@ -221,6 +230,8 @@ int run(int argc, char *argv[]) {
     for (auto i = 0; i < samples; i++) { latency.emplace_back(1000.0 * batch(1u)); }
     test::MetalBenchmarkTiming timing{backend == "metal"};
     timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(samples));
+    test::Metal4BenchmarkTiming metal4_timing{device, stream, backend == "metal4"};
+    metal4_timing.measure(submit, repetitions, static_cast<uint32_t>(samples));
     check();
     write(output_suffix, span{output}.subspan(migrated::padding, fixture.expected.size()));
     auto print_array = [](const auto &values) {
@@ -235,6 +246,7 @@ int run(int argc, char *argv[]) {
     std::cout << std::setprecision(12)
               << "{\"suite\":\"legacy_tile_port\",\"implementation\":" << std::quoted(legacy ? (backend == "metal" ? "legacy_tile_ast_current_metal" : "legacy_tile_ast_current_simd") : route == "metal-native" ? "tile_native_mpp_metal" :
                                                                                                                                                                                      backend == "metal"          ? "tile_tirx_metal" :
+                                                                                                                                                                                     backend == "metal4"         ? "tile_xir_metal4" :
                                                                                                                                                                                                                    "tile_xir_simd")
               << ",\"requested_lowering_route\":" << std::quoted(route)
               << ",\"source_schedule\":" << std::quoted(direct_gemm ? "full_k_direct_mma" : *operation == migrated::Operation::GEMM ? "k_tile_pipeline" :
@@ -244,6 +256,7 @@ int run(int argc, char *argv[]) {
               << ",\"dimensions\":[" << rows << ',' << columns << ',' << depth << ']'
               << ",\"dispatch\":[" << shader.metadata().dispatch_size.x << ',' << shader.metadata().dispatch_size.y << ',' << shader.metadata().dispatch_size.z << ']'
               << ",\"requested_max_unrolled_tile_elements\":" << (options.xir == nullptr ? 0u : xir_options.max_unrolled_tile_elements)
+              << ",\"requested_local_lanes\":" << xir_options.local_lanes
               << ",\"block\":[" << block.m << ',' << block.n << ',' << block.k << ']'
               << ",\"block_applies_to\":" << std::quoted(legacy ? "unused_modern_fixture" : "modern_kernel")
               << ",\"source_reduction_policy\":" << std::quoted(legacy ? "legacy_lowering_order" : "unordered_tree")
@@ -260,6 +273,7 @@ int run(int argc, char *argv[]) {
     std::cout << ",\"latency_us\":";
     print_array(latency);
     timing.print();
+    metal4_timing.print();
     std::cout << "}\n";
     return 0;
 }

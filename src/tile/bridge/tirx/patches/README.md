@@ -402,6 +402,34 @@ the existing independent-element proxy; this does not claim calibrated
 instruction counts or actual register pressure. No new coefficient or
 operator/shape table is fitted. Missing capability preserves the old path.
 
+### Optional narrow memory-input extension
+
+`metal-mpp-narrow-input-v1.patch` adds the separate capability
+`target.metal.mpp_narrow_input_contract_version() == 1`. It was tested against
+TVM commit `46bc8c6a38e41b55fbc41f796e77773cb7b4f887` after the preceding MPP
+extensions and typed-pointer BF16 legalization fixes were ported to that
+revision. Its `src/backend/metal/codegen` paths target that newer TVM layout;
+it is not an unqualified patch for the original pinned revision above.
+
+Matching FP16/FP16 or BF16/BF16 A/B memory inputs retain their true typed
+tensor views, while destination cooperative fragments and accumulation remain
+FP32. Mixed A/B types, arbitrary UInt16 pointers, and narrow destination
+fragment transfers fail closed. Existing shape, stride, distribution, bounds,
+and recurrence proofs still apply; the extension does not enable ordered
+reference expansions to use MPP.
+
+BF16 storage legalization keeps its UInt16 host/device buffer ABI. Only the
+memory operands of the two cooperative matrix intrinsics that were originally
+typed BF16 acquire an explicit BF16 pointer projection after legalization.
+The empty bounded-M/N case classifies FP16/BF16 raw bits for infinity, NaN,
+and signed zero, preserving the existing FP32 destination semantics without
+reading a missing operand or treating arbitrary UInt16 memory as BF16.
+
+Build the patched TVM compiler before rebuilding Luisa. The bridge checks the
+new capability before requesting narrow MPP, and an older compiler rejects
+that explicit request. Actual MPP source emission and full output validation
+remain required before a narrow-input benchmark qualifies as an MPP result.
+
 ### Commands
 
 Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`

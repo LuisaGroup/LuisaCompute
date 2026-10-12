@@ -64,6 +64,10 @@ template<typename T>
 [[nodiscard]] constexpr DLDataType dl_data_type() noexcept {
     if constexpr (std::is_same_v<T, float>) {
         return DLDataType{kDLFloat, 32, 1};
+    } else if constexpr (std::is_same_v<T, luisa::half>) {
+        return DLDataType{kDLFloat, 16, 1};
+    } else if constexpr (std::is_same_v<T, compute::tile::bf16>) {
+        return DLDataType{kDLBfloat, 16, 1};
     } else if constexpr (std::is_same_v<T, int32_t>) {
         return DLDataType{kDLInt, 32, 1};
     } else if constexpr (std::is_same_v<T, int64_t>) {

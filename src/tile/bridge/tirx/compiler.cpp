@@ -619,6 +619,23 @@ public:
         if (!capability || (*capability)().cast<int64_t>() != 2) {
             return diagnostic.reject("This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch", module);
         }
+        auto narrow_inputs = false;
+        for (auto &&[global, base_function] : module->functions) {
+            if (auto function = base_function.as<tvm::tirx::PrimFunc>()) {
+                tvm::tirx::PostOrderVisit(function.value()->body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
+                        narrow_inputs |= load->buffer->dtype == tvm::PrimType::Float(16) ||
+                                         load->buffer->dtype == tvm::PrimType::BFloat(16);
+                    }
+                });
+            }
+        }
+        if (narrow_inputs) {
+            auto narrow_capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_narrow_input_contract_version");
+            if (!narrow_capability || (*narrow_capability)().cast<int64_t>() != 1) {
+                return diagnostic.reject("This TVM build lacks Metal MPP narrow input contract v1; apply the documented FP16/BF16 input patch", module);
+            }
+        }
     }
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
@@ -666,7 +683,7 @@ public:
                 // have a verified memory-atom realization. An extra mask,
                 // nonzero fill or unsupported padded view keeps the old snapshots,
                 // rather than silently turning an MPP request into scalar work.
-                auto trial = forward_readonly_tile_loads(mapped, options.noalias, true);
+                auto trial = forward_readonly_tile_loads(mapped, options.noalias, true, false, true);
                 Diagnostic trial_diagnostic;
                 auto body = schedule_pipelines(std::move(trial.body), options.noalias, shared_memory_limit, trial_diagnostic, false);
                 auto matrices = size_t{0u};
@@ -701,7 +718,7 @@ public:
         // load expression. MPP memory atoms are the stricter exception: their
         // address contract requires a fully in-bounds view before mapping.
         auto preserve_view_guards = !options.metal_mpp;
-        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs, cuda_subgroup_reductions) : ReadonlyViews{mapped->body, {}};
+        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs, cuda_subgroup_reductions || options.metal_mpp) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
         // Preserve the existing snapshot/view choice before removing pure
         // coordinate state. Do not re-run readonly forwarding after this pass.

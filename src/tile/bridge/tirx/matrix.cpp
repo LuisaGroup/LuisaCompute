@@ -164,6 +164,10 @@ struct MatrixView {
     tvm::PrimExpr outer_length;
 };
 
+[[nodiscard]] bool narrow_matrix_input(tvm::PrimType type) noexcept {
+    return type == tvm::PrimType::Float(16) || type == tvm::PrimType::BFloat(16);
+}
+
 // TIRx simplification need not canonicalize the order/association of Boolean
 // conjunctions. A memory-axis permutation must not change their meaning.
 // Match every nontrivial clause in both directions; this is a sufficient
@@ -200,8 +204,9 @@ struct MatrixView {
 [[nodiscard]] luisa::optional<MatrixView> matrix_projection(
     tvm::tirx::BufferVar buffer, const tvm::ffi::Array<tvm::PrimExpr> &indices, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
-    tvm::tirx::BufferVar source) {
-    if (!buffer.defined() || buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
+    tvm::tirx::BufferVar source, bool allow_narrow_input = false) {
+    if (!buffer.defined() || (buffer->dtype != tvm::PrimType::Float(32) &&
+                              !(allow_narrow_input && narrow_matrix_input(buffer->dtype)))) { return {}; }
     auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
     if (!buffer->strides.empty() || buffer->layout ||
         !buffer->allocated_addr.empty() || offset == nullptr || offset->value != 0 ||
@@ -235,14 +240,17 @@ struct MatrixView {
 [[nodiscard]] luisa::optional<MatrixView> matrix_view(
     const tvm::tirx::BufferLoadNode *load, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
-    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer, bool writable = false) {
-    if (load == nullptr || load->predicate || load->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
+    const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer, bool writable = false,
+    bool allow_narrow_input = false) {
+    if (load == nullptr || load->predicate || (load->buffer->dtype != tvm::PrimType::Float(32) &&
+                                              !(allow_narrow_input && !writable && narrow_matrix_input(load->buffer->dtype)))) { return {}; }
     auto buffer = map_buffer(load->buffer);
     // The caller authorizes compiler-owned shared allocations and explicitly
     // proved immutable noalias inputs. A global scope label alone is never
     // authority. Writable accumulators still require owned shared storage.
-    if (!buffer.defined() || (buffer.scope() != "shared" && (writable || buffer.scope() != "global"))) { return {}; }
-    return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer);
+    if (!buffer.defined() || buffer->dtype != load->buffer->dtype ||
+        (buffer.scope() != "shared" && (writable || buffer.scope() != "global"))) { return {}; }
+    return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer, allow_narrow_input);
 }
 
 [[nodiscard]] luisa::optional<MatrixView> matrix_input(
@@ -250,10 +258,23 @@ struct MatrixView {
     uint64_t rows, uint64_t columns,
     const luisa::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> domain) {
-    if (auto direct = matrix_view(value.as<tvm::tirx::BufferLoadNode>(), axes, row_axis, column_axis, rows, columns, map_buffer)) { return direct; }
-    auto conditional = value.as<tvm::CallNode>();
+    auto input = value;
+    // MMA widens its operands to the FP32 accumulator type. Only an exact
+    // FP16/BF16-to-FP32 conversion can be absorbed by the typed MPP input.
+    // SIMD-group lowering and every other cast keep their reference form.
+    if (auto cast = input.as<tvm::tirx::CastNode>()) {
+        if (!bounded_k || cast->ty != tvm::PrimType::Float(32) || !narrow_matrix_input(cast->value.ty())) { return {}; }
+        input = cast->value;
+    } else if (input.ty() != tvm::PrimType::Float(32)) {
+        return {};
+    }
+    auto allow_narrow_input = bounded_k && narrow_matrix_input(input.ty());
+    if (auto direct = matrix_view(input.as<tvm::tirx::BufferLoadNode>(), axes, row_axis, column_axis, rows, columns, map_buffer, false, allow_narrow_input)) { return direct; }
+    auto conditional = input.as<tvm::CallNode>();
+    auto zero = conditional != nullptr && conditional->args.size() == 3u ? conditional->args[2].as<tvm::FloatImmNode>() : nullptr;
     if (!bounded_k || conditional == nullptr || !conditional->op.same_as(tvm::tirx::builtin::if_then_else()) ||
-        conditional->args.size() != 3u || !tirx_matrix_detail::is_positive_zero(conditional->args[2].as_or_throw<tvm::PrimExpr>())) { return {}; }
+        conditional->args.size() != 3u || zero == nullptr || zero->value != 0.0 || std::signbit(zero->value) ||
+        conditional->args[2].as_or_throw<tvm::PrimExpr>().ty() != input.ty()) { return {}; }
     auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version");
     if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
     auto mn_capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version");
@@ -263,7 +284,8 @@ struct MatrixView {
     auto buffer = map_buffer(load->buffer);
     // Bounded memory inputs must be explicitly authorized immutable globals;
     // this is not permission to omit padding of shared/manual storage.
-    if (!buffer.defined() || buffer.scope() != "global") { return {}; }
+    if (!buffer.defined() || buffer.scope() != "global" || buffer->dtype != input.ty() ||
+        buffer->dtype != load->buffer->dtype) { return {}; }
     tvm::PrimExpr bounds = tvm::IntImm::Bool(true);
     tvm::PrimExpr length;
     tvm::PrimExpr outer_length;
@@ -303,7 +325,7 @@ struct MatrixView {
     // one and both logical strides happen to be equal.
     auto result = matrix_projection(buffer, load->indices, axes, row_axis, column_axis,
                                     row_axis == 2u || outer_length.defined() ? 1u : rows,
-                                    column_axis == 2u || outer_length.defined() ? 1u : columns, load->buffer);
+                                    column_axis == 2u || outer_length.defined() ? 1u : columns, load->buffer, allow_narrow_input);
     if (result) {
         result->reduction_length = std::move(length);
         result->outer_length = std::move(outer_length);
@@ -558,7 +580,8 @@ struct MatchedMatrix {
     auto a = matrix_input(product->a, axes, 0u, 2u, m, k, map_buffer, bounded_k, domain);
     auto b = matrix_input(product->b, axes, 2u, 1u, k, n, map_buffer, bounded_k, domain);
     auto d = matrix_view(accumulator, axes, 0u, 1u, m, n, map_buffer, true);
-    if (!a || !b || !d || d->buffer.same_as(a->buffer) || d->buffer.same_as(b->buffer)) { return {}; }
+    if (!a || !b || !d || a->buffer->dtype != b->buffer->dtype ||
+        d->buffer.same_as(a->buffer) || d->buffer.same_as(b->buffer)) { return {}; }
     tvm::PrimExpr reduction_length;
     if (a->reduction_length.defined() || b->reduction_length.defined()) {
         auto ak = a->reduction_length.defined() ? a->reduction_length : tvm::IntImm::Int64(k);
