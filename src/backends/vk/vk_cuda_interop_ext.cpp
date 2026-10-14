@@ -1109,22 +1109,32 @@ void cuda_launch_kernel(Device *device, VkCommandBuffer cmdbuffer,
     LUISA_ASSERT(cmd->shared_mem_bytes() == 0u,
                  "Imported DSL kernels use static __shared__ memory; dynamic "
                  "shared memory is not supported for CUDA kernel launch.");
-    // Pack the DSL kernel ABI: a single by-value Params blob in which every
-    // argument occupies a 16-byte-aligned slot (buffers as LCBuffer
-    // {ptr, size_bytes} bindings, uniforms as raw values), followed by the
-    // ls_kid trailer {dispatch_size.xyz, kernel_id = 0}. This mirrors
-    // CUDAShaderNative::_launch's allocate_argument() layout exactly.
-    auto args = cmd->arguments();
-    vstd::vector<std::byte> params_blob;
-    auto params_blob_offset = static_cast<size_t>(0u);
-    auto allocate_argument = [&params_blob, &params_blob_offset](size_t bytes) noexcept {
-        static constexpr auto cuda_shader_param_alignment = 16u;
-        auto offset = (params_blob_offset + cuda_shader_param_alignment - 1u) /
-                      cuda_shader_param_alignment * cuda_shader_param_alignment;
-        params_blob.resize(offset + bytes);
-        params_blob_offset = offset + bytes;
-        return params_blob.data() + offset;
-    };
+      // Pack the DSL kernel ABI: a single by-value Params blob in which every
+      // argument occupies a 16-byte-aligned slot (buffers as LCBuffer
+      // {ptr, size_bytes} bindings, uniforms as raw values), followed by the
+      // ls_kid uint4 trailer {dispatch_size.xyz, kernel_id = 0}. This mirrors
+      // CUDAShaderNative::_launch's allocate_argument() layout exactly.
+      auto args = cmd->arguments();
+      vstd::vector<std::byte> params_blob;
+      // The command cached this size when it was built (the same
+      // "align the running end, then append" recurrence the packing below
+  // applies), so the scratch buffer is allocated exactly once instead of
+  // re-growing for every argument. resize() only grows, and allocate_argument
+      // keeps its own resize, so an underestimated or saturated cache degrades
+      // to the previous behavior rather than corrupting the blob; the produced
+      // bytes (including the zero-filled 16-byte slot padding) are unchanged.
+      params_blob.resize(cmd->params_bytes());
+      auto params_blob_offset = static_cast<size_t>(0u);
+      auto allocate_argument = [&params_blob, &params_blob_offset](size_t bytes) noexcept {
+          static constexpr auto cuda_shader_param_alignment = 16u;
+          auto offset = (params_blob_offset + cuda_shader_param_alignment - 1u) /
+                        cuda_shader_param_alignment * cuda_shader_param_alignment;
+          if (offset + bytes > params_blob.size()) [[unlikely]] {
+              params_blob.resize(offset + bytes);// cache miss: grow as before
+          }
+          params_blob_offset = offset + bytes;
+          return params_blob.data() + offset;
+      };
     for (auto &&arg : args) {
         switch (arg.tag) {
             case Argument::Tag::UNIFORM: {
@@ -1147,10 +1157,16 @@ void cuda_launch_kernel(Device *device, VkCommandBuffer cmdbuffer,
                     luisa::to_underlying(arg.tag));
         }
     }
-    // ls_kid trailer: exact dispatch size and kernel id (0).
-    auto dispatch_size = cmd->dispatch_size();
-    auto ls_kid = uint4{dispatch_size.x, dispatch_size.y, dispatch_size.z, 0u};
-    std::memcpy(allocate_argument(sizeof(uint4)), &ls_kid, sizeof(uint4));
+      // ls_kid trailer: exact dispatch size and kernel id (0).
+      auto dispatch_size = cmd->dispatch_size();
+      auto ls_kid = uint4{dispatch_size.x, dispatch_size.y, dispatch_size.z, 0u};
+      std::memcpy(allocate_argument(sizeof(uint4)), &ls_kid, sizeof(uint4));
+      // The command's cached size must be exact for any accepted argument list
+      // (uniform size / 16-byte buffer binding, plus the trailer): a mismatch
+      // here means the packing rule and the cache diverged.
+      LUISA_DEBUG_ASSERT(params_blob.size() == cmd->params_bytes(),
+                         "CUDA kernel launch Params blob size {} != cached {}.",
+                         params_blob.size(), cmd->params_bytes());
     // The kernel takes the Params struct by value: a single parameter.
     const void *kernel_params[] = {params_blob.data()};
     VkCudaLaunchInfoNV launch_info{

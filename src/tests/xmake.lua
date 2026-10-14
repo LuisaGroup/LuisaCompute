@@ -84,6 +84,7 @@ test_proj("test_command_reorder_ranges", "unit/ext/test_command_reorder_ranges.c
     add_includedirs("../backends/common")
 end)
 test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
+test_proj("test_vk_cuda_command_owns_blob", "unit/ext/test_vk_cuda_command_owns_blob.cpp")
 if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
     test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
 end

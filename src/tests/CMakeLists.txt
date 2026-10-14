@@ -460,6 +460,7 @@ luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reo
 # Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
 luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
+luisa_compute_add_test(test_vk_cuda_command_owns_blob unit/ext/test_vk_cuda_command_owns_blob.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
 # Kernels are compiled from the DSL on a paired cuda device and imported into
 # the VK extension, so the cuda backend is required.

@@ -1,7 +1,11 @@
 #pragma once
 #include <array>
+#include <cstring>
+#include <limits>
+#include <new>
 #include <utility>
 #include <luisa/core/concepts.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/byte_buffer.h>
@@ -43,7 +47,64 @@ struct Wait {
 // encode time from the command's Argument array, so the command additionally
 // records the exact thread count (`_dispatch_size`, used for `ls_kid`) next
 // to the grid/block geometry.
+//
+// The command owns its blob: KernelLauncher::build() creates
+// the command and its argument blob in ONE allocation: the launcher stages the
+// blob in a block that already reserves room for the command object at its
+// front, and build() placement-news the command there. Nothing is copied on
+// the fast path (a launcher that called reserve() with the exact launch shape):
+//
+//      0                     object_slot_bytes()                              block end
+//   +---------------------+----------------------+----------------+-------+--------------+
+//   | command object slot | Argument records     | uniform payload| slack | usage tail   |
+//   | (sizeof + padding)  | (count * 32 bytes)   | (used bytes)   | (opt.)| (usages*4 B) |
+//   +---------------------+----------------------+----------------+-------+--------------+
+//   \______________ one allocator block (_alloc_block: eastl default allocator / ::operator new by build), 16-aligned ___/
+//   ^ this == block base (the Command subobject is at offset 0; asserted)
+//
+// The on-wire region is [Argument records][uniform payload] -- byte-identical
+// to what an externally-owned command's argument buffer holds, at the same offsets (see
+// argument_blob() and the packing self-check); the usage records live in a
+// tail beyond that region and are only addressed through argument_usages().
+//
+// Storage & accessors -- CONTRACT: the argument blob never lives in the base
+// class' luisa::vector (ShaderDispatchCommandBase is always given an empty
+// buffer by this class), so arguments()/uniform() here are SHADOWING accessors
+// that read _blob_data/_blob_bytes. Read a CudaKernelLaunchCommand's arguments
+// through CudaKernelLaunchCommand, never through a ShaderDispatchCommandBase
+// reference: the base sees an empty buffer with a null data pointer, so such a
+// read faults instead of silently returning nothing (the vk encode path's
+// argument-count assert makes the same misuse loud). Every in-tree consumer
+// (lc::vk::cuda_launch_kernel, the barrier recorder and the command-reorder
+// pass) uses the derived accessors or traverse_arguments().
+//
+// Move semantics -- the blob is self-referential (it lives inside this object's
+// own allocation), so a member-wise move would leave the destination pointing
+// into the source's block. The move constructor therefore RELOCATES the used
+// trailing region into a heap buffer owned by the destination (one allocation
+// plus a memcpy) and leaves the source empty and safe. Commands travel into
+// command lists behind luisa::unique_ptr (CommandList::CommandContainer is a
+// vector of unique_ptr<Command>), so the object itself is never moved on the
+// production path; the relocation exists to keep the type MoveConstructible
+// and provably correct, and is covered by unit tests.
 class CudaKernelLaunchCommand final : public CustomDispatchCommand, public ShaderDispatchCommandBase {
+
+public:
+    // Alignment of the fused block and of the blob inside it. It is a multiple
+    // of alignof(Argument) (8) and matches what the luisa::detail::allocator_allocate
+    // aligned path guarantees (>=16 on MSVC/x64, GCC and Clang), so the blob
+    // is properly aligned without any over-aligned allocation. Uniform values
+    // keep their blob-relative alignment, exactly as in the plain single-blob
+    // layout (the DSL Params packing re-aligns to 16 at encode time).
+    static constexpr size_t fused_alignment = 16u;
+
+    // Bytes of the fused block occupied by the object itself; the blob starts
+    // here. (A member function body is a complete-class context, so sizeof of
+    // the enclosing type is legal -- a static data member initializer would not
+    // be.)
+    [[nodiscard]] static constexpr size_t object_slot_bytes() noexcept {
+        return (sizeof(CudaKernelLaunchCommand) + fused_alignment - 1u) & ~static_cast<size_t>(fused_alignment - 1u);
+    }
 
 private:
     uint3 _grid_dim;
@@ -51,16 +112,80 @@ private:
     uint32_t _shared_mem_bytes;
     // Exact number of threads to launch (<= grid * block), for ls_kid.
     uint3 _dispatch_size;
-    // One entry per non-uniform argument, in argument order.
+    size_t _argument_count;
+    // [Argument records][uniform payload]: the on-wire region. Points into this
+    // object's own allocation (build() path) or into _owned_blob (the
+    // externally-owned ctor and a relocated move).
+    std::byte *_blob_data;
+    size_t _blob_bytes;
+    // Per-resource usages, in argument order: points into the usage tail of the
+    // fused block, into _argument_usages, or into _owned_blob after a move.
+    const Usage *_usage_data;
+    size_t _usage_count;
+    // Trailing storage belonging to this allocation (0 for externally-owned
+    // storage). Only the move constructor reads it: it is what has to be copied
+    // out of the source's block.
+    size_t _trailing_bytes;
+    // Size of the DSL kernel ABI blob the vk backend packs at encode time (see
+    // params_bytes()); cached here so encoding resizes its scratch buffer once.
+    uint32_t _params_bytes;
+    // Externally-owned storage: the form where the argument buffer is handed
+    // to the public ctor and the destination of a relocated move. Empty on the fused
+    // fast path -- an empty luisa::vector performs no allocation.
+    luisa::vector<std::byte> _owned_blob;
     luisa::vector<Usage> _argument_usages;
+
+    // The command's own trailing region (blob + slack + usage tail), i.e. what
+    // belongs to this allocation rather than to a separate buffer.
+    [[nodiscard]] std::byte *_trailing_storage() noexcept {
+        return reinterpret_cast<std::byte *>(this) + object_slot_bytes();
+    }
+    [[nodiscard]] const std::byte *_trailing_storage() const noexcept {
+        return reinterpret_cast<const std::byte *>(this) + object_slot_bytes();
+    }
+
+    // The size of the by-value Params blob cuda_launch_kernel() packs for this
+    // command: every argument takes a 16-byte-aligned slot (a buffer is an
+    // LCBuffer {ptr, size_bytes} binding = 16 bytes, a uniform its raw size),
+    // followed by the uint4 `ls_kid` trailer. Mirrors allocate_argument()'s
+    // "align the running end, then append" recurrence exactly.
+    [[nodiscard]] static uint32_t _compute_params_bytes(luisa::span<const Argument> args) noexcept {
+        auto bytes = static_cast<size_t>(0u);
+        for (auto &&arg : args) {
+            auto arg_bytes = arg.tag == Argument::Tag::UNIFORM ? arg.uniform.size : static_cast<size_t>(2u * sizeof(uint64_t));
+            bytes = luisa::align(bytes, static_cast<size_t>(16u)) + arg_bytes;
+        }
+        bytes = luisa::align(bytes, static_cast<size_t>(16u)) + sizeof(uint4);
+        constexpr auto max_u32 = static_cast<size_t>(std::numeric_limits<uint32_t>::max());
+        // Saturates: the encode path re-checks the scratch buffer's size.
+        return bytes > max_u32 ? std::numeric_limits<uint32_t>::max() : static_cast<uint32_t>(bytes);
+    }
+
+    static void _assert_geometry(uint3 grid_dim, uint3 block_dim, uint3 dispatch_size) noexcept {
+        LUISA_ASSERT(grid_dim.x > 0u && grid_dim.y > 0u && grid_dim.z > 0u,
+                     "CUDA kernel launch grid dimension must be nonzero.");
+        LUISA_ASSERT(block_dim.x > 0u && block_dim.y > 0u && block_dim.z > 0u,
+                     "CUDA kernel launch block dimension must be nonzero.");
+        LUISA_ASSERT(dispatch_size.x > 0u && dispatch_size.y > 0u && dispatch_size.z > 0u,
+                     "CUDA kernel launch dispatch size must be nonzero.");
+        auto fits = [](uint32_t d, uint32_t g, uint32_t b) noexcept {
+            return static_cast<uint64_t>(d) <=
+                   static_cast<uint64_t>(g) * static_cast<uint64_t>(b);
+        };
+        LUISA_ASSERT(fits(dispatch_size.x, grid_dim.x, block_dim.x) &&
+                         fits(dispatch_size.y, grid_dim.y, block_dim.y) &&
+                         fits(dispatch_size.z, grid_dim.z, block_dim.z),
+                     "CUDA kernel launch dispatch size exceeds grid * block.");
+    }
 
     template<typename Self, typename Visitor>
     static void traverse(Self &&self, Visitor &visitor) noexcept {
+        auto usages = self.argument_usages();
         auto usage_index = 0u;
-        auto next_usage = [&self, &usage_index]() noexcept {
-            LUISA_ASSERT(usage_index < self._argument_usages.size(),
+        auto next_usage = [usages, &usage_index]() noexcept {
+            LUISA_ASSERT(usage_index < usages.size(),
                          "CUDA kernel launch command has fewer argument usages than resource arguments.");
-            return self._argument_usages[usage_index++];
+            return usages[usage_index++];
         };
         for (auto &&arg : self.arguments()) {
             switch (arg.tag) {
@@ -80,12 +205,16 @@ private:
                 default: break;
             }
         }
-        LUISA_ASSERT(usage_index == self._argument_usages.size(),
+        LUISA_ASSERT(usage_index == usages.size(),
                      "CUDA kernel launch command has {} argument usages for the resource arguments.",
-                     self._argument_usages.size());
+                     usages.size());
     }
 
 public:
+    // Epoch-6 (externally-owned) form, kept verbatim for source compatibility:
+    // the caller's argument buffer and usage list are stored by the command and
+    // the accessors read them from there. A hand-made command therefore still
+    // costs the caller's own allocations and nothing extra.
     CudaKernelLaunchCommand(uint64_t cuda_function_handle,
                             uint3 grid_dim, uint3 block_dim,
                             uint32_t shared_mem_bytes,
@@ -94,30 +223,102 @@ public:
                             size_t argument_count,
                             luisa::vector<Usage> &&argument_usages) noexcept
         : ShaderDispatchCommandBase{cuda_function_handle,
-                                    std::move(argument_buffer),
+                                    luisa::vector<std::byte>{},
                                     argument_count},
           _grid_dim{grid_dim},
           _block_dim{block_dim},
           _shared_mem_bytes{shared_mem_bytes},
           _dispatch_size{dispatch_size},
+          _argument_count{argument_count},
+          _blob_data{nullptr},
+          _blob_bytes{0u},
+          _usage_data{nullptr},
+          _usage_count{0u},
+          _trailing_bytes{0u},
+          _params_bytes{0u},
+          _owned_blob{std::move(argument_buffer)},
           _argument_usages{std::move(argument_usages)} {
-        LUISA_ASSERT(grid_dim.x > 0u && grid_dim.y > 0u && grid_dim.z > 0u,
-                     "CUDA kernel launch grid dimension must be nonzero.");
-        LUISA_ASSERT(block_dim.x > 0u && block_dim.y > 0u && block_dim.z > 0u,
-                     "CUDA kernel launch block dimension must be nonzero.");
-        LUISA_ASSERT(dispatch_size.x > 0u && dispatch_size.y > 0u && dispatch_size.z > 0u,
-                     "CUDA kernel launch dispatch size must be nonzero.");
-        auto fits = [](uint32_t d, uint32_t g, uint32_t b) noexcept {
-            return static_cast<uint64_t>(d) <=
-                   static_cast<uint64_t>(g) * static_cast<uint64_t>(b);
-        };
-        LUISA_ASSERT(fits(dispatch_size.x, grid_dim.x, block_dim.x) &&
-                         fits(dispatch_size.y, grid_dim.y, block_dim.y) &&
-                         fits(dispatch_size.z, grid_dim.z, block_dim.z),
-                     "CUDA kernel launch dispatch size exceeds grid * block.");
+        _assert_geometry(grid_dim, block_dim, dispatch_size);
+        _blob_data = _owned_blob.data();
+        _blob_bytes = _owned_blob.size();
+        _usage_data = _argument_usages.empty() ? nullptr : _argument_usages.data();
+        _usage_count = _argument_usages.size();
+        _params_bytes = _compute_params_bytes(arguments());
     }
+
     CudaKernelLaunchCommand(CudaKernelLaunchCommand const &) = delete;
-    CudaKernelLaunchCommand(CudaKernelLaunchCommand &&) noexcept = default;
+    CudaKernelLaunchCommand &operator=(CudaKernelLaunchCommand const &) = delete;
+    CudaKernelLaunchCommand &operator=(CudaKernelLaunchCommand &&) = delete;
+
+    // Move: see the class comment. A fused command's blob travels by value into
+    // a heap buffer owned by the destination; an externally-owned command's
+    // buffers travel by moving their vectors. The source is left empty and safe.
+    CudaKernelLaunchCommand(CudaKernelLaunchCommand &&rhs) noexcept
+        : CustomDispatchCommand(std::move(rhs)),
+          ShaderDispatchCommandBase(std::move(rhs)),
+          _grid_dim{rhs._grid_dim},
+          _block_dim{rhs._block_dim},
+          _shared_mem_bytes{rhs._shared_mem_bytes},
+          _dispatch_size{rhs._dispatch_size},
+          _argument_count{rhs._argument_count},
+          _blob_data{nullptr},
+          _blob_bytes{rhs._blob_bytes},
+          _usage_data{nullptr},
+          _usage_count{rhs._usage_count},
+          _trailing_bytes{0u},
+          _params_bytes{rhs._params_bytes},
+          // A fused source keeps neither vector in use (both are empty), so
+          // moving them is allocation-free; an external source's buffers travel
+          // here and their offsets are re-based below.
+          _owned_blob{std::move(rhs._owned_blob)},
+          _argument_usages{std::move(rhs._argument_usages)} {
+        if (rhs._trailing_bytes > 0u) {
+            // Fused storage: the blob lives inside the source's allocation and
+            // cannot travel with a member-wise move. Relocate
+            // [records][payload][slack][usage tail] into a heap buffer owned by
+            // *this, then rebase both pointers into it.
+            auto tail_offset = rhs._usage_data != nullptr
+                                   ? static_cast<size_t>(rhs._usage_data -
+                                                         reinterpret_cast<const Usage *>(rhs._trailing_storage()))
+                                   : static_cast<size_t>(0);
+            LUISA_DEBUG_ASSERT(tail_offset + rhs._usage_count * sizeof(Usage) <= rhs._trailing_bytes,
+                               "CUDA kernel launch command: relocated usage tail is out of range.");
+            _owned_blob.resize(rhs._trailing_bytes);
+            std::memcpy(_owned_blob.data(), rhs._trailing_storage(), rhs._trailing_bytes);
+            _blob_data = _owned_blob.data();
+            _usage_data = _usage_count > 0u
+                              ? reinterpret_cast<const Usage *>(_owned_blob.data()) + tail_offset
+                              : nullptr;
+        } else {
+            // External storage (_owned_blob holds [records][payload], plus the
+            // tail when this command was itself relocated from a fused block
+            // earlier, in which case _argument_usages is empty).
+            _blob_data = _owned_blob.data();
+            if (!_argument_usages.empty()) {
+                _usage_data = _argument_usages.data();
+            } else if (_usage_count > 0u) {
+                // Relocated source: its usages live in the buffer that the init
+                // list above just MOVED into *this. rhs._owned_blob is empty now
+                // (data() == nullptr), so the offset must be taken against
+                // *this*'s storage - the very block the source's pointers still
+                // describe.
+                auto offset = static_cast<size_t>(
+                    rhs._usage_data -
+                    reinterpret_cast<const Usage *>(_owned_blob.data()));
+                _usage_data = reinterpret_cast<const Usage *>(_owned_blob.data()) + offset;
+            } else {
+                _usage_data = nullptr;
+            }
+        }
+        // Leave the source empty: its trailing region is *its* allocation and
+        // must not be read through *this, and the moved-from base buffer is gone.
+        rhs._argument_count = 0u;
+        rhs._blob_data = nullptr;
+        rhs._blob_bytes = 0u;
+        rhs._usage_data = nullptr;
+        rhs._usage_count = 0u;
+        rhs._trailing_bytes = 0u;
+    }
 
 public:
     [[nodiscard]] uint64_t custom_cmd_uuid() const noexcept override {
@@ -133,7 +334,34 @@ public:
     // The exact number of threads the kernel is launched with (the `ls_kid`
     // trailer payload); equals grid * block for explicit-geometry launches.
     [[nodiscard]] uint3 dispatch_size() const noexcept { return _dispatch_size; }
-    [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept { return _argument_usages; }
+    [[nodiscard]] size_t argument_count() const noexcept { return _argument_count; }
+    // The per-resource usages, in argument order.
+    [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept {
+        return luisa::span<const Usage>{_usage_data, _usage_count};
+    }
+    // The on-wire argument region: [Argument records][uniform payload], i.e. the
+    // exact bytes an externally-owned command's argument buffer carries. Provided so the
+    // command ABI can be checked byte-for-byte; the vk encode path reads the
+    // typed accessors below instead.
+    [[nodiscard]] luisa::span<const std::byte> argument_blob() const noexcept {
+        return luisa::span<const std::byte>{_blob_data, _blob_bytes};
+    }
+    // Shadowing accessors (see the class comment): they read the fused blob when
+    // there is one, otherwise the externally-owned buffer.
+    [[nodiscard]] luisa::span<const Argument> arguments() const noexcept {
+        return luisa::span<const Argument>{reinterpret_cast<const Argument *>(_blob_data), _argument_count};
+    }
+    [[nodiscard]] luisa::span<Argument> arguments() noexcept {
+        return luisa::span<Argument>{reinterpret_cast<Argument *>(_blob_data), _argument_count};
+    }
+    [[nodiscard]] luisa::span<const std::byte> uniform(const Argument::Uniform &u) const noexcept {
+        return luisa::span<const std::byte>{_blob_data, _blob_bytes}.subspan(u.offset, u.size);
+    }
+    // The size of the by-value DSL Params blob cuda_launch_kernel() packs from
+    // these arguments, so the encode path can allocate its scratch buffer once
+    // instead of re-growing it per argument. Saturated at UINT32_MAX; encoding
+    // still bounds-checks.
+    [[nodiscard]] uint32_t params_bytes() const noexcept { return _params_bytes; }
     // The reorder budget counts threads, so report the exact dispatch size.
     [[nodiscard]] uint3 max_dispatch_size() const noexcept override { return _dispatch_size; }
     // The reorder pass tracks the module's accesses through its declared
@@ -151,6 +379,61 @@ public:
     }
     // Un-hide the generic-lambda traverse_arguments adapters.
     using CustomDispatchCommand::traverse_arguments;
+
+private:
+    // The fused-storage form, created only by KernelLauncher::build(): every
+    // byte is already in place inside `block`, which *this constructor
+    // placement-news into (see KernelLauncher).
+    struct FusedBlob {
+        std::byte *blob_data;      // [Argument records][uniform payload]
+        size_t blob_bytes;         // logical size of that region
+        Usage *usages;             // the usage tail (may be null when empty)
+        size_t usage_count;
+        size_t argument_count;
+        size_t trailing_bytes;     // block bytes after the object slot
+    };
+
+    CudaKernelLaunchCommand(uint64_t cuda_function_handle,
+                            uint3 grid_dim, uint3 block_dim,
+                            uint32_t shared_mem_bytes,
+                            uint3 dispatch_size,
+                            const FusedBlob &blob) noexcept
+        : ShaderDispatchCommandBase{cuda_function_handle,
+                                    luisa::vector<std::byte>{},
+                                    blob.argument_count},
+          _grid_dim{grid_dim},
+          _block_dim{block_dim},
+          _shared_mem_bytes{shared_mem_bytes},
+          _dispatch_size{dispatch_size},
+          _argument_count{blob.argument_count},
+          _blob_data{blob.blob_data},
+          _blob_bytes{blob.blob_bytes},
+          _usage_data{blob.usages},
+          _usage_count{blob.usage_count},
+          _trailing_bytes{blob.trailing_bytes},
+          _params_bytes{0u},
+          _owned_blob{},
+          _argument_usages{} {
+        _assert_geometry(grid_dim, block_dim, dispatch_size);
+        // The object must sit at the block base: CommandList owns commands as
+        // unique_ptr<Command> and destroys through that base pointer; the
+        // deleter runs the (virtual) destructor and then frees the exact pointer
+        // handed back - eastl's default_delete via GetDefaultAllocator()->
+        // deallocate (size hint ignored) in EASTL builds, the delete expression
+        // (global operator delete) in system-STL builds - so it must equal the
+        // block base. Command is the primary base of
+        // CustomDispatchCommand, hence at offset 0, but the layout of a
+        // multiply-inheriting class is not something to assume.
+        LUISA_DEBUG_ASSERT(static_cast<const void *>(static_cast<const Command *>(this)) ==
+                               static_cast<const void *>(this),
+                           "CUDA kernel launch command: the Command subobject must be at offset 0 of its "
+                           "fused allocation (the command list deletes through Command*).");
+        LUISA_DEBUG_ASSERT(_blob_data == _trailing_storage(),
+                           "CUDA kernel launch command: the fused blob must start at the object slot.");
+        _params_bytes = _compute_params_bytes(arguments());
+    }
+
+    friend class KernelLauncher;
 };
 
 // Header-only builder collecting buffer/texture/uniform arguments and packing
@@ -162,63 +445,170 @@ public:
 // kernel ABI blob: buffers become `LCBuffer { ptr = VkDeviceAddress + offset,
 // size_bytes = size }` slots, so the order of add_* calls must match the
 // imported kernel's parameter order exactly.
+//
+// The builder stages the blob in the very allocation that becomes
+// the command (see CudaKernelLaunchCommand), so building a launch costs ONE
+// heap allocation total - argument records, uniform payload, usage list and
+// command object together - with no second copy. reserve() sizes that block up
+// front from the compile-time launch shape; a typed CudaKernelT / CudaKernel
+// launch always calls it, so it hits the zero-growth, zero-fix-up, zero-copy
+// path. A launcher that never calls reserve() keeps working: the block grows on
+// demand (same doubling as before) and build() rotates the uniform payload down
+// behind the exact argument header and patches the recorded offsets, producing
+// byte-identical on-wire bytes either way - which is what the packing
+// self-check in the vk-interop tests guards.
 class KernelLauncher {
 
 private:
-    // Epoch C: the command's argument buffer is built in place in ONE
-    // allocation instead of one growable vector per argument kind plus a
-    // second copy in _build().  Layout during construction:
-    //
-    //     [Argument records: _argument_capacity * sizeof(Argument)]
-    //     [uniform payload]
-    //
-    // The uniform offsets recorded in the Argument records are absolute
-    // offsets into that buffer -- exactly the layout the command's
-    // arguments()/uniform() accessors expose -- so _build() only has to trim
-    // the header to the exact argument count, which is a no-op for a launcher
-    // pre-sized by reserve() (i.e. every CudaKernelT / CudaKernel launch).
-    luisa::vector<std::byte> _blob;
-    luisa::vector<Usage> _argument_usages;
-    size_t _argument_count = 0u;
-    size_t _argument_capacity = 0u;
-    size_t _uniform_bytes = 0u;
+    static constexpr size_t kBlobAlignment = CudaKernelLaunchCommand::fused_alignment;
+    // Resource usages are staged here, so a launch allocates nothing for the
+    // usage list. A typed kernel knows its exact resource count at compile time
+    // (CudaKernelT::resource_arg_count()) and the untyped CudaKernel reserves
+    // sizeof...(Args); 16 covers every observed launch shape (the radix one-
+    // sweep kernel has 8). A hand-rolled launcher declaring more falls back to
+    // `_heap_usages` - one extra allocation for that launch, nothing else
+    // changes.
+    static constexpr size_t kInlineUsages = 16u;
 
-    [[nodiscard]] size_t _header_bytes() const noexcept {
-        return _argument_count * sizeof(Argument);
+    // The fused staging block:
+    //
+    //   [ object slot | Argument records (_argument_capacity * 32B) |
+    //     uniform payload (_uniform_bytes, room up to _payload_capacity_bytes) |
+    //     slack | usage tail (_usage_tail_bytes) ]
+    //
+    // luisa::vector is deliberately not used: the command object must live in the
+    // same allocation as the blob. The block comes from _alloc_block (see the
+    // pairing comment above) and is freed either here (build() never called, via
+    // the matching _free_block) or - once build() has placement-new'd the command
+    // at its front - by the unique_ptr<Command> that owns the command, whose
+    // deleter performs the paired deallocation. That is the same allocation/
+    // deallocation pair today's luisa::make_unique<CudaKernelLaunch-Command>
+    // relies on in each build (this class declares no class-specific operator
+    // new/delete).
+    std::byte *_block{nullptr};
+    size_t _block_bytes{0u};
+    size_t _argument_capacity{0u};    // Argument records that fit in the blob
+    size_t _payload_capacity_bytes{0u};   // uniform payload room behind them (16-aligned)
+    size_t _usage_tail_bytes{0u};     // tail capacity for the usage records (16-aligned)
+    size_t _argument_count{0u};
+    size_t _uniform_bytes{0u};        // payload bytes in use
+    size_t _usage_count{0u};
+    alignas(Usage) std::byte _inline_usages[kInlineUsages * sizeof(Usage)];
+    luisa::vector<Usage> _heap_usages;    // overflow only; empty (no allocation) normally
+
+    [[nodiscard]] static size_t _slot_bytes() noexcept { return CudaKernelLaunchCommand::object_slot_bytes(); }
+    [[nodiscard]] std::byte *_blob() noexcept { return _block + _slot_bytes(); }
+    [[nodiscard]] Argument *_argument_records() noexcept { return std::launder(reinterpret_cast<Argument *>(_blob())); }
+    [[nodiscard]] size_t _header_bytes() const noexcept { return _argument_count * sizeof(Argument); }
+    [[nodiscard]] size_t _capacity_bytes() const noexcept { return _argument_capacity * sizeof(Argument); }
+    [[nodiscard]] static size_t _align_blob(size_t bytes) noexcept { return (bytes + kBlobAlignment - 1u) & ~(kBlobAlignment - 1u); }
+
+    // The block's allocation must pair with the deallocation its OWNER performs.
+    // The fused command is handed to a luisa::unique_ptr<...>, whose deleter is
+    // build-configuration dependent:
+    //   - EASTL builds (LUISA_USE_SYSTEM_STL undefined): eastl's default_delete
+    //     runs ~T() and eastl::GetDefaultAllocator()->deallocate(p, size) (size
+    //     is an ignored hint), so the block must come from the same allocator --
+    //     luisa::detail::allocator_allocate, which is exactly that call.
+    //   - System-STL builds: std::default_delete runs the delete EXPRESSION,
+    //     i.e. the global operator delete paired with ::operator new (16-byte
+    //     aligned on MSVC/x64, GCC and Clang; the block must stay blob-aligned).
+    // Crossing the two would free a pointer through an allocator that never saw
+    // it (undefined behavior, observed as a crash in the first command
+    // destruction).
+    [[nodiscard]] static void *_alloc_block(size_t bytes) noexcept {
+#if defined(LUISA_USE_SYSTEM_STL)
+        return ::operator new(bytes);
+#else
+        return luisa::detail::allocator_allocate(bytes, kBlobAlignment);
+#endif
     }
-    [[nodiscard]] size_t _capacity_bytes() const noexcept {
-        return _argument_capacity * sizeof(Argument);
+    static void _free_block(void *p) noexcept {
+#if defined(LUISA_USE_SYSTEM_STL)
+        ::operator delete(p);
+#else
+        luisa::detail::allocator_deallocate(p, kBlobAlignment);
+#endif
     }
-    [[nodiscard]] Argument *_argument_records() noexcept {
-        return std::launder(reinterpret_cast<Argument *>(_blob.data()));
+    // Byte offset of the usage tail inside the block; 16-aligned because the
+    // record region is a multiple of sizeof(Argument) (32) and the payload room
+    // is kept 16-aligned.
+    [[nodiscard]] size_t _tail_offset() const noexcept { return _slot_bytes() + _capacity_bytes() + _payload_capacity_bytes; }
+
+    // Grow the staging block so it holds the current capacities
+    // (_argument_capacity records, _payload_capacity_bytes of payload, the usage
+    // tail), preserving `staged_bytes` of already-staged content at the same
+    // offsets. Callers update the capacity members first and pass the length of
+    // the content staged SO FAR (slot + old records + used payload), so a header
+    // growth lands the old payload where the payload shift expects it.
+    void _sync_block(size_t staged_bytes) noexcept {
+        auto needed = _slot_bytes() + _capacity_bytes() + _payload_capacity_bytes + _usage_tail_bytes;
+        if (needed <= _block_bytes) { return; }
+        auto grown = _block_bytes > 0u && needed < 2u * _block_bytes ? 2u * _block_bytes : needed;
+        auto capacity = _align_blob(grown);
+        auto *block = static_cast<std::byte *>(_alloc_block(capacity));
+        if (_block != nullptr) {
+            std::memcpy(block, _block, staged_bytes < _block_bytes ? staged_bytes : _block_bytes);
+            _free_block(_block);
+        }
+        _block = block;
+        _block_bytes = capacity;
     }
 
-    // Make room for `slots` argument records.  Growing the header moves the
-    // uniform payload up (every reference is an offset, so a vector
-    // reallocation is harmless) and patches the recorded uniform offsets.
-    // `exact` sizes the header to `slots` so that a known launch shape needs no
-    // fix-up in _build().
+    // Make room for `slots` argument records. Growing the header moves the
+    // uniform payload up (every reference is an offset, so a block growth is
+    // harmless) and patches the recorded uniform offsets. `exact` sizes the
+    // header to `slots` so that a known launch shape needs no fix-up in build().
     void _reserve_argument_slots(size_t slots, bool exact) noexcept {
         if (slots <= _argument_capacity) { return; }
         auto new_capacity = exact ? slots : (slots > 2u * _argument_capacity ? slots : 2u * _argument_capacity);
         auto old_bytes = _capacity_bytes();
         auto new_bytes = new_capacity * sizeof(Argument);
-        _blob.resize(new_bytes + _uniform_bytes);
-        auto *base = _blob.data();
+        auto staged = _slot_bytes() + old_bytes + _uniform_bytes;
+        _argument_capacity = new_capacity;
+        _sync_block(staged);
+        auto *base = _blob();
         std::memmove(base + new_bytes, base + old_bytes, _uniform_bytes);
-        auto *args = std::launder(reinterpret_cast<Argument *>(base));
+        auto *args = _argument_records();
         for (auto i = 0u; i < _argument_count; ++i) {
             if (args[i].tag == Argument::Tag::UNIFORM) {
                 args[i].uniform.offset += new_bytes - old_bytes;
             }
         }
-        _argument_capacity = new_capacity;
+    }
+
+    [[nodiscard]] const Usage *_usages() const noexcept {
+        return _heap_usages.empty() ? reinterpret_cast<const Usage *>(_inline_usages) : _heap_usages.data();
+    }
+    void _add_usage(Usage usage) noexcept {
+        if (_usage_count < kInlineUsages && _heap_usages.empty()) {
+            std::memcpy(_inline_usages + _usage_count * sizeof(Usage), &usage, sizeof(Usage));
+            ++_usage_count;
+            return;
+        }
+        if (_heap_usages.empty()) {
+            // Overflow: migrate the inline staging, then keep growing on the heap.
+            _heap_usages.reserve(_usage_count + 8u);
+            for (auto i = 0u; i < _usage_count; ++i) {
+                _heap_usages.emplace_back(_usages()[i]);
+            }
+        }
+        _heap_usages.emplace_back(usage);
+        ++_usage_count;
     }
 
     [[nodiscard]] Argument &_create_argument() noexcept {
         _reserve_argument_slots(_argument_count + 1u, false);
         auto &arg = _argument_records()[_argument_count++];
-        arg = Argument{};
+        // Byte-identity with the previous vector staging: luisa::vector::resize
+        // zero-filled every grown byte, so an Argument's padding and the union
+        // bytes beyond the assigned member were always 0 on the wire. `arg =
+        // Argument{}` alone does NOT guarantee that: the implicit copy-assignment
+        // copies the subobjects only, leaving padding/union tail indeterminate
+        // (observed as stale payload bytes in the 12..28 range of a texture
+        // record). Zero the whole 32-byte record explicitly, then callers assign
+        // the tag and the union member they use.
+        std::memset(&arg, 0, sizeof(Argument));
         return arg;
     }
 
@@ -226,47 +616,115 @@ private:
         uint64_t cuda_function_handle,
         uint3 grid_dim, uint3 block_dim,
         uint32_t shared_mem_bytes, uint3 dispatch_size) && noexcept {
+        // The tail must hold every usage actually collected, even if the
+        // launcher over-grew past reserve().
+        auto tail_bytes = _align_blob(_usage_count * sizeof(Usage));
+        if (tail_bytes > _usage_tail_bytes) { _usage_tail_bytes = tail_bytes; }
+        _sync_block(_slot_bytes() + _capacity_bytes() + _uniform_bytes);
+
         auto header_bytes = _header_bytes();
+        auto *base = _blob();
         if (_argument_capacity != _argument_count) {
             // Unreserved launcher with growth slack: rotate the uniform payload
             // down behind the exact argument header and patch the recorded
-            // offsets.
+            // offsets (the same fix-up as before, unchanged).
             auto capacity_bytes = _capacity_bytes();
-            auto *base = _blob.data();
             std::memmove(base + header_bytes, base + capacity_bytes, _uniform_bytes);
-            _blob.resize(header_bytes + _uniform_bytes);
             auto *args = _argument_records();
             for (auto i = 0u; i < _argument_count; ++i) {
                 if (args[i].tag == Argument::Tag::UNIFORM) {
                     args[i].uniform.offset -= capacity_bytes - header_bytes;
                 }
             }
-        } else {
-            _blob.resize(header_bytes + _uniform_bytes);
         }
-        return luisa::make_unique<CudaKernelLaunchCommand>(
-            cuda_function_handle, grid_dim, block_dim, shared_mem_bytes,
-            dispatch_size, std::move(_blob), _argument_count,
-            std::move(_argument_usages));
+        auto blob_bytes = header_bytes + _uniform_bytes;
+        auto *usages = _usage_count > 0u
+                           ? reinterpret_cast<Usage *>(_block + _tail_offset())
+                           : nullptr;
+        if (usages != nullptr) {
+            std::memcpy(usages, _usages(), _usage_count * sizeof(Usage));
+        }
+        // Construct the command at the front of the block it was staged in: the
+        // blob is already final, so nothing is copied here.
+        CudaKernelLaunchCommand::FusedBlob blob{
+            base, blob_bytes, usages, _usage_count, _argument_count,
+            _block_bytes - _slot_bytes()};
+        auto *cmd = new (static_cast<void *>(_block))
+            CudaKernelLaunchCommand(cuda_function_handle, grid_dim, block_dim,
+                                    shared_mem_bytes, dispatch_size, blob);
+        // Ownership of the block has moved to the command (which is freed by
+        // destruction through its unique_ptr<Command>, i.e. the deleter paired
+        // with _alloc_block above).
+        _block = nullptr;
+        _block_bytes = 0u;
+        _argument_capacity = 0u;
+        _payload_capacity_bytes = 0u;
+        _usage_tail_bytes = 0u;
+        _argument_count = 0u;
+        _uniform_bytes = 0u;
+        _usage_count = 0u;
+        return luisa::unique_ptr<CudaKernelLaunchCommand>{cmd};
     }
 
 public:
     KernelLauncher() noexcept = default;
+    KernelLauncher(KernelLauncher const &) = delete;
+    KernelLauncher &operator=(KernelLauncher const &) = delete;
+    // The launcher owns its staging block until build() turns it into the
+    // command; a launcher that is destroyed without building frees it.
+    ~KernelLauncher() noexcept {
+        if (_block != nullptr) { _free_block(_block); }
+    }
+    KernelLauncher(KernelLauncher &&rhs) noexcept
+        : _block{rhs._block}, _block_bytes{rhs._block_bytes},
+          _argument_capacity{rhs._argument_capacity},
+          _payload_capacity_bytes{rhs._payload_capacity_bytes},
+          _usage_tail_bytes{rhs._usage_tail_bytes},
+          _argument_count{rhs._argument_count},
+          _uniform_bytes{rhs._uniform_bytes},
+          _usage_count{rhs._usage_count},
+          _heap_usages{std::move(rhs._heap_usages)} {
+        std::memcpy(_inline_usages, rhs._inline_usages, sizeof(_inline_usages));
+        rhs._block = nullptr;
+        rhs._block_bytes = 0u;
+    }
+    KernelLauncher &operator=(KernelLauncher &&rhs) noexcept {
+        if (this != &rhs) {
+            if (_block != nullptr) { _free_block(_block); }
+            _block = rhs._block;
+            _block_bytes = rhs._block_bytes;
+            _argument_capacity = rhs._argument_capacity;
+            _payload_capacity_bytes = rhs._payload_capacity_bytes;
+            _usage_tail_bytes = rhs._usage_tail_bytes;
+            _argument_count = rhs._argument_count;
+            _uniform_bytes = rhs._uniform_bytes;
+            _usage_count = rhs._usage_count;
+            _heap_usages = std::move(rhs._heap_usages);
+            std::memcpy(_inline_usages, rhs._inline_usages, sizeof(_inline_usages));
+            rhs._block = nullptr;
+            rhs._block_bytes = 0u;
+        }
+        return *this;
+    }
 
-    // Pre-size the launch argument blob for a known launch shape: exactly
+    // Pre-size the staging block for a known launch shape: exactly
     // `argument_count` argument records, `resource_count` resource usages and
-    // at least `uniform_bytes` of by-value payload.  Called with compile-time
-    // counts by CudaKernelT / CudaKernel, so a dispatch performs one allocation
-    // for the argument buffer, one for the usage list and one for the command,
-    // with no growth and no second copy.  A hand-rolled launcher that never
-    // calls reserve() keeps working (it grows on demand; _build() then trims
+    // at least `uniform_bytes` of by-value payload. Called with compile-time
+    // counts by CudaKernelT / CudaKernel, so the launch performs a single
+    // allocation (command + argument blob + usage tail together), with no
+    // growth, no fix-up and no copy. A hand-rolled launcher that never calls
+    // reserve() keeps working (its block grows on demand; build() then trims
     // the header and patches the offsets).
     void reserve(size_t argument_count, size_t resource_count, size_t uniform_bytes) noexcept {
+        auto payload = _align_blob(uniform_bytes);
+        if (payload > _payload_capacity_bytes) { _payload_capacity_bytes = payload; }
+        auto tail = _align_blob(resource_count * sizeof(Usage));
+        if (tail > _usage_tail_bytes) { _usage_tail_bytes = tail; }
         _reserve_argument_slots(argument_count, true);
-        if (_blob.size() < _capacity_bytes() + uniform_bytes) {
-            _blob.resize(_capacity_bytes() + uniform_bytes);
+        _sync_block(_slot_bytes() + _capacity_bytes() + _uniform_bytes);
+        if (resource_count > kInlineUsages && _heap_usages.capacity() < resource_count) {
+            _heap_usages.reserve(resource_count);
         }
-        _argument_usages.reserve(resource_count);
     }
 
     // Buffer arguments arrive in the imported DSL kernel as LCBuffer bindings
@@ -275,7 +733,7 @@ public:
         auto &&arg = _create_argument();
         arg.tag = Argument::Tag::BUFFER;
         arg.buffer = Argument::Buffer{handle, offset, size};
-        _argument_usages.emplace_back(usage);
+        _add_usage(usage);
         return *this;
     }
     template<typename T>
@@ -285,8 +743,15 @@ public:
     KernelLauncher &add_texture(uint64_t handle, uint32_t level, Usage usage) noexcept {
         auto &&arg = _create_argument();
         arg.tag = Argument::Tag::TEXTURE;
-        arg.texture = Argument::Texture{handle, level};
-        _argument_usages.emplace_back(usage);
+        // Field-wise on purpose: sizeof(Argument::Texture) is 16 (4 bytes of
+        // trailing padding after `level`), and a whole-struct assignment may
+        // copy the padding bytes of the source temporary, which are
+        // indeterminate. _create_argument() zeroed the record, so writing only
+        // the two members keeps the on-wire padding deterministically 0 on every
+        // compiler.
+        arg.texture.handle = handle;
+        arg.texture.level = level;
+        _add_usage(usage);
         return *this;
     }
     // Scalar/aggregate kernel parameters passed by value.
@@ -298,12 +763,25 @@ public:
         auto index = _argument_count;
         static_cast<void>(_create_argument());
         auto local = luisa::align(_uniform_bytes, alignment);
-        auto offset = _capacity_bytes() + local;
-        if (_blob.size() < offset + size) {
-            _blob.resize(offset + size);
+        if (local + size > _payload_capacity_bytes) {
+            auto grown = local + size;
+            if (_payload_capacity_bytes > 0u && grown < 2u * _payload_capacity_bytes) {
+                grown = 2u * _payload_capacity_bytes;
+            }
+            _payload_capacity_bytes = _align_blob(grown);
+            _sync_block(_slot_bytes() + _capacity_bytes() + _uniform_bytes);
         }
-        std::memcpy(_blob.data() + offset, data, size);
-        auto *args = _argument_records();// re-read: the resize above may move it
+        auto offset = _capacity_bytes() + local;
+        if (local > _uniform_bytes) {
+            // Keep the on-wire region fully initialized: luisa::vector's resize
+            // used to zero-fill the alignment padding between the previous
+            // payload end and this slot, so the fused block must do it
+            // explicitly for the produced [records][payload] bytes to match the
+            // previous layout byte-for-byte (not merely semantically).
+            std::memset(_blob() + _capacity_bytes() + _uniform_bytes, 0, local - _uniform_bytes);
+        }
+        std::memcpy(_blob() + offset, data, size);
+        auto *args = _argument_records();// re-read: the growth above may move it
         args[index].tag = Argument::Tag::UNIFORM;
         args[index].uniform = Argument::Uniform{offset, size, alignment};
         _uniform_bytes = local + size;
@@ -333,6 +811,7 @@ public:
                                        shared_mem_bytes, thread_count);
     }
 };
+
 
 // Attaches an explicit Usage to a resource argument. Although imported
 // shaders are DSL-compiled, the cuda backend does not retain the argument
