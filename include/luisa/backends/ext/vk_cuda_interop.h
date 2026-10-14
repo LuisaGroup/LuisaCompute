@@ -165,45 +165,110 @@ public:
 class KernelLauncher {
 
 private:
-    luisa::vector<Argument> _arguments;
+    // Epoch C: the command's argument buffer is built in place in ONE
+    // allocation instead of one growable vector per argument kind plus a
+    // second copy in _build().  Layout during construction:
+    //
+    //     [Argument records: _argument_capacity * sizeof(Argument)]
+    //     [uniform payload]
+    //
+    // The uniform offsets recorded in the Argument records are absolute
+    // offsets into that buffer -- exactly the layout the command's
+    // arguments()/uniform() accessors expose -- so _build() only has to trim
+    // the header to the exact argument count, which is a no-op for a launcher
+    // pre-sized by reserve() (i.e. every CudaKernelT / CudaKernel launch).
+    luisa::vector<std::byte> _blob;
     luisa::vector<Usage> _argument_usages;
-    luisa::vector<std::byte> _uniform_blob;
+    size_t _argument_count = 0u;
+    size_t _argument_capacity = 0u;
+    size_t _uniform_bytes = 0u;
+
+    [[nodiscard]] size_t _header_bytes() const noexcept {
+        return _argument_count * sizeof(Argument);
+    }
+    [[nodiscard]] size_t _capacity_bytes() const noexcept {
+        return _argument_capacity * sizeof(Argument);
+    }
+    [[nodiscard]] Argument *_argument_records() noexcept {
+        return std::launder(reinterpret_cast<Argument *>(_blob.data()));
+    }
+
+    // Make room for `slots` argument records.  Growing the header moves the
+    // uniform payload up (every reference is an offset, so a vector
+    // reallocation is harmless) and patches the recorded uniform offsets.
+    // `exact` sizes the header to `slots` so that a known launch shape needs no
+    // fix-up in _build().
+    void _reserve_argument_slots(size_t slots, bool exact) noexcept {
+        if (slots <= _argument_capacity) { return; }
+        auto new_capacity = exact ? slots : (slots > 2u * _argument_capacity ? slots : 2u * _argument_capacity);
+        auto old_bytes = _capacity_bytes();
+        auto new_bytes = new_capacity * sizeof(Argument);
+        _blob.resize(new_bytes + _uniform_bytes);
+        auto *base = _blob.data();
+        std::memmove(base + new_bytes, base + old_bytes, _uniform_bytes);
+        auto *args = std::launder(reinterpret_cast<Argument *>(base));
+        for (auto i = 0u; i < _argument_count; ++i) {
+            if (args[i].tag == Argument::Tag::UNIFORM) {
+                args[i].uniform.offset += new_bytes - old_bytes;
+            }
+        }
+        _argument_capacity = new_capacity;
+    }
 
     [[nodiscard]] Argument &_create_argument() noexcept {
-        return _arguments.emplace_back();
+        _reserve_argument_slots(_argument_count + 1u, false);
+        auto &arg = _argument_records()[_argument_count++];
+        arg = Argument{};
+        return arg;
     }
 
     [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand> _build(
         uint64_t cuda_function_handle,
         uint3 grid_dim, uint3 block_dim,
         uint32_t shared_mem_bytes, uint3 dispatch_size) && noexcept {
-        auto argument_header_size = _arguments.size() * sizeof(Argument);
-        luisa::vector<std::byte> argument_buffer;
-        luisa::vector_resize(argument_buffer, argument_header_size + _uniform_blob.size());
-        if (argument_header_size > 0u) {
-            std::memcpy(argument_buffer.data(), _arguments.data(), argument_header_size);
-        }
-        if (!_uniform_blob.empty()) {
-            std::memcpy(argument_buffer.data() + argument_header_size,
-                        _uniform_blob.data(), _uniform_blob.size());
-        }
-        // Shift uniform offsets past the argument header.
-        if (argument_header_size > 0u) {
-            auto *args = std::launder(reinterpret_cast<Argument *>(argument_buffer.data()));
-            for (auto i = 0u; i < _arguments.size(); ++i) {
+        auto header_bytes = _header_bytes();
+        if (_argument_capacity != _argument_count) {
+            // Unreserved launcher with growth slack: rotate the uniform payload
+            // down behind the exact argument header and patch the recorded
+            // offsets.
+            auto capacity_bytes = _capacity_bytes();
+            auto *base = _blob.data();
+            std::memmove(base + header_bytes, base + capacity_bytes, _uniform_bytes);
+            _blob.resize(header_bytes + _uniform_bytes);
+            auto *args = _argument_records();
+            for (auto i = 0u; i < _argument_count; ++i) {
                 if (args[i].tag == Argument::Tag::UNIFORM) {
-                    args[i].uniform.offset += argument_header_size;
+                    args[i].uniform.offset -= capacity_bytes - header_bytes;
                 }
             }
+        } else {
+            _blob.resize(header_bytes + _uniform_bytes);
         }
         return luisa::make_unique<CudaKernelLaunchCommand>(
             cuda_function_handle, grid_dim, block_dim, shared_mem_bytes,
-            dispatch_size, std::move(argument_buffer), _arguments.size(),
+            dispatch_size, std::move(_blob), _argument_count,
             std::move(_argument_usages));
     }
 
 public:
     KernelLauncher() noexcept = default;
+
+    // Pre-size the launch argument blob for a known launch shape: exactly
+    // `argument_count` argument records, `resource_count` resource usages and
+    // at least `uniform_bytes` of by-value payload.  Called with compile-time
+    // counts by CudaKernelT / CudaKernel, so a dispatch performs one allocation
+    // for the argument buffer, one for the usage list and one for the command,
+    // with no growth and no second copy.  A hand-rolled launcher that never
+    // calls reserve() keeps working (it grows on demand; _build() then trims
+    // the header and patches the offsets).
+    void reserve(size_t argument_count, size_t resource_count, size_t uniform_bytes) noexcept {
+        _reserve_argument_slots(argument_count, true);
+        if (_blob.size() < _capacity_bytes() + uniform_bytes) {
+            _blob.resize(_capacity_bytes() + uniform_bytes);
+        }
+        _argument_usages.reserve(resource_count);
+    }
+
     // Buffer arguments arrive in the imported DSL kernel as LCBuffer bindings
     // (base device address + offset, size in bytes).
     KernelLauncher &add_buffer(uint64_t handle, size_t offset, size_t size, Usage usage) noexcept {
@@ -228,12 +293,20 @@ public:
     KernelLauncher &add_uniform(const void *data, size_t size, size_t alignment) noexcept {
         LUISA_DEBUG_ASSERT(alignment > 0u && alignment <= 16u,
                            "Invalid uniform alignment {}.", alignment);
-        auto offset = luisa::align(_uniform_blob.size(), alignment);
-        luisa::vector_resize(_uniform_blob, offset + size);
-        std::memcpy(_uniform_blob.data() + offset, data, size);
-        auto &&arg = _create_argument();
-        arg.tag = Argument::Tag::UNIFORM;
-        arg.uniform = Argument::Uniform{offset, size, alignment};
+        // Reserve the argument record first: growing the header moves the
+        // uniform payload, so the data offset is computed afterwards.
+        auto index = _argument_count;
+        static_cast<void>(_create_argument());
+        auto local = luisa::align(_uniform_bytes, alignment);
+        auto offset = _capacity_bytes() + local;
+        if (_blob.size() < offset + size) {
+            _blob.resize(offset + size);
+        }
+        std::memcpy(_blob.data() + offset, data, size);
+        auto *args = _argument_records();// re-read: the resize above may move it
+        args[index].tag = Argument::Tag::UNIFORM;
+        args[index].uniform = Argument::Uniform{offset, size, alignment};
+        _uniform_bytes = local + size;
         return *this;
     }
     template<typename T>
@@ -431,6 +504,13 @@ public:
     CudaKernelInvoke(CudaKernelInvoke const &) = delete;
     CudaKernelInvoke(CudaKernelInvoke &&) noexcept = default;
 
+    // Pre-size the launch argument buffer from the (compile-time) launch shape;
+    // see KernelLauncher::reserve.  Purely an optimization: the argument
+    // encoding is identical without it.
+    void reserve(size_t argument_count, size_t resource_count, size_t uniform_bytes) noexcept {
+        _launcher.reserve(argument_count, resource_count, uniform_bytes);
+    }
+
     // Usage-tagged resource arguments.
     template<typename R>
     CudaKernelInvoke &operator<<(UsageArg<R> arg) noexcept {
@@ -522,6 +602,9 @@ public:
     template<typename... Args>
     [[nodiscard]] CudaKernelInvoke operator()(Args &&...args) const noexcept {
         CudaKernelInvoke invoke{_handle, _block_size};
+        // One Argument record per call-site argument; `slots * 16` is a
+        // conservative uniform hint (add_uniform grows if it is too small).
+        invoke.reserve(sizeof...(Args), sizeof...(Args), 16u * sizeof...(Args));
         static_cast<void>((invoke << ... << std::forward<Args>(args)));
         return invoke;
     }
@@ -606,8 +689,27 @@ private:
     [[nodiscard]] CudaKernelInvoke _invoke(std::index_sequence<I...>,
                                            typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
         CudaKernelInvoke invoke{this->_handle, this->_block_size};
+        invoke.reserve(sizeof...(Args), resource_arg_count(), uniform_bytes_hint());
         (static_cast<void>(I, _encode_arg<Args>(invoke, args)), ...);
         return invoke;
+    }
+
+    // Compile-time launch shape used to pre-size the argument buffer: exactly
+    // the number of resource (non-uniform) arguments, and an upper bound of the
+    // by-value uniform payload (16-byte rounding per uniform plus its slot).
+    [[nodiscard]] static constexpr size_t resource_arg_count() noexcept {
+        return (size_t{0u} + ... +
+                (cuda_arg_traits_t<Args>::is_resource ? size_t{1u} : size_t{0u}));
+    }
+    [[nodiscard]] static constexpr size_t uniform_bytes_hint() noexcept {
+        auto bytes = size_t{0u};
+        auto add = [&bytes]<typename Arg>() noexcept {
+            if constexpr (!cuda_arg_traits_t<Arg>::is_resource) {
+                bytes += ((sizeof(typename cuda_arg_traits_t<Arg>::type) + 15u) & ~size_t{15u}) + 16u;
+            }
+        };
+        (add.template operator()<Args>(), ...);
+        return bytes;
     }
 
 public:

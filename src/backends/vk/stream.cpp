@@ -2830,9 +2830,6 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     for (auto *head : cmd_lists) {
         if (head != nullptr) used_layers++;
     }
-    LUISA_VERBOSE("Vulkan command reorder: {} commands -> {} layers (reorder {}).",
-                  cmds.size(), used_layers,
-                  _stream.reorder.enabled() ? "on" : "off");
     auto clear_reorder = vstd::scope_exit([&] {
         _stream.reorder.clear();
     });

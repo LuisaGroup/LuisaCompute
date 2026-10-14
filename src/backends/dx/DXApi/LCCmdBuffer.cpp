@@ -1690,9 +1690,6 @@ void LCCmdBuffer::Execute(
         for (auto *head : cmdLists) {
             if (head != nullptr) used_layers++;
         }
-        LUISA_VERBOSE("DirectX command reorder: {} commands -> {} layers (reorder {}).",
-                      commands.size(), used_layers,
-                      reorder.enabled() ? "on" : "off");
         ID3D12DescriptorHeap *h[2] = {
             device->global_heap->GetHeap(),
             device->sampler_heap->GetHeap()};
