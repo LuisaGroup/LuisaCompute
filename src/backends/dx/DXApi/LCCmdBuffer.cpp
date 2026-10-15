@@ -107,6 +107,15 @@ public:
     // and the encoding pass re-records the same command to get a barrier emitted
     // *between* the commands of one fallback build (see LCCmdVisitor).
     bool state_only{false};
+    // Debug-validation bounds (CallOp::{BUFFER,BYTE_BUFFER,ACCEL}_SIZE answers)
+    // are host-injected as `_validate_*` fields that GenerateCBuffer appends
+    // AFTER all uniform fields of the `_Args` struct. The dispatch's resource
+    // arguments are visited in argument order, so their bounds are collected
+    // here and flushed at the end of the dispatch's uniform block; writing them
+    // interleaved with the uniform payload (as before) shifted every bound and
+    // zeroed the trailing slot whenever a debug-compiled kernel mixed resource
+    // arguments with scalar (uniform) arguments.
+    luisa::vector<uint> pending_validations;
     [[nodiscard]] bool owns_fallback_blas(uint64_t handle) const noexcept {
         return lc_device != nullptr && lc_device->owns_fallback_blas(handle);
     }
@@ -161,12 +170,19 @@ public:
         EnhancedBarrierTracker::Usage read_usage;
         EnhancedBarrierTracker::Usage accel_read_usage;
         uint validation_count = 0;
+        /// Only dispatch arguments own `_validate_*` slots; shader-internal
+        /// bindings (e.g. printer buffers) contribute nothing.
+        bool collect_validation = true;
         Visitor(
             LCPreProcessVisitor *self,
             SavedArgument const *arg,
             ShaderDispatchCommandBase const &cmd,
             bool is_raster,
-            uint validation_count = 0) : self(self), arg(arg), cmd(cmd), validation_count(validation_count) {
+            uint validation_count = 0,
+            bool collect_validation = true)
+            : self(self), arg(arg), cmd(cmd),
+              validation_count(validation_count),
+              collect_validation(collect_validation) {
             if (is_raster) {
                 uav_usage = EnhancedBarrierTracker::Usage::RasterUAV;
                 read_usage = EnhancedBarrierTracker::Usage::RasterRead;
@@ -197,14 +213,14 @@ public:
                     LUISA_ASSERT(res->get_tag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as shader's resource.");
                 }
             }
-            // Emplace buffer validation size (element count) when debug info is enabled
-            if (bf.handle != 0 && validation_count > 0) {
+            // Collect the buffer validation size (element count) for the
+            // trailing `_validate_*` block; flushed by the dispatch visitor.
+            if (collect_validation && bf.handle != 0 && validation_count > 0) {
                 auto element_size = arg->struct_size;
-                if (element_size > 0) {
-                    self->emplace_data(static_cast<uint>(bf.size / element_size), /*alignment=*/4);
-                } else {
-                    self->emplace_data(static_cast<uint>(bf.size), /*alignment=*/4);
-                }
+                self->pending_validations.emplace_back(
+                    element_size > 0 ?
+                        static_cast<uint>(bf.size / element_size) :
+                        static_cast<uint>(bf.size));
             }
             ++arg;
         }
@@ -251,10 +267,11 @@ public:
                 BufferView(arr->BindlessBuffer()),
                 read_usage);
             ++arg;
-            // Emplace bindless array validation size when debug info is enabled
-            if (bf.handle != 0 && validation_count > 0) {
+            // Collect the bindless array validation size for the trailing
+            // `_validate_*` block; flushed by the dispatch visitor.
+            if (collect_validation && bf.handle != 0 && validation_count > 0) {
                 auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
-                self->emplace_data(static_cast<uint>(arr->size()), /*alignment=*/4);
+                self->pending_validations.emplace_back(static_cast<uint>(arr->size()));
             }
         }
         void operator()(Argument::Uniform const &a) {
@@ -305,12 +322,12 @@ public:
                                        binding.instance_offset_bytes},
                         read_usage);
                 }
-                // Emplace accel validation size (instance count) when debug
-                // info is enabled: CallOp::ACCEL_SIZE is answered by the
-                // host-injected validation slot on both the hardware and the
-                // software fallback paths (see resource_size.bytes).
-                if (bf.handle != 0 && validation_count > 0) {
-                    self->emplace_data(binding.instance_count, /*alignment=*/4);
+                // Collect the accel validation size (instance count) for the
+                // trailing `_validate_*` block: CallOp::ACCEL_SIZE is answered
+                // by the host-injected validation slot on both the hardware
+                // and the software fallback paths (see resource_size.bytes).
+                if (collect_validation && bf.handle != 0 && validation_count > 0) {
+                    self->pending_validations.emplace_back(binding.instance_count);
                 }
                 ++arg;
                 return;
@@ -333,10 +350,10 @@ public:
             } else {
                 LUISA_ERROR("Accel not initialized.");
             }
-            // Emplace accel validation size (instance count) when debug info
-            // is enabled (CallOp::ACCEL_SIZE / Accel::size()).
-            if (bf.handle != 0 && validation_count > 0) {
-                self->emplace_data(accel->Length(), /*alignment=*/4);
+            // Collect the accel validation size (instance count) for the
+            // trailing `_validate_*` block (CallOp::ACCEL_SIZE / Accel::size()).
+            if (collect_validation && bf.handle != 0 && validation_count > 0) {
+                self->pending_validations.emplace_back(accel->Length());
             }
             ++arg;
         }
@@ -461,9 +478,20 @@ public:
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
         uniform_align(32);
         size_t beforeSize = arg_buffer->size();
+        pending_validations.clear();
         Visitor visitor{this, cs->args().data(), *cmd, false, cs->validation_count()};
-        decode_cmd(cs->arg_bindings(), visitor);
+        {
+            // Shader-internal bindings own no `_validate_*` slots.
+            Visitor bindings_visitor{visitor};
+            bindings_visitor.collect_validation = false;
+            decode_cmd(cs->arg_bindings(), bindings_visitor);
+        }
         decode_cmd(cmd->arguments(), visitor);
+        // `_validate_*` fields trail all uniform fields in `_Args`
+        // (see GenerateCBuffer): append the collected bounds last.
+        for (auto bound : pending_validations) {
+            emplace_data(bound, /*alignment=*/4);
+        }
         size_t afterSize = arg_buffer->size();
         if (!state_only) {
             // In `state_only` mode this command is being re-visited by the encoding
@@ -621,7 +649,13 @@ public:
         size_t beforeSize = arg_buffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
+        pending_validations.clear();
         decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
+        // `_validate_*` fields trail all uniform fields in `_Args`
+        // (see GenerateCBuffer): append the collected bounds last.
+        for (auto bound : pending_validations) {
+            emplace_data(bound, /*alignment=*/4);
+        }
         size_t afterSize = arg_buffer->size();
         if (!state_only) {
             arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);

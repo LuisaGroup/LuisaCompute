@@ -286,7 +286,15 @@ private:
     [[nodiscard]] const Expression *
     _binary_bool(BinaryOp op, const Expression *lhs,
                  const Expression *rhs) noexcept {
-        return _fb()->binary(Type::of<bool>(), op, lhs, rhs);
+        // Match DSL semantics: a comparison of vector operands yields a
+        // vector of bools. `_emit_guard`'s `_reduce_bool` then folds it to a
+        // scalar with ANY. Declaring a scalar bool here (as before) made the
+        // backends emit `if (float2 == float2)`, which is invalid HLSL/SL.
+        auto t = lhs->type();
+        auto bool_type = t->is_vector() ?
+                             Type::vector(Type::of<bool>(), t->dimension()) :
+                             Type::of<bool>();
+        return _fb()->binary(bool_type, op, lhs, rhs);
     }
     /// Reduce a (possibly vector) boolean expression to a scalar bool.
     [[nodiscard]] const Expression *

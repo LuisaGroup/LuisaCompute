@@ -300,7 +300,39 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 6. Int MOD by zero.
+    // 6. Vector float DIV by zero: the guard must reduce the vector
+    //    comparison to a scalar (ANY) so the generated `if` stays valid
+    //    (this used to emit `if (float2 == float2)`, which HLSL rejects).
+    // ------------------------------------------------------------------
+    {
+        auto output = device.create_buffer<uint>(2u);
+        auto kernel = add_debug_checks(Kernel1D{[&](BufferVar<uint> out) noexcept {
+            auto index = dispatch_id().x;
+            Float2 x = make_float2(1.0f, 2.0f);
+            // thread 0: the second component divides by zero
+            auto divisor = ite(index == 0u,
+                               make_float2(1.0f, 0.0f),
+                               make_float2(1.0f, 1.0f));
+            auto y = x / divisor;
+            out->write(index, 1u);
+            static_cast<void>(y);
+        }});
+        auto shader = device.compile(kernel, {.enable_debug_info = true});
+        luisa::vector<uint> output_host(2u, 0u);
+        auto messages = run_with_log_capture(device, [&](Stream &stream) {
+            stream << output.copy_from(luisa::span{output_host})
+                   << shader(output).dispatch(2u)
+                   << output.copy_to(luisa::span{output_host})
+                   << synchronize();
+        });
+        expect(count_messages_with(messages, contains_float_div_zero) >= 1u)
+            << "vector float division by zero did not report";
+        expect(output_host[0] == 0u && output_host[1] == 1u)
+            << "only the thread with a zero vector component must stop";
+    }
+
+    // ------------------------------------------------------------------
+    // 7. Int MOD by zero.
     // ------------------------------------------------------------------
     {
         auto output = device.create_buffer<uint>(2u);
@@ -326,7 +358,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 7. SHL / SHR with a shift amount >= bit width.
+    // 8. SHL / SHR with a shift amount >= bit width.
     // ------------------------------------------------------------------
     {
         auto output = device.create_buffer<uint>(4u);
@@ -354,7 +386,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 8. SQRT / LOG / ACOS domain errors.
+    // 9. SQRT / LOG / ACOS domain errors.
     // ------------------------------------------------------------------
     {
         auto output = device.create_buffer<uint>(3u);
@@ -386,7 +418,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 9. NORMALIZE: a NaN input propagates into a NaN result (a zero-length
+    // 10. NORMALIZE: a NaN input propagates into a NaN result (a zero-length
     //    vector is flushed to zero by some fast-math toolchains, so the NaN
     //    input is the portable way to reach the check).
     // ------------------------------------------------------------------
@@ -416,7 +448,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 10. Nested callable error propagation: a fault in the innermost
+    // 11. Nested callable error propagation: a fault in the innermost
     //     callable stops the whole kernel thread and is reported twice on
     //     the way up (callee checks at both call sites).
     // ------------------------------------------------------------------
@@ -448,7 +480,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 11. BINDLESS element index out of range.
+    // 12. BINDLESS element index out of range.
     // ------------------------------------------------------------------
     {
         BindlessArray heap = device.create_bindless_array();
@@ -478,7 +510,7 @@ void test_function_debugger(Device &device) {
     }
 
     // ------------------------------------------------------------------
-    // 12. buffer.size(): correct element count (host-injected bound on
+    // 13. buffer.size(): correct element count (host-injected bound on
     //     dx; native queries elsewhere).
     // ------------------------------------------------------------------
     {
@@ -585,12 +617,46 @@ void test_function_debugger(Device &device) {
         expect(output_host[0] == 1u && output_host[1] == 0u);
     }
 
-    // ------------------------------------------------------------------
-    // 15-18. Acceleration structures (ray-tracing capable backends only).
-    // ------------------------------------------------------------------
-    if (backend_supports_rtx(device)) {
+      // ------------------------------------------------------------------
+      // 15. Host-injected validation bound with a MIX of resource and scalar
+      //     (uniform) kernel arguments. The dx backend appends the
+      //     `_validate_*` words after the whole uniform payload; writing them
+      //     interleaved in argument order instead makes the bound read a
+      //     wrong cbuffer word (0 or the scalar) — the guard then misfires
+      //     or stays silent, and the scalar reads a validation word. The
+      //     exact sentinel catches both directions.
+      // ------------------------------------------------------------------
+      {
+          auto buffer = device.create_buffer<float>(8u);
+          auto output = device.create_buffer<float>(2u);
+          auto kernel = add_debug_checks(Kernel1D{[&](BufferVar<float> buf,
+                                                      BufferVar<float> out,
+                                                      Float scale) noexcept {
+              auto index = dispatch_id().x;
+              auto value = buf->read(index * 100u) * scale;// thread 1 out of range
+              out->write(index, value);
+          }});
+          auto shader = device.compile(kernel, {.enable_debug_info = true});
+          luisa::vector<float> input_host(8u, 2.0f);
+          luisa::vector<float> output_host(2u, 0.f);
+          auto messages = run_with_log_capture(device, [&](Stream &stream) {
+              stream << buffer.copy_from(luisa::span{input_host})
+                     << shader(buffer, output, 2.5f).dispatch(2u)
+                     << output.copy_to(luisa::span{output_host})
+                     << synchronize();
+          });
+          expect(count_messages_with(messages, contains_buffer_index) >= 1u)
+              << "mixed-args read guard did not report";
+          expect(output_host[0] == 5.0f && output_host[1] == 0.0f)
+              << "the valid thread must see the exact scalar and the faulting thread must stop";
+      }
 
-        // 15. accel.size() equals the instance count used at build.
+      // ------------------------------------------------------------------
+      // 16-19. Acceleration structures (ray-tracing capable backends only).
+      // ------------------------------------------------------------------
+      if (backend_supports_rtx(device)) {
+
+          // 16. accel.size() equals the instance count used at build.
         {
             Buffer<float3> vertices = device.create_buffer<float3>(3u);
             Buffer<Triangle> triangles = device.create_buffer<Triangle>(1u);
@@ -623,7 +689,7 @@ void test_function_debugger(Device &device) {
                 << "accel.size() returned {} instead of the built instance count";
         }
 
-        // 16. RAY_TRACING_INSTANCE_USER_ID out of range: log + early stop.
+        // 17. RAY_TRACING_INSTANCE_USER_ID out of range: log + early stop.
         {
             Buffer<float3> vertices = device.create_buffer<float3>(3u);
             Buffer<Triangle> triangles = device.create_buffer<Triangle>(1u);
@@ -661,7 +727,7 @@ void test_function_debugger(Device &device) {
                 << "out-of-range instance reads must stop the thread";
         }
 
-        // 17. RAY_TRACING_SET_INSTANCE_TRANSFORM out of range: log, and the
+        // 18. RAY_TRACING_SET_INSTANCE_TRANSFORM out of range: log, and the
         //     valid instances are untouched (verified device-side, the host
         //     Accel has no instance-transform getter). Thread 0 writes a
         //     2-matrix into the valid instance 0, thread 1 tries to write a
@@ -713,7 +779,7 @@ void test_function_debugger(Device &device) {
                 << "the out-of-range write touched a valid instance";
         }
 
-        // 18. Zero-overhead sanity (accel): tracing does not pull in an
+        // 19. Zero-overhead sanity (accel): tracing does not pull in an
         //     instance-index guard. The trace result goes to a shared write,
         //     which the generator does not bound-check, so the statement
         //     count must be unchanged.
