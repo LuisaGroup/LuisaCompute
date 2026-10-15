@@ -140,10 +140,13 @@ static bool initialize_cuda() noexcept {
         return -1;
     }
     for (auto i = 0; i < cudaDeviceCount; i++) {
-        char cudaLuid[sizeof(id_properties.deviceLUID)] = {};
-        unsigned int cudaNodeMask = 0;
-        if (cuDeviceGetLuid(cudaLuid, &cudaNodeMask, i) != CUDA_SUCCESS) continue;
-        if (!std::memcmp(&id_properties.deviceLUID, cudaLuid, sizeof(cudaLuid))) {
+        CUdevice cudaDevice{};
+        if (cuDeviceGet(&cudaDevice, i) != CUDA_SUCCESS) continue;
+        CUuuid cudaUuid{};
+        if (cuDeviceGetUuid(&cudaUuid, cudaDevice) != CUDA_SUCCESS) continue;
+        // Vulkan and CUDA expose the same device UUID on every supported
+        // platform; LUID queries are not available on Linux.
+        if (!std::memcmp(id_properties.deviceUUID, cudaUuid.bytes, VK_UUID_SIZE)) {
             LUISA_VERBOSE_WITH_LOCATION("Found cuda device at {} for vulkan device.", i);
             return i;
         }
