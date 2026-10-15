@@ -686,6 +686,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_READ: {
             bool aliasStruct = TypeIsAliased(expr->type());
+            // Scalar bool is stored as a 1-byte uint8_t (see GetTypeName BUFFER path);
+            // convert the loaded byte back into a shader bool.
+            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
+            if (elem_is_bool) {
+                str << '(';
+            }
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
@@ -707,13 +713,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (aliasStruct) {
                 str << ')';
             }
+            if (elem_is_bool) {
+                str << " != 0)"sv;
+            }
             return;
         }
         case CallOp::BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
+            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
+                str << '(';
+            }
+            if (elem_is_bool) {
                 str << '(';
             }
             str << "_volatile_bfread"sv;
@@ -724,12 +737,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "Mat";
             }
             str << '<';
-            GetTypeName(*expr->type(), str, Usage::NONE);
+            // Read the raw 1-byte storage and compare against zero so the result is
+            // a shader bool; the buffer element itself is uint8_t, not bool.
+            if (elem_is_bool) {
+                str << "uint8_t"sv;
+            } else {
+                GetTypeName(*expr->type(), str, Usage::NONE);
+            }
             str << ">(";
             PrintArgs();
             // Note: volatile reads use template functions (not macros), so we skip the debug vid
             str << ')';
-            if (aliasStruct) {
+            if (elem_is_bool) {
+                str << " != 0)"sv;
+            } else if (aliasStruct) {
                 str << ')';
             }
             return;
@@ -769,6 +790,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << '(';
                 args.back()->accept(vis);
                 str << ')';
+            } else if (elem->is_bool()) {
+                // Store the shader bool into the 1-byte uint8_t element; any non-zero
+                // value normalises to 0/1 so BUFFER_READ's `!= 0` round-trips it.
+                str << "uint8_t("sv;
+                args.back()->accept(vis);
+                str << " != 0)"sv;
             } else {
                 args.back()->accept(vis);
             }

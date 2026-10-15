@@ -135,6 +135,23 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                         str << '4';
                     } else if (aliasStruct) {
                         str << opt->CreateAliasedStruct(ele).first;
+                    } else if (ele->is_bool()) {
+                        // A scalar bool stored as a typed-buffer element must use the
+                        // runtime 1-byte representation (uint8_t).  A DXIL `bool`
+                        // structured-buffer element is 4 bytes while the host binds
+                        // the buffer with StructureByteStride == element->size() == 1,
+                        // so emitting `bool` makes every read pick up a wrong byte
+                        // lane.  (This branch is scalar-bool only: TypeIsAliased is
+                        // false for vectors, so bool vectors fall through to
+                        // GetTypeName below and still get the 4-byte-per-component
+                        // DXIL representation — a known, still-unfixed gap for
+                        // Buffer<boolN>.)  BUFFER_READ /
+                        // BUFFER_WRITE convert the
+                        // stored byte to and from a shader bool.  uint8_t requires the
+                        // 8-bit-capable shader model (SM 6.9) selected below via
+                        // use_8bit.
+                        opt->use_8bit = true;
+                        str << "uint8_t"sv;
                     } else {
                         GetTypeName(*ele, str, usage);
                     }
