@@ -61,6 +61,14 @@ example_proj("example_image_process", "gui/image_process/main.cpp", true, functi
         add_syslinks("comdlg32")
     end
 end)
+-- procedural texture catalog: one .h/.cpp pair per noise algorithm, shared
+-- ImGui driver (main.cpp) + headless self test. Headless is the default so a
+-- tool can verify it: `xmake run example_procedural_tex dx --output-dir out`;
+-- `--gui` opens one window per algorithm (needs lc_enable_gui).
+example_proj("example_procedural_tex", "gui/procedural_tex/main.cpp", false, function()
+    add_files("gui/procedural_tex/noise_*.cpp")
+    if has_config("lc_enable_gui") then add_defines("LUISA_ENABLE_GUI") end
+end)
 
       -- compute
       example_proj("example_helloworld", "compute/helloworld.cpp", false)

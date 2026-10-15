@@ -122,6 +122,31 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()
 
 # compute (headless)
+# procedural texture catalog: one .h/.cpp pair per noise algorithm, shared
+# ImGui driver (main.cpp) + headless self test (default mode); --gui opens
+# the interactive windows when the GUI module is enabled
+luisa_compute_add_example(example_procedural_tex
+        gui/procedural_tex/main.cpp
+        gui/procedural_tex/noise_all.cpp
+        gui/procedural_tex/noise_white.cpp
+        gui/procedural_tex/noise_gaussian.cpp
+        gui/procedural_tex/noise_value.cpp
+        gui/procedural_tex/noise_perlin.cpp
+        gui/procedural_tex/noise_simplex.cpp
+        gui/procedural_tex/noise_worley_f1.cpp
+        gui/procedural_tex/noise_worley_f2_minus_f1.cpp
+        gui/procedural_tex/noise_plasma.cpp
+        gui/procedural_tex/noise_fbm.cpp
+        gui/procedural_tex/noise_turbulence.cpp
+        gui/procedural_tex/noise_ridged.cpp
+        gui/procedural_tex/noise_pingpong.cpp
+        gui/procedural_tex/noise_hetero_terrain.cpp
+        gui/procedural_tex/noise_fractal_worley.cpp
+        gui/procedural_tex/noise_domain_warp.cpp
+        gui/procedural_tex/noise_perlin_worley.cpp)
+if (LUISA_COMPUTE_ENABLE_GUI)
+    target_compile_definitions(example_procedural_tex PRIVATE LUISA_ENABLE_GUI)
+endif ()
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)

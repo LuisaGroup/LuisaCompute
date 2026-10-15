@@ -1162,14 +1162,14 @@ private:
         }
     }
 
-    // Positional pairing of Args... with the call-site arguments; a plain
-    // comma fold would lose the per-position Arg association.
-    template<size_t... I>
-    [[nodiscard]] CudaKernelInvoke _invoke(std::index_sequence<I...>,
-                                           typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
+    // Positional pairing of Args... with the call-site arguments is guaranteed
+    // by parallel pack expansion; a plain comma fold would lose the per-Arg
+    // association only if Args... and args... were not both expanded together.
+    [[nodiscard]] CudaKernelInvoke _invoke(
+        typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
         CudaKernelInvoke invoke{this->_handle, this->_block_size};
         invoke.reserve(sizeof...(Args), resource_arg_count(), uniform_bytes_hint());
-        (static_cast<void>(I, _encode_arg<Args>(invoke, args)), ...);
+        (static_cast<void>(_encode_arg<Args>(invoke, args)), ...);
         return invoke;
     }
 
@@ -1214,7 +1214,7 @@ public:
     }
 
     [[nodiscard]] CudaKernelInvoke operator()(typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
-        return _invoke(std::index_sequence_for<Args...>{}, args...);
+        return _invoke(args...);
     }
 };
 

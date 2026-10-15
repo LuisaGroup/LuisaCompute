@@ -156,7 +156,7 @@ int main() {
       // eastl vector(n) does not zero trivial storage; the expected bytes must
       // be fully defined (padding zero, like the launcher's records) before the
       // field-wise assignments below, or the memcmp compares uninitialized bytes.
-      std::memset(records.data(), 0, records.size_bytes());
+      std::memset(records.data(), 0, records.size() * sizeof(Argument));
       records[0].tag = Argument::Tag::BUFFER;
         records[0].buffer = Argument::Buffer{0x1000u, 32u, 256u};
         records[1].tag = Argument::Tag::UNIFORM;
