@@ -83,6 +83,34 @@ jobs:
             build/package/LuisaCompute-*.tar.gz
             build/package/LuisaCompute-*.tar.gz.sha256
           if-no-files-found: error
+      # The distribution build uses the system STL and omits Fallback. Cover
+      # bundled EASTL at LLVM ownership boundaries in a separate build tree.
+      - name: "Test bundled EASTL and Fallback"
+        if: matrix.config == 'Release' && matrix.compiler == 'clang' && matrix.platform.arch == 'x86_64'
+        run: |
+          cmake -S . -B build-eastl-fallback -G Ninja \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_C_COMPILER=clang-20 \
+            -D CMAKE_CXX_COMPILER=clang++-20 \
+            -D LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm \
+            -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=OFF \
+            -D LUISA_COMPUTE_USE_SYSTEM_STL=OFF \
+            -D LUISA_COMPUTE_BUILD_TESTS=ON \
+            -D LUISA_COMPUTE_ENABLE_GUI=OFF \
+            -D LUISA_COMPUTE_ENABLE_CUDA=OFF \
+            -D LUISA_COMPUTE_ENABLE_DX=OFF \
+            -D LUISA_COMPUTE_ENABLE_METAL=OFF \
+            -D LUISA_COMPUTE_ENABLE_HIP=OFF \
+            -D LUISA_COMPUTE_ENABLE_VULKAN=OFF \
+            -D LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV=OFF \
+            -D LUISA_COMPUTE_ENABLE_FALLBACK=ON \
+            -D LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES=OFF
+          cmake --build build-eastl-fallback -j ${{ matrix.platform.jobs }} \
+            --target test_eastl_allocation test_coro_scheduler_base test_fallback_shader_cache
+          ctest --test-dir build-eastl-fallback --output-on-failure \
+            --no-tests=error --timeout 120 \
+            -R '^(test_eastl_allocation|test_coro_scheduler_base)$'
+          build-eastl-fallback/bin/test_fallback_shader_cache
 
   build-macos:
     strategy:

@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -45,8 +47,8 @@ private:
 
     uint3 _block_size;
     bool _enable_fast_math{false};
-    luisa::unique_ptr<::llvm::orc::LLJIT> _jit{};
-    luisa::unique_ptr<::llvm::TargetMachine> _target_machine{};
+    std::unique_ptr<::llvm::orc::LLJIT> _jit{};
+    std::unique_ptr<::llvm::TargetMachine> _target_machine{};
 
 private:
     void _initialize_target_machine_jit(const ShaderOption &option) noexcept;

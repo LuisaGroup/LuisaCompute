@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <utility>
 
 #include <llvm/ADT/FloatingPointMode.h>
@@ -762,7 +763,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
 
-    auto llvm_ctx = luisa::make_unique<llvm::LLVMContext>();
+    auto llvm_ctx = std::make_unique<llvm::LLVMContext>();
     auto builtin_module = fallback_backend_device_builtin_module();
     llvm::SMDiagnostic parse_error;
     auto llvm_module = llvm::parseIR(llvm::MemoryBufferRef{builtin_module, ""}, parse_error, *llvm_ctx);
