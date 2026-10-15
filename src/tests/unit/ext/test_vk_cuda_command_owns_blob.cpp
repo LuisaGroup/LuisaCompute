@@ -24,6 +24,7 @@
 
 #include <luisa/backends/ext/registry.h>
 #include <luisa/backends/ext/vk_cuda_interop.h>
+#include <luisa/core/logging.h>
   #include <cstdlib>
   #include <cstring>
 
@@ -49,7 +50,7 @@ inline std::atomic<size_t> g_new_calls{0u};
 void *operator new(size_t n) {
     ++g_new_calls;
     auto *p = std::malloc(n == 0u ? 1u : n);
-    if (p == nullptr) { throw std::bad_alloc{}; }
+    if (p == nullptr) { LUISA_ERROR("operator new failed to allocate {} bytes", n); }
     return p;
 }
 void operator delete(void *p) noexcept { std::free(p); }
