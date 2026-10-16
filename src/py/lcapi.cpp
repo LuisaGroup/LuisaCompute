@@ -35,8 +35,26 @@ PYBIND11_MODULE(lcapi, m) {
     m.doc() = "LuisaCompute API";// optional module docstring
 
     // log
+    // The sink can own a Python function. Release it while module cleanup still
+    // holds the GIL, rather than during the native logger's static destruction.
+    m.add_object("_log_callback_cleanup", py::capsule{[]() {
+        luisa::detail::default_logger_set_sink(nullptr);
+    }});
     m.def("set_log_callback", [](const luisa::function<void(const char *level, const char *message)> &callback) {
-        luisa::detail::default_logger_set_sink(luisa::detail::create_sink_with_callback(callback));
+        if (!callback) {
+            luisa::detail::default_logger_set_sink(nullptr);
+            return;
+        }
+        luisa::detail::default_logger_set_sink(luisa::detail::create_sink_with_callback(
+            [callback](const char *level, const char *message) {
+                try {
+                    callback(level, message);
+                } catch (py::error_already_set &error) {
+                    // Logging is noexcept and can run on a native worker thread.
+                    py::gil_scoped_acquire acquire;
+                    error.discard_as_unraisable("LuisaCompute log callback");
+                }
+            }));
     });
     m.def("log_verbose", [](const char *msg) { LUISA_VERBOSE("{}", msg); });
     m.def("log_info", [](const char *msg) { LUISA_INFO("{}", msg); });

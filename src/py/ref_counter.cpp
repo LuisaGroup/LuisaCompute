@@ -23,13 +23,17 @@ void RefCounter::InRef(Handle handle) noexcept {
 }
 
 void RefCounter::DeRef(Handle handle) noexcept {
-    std::lock_guard lck(mtx);
-    auto ite = refCounts.find(handle);
-    if (--ite->second.first <= 0) {
-        auto &disp = ite->second.second;
-        disp.first(disp.second, handle);
+    Disposer disposer;
+    {
+        std::lock_guard lck(mtx);
+        auto ite = refCounts.find(handle);
+        if (--ite->second.first > 0) { return; }
+        disposer = ite->second.second;
         refCounts.erase(ite);
     }
+    // Synchronizing a disposer can release other completed references.
+    // Remove this entry and unlock before allowing that reentrant work.
+    disposer.first(disposer.second, handle);
 }
 
 vstd::unique_ptr<RefCounter> RefCounter::current;

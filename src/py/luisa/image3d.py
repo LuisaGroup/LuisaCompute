@@ -100,6 +100,7 @@ class Image3D:
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0,
                                                   lcapi.uint3(self.width, self.height, self.volume), arr)
         stream.add(ulcmd)
+        stream.add_upload_buffer(arr)
         if sync:
             stream.synchronize()
 
@@ -110,7 +111,7 @@ class Image3D:
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0,
                                                     lcapi.uint3(self.width, self.height, self.volume), arr)
         stream.add(dlcmd)
-        # stream.add_readback_buffer(arr)
+        stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 

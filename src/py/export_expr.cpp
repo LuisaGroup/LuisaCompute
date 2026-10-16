@@ -7,6 +7,7 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;
+constexpr auto pyref_internal = py::return_value_policy::reference_internal;
 using luisa::compute::detail::FunctionBuilder;
 
 template<typename T>
@@ -39,23 +40,23 @@ void export_expr(py::module &m) {
         .def("__enter__", [](ScopeStmt &self) { FunctionBuilder::current()->push_scope(&self); })
         .def("__exit__", [](ScopeStmt &self, py::object &e1, py::object &e2, py::object &tb) { FunctionBuilder::current()->pop_scope(&self); });
     py::class_<IfStmt>(m, "IfStmt")
-        .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref)// using overload_cast because there's also a const method variant
-        .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);
+        .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref_internal)// using overload_cast because there's also a const method variant
+        .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref_internal);
     py::class_<AutoDiffStmt>(m, "AutoDiffStmt")
-        .def("body", py::overload_cast<>(&AutoDiffStmt::body), pyref);
+        .def("body", py::overload_cast<>(&AutoDiffStmt::body), pyref_internal);
     py::class_<SwitchStmt>(m, "SwitchStmt")
-        .def("body", py::overload_cast<>(&SwitchStmt::body), pyref);
+        .def("body", py::overload_cast<>(&SwitchStmt::body), pyref_internal);
     py::class_<SwitchCaseStmt>(m, "SwitchCaseStmt")
-        .def("body", py::overload_cast<>(&SwitchCaseStmt::body), pyref);
+        .def("body", py::overload_cast<>(&SwitchCaseStmt::body), pyref_internal);
     py::class_<SwitchDefaultStmt>(m, "SwitchDefaultStmt")
-        .def("body", py::overload_cast<>(&SwitchDefaultStmt::body), pyref);
+        .def("body", py::overload_cast<>(&SwitchDefaultStmt::body), pyref_internal);
     py::class_<LoopStmt>(m, "LoopStmt")
-        .def("body", py::overload_cast<>(&LoopStmt::body), pyref);
+        .def("body", py::overload_cast<>(&LoopStmt::body), pyref_internal);
     py::class_<ForStmt>(m, "ForStmt")
-        .def("body", py::overload_cast<>(&ForStmt::body), pyref);
+        .def("body", py::overload_cast<>(&ForStmt::body), pyref_internal);
     py::class_<RayQueryStmt>(m, "RayQueryStmt")
-        .def("on_triangle_candidate", py::overload_cast<>(&RayQueryStmt::on_triangle_candidate), pyref)
-        .def("on_procedural_candidate", py::overload_cast<>(&RayQueryStmt::on_procedural_candidate), pyref);
+        .def("on_triangle_candidate", py::overload_cast<>(&RayQueryStmt::on_triangle_candidate), pyref_internal)
+        .def("on_procedural_candidate", py::overload_cast<>(&RayQueryStmt::on_procedural_candidate), pyref_internal);
     py::class_<Type, raw_ptr<Type>>(m, "Type")
         .def_static("from_", &Type::from, pyref)
         .def("size", &Type::size)

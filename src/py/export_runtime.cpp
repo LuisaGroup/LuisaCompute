@@ -39,6 +39,7 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;
+constexpr auto pyref_internal = py::return_value_policy::reference_internal;
 using luisa::compute::detail::FunctionBuilder;
 static luisa::weak_ptr<PyStream::Data> default_stream_data;
 struct IntEval {
@@ -372,7 +373,7 @@ void export_runtime(py::module &m) {
                 }
                 return stream;
             })
-        .def("impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
+        .def("impl", [](ManagedDevice &s) { return s.device.impl(); }, py::return_value_policy::reference_internal)
         .def("create_accel", [](ManagedDevice &device, AccelOption::UsageHint hint, bool allow_compact, bool allow_update) { return ManagedAccel(device.device.create_accel(AccelOption{
             .hint = hint,
             .allow_compaction = allow_compact,
@@ -607,8 +608,8 @@ void export_runtime(py::module &m) {
             "add", [](PyStream &self, Command *cmd) { self.add(cmd); }, pyref)
         .def(
             "add_upload_buffer", [](PyStream &self, py::buffer &&buf) { self.add_upload(std::move(buf)); }, pyref)
-        // .def(
-        //     "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
+        .def(
+            "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
         .def(
             "update_accel", [](PyStream &self, ManagedAccel &accel) {
                 accel.update(self);
@@ -721,29 +722,30 @@ void export_runtime(py::module &m) {
         //         eval);
         // })
 
-        .def("thread_id", &FunctionBuilder::thread_id, pyref)
-        .def("block_id", &FunctionBuilder::block_id, pyref)
-        .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref)
-        .def("kernel_id", &FunctionBuilder::kernel_id, pyref)
-        .def("warp_lane_count", &FunctionBuilder::warp_lane_count, pyref)
-        .def("warp_lane_id", &FunctionBuilder::warp_lane_id, pyref)
-        .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref)
+        // Expressions and statements borrow storage from this builder's arena.
+        .def("thread_id", &FunctionBuilder::thread_id, pyref_internal)
+        .def("block_id", &FunctionBuilder::block_id, pyref_internal)
+        .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref_internal)
+        .def("kernel_id", &FunctionBuilder::kernel_id, pyref_internal)
+        .def("warp_lane_count", &FunctionBuilder::warp_lane_count, pyref_internal)
+        .def("warp_lane_id", &FunctionBuilder::warp_lane_id, pyref_internal)
+        .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref_internal)
 
-        .def("local", &FunctionBuilder::local, pyref)
-        .def("shared", &FunctionBuilder::shared, pyref)
+        .def("local", &FunctionBuilder::local, pyref_internal)
+        .def("shared", &FunctionBuilder::shared, pyref_internal)
         // .def("shared")
         // .def("constant")
-        .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
-        .def("texture_binding", &FunctionBuilder::texture_binding, pyref)
-        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref)
-        .def("accel_binding", &FunctionBuilder::accel_binding, pyref)
+        .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref_internal)
+        .def("texture_binding", &FunctionBuilder::texture_binding, pyref_internal)
+        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref_internal)
+        .def("accel_binding", &FunctionBuilder::accel_binding, pyref_internal)
 
-        .def("argument", &FunctionBuilder::argument, pyref)
-        .def("reference", &FunctionBuilder::reference, pyref)
-        .def("buffer", &FunctionBuilder::buffer, pyref)
-        .def("texture", &FunctionBuilder::texture, pyref)
-        .def("bindless_array", &FunctionBuilder::bindless_array, pyref)
-        .def("accel", &FunctionBuilder::accel, pyref)
+        .def("argument", &FunctionBuilder::argument, pyref_internal)
+        .def("reference", &FunctionBuilder::reference, pyref_internal)
+        .def("buffer", &FunctionBuilder::buffer, pyref_internal)
+        .def("texture", &FunctionBuilder::texture, pyref_internal)
+        .def("bindless_array", &FunctionBuilder::bindless_array, pyref_internal)
+        .def("accel", &FunctionBuilder::accel, pyref_internal)
 
         .def("literal", [](FunctionBuilder &self, const Type *type, const StdLiteralType &value)
 
@@ -808,16 +810,16 @@ void export_runtime(py::module &m) {
                            print_v(), type->description());
                    },
                    LiteralExpr::Value{value_ptr}); },
-             pyref)
-        .def("unary", &FunctionBuilder::unary, pyref)
-        .def("binary", &FunctionBuilder::binary, pyref)
-        .def("member", &FunctionBuilder::member, pyref)
-        .def("access", &FunctionBuilder::access, pyref)
-        .def("swizzle", &FunctionBuilder::swizzle, pyref)
-        .def("cast", &FunctionBuilder::cast, pyref)
+             pyref_internal)
+        .def("unary", &FunctionBuilder::unary, pyref_internal)
+        .def("binary", &FunctionBuilder::binary, pyref_internal)
+        .def("member", &FunctionBuilder::member, pyref_internal)
+        .def("access", &FunctionBuilder::access, pyref_internal)
+        .def("swizzle", &FunctionBuilder::swizzle, pyref_internal)
+        .def("cast", &FunctionBuilder::cast, pyref_internal)
 
-        .def("call", [](FunctionBuilder &self, const Type *type, CallOp call_op, const std::vector<const Expression *> &args) { return self.call(type, call_op, std::move(args)); }, pyref)
-        .def("call", [](FunctionBuilder &self, const Type *type, Function custom, const std::vector<const Expression *> &args) { return self.call(type, custom, std::move(args)); }, pyref)
+        .def("call", [](FunctionBuilder &self, const Type *type, CallOp call_op, const std::vector<const Expression *> &args) { return self.call(type, call_op, std::move(args)); }, pyref_internal)
+        .def("call", [](FunctionBuilder &self, const Type *type, Function custom, const std::vector<const Expression *> &args) { return self.call(type, custom, std::move(args)); }, pyref_internal)
         .def("call", [](FunctionBuilder &self, CallOp call_op, const std::vector<const Expression *> &args) { self.call(call_op, std::move(args)); })
         .def("call", [](FunctionBuilder &self, Function custom, const std::vector<const Expression *> &args) { self.call(custom, std::move(args)); })
 
@@ -826,24 +828,24 @@ void export_runtime(py::module &m) {
         .def("return_", &FunctionBuilder::return_)
         .def("assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) { self.assign(l, r); }, pyref)
 
-        .def("if_", &FunctionBuilder::if_, pyref)
-        .def("switch_", &FunctionBuilder::switch_, pyref)
-        .def("ray_query_", &FunctionBuilder::ray_query_, pyref)
-        .def("case_", py::overload_cast<const Expression *>(&FunctionBuilder::case_), pyref)
+        .def("if_", &FunctionBuilder::if_, pyref_internal)
+        .def("switch_", &FunctionBuilder::switch_, pyref_internal)
+        .def("ray_query_", &FunctionBuilder::ray_query_, pyref_internal)
+        .def("case_", py::overload_cast<const Expression *>(&FunctionBuilder::case_), pyref_internal)
         .def("case_group", [](FunctionBuilder &self, const luisa::vector<const Expression *> &labels) {
             return self.case_(luisa::span{labels});
-        }, pyref)
-        .def("loop_", &FunctionBuilder::loop_, pyref)
+        }, pyref_internal)
+        .def("loop_", &FunctionBuilder::loop_, pyref_internal)
         // .def("switch_")
         // .def("case_")
-        .def("default_", &FunctionBuilder::default_, pyref)
+        .def("default_", &FunctionBuilder::default_, pyref_internal)
         .def("for_", [](FunctionBuilder &self, const Expression *var, const Expression *condition, const Expression *update) {
                 auto ptr = self.for_(var, condition, update);
-                return ptr; }, pyref)
-        .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
+                return ptr; }, pyref_internal)
+        .def("autodiff_", &FunctionBuilder::autodiff_, pyref_internal)
         .def("print_", [](FunctionBuilder &self, luisa::string_view format, const std::vector<const Expression *> &args) { self.print_(luisa::string{format}, args); }, pyref)
         // .def("meta") // unused
-        .def("function", &FunctionBuilder::function);// returning object
+        .def("function", &FunctionBuilder::function, py::keep_alive<0, 1>());
 
     py::class_<AtomicAccessChain>(m, "AtomicAccessChain")
         .def(py::init<>())

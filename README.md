@@ -97,10 +97,12 @@ The runtime provides CUDA, Metal, DirectX, Vulkan, and HIP GPU backends, plus a 
 
 ### Python Frontend
 
-Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend and have published early-access packages to PyPI. You may install the pre-built wheels with pip (Python >= 3.10 required):
+Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend and have published early-access packages to PyPI. You may install the pre-built wheels with pip (Python >= 3.11 required; wheels cover standard CPython 3.11–3.15):
 ```bash
 python -m pip install luisa-python
 ```
+
+Linux wheels require glibc 2.34 or newer because the bundled Vulkan shader compiler uses that ABI. Free-threaded Python wheels are not currently provided.
 
 You may also build your own wheels with pip:
 ```bash

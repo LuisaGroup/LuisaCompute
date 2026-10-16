@@ -1,5 +1,5 @@
 [build-system]
-requires = ["pybind11", "scikit-build-core>=0.3.2", "ninja"]
+requires = ["pybind11>=3.1.0", "scikit-build-core>=0.3.2", "ninja"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -10,15 +10,16 @@ readme = "README.md"
 authors = [
     { name = "LuisaGroup" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 dependencies = [
     "sourceinspect",
@@ -58,3 +59,8 @@ result = "{major}.{minor}.{patch}"
 LUISA_COMPUTE_BUILD_TESTS = "OFF"
 LUISA_COMPUTE_DOWNLOAD_NVCOMP = "OFF"
 LUISA_COMPUTE_USE_SYSTEM_STL = "ON"
+
+[tool.cibuildwheel]
+build = "cp3{11,12,13,14,15}-*"
+skip = "*-musllinux_*"
+test-command = 'python "{project}/scripts/test_wheel.py"'

@@ -11,8 +11,7 @@ PyStream::Data::Data(Device &device, bool support_window) noexcept
 
 PyStream::~PyStream() noexcept {
     if (!_data) return;
-    execute();
-    _data->stream.synchronize();
+    sync();
 }
 
 void PyStream::add(Command *cmd) noexcept {
@@ -25,7 +24,9 @@ void PyStream::add(luisa::unique_ptr<Command> &&cmd) noexcept {
 void PyStream::Data::sync() noexcept {
     execute();
     stream << synchronize();
-    uploadDisposer.clear();
+    // A released owner may dispose a resource and synchronize this stream again.
+    // Detach the batch first so reentrant synchronization cannot release it twice.
+    auto completed_readbacks = std::move(readbackDisposer);
 }
 
 void PyStream::Data::execute() noexcept {
@@ -38,7 +39,7 @@ void PyStream::Data::execute() noexcept {
     if (!buffer.empty()) {
         stream << buffer.commit();
     }
-    uploadDisposer.clear();
+    auto submitted_uploads = std::move(uploadDisposer);
 }
 
 void PyStream::execute() noexcept {
@@ -53,6 +54,9 @@ void PyStream::execute() noexcept {
 void PyStream::sync() noexcept {
     execute();
     _data->stream.synchronize();
+    // Python buffers must be released by the calling thread after all queued
+    // downloads finish, including batches submitted by earlier execute() calls.
+    auto completed_readbacks = std::move(_data->readbackDisposer);
 }
 
 PyStream::PyStream(PyStream &&s) noexcept

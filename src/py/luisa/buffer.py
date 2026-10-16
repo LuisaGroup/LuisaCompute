@@ -158,7 +158,7 @@ class Buffer:
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, arr)
         stream.add(dlcmd)
-        # stream.add_readback_buffer(arr)
+        stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 
@@ -399,7 +399,7 @@ class ByteBuffer:
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, arr)
         stream.add(dlcmd)
-        # stream.add_readback_buffer(arr)
+        stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 
