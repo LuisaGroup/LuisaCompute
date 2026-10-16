@@ -190,7 +190,9 @@ jobs:
           # Resolve the DLLs already installed under luisa/dylibs, and inspect
           # dynamically loaded backends and compiler helpers for dependencies.
           # GPU drivers and the Vulkan loader remain supplied by the host.
-          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: 'delvewheel repair --ignore-existing --analyze-existing --analyze-existing-exes --exclude "nvcuda.dll;vulkan-1.dll" -w {dest_dir} -v {wheel}'
+          # D3D12 and DirectComposition are Windows 10+ inbox graphics libraries;
+          # delvewheel's default x64 system DLL list predates them.
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: 'delvewheel repair --ignore-existing --analyze-existing --analyze-existing-exes --exclude "nvcuda.dll;vulkan-1.dll;d3d12.dll;dcomp.dll" -w {dest_dir} -v {wheel}'
         run: |
           python -m pip install cibuildwheel==${{ env.CIBW_VERSION }}
           python -m cibuildwheel --output-dir wheelhouse
